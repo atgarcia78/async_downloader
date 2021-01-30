@@ -15,6 +15,7 @@ import httpx
 from pathlib import Path
 import re
 import ssl
+import argparse
 
 
 SSL_PROTOCOLS = (asyncio.sslproto.SSLProtocol,)
@@ -134,7 +135,25 @@ def init_logging(file_path=None):
     config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(home = str(Path.home()))
     config['handlers']['error_file_handler']['filename'] = config['handlers']['error_file_handler']['filename'].format(home = str(Path.home()))
 
+    
     logging.config.dictConfig(config)   
+
+def init_argparser():
+
+    parser = argparse.ArgumentParser(description="Descargar playlist de videos no fragmentados")
+    parser.add_argument("-w", help="Number of workers", default="10", type=int)
+    parser.add_argument("-p", help="Number of parts", default="16", type=int)
+    #parser.add_argument("-v", help="verbose", action="store_true")
+    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
+    parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
+    parser.add_argument("--index", help="index of a video in a playlist", default="-1", type=int)
+    parser.add_argument("--file", help="jsonfile", action="store_true")
+    parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
+    parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
+    parser.add_argument("--proxy", default=None, type=str)
+    parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
+
+    return parser.parse_args()
 
 
 class TaskPool(object):
@@ -173,13 +192,15 @@ class TaskPool(object):
             self.workers.append(worker)
         await asyncio.wait(self.workers, return_when=asyncio.ALL_COMPLETED)
 
-def init_ytdl(config=None):
+def init_ytdl(dict_opts):
 
     fecha = (datetime.now()).strftime("%Y%m%d")
     dlpath = Path(Path.home(), "testing", fecha)
     dlpath.mkdir(parents=True, exist_ok=True)
 
-    outtmpl = str(dlpath) + "/" + fecha + "_%(id)5s_%(title)s.%(ext)s"
+    outtmpl = f"{str(dlpath)}/{fecha}_%(id)5s_%(title)s.%(ext)s"
+
+    logger = logging.getLogger("_ytdl_")
 
     ytdl_opts = {
         #"debug_printtraffic": True,
@@ -188,30 +209,27 @@ def init_ytdl(config=None):
         "ignoreerrors": True,
         "verbose": True,
         "quiet": False,
-        "simulate": True,
-        #"no_warnings": True,
-        #"hls_prefer_native": True,
-        #"external_downloader": "aria2c",
         "extract_flat": "in_playlist",
         "outtmpl": outtmpl,
         "format" : "bestvideo+bestaudio/best",
         "usenetrc": True,
-        #"skip_download": True,
+        "skip_download": True,
         #"forcejson": True,
         #"dump_single_json" : True,
-        "logger" : logging.getLogger("ytdl"),
+        "logger" : logger,
         #"proxy" : "192.168.1.139:5555",
-        #"nocheckcertificate" : True   
-        
+        "nocheckcertificate" : False   
     }
 
+    ytdl_opts.update(dict_opts)
+    ytdl = YoutubeDL(ytdl_opts, auto_init=False)
+    ytdl.add_default_info_extractors()
 
-    ytdl = YoutubeDL(ytdl_opts)
     user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.16; rv:84.0) Gecko/20100101 Firefox/84.0"
     #user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36"
     std_headers["User-Agent"] = user_agent
 
-    return ytdl_opts, ytdl
+    return ytdl
 
 def get_protocol(info_dict):
     if info_dict.get('requested_formats'):

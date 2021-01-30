@@ -55,6 +55,11 @@ class AsyncHLSDownloader():
                  
         self.info_dict = ie_result
         self.ytdl = ytdl
+        self.proxies = ytdl.params.get('proxy', None)
+        self.proxies = ytdl.params.get('proxy', None)
+        if self.proxies:
+            self.proxies = f"http://{self.proxies}"
+        self.verifycert = not self.ytdl.params.get('nocheckcertificate')
         self.video_url = self.info_dict.get('webpage_url')
 
         self.date_file = datetime.now().strftime("%Y%m%d")
@@ -104,9 +109,10 @@ class AsyncHLSDownloader():
            
             #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
             #self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, proxies=self.proxies))
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout))
-            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout))
-            
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+
+            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+
             self.download_path.append(Path(self.base_download_path, "video"))
             self.download_path.append(Path(self.base_download_path, "audio"))
             self.download_path[0].mkdir(parents=True, exist_ok=True)
@@ -130,7 +136,7 @@ class AsyncHLSDownloader():
             self.stream_url.append(self.info_dict['url'])
 
 
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout))
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
             #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
             self.download_path.append(self.base_download_path)
             self.download_path[0].mkdir(parents=True, exist_ok=True)
@@ -142,11 +148,19 @@ class AsyncHLSDownloader():
         for j in range(self.n_streams):
 
             try:
-                self.m3u8_obj.append(m3u8.loads(httpx.get(self.stream_url[j], headers=self.headers[j]).text,uri=self.stream_url[j]))
-                m3u8_file = httpx.get(self.stream_url[j],headers=self.headers[j]).text
+                #self.m3u8_obj.append(m3u8.loads(httpx.get(self.stream_url[j], headers=self.headers[j]).text,uri=self.stream_url[j]))
+                self.logger.debug("HEADERS")
+                self.logger.debug(self.headers[j])
+                res = httpx.get(self.stream_url[j],headers=self.headers[j])
+                self.logger.debug(res.request)
+                self.logger.debug(res.request.headers)
+                m3u8_file = res.text
+                #m3u8_file = self.ytdl.urlopen(self.stream_url[j]).read()
+                self.logger.debug("M3U8 file")
                 self.logger.debug(m3u8_file)
                 self.m3u8_obj.append(m3u8.loads(m3u8_file,uri=self.stream_url[j]))
             except Exception as e:
+                self.logger.warning(f"No hay descriptor: {e}", exc_info=True)
                 raise AsyncHLSDLErrorFatal("no hay descriptor")
 
 
@@ -214,7 +228,7 @@ class AsyncHLSDownloader():
         except Exception as e:
             self.logger.debug(f"{self.info_dict['title']}:Exception ocurred when closing client: {str(e)}", exc_info=True)    
  
-        self.logger.info(f"{self.info_dict['title']}:Get info video dict again")
+        self.logger.debug(f"{self.info_dict['title']}:Get info video dict again")
 
         #ya tenemos toda la info, sólo queremos refrescar la info de los fragmentos
         
@@ -265,8 +279,10 @@ class AsyncHLSDownloader():
            
             #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
             #self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, proxies=self.proxies))
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout))
-            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout))
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+
+            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+
 
             self.frag_queue.append(deque())
             self.frag_queue.append(deque())
@@ -276,7 +292,7 @@ class AsyncHLSDownloader():
             self.stream_url.append(info_reset['url'])
 
 
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout))
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
             #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
 
             self.frag_queue.append(deque())
@@ -462,7 +478,7 @@ class AsyncHLSDownloader():
                         raise
 
         #vemos en disco si están todos los fragmentos
-        self.logger.info(f"{self.info_dict['title']}:Frags DL completed")
+        self.logger.debug(f"{self.info_dict['title']}:Frags DL completed")
         try:
             self.ensamblfrags()
             await self.client[0].aclose()
@@ -478,7 +494,7 @@ class AsyncHLSDownloader():
             if self.filename.exists():
                 self.filename_stream[0].unlink()
                 self.filename_stream[1].unlink()
-                self.logger.info(f"{self.info_dict['title']}:Streams merged for: {self.filename}")
+                self.logger.debug(f"{self.info_dict['title']}:Streams merged for: {self.filename}")
         
             else:
                 raise AsyncHLSDLErrorFatal(f"error merge, ffmpeg error: {rc}")
@@ -501,7 +517,7 @@ class AsyncHLSDownloader():
                 if len(frag_files) != len(self.info_frag[j]):
                     raise AsyncHLSDLError(f"Stream({j}):{self.filename_stream[j]}:Number of frag files < frags")
             
-                self.logger.info(f"{self.info_dict['title']}:{self.filename_stream[j]}")
+                self.logger.debug(f"{self.info_dict['title']}:{self.filename_stream[j]}")
                 with open(self.filename_stream[j], mode='wb') as dest:
                     for f in frag_files:                    
                         with open(f, 'rb') as source:

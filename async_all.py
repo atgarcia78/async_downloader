@@ -1,8 +1,12 @@
 #!/usr/bin/env python
 
-import argparse
+
 from queue import Queue
 import logging
+from urllib.parse import urlparse
+import sys
+import json
+import ast
 
 
 from asynchttpdownloader import (
@@ -18,7 +22,8 @@ from common_utils import (
     TaskPool,
     init_ytdl,
     get_protocol,
-    ignore_aiohttp_ssl_error
+    ignore_aiohttp_ssl_error,
+    init_argparser
 
 )
 
@@ -30,31 +35,27 @@ from concurrent.futures import (
 
 import asyncio
 
-
-init_logging()
-
-logger = logging.getLogger("async_all")
-
-
-def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i):
+def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger):
     #worker que lanza los AsyncHLSDownloaders, uno por video
     
-    logger.info(f"worker_init_dl[{i}]: launched")
+    logger.debug(f"worker_init_dl[{i}]: launched")
 
     while True:
         if not queue_vid.empty():
             vid = queue_vid.get()
-            logger.info(f"worker_init_dl[{i}]: get for a video to init:")
+            logger.debug(f"worker_init_dl[{i}]: get for a video to init:")
             logger.debug(f"worker_init_dl[{i}]: {vid}")
             
             try:
                 
-                if vid.get('_type') == 'url_transparent':
+                info_dict = None
+                if vid.get('_type') in ('url_transparent', None, 'video'):
                     info_dict = ytdl.process_ie_result(vid,download=False)
                 elif vid.get('_type') == 'url':
                     info_dict = ytdl.extract_info(vid['url'], download=False)
                 else:
-                    info_dict = vid
+                    logger.debug(f"Type of result not treated yet: {vid.get('_type')}")
+                    pass
                     
                 if info_dict:
                     logger.debug(info_dict)
@@ -65,23 +66,24 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i):
                     elif protocol in ('m3u8', 'm3u8_native'):
                         dl = AsyncHLSDownloader(info_dict, ytdl, nparts)
                     else:
-                        raise Exception("protocol not supported")
+                        logger.warning(f"{vid['url']}: protocol not supported")
+                        raise Exception(f"{vid['url']}: protocol not supported")
                     
                     queue_dl.put(dl)
-                    logger.info(f"worker_init_dl[{i}]: DL constructor ok for {vid['url']}")
+                    logger.debug(f"worker_init_dl[{i}]: DL constructor ok for {vid['url']}")
                 else:
-                    logger.warning("no info dict")
-                    raise Exception("no info dict")
+                    logger.warning(f"{vid['url']}:no info dict")
+                    raise Exception(f"{vid['url']}:no info dict")
             except Exception as e:
                 logger.warning(f"worker_init_dl[{i}]: DL constructor failed for {vid['url']} - Error: {e}")
         else:
+            logger.debug(f"worker_init_dl[{i}]: finds queue init empy, says bye")
             break
 
 
 
-async def main(list_dl, workers, dl_dict):
+async def main(list_dl, workers, dl_dict, logger):
 
-    
     try:
 
         pool = TaskPool(workers)#create pool of tasks of workers, workers are not launched
@@ -91,90 +93,135 @@ async def main(list_dl, workers, dl_dict):
     except Exception as e:
         logger.debug(e)
 
-        
 
-parser = argparse.ArgumentParser(description="Descargar playlist de videos no fragmentados")
-parser.add_argument("-w", help="Number of workers", default="10", type=int)
-parser.add_argument("-p", help="Number of parts", default="16", type=int)
-#parser.add_argument("-v", help="verbose", action="store_true")
-parser.add_argument("-f", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
-parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
-parser.add_argument("--index", help="index of a video in a playlist", default="-1", type=int)
-parser.add_argument("url")
+def main_program(logger):
 
-args = parser.parse_args()
-
-parts = args.p
-workers = args.w
-f = args.f
-
-ytdl_opts, ytdl = init_ytdl()
-
-list_videos = []
-
-if args.playlist:
-
-    url_playlist = args.url
-    info = ytdl.extract_info(url_playlist,download=False)
-
-    logger.info(info)
+    args = init_argparser()
+    parts = args.p
+    workers = args.w
     
+    dict_opts = {'format': args.format, 'proxy': args.proxy}
+    if args.nocheckcert:
+        dict_opts.update({"nocheckcertificate" : True})
+    if args.ytdlopts:
+        dict_opts.update(ast.literal_eval(args.ytdlopts))
+
+    #lets get the list of videos to download
+
+    list_videos = []
     
-    list_videos = list(info.get('entries'))
-
-    if args.index in range(1,len(list_videos)):
-        list_videos = [list_videos[args.index-1]]
-
-else: #url no son playlist
-
-    list_urls = args.url.split(',')
-    list_videos = [{'_type': 'url', 'url': el} for el in list_urls]
-
-
-logger.info(list_videos)
-
-queue_vid = Queue()
-for video in list_videos:
-    queue_vid.put(video)
-
-queue_dl = Queue()
-
-n = len(list_videos)
-
-with ThreadPoolExecutor(max_workers=workers) as exe:
+    with (init_ytdl(dict_opts)) as ytdl:
     
-    futures = [exe.submit(worker_init_dl, ytdl, queue_vid, parts, queue_dl, i) for i in range(n)]
-    
+        logger.debug(ytdl.params)
 
-    done_futs, _ = wait(futures, return_when=ALL_COMPLETED)
+        if args.playlist:
 
-list_dl = []
-dl_dict = dict()
+            if len(args.target.split(",")) > 1:
+                logger.error("only one target is allowed with playlist option")
+                sys.exit(127)
 
-while not queue_dl.empty():
+            if not args.file:            
+            
+                url_playlist = args.target
+                info = ytdl.extract_info(url_playlist)
+                logger.info(info)                
+                list_videos = list(info.get('entries'))
 
-    dl = queue_dl.get()   
-    logger.info(f"{dl.filename}:{dl.info_dict}")
-    if dl.filename.exists():
-        logger.info(f"Video already downloaded: {dl.filename} {dl.video_url}")
-        dl.remove()
+                try:
+                    if args.index in range(1,len(list_videos)):
+                        list_videos = [list_videos[args.index-1]]
+                except Exception as e:
+                    logger.error(f"index video {args.index} out of range [1..{len(list_videos)}] - {e}")
+                    sys.exit(127)
+            else:
+                with open(args.target, "r") as file_json:
+                    info_json = json.loads(file_json.read())
+                
+                list_videos = list(info_json)
+
+        else: #url no son playlist
+
+            if not args.file:
+
+                list_videos = [{'_type': 'url', 'url': el} for el in args.target.split(",")]
+
+            else:
+                for file in args.target.split(","):
+                    with open(file, "r") as f:
+                        info_json = json.loads(f.read())
+                    list_videos.append(info_json)
+
+
+        logger.info(list_videos)
+
+        queue_vid = Queue()
+        for video in list_videos:
+            queue_vid.put(video)
+
+        queue_dl = Queue()
+
+        n = len(list_videos)
+
+        with ThreadPoolExecutor(max_workers=workers) as exe:
+            
+            futures = [exe.submit(worker_init_dl, ytdl, queue_vid, parts, queue_dl, i, logger) for i in range(n)]
+            
+
+            done_futs, _ = wait(futures, return_when=ALL_COMPLETED)
+
+        list_dl = []
+        dl_dict = dict()
+
+        while not queue_dl.empty():
+
+            dl = queue_dl.get()   
+            logger.debug(f"{dl.filename}:{dl.info_dict}")
+            if dl.filename.exists():
+                logger.debug(f"Video already downloaded: {dl.filename} {dl.video_url}")
+                dl.remove()
+            else:
+                list_dl.append(dl)
+                logger.debug(f"Video will be processed: {dl.video_url}")
+                dl_dict[dl.info_dict['id']] = dl.video_url
+
+        logger.debug(dl_dict)
+
+
+        #ignore_aiohttp_ssl_error(asyncio.get_event_loop())
+
+        res = 1
+
+        try:
+            import uvloop
+            uvloop.install()
+        except ImportError:
+            pass
+
+        try:
+            res = asyncio.run(main(list_dl, workers, dl_dict, logger))                
+        except Exception as e:
+            logger.warning(e, exc_info=True)
+
+    if not list_dl: return 1
     else:
-        list_dl.append(dl)
-        logger.info(f"Video will be processed: {dl.video_url}")
-        dl_dict[dl.info_dict['id']] = dl.video_url
+        res = 0
+        for dl in list_dl:
+            if not dl.filename.exists():
+                logger.info(f"{dl.filename}:Not DL")
+                res = 1
+            else: logger.info(f"{dl.filename}:DL")
+                
+    return(res)
 
 
-logging.info(dl_dict)
+if __name__ == "__main__":
 
+    init_logging()
+    logger = logging.getLogger("async_all")
 
-try:
-    import uvloop
-    uvloop.install()
-except ImportError:
-    pass
+    return_value = main_program(logger)
 
-ignore_aiohttp_ssl_error(asyncio.get_event_loop())
+    logger.info(f"rescode: {return_value}")
 
-asyncio.run(main(list_dl, workers, dl_dict))
-
-
+    if return_value != 0:
+        sys.exit(return_value)

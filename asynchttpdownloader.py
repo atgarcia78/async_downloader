@@ -53,10 +53,14 @@ class AsyncHTTPDownloader():
         self.n_part = n_parts
         
         self.ytdl = ytdl
+        self.proxies = ytdl.params.get('proxy', None)
+        if self.proxies:
+            self.proxies = f"http://{self.proxies}"
+        self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
         #timeout = httpx.Timeout(20, connect=60)
         timeout = None
-        self.client = httpx.AsyncClient(timeout=timeout)
+        self.client = httpx.AsyncClient(timeout=timeout, verify=self.verifycert, proxies=self.proxies)
         self.client.headers = self.info_dict.get('http_headers')
 
 
@@ -73,7 +77,7 @@ class AsyncHTTPDownloader():
             
             self.create_byte_ranges()
         
-        self.logger.info(f"{self.filename}:{self.filesize}:{self.parts_header}")
+        self.logger.debug(f"{self.filename}:{self.filesize}:{self.parts_header}")
         
 
     def create_byte_ranges(self):
