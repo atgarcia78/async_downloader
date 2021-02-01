@@ -29,8 +29,6 @@ from collections import deque
 from urllib.parse import urlparse
 import logging
 
-from asyncio_pool import AioPool
-
 class AsyncHLSDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -421,41 +419,45 @@ class AsyncHLSDownloader():
 
             try:
 
-                async with AioPool(size=self.iworkers) as pool:
+                self.tasks = []    
+                for j in range(self.n_streams):
+                    for i in range(self.iworkers):
+                        task = asyncio.create_task(self.fetch(i,j))
+                        self.tasks.append(task)   
 
-                    futures = [pool.spawn_n(self.fetch(i,j)) for j in range(self.n_streams) for i in range(self.iworkers)]
-    
-                    done_tasks, pending_tasks = await asyncio.wait(pool, return_when=asyncio.FIRST_EXCEPTION)    
+                self.logger.debug(f"{self.info_dict['title']}:WAITINGFORTASKS")
+                done_tasks, pending_tasks = await asyncio.wait(self.tasks, return_when=asyncio.FIRST_EXCEPTION)    
 
-                    self.logger.debug(f"{self.info_dict['title']}:Fuera del wait tasks, vamos a cancelar pending tasks")           
-                    if pending_tasks:
-                        try:
-                            pool.cancel(pending_tasks)
-                            self.logger.debug(f"{self.webpage_url}:tasks pending cancelled")
-                        except Exception as e:
-                            self.logger.debug(f"{self.webpage_url}:{e}")
-                    
-                        group = await asyncio.gather(*pending_tasks, return_exceptions=True)
-                               
-                            
-                    #recorro done para lanzar las excepciones, si hay un Fatal no lo caapturo en el try except
-                    #del bucle para q llegue al otro except y lance el reset
-                    if done_tasks:
-                        for done in done_tasks:
+                self.logger.debug(f"{self.info_dict['title']}:Fuera del wait tasks, vamos a cancelar pending tasks")           
+                if pending_tasks:
+                    for pending in pending_tasks:
                             try:
-                                done.result()
-                            except AsyncHLSDLErrorFatal as e:
-                                raise
-                            except (CancelledError, InvalidStateError, httpx.HTTPError, httpx.StreamError) as e:
-                                self.logger.debug(f"{self.info_dict['title']}:rec excepciones:{str(e)}")
-
-                    #si están todos los fragmentos, salimos del bucle while
-                    if self.n_streams == 1:
-                        if not self.not_dl(0):
-                            break
-                    else:
-                        if not self.not_dl(0) and not self.not_dl(1):
-                            break
+                                pending.cancel()
+                                self.logger.debug(f"{self.info_dict['title']}:task cancelled")
+                            except (CancelledError, InvalidStateError) as e:
+                                self.logger.debug(f"{self.info_dict['title']}:{e}")
+                    
+                    self.logger.debug(f"{self.info_dict['title']}:esperar a las pending tasks")
+                    group = await asyncio.gather(*pending_tasks, return_exceptions=True)
+                    self.logger.debug(f"{self.info_dict['title']}:fin de esperar a las pending tasks")
+                               
+                if self.n_streams == 1:
+                    if not self.not_dl(0):
+                        break
+                else:
+                    if not self.not_dl(0) and not self.not_dl(1):
+                        break
+        
+                #recorro done para lanzar las excepciones, si hay un Fatal no lo caapturo en el try except
+                #del bucle para q llegue al otro except y lance el reset
+                if done_tasks:
+                    for done in done_tasks:
+                        try:
+                            done.result()
+                        except AsyncHLSDLErrorFatal as e:
+                            raise
+                        except (CancelledError, InvalidStateError, httpx.HTTPError, httpx.StreamError) as e:
+                            self.logger.debug(f"{self.info_dict['title']}:rec excepciones:{str(e)}")
 
 
             except AsyncHLSDLErrorFatal as e:

@@ -24,8 +24,6 @@ from natsort import (
 
 from shutil import rmtree
 
-from asyncio_pool import AioPool
-
 
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -174,61 +172,48 @@ class AsyncHTTPDownloader():
         for i, r in enumerate(self.parts_header):
             self.parts_queue.put_nowait((i, r))
         
+        for i in range(self.n_parts):
+            task = asyncio.create_task(self.fetch())
+            self.tasks.append(task)
         
-        async with AioPool(size=self.n_parts) as pool:
-
-            futures = [pool.spawn_n(self.fetch()) for _ in range(self.n_parts)]        
-            
-            done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)        
-            
-            if pending_tasks:
-                try:
-                    pool.cancel(pending_tasks)
-                    self.logger.debug(f"{self.webpage_url}:tasks pending cancelled")
-                except Exception as e:
-                    self.logger.debug(f"{self.webpage_url}:{e}")
-
-
-                group = await asyncio.gather(*pending_tasks, return_exceptions=True)
-        
-            if done_tasks:
-                for done in done_tasks:
-                    try:                        
-                        done.result()  
-                    except Exception as e:
-                        self.logger.debug(f"{self.webpage_url}:{e}")
-            
-            await self.client.aclose()        
-
-            part_files = natsorted(self.download_path.iterdir(), alg=ns.PATH)
-                        
-            if len(part_files) != self.n_parts:
-                raise AsyncHTTPDLError(f"{self.webpage_url}:Number of part files {len(part_files)} < parts {self.n_parts}")
-            
-            else:        
-                async with aiofile.async_open(self.filename, mode='wb') as dest:
-                    try:
-                        for f in part_files:
-                            async with aiofile.async_open(f, mode='rb') as source:
-                                await dest.write(await source.read())
-                    except Exception as e:
-                        self.logger.warning(f"{self.webpage_url}: error when ensambling parts {e}")
-                        if self.filename.exists(): self.filename.unlink()
-                        raise AsyncHTTPDLError(f"{self.webpage_url}: error when ensambling parts {e}")
-
-                if self.filename.exists(): rmtree(str(self.download_path),ignore_errors=True)
-
-
-       
-        
-
-
+        done_tasks, pending_tasks = await asyncio.wait(self.tasks, return_when=asyncio.ALL_COMPLETED)
 
                 
-       
+        if pending_tasks:
+            for pending in pending_tasks:
+                try:
+                    pending.cancel()
+                    self.logger.debug(f"{self.webpage_url}:task cancelled")
+                except (CancelledError, InvalidStateError) as e:
+                    self.logger.debug(f"{self.webpage_url}:{e}")
 
+        group = await asyncio.gather(*pending_tasks, return_exceptions=True)
+
+        await self.client.aclose()
+
+        if done_tasks:
+            for done in done_tasks:
+                try:                        
+                    done.result()  
+                except Exception as e:
+                    self.logger.debug(f"{self.webpage_url}:{e}")
         
+        part_files = natsorted(self.download_path.iterdir(), alg=ns.PATH)
 
+        if len(part_files) != self.n_parts:
+            raise AsyncHTTPDLError(f"{self.webpage_url}:Number of part files {len(part_files)} < parts {self.n_parts}")
+        
+        else:        
+            async with aiofile.async_open(self.filename, mode='wb') as dest:
+                try:
+                    for f in part_files:
+                        async with aiofile.async_open(f, mode='rb') as source:
+                            await dest.write(await source.read())
+                except Exception as e:
+                    self.logger.warning(f"{self.webpage_url}: error when ensambling parts {e}")
+                    if self.filename.exists(): self.filename.unlink()
+                    raise AsyncHTTPDLError(f"{self.webpage_url}: error when ensambling parts {e}")
 
+            if self.filename.exists(): rmtree(str(self.download_path),ignore_errors=True)
 
    

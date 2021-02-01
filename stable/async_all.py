@@ -17,8 +17,9 @@ from asynchlsdownloader import (
     AsyncHLSDownloader
 )
 
-from common_utils import ( 
+from common_utils import (
     init_logging,
+    TaskPool,
     init_ytdl,
     get_protocol,
     init_argparser
@@ -32,11 +33,6 @@ from concurrent.futures import (
 )
 
 import asyncio
-
-import aiorun 
-
-from asyncio_pool import AioPool
-
 
 def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger):
     #worker que lanza los AsyncHLSDownloaders, uno por video
@@ -87,37 +83,20 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger):
 
 async def main(list_dl, workers, dl_dict, logger):
 
-    
-    futures = []
-
     try:
-        async with AioPool(size=workers) as pool:
-            
-            futures = [pool.spawn_n(dl.fetch_async()) for dl in list_dl]
-            #await pool.join()
 
-            done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)
+        pool = TaskPool(workers)#create pool of tasks of workers, workers are not launched
+        futures = [(dl.webpage_url, pool.submit(dl.fetch_async(), dl.webpage_url)) for dl in list_dl]
+        await pool.join()
 
-            if pending_tasks:
-                try:
-                    pool.cancel(pending_tasks)
-                    logger.debug(f"tasks pending cancelled")
-                except Exception as e:
-                    logger.debug(f"{e}")
-
-            group = await asyncio.gather(*pending_tasks, return_exceptions=True)
-            
-            for task in done_tasks:
-                try:
-                    task.result()
-                except Exception as e:
-                    logger.warning(f"{e}")    
+        for fut in futures:
+            try:
+                fut[1].result()
+            except Exception as e:
+                logger.warning(f"{fut[0]}: {e}")    
 
     except Exception as e:
         logger.warning(e)
-
-    
-    asyncio.get_running_loop().stop()
 
 
 def main_program(logger):
@@ -228,10 +207,14 @@ def main_program(logger):
 
         res = 1
 
+        try:
+            import uvloop
+            uvloop.install()
+        except ImportError:
+            pass
 
         try:
-            res = aiorun.run(main(list_dl, workers, dl_dict, logger), use_uvloop=True) 
-            #res = asyncio.run(main(list_dl, workers, dl_dict, logger))               
+            res = asyncio.run(main(list_dl, workers, dl_dict, logger))                
         except Exception as e:
             logger.warning(e, exc_info=True)
 
