@@ -88,7 +88,6 @@ def init_argparser():
     parser = argparse.ArgumentParser(description="Descargar playlist de videos no fragmentados")
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
-    #parser.add_argument("-v", help="verbose", action="store_true")
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
     parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
@@ -96,6 +95,7 @@ def init_argparser():
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
     parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
     parser.add_argument("--proxy", default=None, type=str)
+    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.16; rv:84.0) Gecko/20100101 Firefox/84.0", type=str)
     parser.add_argument("--start", default=None, type=int)
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
@@ -104,44 +104,7 @@ def init_argparser():
     return parser.parse_args()
 
 
-class TaskPool(object):
-
-    def __init__(self, num_workers):
-
-        self.logger = logging.getLogger("Taskpool")
-        self.tasks = asyncio.Queue()
-        self.n_workers = num_workers
-        self.workers = []
-        
-    
-
-    async def worker(self, i):
-        while True:
-            
-            if self.tasks.empty():
-                self.logger.debug(f"Taskpool[{i}]:worker finds task queue empty, says bye")
-                break
-                
-            future, task, label = await self.tasks.get()
-            self.logger.debug(f"Taskpool[{i}]:{label}:task created and waiting for it")
-            result = await asyncio.wait_for(task, None)
-            future.set_result(result)
-
-                
-    #proporciona en self.task tupla con objeto future y función 'task' que el worker transf en task
-    def submit(self, task, label):
-        future = asyncio.Future()
-        self.tasks.put_nowait((future, task, label))
-        return future
-
-    async def join(self):
-        for index in range(self.n_workers):
-            worker = asyncio.create_task(self.worker(index))
-            self.workers.append(worker)
-        await asyncio.wait(self.workers, return_when=asyncio.ALL_COMPLETED)
-
-
-def init_ytdl(dict_opts):
+def init_ytdl(dict_opts, uagent):
 
     fecha = (datetime.now()).strftime("%Y%m%d")
     dlpath = Path(Path.home(), "testing", fecha)
@@ -174,9 +137,7 @@ def init_ytdl(dict_opts):
     ytdl = YoutubeDL(ytdl_opts, auto_init=False)
     ytdl.add_default_info_extractors()
 
-    user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.16; rv:84.0) Gecko/20100101 Firefox/84.0"
-    #user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36"
-    std_headers["User-Agent"] = user_agent
+    std_headers["User-Agent"] = uagent
 
     return ytdl
 

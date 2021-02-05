@@ -183,13 +183,13 @@ class AsyncHTTPDownloader():
             
             if pending_tasks:
                 try:
-                    pool.cancel(pending_tasks)
-                    self.logger.debug(f"{self.webpage_url}:tasks pending cancelled")
+                    await pool.cancel(pending_tasks)
+                    self.logger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
                 except Exception as e:
                     self.logger.debug(f"{self.webpage_url}:{e}")
 
 
-                group = await asyncio.gather(*pending_tasks, return_exceptions=True)
+                await asyncio.gather(*pending_tasks, return_exceptions=True)
         
             if done_tasks:
                 for done in done_tasks:

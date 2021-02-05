@@ -88,7 +88,6 @@ def init_argparser():
     parser = argparse.ArgumentParser(description="Descargar playlist de videos no fragmentados")
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
-    #parser.add_argument("-v", help="verbose", action="store_true")
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
     parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)

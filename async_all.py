@@ -100,12 +100,12 @@ async def main(list_dl, workers, dl_dict, logger):
 
             if pending_tasks:
                 try:
-                    pool.cancel(pending_tasks)
-                    logger.debug(f"tasks pending cancelled")
+                    await pool.cancel(pending_tasks)
+                    logger.debug(f"{len(pending_tasks)} tasks pending cancelled")
                 except Exception as e:
                     logger.debug(f"{e}")
 
-            group = await asyncio.gather(*pending_tasks, return_exceptions=True)
+            await asyncio.gather(*pending_tasks, return_exceptions=True)
             
             for task in done_tasks:
                 try:
@@ -136,7 +136,7 @@ def main_program(logger):
 
     list_videos = []
     
-    with (init_ytdl(dict_opts)) as ytdl:
+    with (init_ytdl(dict_opts,args.useragent)) as ytdl:
     
         logger.debug(ytdl.params)
 

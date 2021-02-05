@@ -425,17 +425,17 @@ class AsyncHLSDownloader():
 
                     futures = [pool.spawn_n(self.fetch(i,j)) for j in range(self.n_streams) for i in range(self.iworkers)]
     
-                    done_tasks, pending_tasks = await asyncio.wait(pool, return_when=asyncio.FIRST_EXCEPTION)    
+                    done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.FIRST_EXCEPTION)    
 
                     self.logger.debug(f"{self.info_dict['title']}:Fuera del wait tasks, vamos a cancelar pending tasks")           
                     if pending_tasks:
                         try:
-                            pool.cancel(pending_tasks)
-                            self.logger.debug(f"{self.webpage_url}:tasks pending cancelled")
+                            await pool.cancel(pending_tasks)
+                            self.logger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
                         except Exception as e:
                             self.logger.debug(f"{self.webpage_url}:{e}")
                     
-                        group = await asyncio.gather(*pending_tasks, return_exceptions=True)
+                        await asyncio.gather(*pending_tasks, return_exceptions=True)
                                
                             
                     #recorro done para lanzar las excepciones, si hay un Fatal no lo caapturo en el try except
