@@ -1,0 +1,1 @@
+2021-02-05 18:46:45,091 [95557] INFO     __main__ [subsystem: example]: It works and log to stdout and /dev/null with JSON

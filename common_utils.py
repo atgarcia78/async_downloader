@@ -16,6 +16,89 @@ from pathlib import Path
 import re
 import argparse
 
+def foldersize(folder):
+    #devuelve en bytes size folder
+    return sum(file.stat().st_size for file in Path(folder).rglob('*'))
+
+"""Bits and bytes related humanization."""
+
+SUFFIXES = {
+    "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
+    "binary": ("KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"),
+    "gnu": "KMGTPEZY",
+}
+
+def naturalsize(value, binary=False, gnu=False, format="%.2f"):
+    """Format a number of bytes like a human readable filesize (e.g. 10 kB).
+
+    By default, decimal suffixes (kB, MB) are used.
+
+    Non-GNU modes are compatible with jinja2's `filesizeformat` filter.
+
+    Examples:
+        ```pycon
+        >>> naturalsize(3000000)
+        '3.0 MB'
+        >>> naturalsize(300, False, True)
+        '300B'
+        >>> naturalsize(3000, False, True)
+        '2.9K'
+        >>> naturalsize(3000, False, True, "%.3f")
+        '2.930K'
+        >>> naturalsize(3000, True)
+        '2.9 KiB'
+
+        ```
+    Args:
+        value (int, float, str): Integer to convert.
+        binary (bool): If `True`, uses binary suffixes (KiB, MiB) with base
+            2<sup>10</sup> instead of 10<sup>3</sup>.
+        gnu (bool): If `True`, the binary argument is ignored and GNU-style
+            (`ls -sh` style) prefixes are used (K, M) with the 2**10 definition.
+        format (str): Custom formatter.
+
+    Returns:
+        str: Human readable representation of a filesize.
+    """
+    if gnu:
+        suffix = SUFFIXES["gnu"]
+    elif binary:
+        suffix = SUFFIXES["binary"]
+    else:
+        suffix = SUFFIXES["decimal"]
+
+    base = 1024 if (gnu or binary) else 1000
+    bytes = float(value)
+    abs_bytes = abs(bytes)
+
+    if abs_bytes == 1 and not gnu:
+        return "%d Byte" % bytes
+    elif abs_bytes < base and not gnu:
+        return "%d Bytes" % bytes
+    elif abs_bytes < base and gnu:
+        return "%dB" % bytes
+
+    for i, s in enumerate(suffix):
+        unit = base ** (i + 2)
+        if abs_bytes < unit and not gnu:
+            return (format + " %s") % ((base * bytes / unit), s)
+        elif abs_bytes < unit and gnu:
+            return (format + "%s") % ((base * bytes / unit), s)
+    if gnu:
+        return (format + "%s") % ((base * bytes / unit), s)
+    return (format + " %s") % ((base * bytes / unit), s)
+
+
+def print_norm_time(time):
+    """ Time in secs """
+    
+    hour = time // 3600
+    time %= 3600
+    minutes = time // 60
+    time %= 60
+    seconds = time
+    
+    return f"{hour:.0f}h:{minutes:.0f}min:{seconds:.0f}secs"
 
 def get_value_regex(value, str_reg, str_content, not_found):
     mobj = re.search(str_reg, str_content)
@@ -78,14 +161,12 @@ def init_logging(file_path=None):
         config = json.loads(f.read())
     
     config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(home = str(Path.home()))
-    config['handlers']['error_file_handler']['filename'] = config['handlers']['error_file_handler']['filename'].format(home = str(Path.home()))
-
     
     logging.config.dictConfig(config)   
 
 def init_argparser():
 
-    parser = argparse.ArgumentParser(description="Descargar playlist de videos no fragmentados")
+    parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
@@ -106,11 +187,11 @@ def init_argparser():
 
 def init_ytdl(dict_opts, uagent):
 
-    fecha = (datetime.now()).strftime("%Y%m%d")
-    dlpath = Path(Path.home(), "testing", fecha)
-    dlpath.mkdir(parents=True, exist_ok=True)
+    #fecha = (datetime.now()).strftime("%Y%m%d")
+    #dlpath = Path(Path.home(), "testing", fecha)
+    #dlpath.mkdir(parents=True, exist_ok=True)
 
-    outtmpl = f"{str(dlpath)}/{fecha}_%(id)5s_%(title)s.%(ext)s"
+    #outtmpl = f"{str(dlpath)}/{fecha}_%(id)5s_%(title)s.%(ext)s"
 
     logger = logging.getLogger("_ytdl_")
 
@@ -122,7 +203,7 @@ def init_ytdl(dict_opts, uagent):
         "verbose": True,
         "quiet": False,
         "extract_flat": "in_playlist",
-        "outtmpl": outtmpl,
+        #"outtmpl": outtmpl,
         "format" : "bestvideo+bestaudio/best",
         "usenetrc": True,
         "skip_download": True,

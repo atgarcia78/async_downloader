@@ -9,7 +9,8 @@ import sys
 from pathlib import Path
 import logging
 from common_utils import (
-    get_ip_proxy
+    get_ip_proxy,
+    naturalsize
 
 )
 
@@ -88,6 +89,8 @@ class AsyncHTTPDownloader():
         
         self.filesize = self.info_dict.get('filesize', None)
         
+        self.down_size = 0
+        
         self.parts_header = []
 
         if self.filesize:
@@ -95,6 +98,8 @@ class AsyncHTTPDownloader():
             self.create_byte_ranges()
         
         self.logger.debug(f"{self.filename}:{self.filesize}:{self.parts_header}")
+        
+        self.status = "init"
         
 
     def create_byte_ranges(self):
@@ -133,6 +138,7 @@ class AsyncHTTPDownloader():
                         async with aiofile.async_open(tempfilename, mode='wb') as f:
                             async for chunk in res.aiter_bytes(chunk_size=1024*1024):
                                 await f.write(chunk)
+                                self.down_size += chunk.__sizeof__()
 
             except (httpx.HTTPError, httpx.CloseError, httpx.RemoteProtocolError, httpx.ReadTimeout, 
                 httpx.ProxyError, AttributeError, RuntimeError) as e:
@@ -174,7 +180,7 @@ class AsyncHTTPDownloader():
         for i, r in enumerate(self.parts_header):
             self.parts_queue.put_nowait((i, r))
         
-        
+        self.status = "downloading"
         async with AioPool(size=self.n_parts) as pool:
 
             futures = [pool.spawn_n(self.fetch()) for _ in range(self.n_parts)]        
@@ -203,6 +209,7 @@ class AsyncHTTPDownloader():
             part_files = natsorted(self.download_path.iterdir(), alg=ns.PATH)
                         
             if len(part_files) != self.n_parts:
+                self.status = "error"
                 raise AsyncHTTPDLError(f"{self.webpage_url}:Number of part files {len(part_files)} < parts {self.n_parts}")
             
             else:        
@@ -214,10 +221,16 @@ class AsyncHTTPDownloader():
                     except Exception as e:
                         self.logger.warning(f"{self.webpage_url}: error when ensambling parts {e}")
                         if self.filename.exists(): self.filename.unlink()
+                        self.status = "error"
                         raise AsyncHTTPDLError(f"{self.webpage_url}: error when ensambling parts {e}")
 
                 if self.filename.exists(): rmtree(str(self.download_path),ignore_errors=True)
-
+                self.status = "done"
+    
+    def print_hookup(self):
+        
+        #self.down_size = naturalsize(foldersize(str(self.base_download_path)))
+        return (f"{self.webpage_url}: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
 
        
         

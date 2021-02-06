@@ -31,6 +31,14 @@ import logging
 
 from asyncio_pool import AioPool
 
+import hashlib
+
+from common_utils import (
+    print_norm_time,
+    naturalsize,
+    foldersize
+)
+
 class AsyncHLSDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -60,16 +68,21 @@ class AsyncHLSDownloader():
         self.info_dict = ie_result
         self.ytdl = ytdl
         self.proxies = ytdl.params.get('proxy', None)
-        self.proxies = ytdl.params.get('proxy', None)
         if self.proxies:
             self.proxies = f"http://{self.proxies}"
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
         self.webpage_url = self.info_dict.get('webpage_url')
 
         self.date_file = datetime.now().strftime("%Y%m%d")
+        
+        self.videoid = self.info_dict.get('id', None)
+        if not self.videoid:
+            self.videoid = int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8
 
+        self.base_download_path = Path(Path.home(),"testing", self.date_file, str(self.videoid))
+        
         self.filename = Path(Path.home(),"testing", self.date_file, self.date_file + "_" + \
-            str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "." + self.info_dict['ext'])
+            str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "." + self.info_dict['ext'])
 
         if self.info_dict.get('requested_formats', None): #multi stream
             self.n_streams = 2
@@ -80,25 +93,26 @@ class AsyncHLSDownloader():
   
         self.iworkers = workers
 
-        self.prep_init()            
+        self.prep_init()
+        
+        self.status = "init"            
                 
     
     def prep_init(self):
 
            
-        self.frag_queue = []
+        #self.frag_queue = []
         self.headers = []
         self.stream_url = []        
         self.m3u8_obj = []
         self.info_frag = []
         self.key_cache = dict()
         self.client = []
-        #self.proxies = f"fttp://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
         
         self.download_path = []       
         self.filename_stream = []
 
-        self.base_download_path = Path(Path.home(),"testing", self.date_file, str(self.info_dict['id']))
+        
         
 
         #timeout = httpx.Timeout(20, connect=60)
@@ -123,15 +137,12 @@ class AsyncHLSDownloader():
             self.download_path[1].mkdir(parents=True, exist_ok=True)
 
             self.filename_stream.append(Path(self.download_path[0].parent, self.date_file + "_" + \
-                str(self.info_dict['id']) + "_" + self.info_dict['title'] + "_video" + "." + \
+                str(self.videoid) + "_" + self.info_dict['title'] + "_video" + "." + \
                 self.info_dict['requested_formats'][0]['ext']))
             self.filename_stream.append(Path(self.download_path[1].parent, self.date_file + "_" + \
-                str(self.info_dict['id']) + "_" + self.info_dict['title'] + "_audio" + "." + \
+                str(self.videoid) + "_" + self.info_dict['title'] + "_audio" + "." + \
                 self.info_dict['requested_formats'][1]['ext']))
             
-            self.frag_queue.append(deque())
-            self.frag_queue.append(deque())
-
             self.info_frag.append(list())
             self.info_frag.append(list())
 
@@ -145,25 +156,25 @@ class AsyncHLSDownloader():
             self.download_path.append(self.base_download_path)
             self.download_path[0].mkdir(parents=True, exist_ok=True)
             self.filename_stream.append(self.filename)
-            self.frag_queue.append(deque())
+            
             self.info_frag.append(list())
             
 
+        self.frag_queue = deque()
         for j in range(self.n_streams):
 
             try:
                 #self.m3u8_obj.append(m3u8.loads(httpx.get(self.stream_url[j], headers=self.headers[j]).text,uri=self.stream_url[j]))
-                self.logger.debug("HEADERS")
-                self.logger.debug(self.headers[j])
+                #self.logger.debug("HEADERS")
+                #self.logger.debug(self.headers[j])
                 res = httpx.get(self.stream_url[j],headers=self.headers[j])
-                self.logger.debug(res.request)
-                self.logger.debug(res.request.headers)
+                #self.logger.debug(res.request)
+                #self.logger.debug(res.request.headers)
                 m3u8_file = res.text
-                #m3u8_file = self.ytdl.urlopen(self.stream_url[j]).read()
                 self.logger.debug("M3U8 file")
-                self.logger.debug(m3u8_file)
+                #self.logger.debug(m3u8_file)
                 self.m3u8_obj.append(m3u8.loads(m3u8_file,uri=self.stream_url[j]))
-                self.logger.debug(self.m3u8_obj[j])
+                self.logger.debug(self.m3u8_obj[j].data)
             except Exception as e:
                 self.logger.warning(f"No hay descriptor: {e}", exc_info=True)
                 raise AsyncHLSDLErrorFatal("no hay descriptor")
@@ -174,9 +185,12 @@ class AsyncHLSDownloader():
             part = 0
             uri_ant = ""
             byte_range = {}
+            
+            self.totalduration = 0
 
             for i, segment in enumerate(self.m3u8_obj[j].segments):
                  
+                self.totalduration += segment.duration
                 if segment.byterange:
                     if segment.uri == uri_ant:
                         part += 1
@@ -205,7 +219,7 @@ class AsyncHLSDownloader():
 
                 if size == 0:
                     self.info_frag[j].append({"frag" : i+1, "url" : segment.absolute_uri, "key": segment.key, "file" : file_path, "byterange" : byte_range, "downloaded" : False, "n_retries": 0, "error" : []})
-                    self.frag_queue[j].append(i+1)
+                    self.frag_queue.append((j, i+1))
                     if segment.key is not None and segment.key.method == 'AES-128':
                         if segment.key.absolute_uri not in self.key_cache:
                             self.key_cache[segment.key.absolute_uri] = httpx.get(segment.key.absolute_uri, headers=self.headers[j]).content
@@ -218,7 +232,12 @@ class AsyncHLSDownloader():
 
             self.logger.debug(f"{self.info_dict['title']}:Frags for stream {str(j)}")
             self.logger.debug(self.info_frag[j])
-            #self.logger.debug(self.not_dl(j))
+            self.filesize = self.totalduration * 1000 * self.info_dict.get('tbr', 0) / 8 #bytes 
+            self.logger.info(f"{self.info_dict['title']}: total duration {print_norm_time(self.totalduration)}")
+            self.logger.info(f"{self.info_dict['title']}: estimated filesize {naturalsize(self.filesize, False, False)}")
+            self.down_size = foldersize(str(self.base_download_path))
+            self.logger.info(f"{self.info_dict['title']}: already downloaded {naturalsize(self.down_size)}")
+                       
         
    
         
@@ -233,8 +252,7 @@ class AsyncHLSDownloader():
         except Exception as e:
             self.logger.debug(f"{self.info_dict['title']}:Exception ocurred when closing client: {str(e)}", exc_info=True)    
  
-        self.logger.debug(f"{self.info_dict['title']}:Get info video dict again")
-
+        
         #ya tenemos toda la info, sólo queremos refrescar la info de los fragmentos
         
         self.logger.debug(f"{self.info_dict['title']}:RESET:get video dict: {self.webpage_url}")
@@ -247,24 +265,26 @@ class AsyncHLSDownloader():
             else:
                 info_reset = info
             
+            self.logger.debug(f"{self.info_dict['title']}:New info video")
             self.logger.debug(f"{self.info_dict['title']}:{info_reset}")
             
         except Exception as e:
-            raise AsyncHLSDLErrorFatal("no hay descriptor")
+            raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")
 
         if not info_reset:
-            raise AsyncHLSDLErrorFatal("no hay descriptor")           
+            raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")           
 
         try: 
             self.prep_reset(info_reset)
             self.n_reset += 1
         except Exception as e:
             self.logger.debug(f"{self.info_dict['title']}:Exception occurred when reset: {str(e)}")
+            raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
     
     def prep_reset(self, info_reset):
        
-        self.frag_queue = []
+        #self.frag_queue = []
         self.headers = []
         self.stream_url = []        
         self.m3u8_obj = []
@@ -289,8 +309,8 @@ class AsyncHLSDownloader():
             self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
 
 
-            self.frag_queue.append(deque())
-            self.frag_queue.append(deque())
+            #self.frag_queue.append(deque())
+            #self.frag_queue.append(deque())
 
         else: #single stream
             self.headers.append(info_reset['http_headers'])
@@ -300,9 +320,10 @@ class AsyncHLSDownloader():
             self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
             #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
 
-            self.frag_queue.append(deque())
+            #self.frag_queue.append(deque())
         
 
+        self.frag_queue = deque()
 
         for j in range(self.n_streams):
 
@@ -319,9 +340,11 @@ class AsyncHLSDownloader():
             byte_range = {}
 
 
-
+            
+            
             for i, segment in enumerate(self.m3u8_obj[j].segments):
 
+                
                 if segment.byterange:
                     if segment.uri == uri_ant:
                         part += 1
@@ -344,7 +367,7 @@ class AsyncHLSDownloader():
 
 
                 if not self.info_frag[j][i]['downloaded']:
-                    self.frag_queue[j].append(i+1)                        
+                    self.frag_queue.append((j, i+1))                        
                     self.info_frag[j][i]['url'] = segment.absolute_uri
                     self.info_frag[j][i]['file'] = file_path
                     if (self.info_frag[j][i]['file']).exists(): 
@@ -356,11 +379,11 @@ class AsyncHLSDownloader():
                         if segment.key.absolute_uri not in self.key_cache:
                             self.key_cache[segment.key.absolute_uri] = httpx.get(segment.key.absolute_uri, headers=self.headers[j]).content
  
-    async def fetch(self, nco, j):
+    async def fetch(self, nco):
         
-        while self.frag_queue[j]:
+        while self.frag_queue:
 
-            q = self.frag_queue[j].popleft()
+            j, q = self.frag_queue.popleft()
             url = self.info_frag[j][q - 1]['url']
             filename = self.info_frag[j][q - 1]['file']
             key = self.info_frag[j][q - 1]['key']
@@ -389,6 +412,8 @@ class AsyncHLSDownloader():
                             data = res.content 
                         async with aiofile.async_open(filename, mode='wb') as f:
                             await f.write(data)
+                        
+                        self.down_size += data.__sizeof__()
 
                         self.info_frag[j][q - 1]['downloaded'] = True
                         self.info_frag[j][q - 1]['error'].append(str(res))
@@ -417,13 +442,16 @@ class AsyncHLSDownloader():
 
     async def fetch_async(self):
         
-        while True:
+        cont = 5
+        while (len(self.fragsnotdl()) != 0):
 
+            self.status = "downloading"
             try:
 
+                
                 async with AioPool(size=self.iworkers) as pool:
 
-                    futures = [pool.spawn_n(self.fetch(i,j)) for j in range(self.n_streams) for i in range(self.iworkers)]
+                    futures = [pool.spawn_n(self.fetch(i)) for i in range(self.iworkers)]
     
                     done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.FIRST_EXCEPTION)    
 
@@ -440,27 +468,39 @@ class AsyncHLSDownloader():
                             
                     #recorro done para lanzar las excepciones, si hay un Fatal no lo caapturo en el try except
                     #del bucle para q llegue al otro except y lance el reset
+                    fatal_errors = []
                     if done_tasks:
                         for done in done_tasks:
                             try:
                                 done.result()
                             except AsyncHLSDLErrorFatal as e:
-                                raise
+                                fatal_errors.append(e)
                             except (CancelledError, InvalidStateError, httpx.HTTPError, httpx.StreamError) as e:
                                 self.logger.debug(f"{self.info_dict['title']}:rec excepciones:{str(e)}")
 
-                    #si están todos los fragmentos, salimos del bucle while
-                    if self.n_streams == 1:
-                        if not self.not_dl(0):
-                            break
-                    else:
-                        if not self.not_dl(0) and not self.not_dl(1):
-                            break
+                    if fatal_errors: raise AsyncHLSDLErrorFatal("reset")
+                    else: 
+                        cont -= 1
+                        if cont == 0:
+                            if len(self.fragsnotdl()) != 0:  raise AsyncHLSDLErrorFatal("count to zero")
+                            else: break
+                    # #si están todos los fragmentos, salimos del bucle while
+                    # if self.n_streams == 1:
+                    #     if not self.not_dl(0):
+                    #         break
+                    # else:
+                    #     if not self.not_dl(0) and not self.not_dl(1):
+                    #         break
 
 
             except AsyncHLSDLErrorFatal as e:
                 self.logger.warning(f"{self.info_dict['title']}:Exception ocurred: {str(e)}")
+                if cont == 0: 
+                    self.status = "error"
+                    raise
+
                 if self.n_reset < 5:
+                    cont = 5
                     self.logger.debug(f"{self.info_dict['title']}:RESET)")
                     await asyncio.wait_for(self.reset(), None)                    
                     for i in range(self.n_streams):
@@ -474,19 +514,25 @@ class AsyncHLSDownloader():
                         await self.client[0].aclose()
                         if self.n_streams == 2:
                             await self.client[1].aclose()             
-                    except AsyncHLSDLError as e:
+                    except Exception as e:
                         self.logger.warning(f"{self.info_dict['title']}:Exception ocurred when closing clients: {str(e)}") 
-                        raise
+                    self.status = "error"
+                    raise
 
         #vemos en disco si están todos los fragmentos
         self.logger.debug(f"{self.info_dict['title']}:Frags DL completed")
-        try:
-            self.ensamblfrags()
+        try:            
             await self.client[0].aclose()
             if self.n_streams == 2:
-                await self.client[1].aclose()             
+                await self.client[1].aclose() 
+        except Exception as e:
+            self.logger.warning(f"{self.info_dict['title']}:Exception ocurred when closing clients: {str(e)}")
+
+        try:   
+            self.ensamblfrags()            
         except AsyncHLSDLError as e:
             self.logger.warning(f"{self.info_dict['title']}:Exception ocurred when ensambling frags: {str(e)}") 
+            self.satus = "error"
             raise             
 
               
@@ -498,12 +544,15 @@ class AsyncHLSDownloader():
                 self.logger.debug(f"{self.info_dict['title']}:Streams merged for: {self.filename}")
         
             else:
+                self.status = "error"
                 raise AsyncHLSDLErrorFatal(f"error merge, ffmpeg error: {rc}")
 
+        self.status = "done"
+        
         rmtree(str(self.base_download_path),ignore_errors=True)
-            
-
-        return 0
+        
+        
+        return (f"{self.webpage_url}:{self.status}")
 
     
     def ensamblfrags(self):
@@ -532,6 +581,14 @@ class AsyncHLSDownloader():
 
         
      
+    def fragsnotdl(self):
+        res = []
+        for stream in range(self.n_streams):
+            for frag in self.info_frag[stream]:
+                if frag['downloaded'] == False:
+                    res.append(frag['frag'])
+        return res
+
 
 
     def not_dl(self, j):
@@ -565,3 +622,12 @@ class AsyncHLSDownloader():
     def remove(self):
         
         rmtree(str(self.base_download_path),ignore_errors=True)
+        
+   
+    
+    def print_hookup(self):
+        
+        #self.down_size = naturalsize(foldersize(str(self.base_download_path)))
+        return (f"{self.webpage_url}: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
+            
+        
