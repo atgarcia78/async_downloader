@@ -161,6 +161,7 @@ class AsyncHLSDownloader():
             
 
         self.frag_queue = deque()
+        
         for j in range(self.n_streams):
 
             try:
@@ -186,11 +187,11 @@ class AsyncHLSDownloader():
             uri_ant = ""
             byte_range = {}
             
-            self.totalduration = 0
+            
 
             for i, segment in enumerate(self.m3u8_obj[j].segments):
                  
-                self.totalduration += segment.duration
+                
                 if segment.byterange:
                     if segment.uri == uri_ant:
                         part += 1
@@ -223,39 +224,54 @@ class AsyncHLSDownloader():
                     if segment.key is not None and segment.key.method == 'AES-128':
                         if segment.key.absolute_uri not in self.key_cache:
                             self.key_cache[segment.key.absolute_uri] = httpx.get(segment.key.absolute_uri, headers=self.headers[j]).content
-                            self.logger.debug(f"{self.info_dict['title']}:{self.key_cache[segment.key.absolute_uri]}")
-                            self.logger.debug(f"{self.info_dict['title']}:{segment.key.iv}")
+                            self.logger.debug(f"[{self.info_dict['title']}]:{self.key_cache[segment.key.absolute_uri]}")
+                            self.logger.debug(f"[{self.info_dict['title']}]:{segment.key.iv}")
 
                 else:
                     self.info_frag[j].append({"frag" : i+1, "url" : segment.absolute_uri, "file" : file_path, "byterange" : byte_range, "downloaded" : True, "n_retries": 0, "error" : "AlreadyDL"})
  
 
-            self.logger.debug(f"{self.info_dict['title']}:Frags for stream {str(j)}")
+            self.logger.debug(f"[{self.info_dict['title']}]:Frags for stream {str(j)}")
             self.logger.debug(self.info_frag[j])
-            self.filesize = self.totalduration * 1000 * self.info_dict.get('tbr', 0) / 8 #bytes 
-            self.logger.info(f"{self.info_dict['title']}: total duration {print_norm_time(self.totalduration)}")
-            self.logger.info(f"{self.info_dict['title']}: estimated filesize {naturalsize(self.filesize, False, False)}")
-            self.down_size = foldersize(str(self.base_download_path))
-            self.logger.info(f"{self.info_dict['title']}: already downloaded {naturalsize(self.down_size)}")
+            
+        self.calculate_duration() #get total duration
+        self.calculate_filesize() #get filesize estimated
+        
+        self.logger.info(f"[{self.info_dict['title']}]: total duration {print_norm_time(self.totalduration)}")
+        self.logger.info(f"[{self.info_dict['title']}]: estimated filesize {naturalsize(self.filesize, False, False)}")
+        
+        self.down_size = foldersize(str(self.base_download_path)) #init in case there's part DL
+        self.logger.info(f"[{self.info_dict['title']}]: already downloaded {naturalsize(self.down_size)}")
                        
         
-   
+    def calculate_duration(self):
+        self.totalduration = 0
+        for segment in self.m3u8_obj[0].segments:
+            self.totalduration += segment.duration
+            
+    def calculate_filesize(self):
+        if self.n_streams == 1:
+            tbr = self.info_dict.get('tbr', 0)
+        else:
+            tbr = self.info_dict['requested_formats'][0].get('tbr', 0)
+        
+        self.filesize = self.totalduration * 1000 * tbr / 8 #bytes  
         
     async def reset(self):
 
-        self.logger.debug(f"{self.info_dict['title']}:RESET:close clients")
+        self.logger.debug(f"[{self.info_dict['title']}]:RESET:close clients")
         
         try:
             await self.client[0].aclose()
             if self.n_streams == 2:
                 await self.client[1].aclose()
         except Exception as e:
-            self.logger.debug(f"{self.info_dict['title']}:Exception ocurred when closing client: {str(e)}", exc_info=True)    
+            self.logger.debug(f"[{self.info_dict['title']}]:Exception ocurred when closing client: {str(e)}", exc_info=True)    
  
         
         #ya tenemos toda la info, sólo queremos refrescar la info de los fragmentos
         
-        self.logger.debug(f"{self.info_dict['title']}:RESET:get video dict: {self.webpage_url}")
+        self.logger.debug(f"[{self.info_dict['title']}]:RESET:get video dict: {self.webpage_url}")
         
         try:
             
@@ -265,8 +281,8 @@ class AsyncHLSDownloader():
             else:
                 info_reset = info
             
-            self.logger.debug(f"{self.info_dict['title']}:New info video")
-            self.logger.debug(f"{self.info_dict['title']}:{info_reset}")
+            self.logger.debug(f"[{self.info_dict['title']}]:New info video")
+            self.logger.debug(f"[{self.info_dict['title']}]:{info_reset}")
             
         except Exception as e:
             raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")
@@ -278,7 +294,7 @@ class AsyncHLSDownloader():
             self.prep_reset(info_reset)
             self.n_reset += 1
         except Exception as e:
-            self.logger.debug(f"{self.info_dict['title']}:Exception occurred when reset: {str(e)}")
+            self.logger.debug(f"[{self.info_dict['title']}]:Exception occurred when reset: {str(e)}")
             raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
     
@@ -396,7 +412,7 @@ class AsyncHLSDownloader():
             if byte_range:
                 headers['range'] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
 
-            #self.logger.debug(f"{self.info_dict['title']}:[{nco}]{j}:{q}:{url}")                       
+            #self.logger.debug(f"[{self.info_dict['title']}]:[{nco}]{j}:{q}:{url}")                       
             
             while self.info_frag[j][q - 1]['n_retries'] < 5:
  
@@ -422,19 +438,19 @@ class AsyncHLSDownloader():
 
                 except (AsyncHLSDLErrorFatal, httpx.ConnectError) as e:
                     self.info_frag[j][q - 1]['error'].append(str(e))
-                    self.logger.debug(f"{self.info_dict['title']}:[{nco}]stream[{j}]:frag[{q}]:fatalError:{e}:{url}")
+                    self.logger.debug(f"[{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:fatalError:{e}:{url}")
                     raise AsyncHLSDLErrorFatal(f"{e}")
                 except (AsyncHLSDLError, httpx.HTTPError, httpx.CloseError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ProxyError, AttributeError, RuntimeError) as e:
                     #self.logger.debug(f"Exception ocurred: {e}", exc_info=True)
                     self.info_frag[j][q - 1]['error'].append(f"{str(e)}")
-                    self.logger.debug(f"{self.info_dict['title']}:[{nco}]stream[{j}]:frag[{q}]:error:{e}:{url}")
+                    self.logger.debug(f"[{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:error:{e}:{url}")
                     self.info_frag[j][q - 1]['n_retries'] += 1
                     continue
 
             
             if self.info_frag[j][q - 1]['n_retries'] == 5:
                 self.info_frag[j][q - 1]['error'].append("MaxLimitRetries")
-                self.logger.debug(f"{self.info_dict['title']}:[{nco}]{j}:(MaxLimitRetries)Frag: {q}")
+                self.logger.debug(f"[{self.info_dict['title']}]:[{nco}]{j}:(MaxLimitRetries)Frag: {q}")
                 raise AsyncHLSDLErrorFatal(f"MaxLimitretries Frag: {q}")
 
         else:
@@ -455,7 +471,7 @@ class AsyncHLSDownloader():
     
                     done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.FIRST_EXCEPTION)    
 
-                    self.logger.debug(f"{self.info_dict['title']}:Fuera del wait tasks, vamos a cancelar pending tasks")           
+                    self.logger.debug(f"[{self.info_dict['title']}]:Fuera del wait tasks, vamos a cancelar pending tasks")           
                     if pending_tasks:
                         try:
                             await pool.cancel(pending_tasks)
@@ -476,7 +492,7 @@ class AsyncHLSDownloader():
                             except AsyncHLSDLErrorFatal as e:
                                 fatal_errors.append(e)
                             except (CancelledError, InvalidStateError, httpx.HTTPError, httpx.StreamError) as e:
-                                self.logger.debug(f"{self.info_dict['title']}:rec excepciones:{str(e)}")
+                                self.logger.debug(f"[{self.info_dict['title']}]:rec excepciones:{str(e)}")
 
                     if fatal_errors: raise AsyncHLSDLErrorFatal("reset")
                     else: 
@@ -484,54 +500,48 @@ class AsyncHLSDownloader():
                         if cont == 0:
                             if len(self.fragsnotdl()) != 0:  raise AsyncHLSDLErrorFatal("count to zero")
                             else: break
-                    # #si están todos los fragmentos, salimos del bucle while
-                    # if self.n_streams == 1:
-                    #     if not self.not_dl(0):
-                    #         break
-                    # else:
-                    #     if not self.not_dl(0) and not self.not_dl(1):
-                    #         break
+                   
 
 
             except AsyncHLSDLErrorFatal as e:
-                self.logger.warning(f"{self.info_dict['title']}:Exception ocurred: {str(e)}")
+                self.logger.warning(f"[{self.info_dict['title']}]:Exception ocurred: {str(e)}")
                 if cont == 0: 
                     self.status = "error"
                     raise
 
                 if self.n_reset < 5:
                     cont = 5
-                    self.logger.debug(f"{self.info_dict['title']}:RESET)")
+                    self.logger.debug(f"[{self.info_dict['title']}]:RESET)")
                     await asyncio.wait_for(self.reset(), None)                    
                     for i in range(self.n_streams):
-                        self.logger.debug(f"{self.info_dict['title']}:stream[{i}]:RESET:Pending frags {len(self.not_dl(i))}")
+                        self.logger.debug(f"[{self.info_dict['title']}]:stream[{i}]:RESET:Pending frags {len(self.not_dl(i))}")
                 else:
-                    self.logger.warning(f"{self.info_dict['title']}:ERROR:Max_number_of_resets {str(e)}")
+                    self.logger.warning(f"[{self.info_dict['title']}]:ERROR:Max_number_of_resets {str(e)}")
                     for i in range(self.n_streams):
-                        self.logger.debug(f"{self.info_dict['title']}:stream[{i}]:E:Pending frags {len(self.not_dl(i))}")
-                        #self.logger.debug(f"{self.info_dict['title']}:stream[{i}]:{self.info_frag[i]}")
+                        self.logger.debug(f"[{self.info_dict['title']}]:stream[{i}]:E:Pending frags {len(self.not_dl(i))}")
+                        #self.logger.debug(f"[{self.info_dict['title']}]:stream[{i}]:{self.info_frag[i]}")
                     try:
                         await self.client[0].aclose()
                         if self.n_streams == 2:
                             await self.client[1].aclose()             
                     except Exception as e:
-                        self.logger.warning(f"{self.info_dict['title']}:Exception ocurred when closing clients: {str(e)}") 
+                        self.logger.warning(f"[{self.info_dict['title']}]:Exception ocurred when closing clients: {str(e)}") 
                     self.status = "error"
                     raise
 
         #vemos en disco si están todos los fragmentos
-        self.logger.debug(f"{self.info_dict['title']}:Frags DL completed")
+        self.logger.debug(f"[{self.info_dict['title']}]:Frags DL completed")
         try:            
             await self.client[0].aclose()
             if self.n_streams == 2:
                 await self.client[1].aclose() 
         except Exception as e:
-            self.logger.warning(f"{self.info_dict['title']}:Exception ocurred when closing clients: {str(e)}")
+            self.logger.warning(f"[{self.info_dict['title']}]:Exception ocurred when closing clients: {str(e)}")
 
         try:   
             self.ensamblfrags()            
         except AsyncHLSDLError as e:
-            self.logger.warning(f"{self.info_dict['title']}:Exception ocurred when ensambling frags: {str(e)}") 
+            self.logger.warning(f"[{self.info_dict['title']}]:Exception ocurred when ensambling frags: {str(e)}") 
             self.satus = "error"
             raise             
 
@@ -541,7 +551,7 @@ class AsyncHLSDownloader():
             if self.filename.exists():
                 self.filename_stream[0].unlink()
                 self.filename_stream[1].unlink()
-                self.logger.debug(f"{self.info_dict['title']}:Streams merged for: {self.filename}")
+                self.logger.debug(f"[{self.info_dict['title']}]:Streams merged for: {self.filename}")
         
             else:
                 self.status = "error"
@@ -567,7 +577,7 @@ class AsyncHLSDownloader():
                 if len(frag_files) != len(self.info_frag[j]):
                     raise AsyncHLSDLError(f"Stream({j}):{self.filename_stream[j]}:Number of frag files < frags")
             
-                self.logger.debug(f"{self.info_dict['title']}:{self.filename_stream[j]}")
+                self.logger.debug(f"[{self.info_dict['title']}]:{self.filename_stream[j]}")
                 with open(self.filename_stream[j], mode='wb') as dest:
                     for f in frag_files:                    
                         with open(f, 'rb') as source:
@@ -576,7 +586,7 @@ class AsyncHLSDownloader():
             except Exception as e:
                 if self.filename_stream[j].exists():
                     self.filename_stream[j].unlink()
-                self.logger.warning(f"{self.info_dict['title']}:Exception ocurred: {str(e)}")
+                self.logger.warning(f"[{self.info_dict['title']}]:Exception ocurred: {str(e)}")
                 raise
 
         
@@ -606,15 +616,15 @@ class AsyncHLSDownloader():
         
         cmd = f"ffmpeg -y -loglevel repeat+info -i 'file:{str(self.filename_stream[0])}' -i \'file:{str(self.filename_stream[1])}' -c copy -map 0:v:0 -map 1:a:0 'file:{str(self.filename)}'"
         
-        self.logger.debug(f"{self.info_dict['title']}:{cmd}")
+        self.logger.debug(f"[{self.info_dict['title']}]:{cmd}")
         
-        task = await asyncio.create_subprocess_shell(cmd)
-
-        await task.wait()
+        proc = await asyncio.create_subprocess_shell(cmd) 
+                                    
+        await proc.wait()
         
-        # self.logger(f"ffmpeg RC={task.returncode}")
+        #self.logger.debug(f"ffmpeg RC={task.returncode}")
 
-        # return task.returncode
+        #return task.returncode
 
     def videoexits(self):
         return self.filename.exists()

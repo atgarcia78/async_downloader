@@ -61,7 +61,7 @@ async def run_tk(root, text, list_dl, logger, interval):
             if "init" in res: 
                 pass
             elif not "downloading" in res:
-                logger.debug(res)
+                
                 break
             else:    
                 for dl in list_dl:
@@ -75,26 +75,11 @@ async def run_tk(root, text, list_dl, logger, interval):
     except tkinter.TclError as e:
         if "application has been destroyed" not in e.args[0]:
             raise
+    
     logger.debug("RUN TK BYE")
 
 
-# def worker_hookup(list_dl, logger, text):
-    
-#     logger.debug("WORKER HOOKUP")
-#     sleep(1)
-#     try:
-        
-#         while True:
-#             text.delete(1.0,END)
-#             for dl in list_dl:
-#                 text.insert(END, dl.print_hookup()) 
-#             res = [dl.status for dl in list_dl]
-#             if not "downloading" in res: break       
-#             sleep(0.5)
-#     except Exception as e:
-#         logger.warning(f"error worker hookup {e}")
-        
-#     logger.debug("WORKER HOOKUP BYE")    
+
         
 
 def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
@@ -127,16 +112,16 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
                 elif protocol in ('m3u8', 'm3u8_native'):
                     dl = AsyncHLSDownloader(info_dict, ytdl, nparts)
                 else:
-                    logger.warning(f"{vid['url']}: protocol not supported")
+                    logger.error(f"{vid['url']}: protocol not supported")
                     raise Exception(f"{vid['url']}: protocol not supported")
                 
                 queue_dl.put(dl)
                 logger.debug(f"worker_init_dl[{i}]: DL constructor ok for {vid['url']}")
             else:
-                logger.warning(f"{vid['url']}:no info dict")                
+                logger.error(f"{vid['url']}:no info dict")                
                 raise Exception(f"{vid['url']}:no info dict")
         except Exception as e:
-            logger.warning(f"worker_init_dl[{i}]: DL constructor failed for {vid['url']} - Error: {e}")
+            logger.error(f"worker_init_dl[{i}]: DL constructor failed for {vid['url']} - Error: {e}")
             queue_nok.put((vid['url'], f"Error: {e}"))
         
     logger.debug(f"worker_init_dl[{i}]: finds queue init empty, says bye")
@@ -147,18 +132,12 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
 async def main(list_dl, workers, dl_dict, logger, text, root):
 
     
-    futures = []
-    
-    # coro = asyncio.to_thread(worker_hookup, list_dl, logger, text) 
-    
-
     try:
         async with AioPool(size=workers) as pool:
             
             futures = [pool.spawn_n(dl.fetch_async()) for dl in list_dl]
 
             [_, (done, pending)] = await asyncio.gather(
-                #coro,
                 run_tk(root, text, list_dl, logger, 0.1),
                 asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)                
             )
@@ -202,7 +181,6 @@ def main_program(logger):
 
     #lets get the list of videos to download
 
-    #list_videos = []
     
     with (init_ytdl(dict_opts,args.useragent)) as ytdl:
     
@@ -302,30 +280,21 @@ def main_program(logger):
 
         if args.nodl:
             return 0
-
-
-        
-
-                 
-        
-        # with ThreadPoolExecutor() as ex:
-        #     fut = ex.submit(root.mainloop())
-        
+       
 
         res = 1     
         
-
         try:
             
             root = Tk()
             root.geometry('{}x{}'.format(1250, 100))
             text = Text(root, font=("Source Code Pro", 9))
             text.pack(expand=True, fill='both')
-            for dl in list_dl:
-                
+            for dl in list_dl:                
                 text.insert(END, dl.print_hookup())            
             
             res = aiorun.run(main(list_dl, workers, dl_dict, logger, text, root), use_uvloop=True) 
+        
         except Exception as e:
             logger.warning(e, exc_info=True)
 
@@ -338,7 +307,7 @@ def main_program(logger):
                 res = 1
             else: logger.info(f"{dl.filename}:DL")
                 
-    return(res)
+    return res
 
 
 if __name__ == "__main__":
@@ -348,7 +317,7 @@ if __name__ == "__main__":
 
     return_value = main_program(logger)
 
-    logger.info(f"rescode: {return_value}")
+    logger.info(f"async_all return code: {return_value}")
 
     if return_value != 0:
         sys.exit(return_value)

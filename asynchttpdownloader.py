@@ -59,9 +59,7 @@ class AsyncHTTPDownloader():
         #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
                 
         self.info_dict = video_dict
-        
-        self.n_parts = n_parts         
-        
+        self.n_parts = n_parts 
         self.video_url = video_dict.get('url')
         self.webpage_url = video_dict.get('webpage_url')
         self.n_part = n_parts
@@ -76,31 +74,18 @@ class AsyncHTTPDownloader():
         timeout = None
         self.headers = self.info_dict.get('http_headers')
         self.client = httpx.AsyncClient(timeout=timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-        
-
         self.date_file = datetime.now().strftime("%Y%m%d")
-
         self.download_path = Path(Path.home(),"testing", self.date_file, self.info_dict['id'])
-
         self.download_path.mkdir(parents=True, exist_ok=True)
-
         self.filename = Path(Path.home(),"testing", self.date_file, self.date_file + "_" + \
-            str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict['ext'])
-        
-        self.filesize = self.info_dict.get('filesize', None)
-        
-        self.down_size = 0
-        
+            str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict['ext'])        
+        self.filesize = self.info_dict.get('filesize', None)        
+        self.down_size = 0        
         self.parts_header = []
-
-        if self.filesize:
-            
-            self.create_byte_ranges()
-        
-        self.logger.debug(f"{self.filename}:{self.filesize}:{self.parts_header}")
-        
-        self.status = "init"
-        
+        if self.filesize:            
+            self.create_byte_ranges()        
+        self.logger.debug(f"{self.filename}:{self.filesize}:{self.parts_header}")        
+        self.status = "init"        
 
     def create_byte_ranges(self):
        
@@ -229,7 +214,6 @@ class AsyncHTTPDownloader():
     
     def print_hookup(self):
         
-        #self.down_size = naturalsize(foldersize(str(self.base_download_path)))
         return (f"{self.webpage_url}: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
 
        
