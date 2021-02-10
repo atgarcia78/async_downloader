@@ -33,7 +33,7 @@ class ColorizedArgsFormatter(logging.Formatter):
         logging.CRITICAL: ColorCodes.bold_red,
     }
 
-    def __init__(self, fmt: str):
+    def __init__(self, fmt: str, datefmt: str):
         super().__init__()
         self.level_to_formatter = {}
 
@@ -43,7 +43,7 @@ class ColorizedArgsFormatter(logging.Formatter):
             for fld in ColorizedArgsFormatter.level_fields:
                 search = "(%\(" + fld + "\).*?s)"
                 _format = re.sub(search, f"{color}\\1{ColorCodes.reset}", _format)
-            formatter = logging.Formatter(_format)
+            formatter = logging.Formatter(_format, datefmt)
             self.level_to_formatter[level] = formatter
 
         add_color_format(logging.DEBUG)

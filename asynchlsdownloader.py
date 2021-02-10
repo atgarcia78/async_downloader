@@ -81,8 +81,10 @@ class AsyncHLSDownloader():
 
         self.base_download_path = Path(Path.home(),"testing", self.date_file, str(self.videoid))
         
-        self.filename = Path(Path.home(),"testing", self.date_file, self.date_file + "_" + \
-            str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "." + self.info_dict['ext'])
+        #self.filename = Path(Path.home(),"testing", self.date_file, self.date_file + "_" + \
+        #    str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "." + self.info_dict['ext'])
+        
+        self.filename = Path(Path.home(),"testing", self.date_file, str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "." + self.info_dict['ext'])
 
         if self.info_dict.get('requested_formats', None): #multi stream
             self.n_streams = 2
@@ -236,12 +238,12 @@ class AsyncHLSDownloader():
             
         self.calculate_duration() #get total duration
         self.calculate_filesize() #get filesize estimated
+        self.down_size = _downsize if (_downsize := foldersize(str(self.base_download_path))) > 128 else 0 #init in case there's part DL
         
-        self.logger.info(f"[{self.info_dict['title']}]: total duration {print_norm_time(self.totalduration)}")
-        self.logger.info(f"[{self.info_dict['title']}]: estimated filesize {naturalsize(self.filesize, False, False)}")
+        self.logger.info(f"[{self.info_dict['title']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {naturalsize(self.filesize, False, False)} -- already downloaded {naturalsize(self.down_size)}")       
         
-        self.down_size = foldersize(str(self.base_download_path)) #init in case there's part DL
-        self.logger.info(f"[{self.info_dict['title']}]: already downloaded {naturalsize(self.down_size)}")
+        
+   
                        
         
     def calculate_duration(self):
@@ -318,15 +320,12 @@ class AsyncHLSDownloader():
             self.stream_url.append(info_reset['requested_formats'][0]['url'])
             self.stream_url.append(info_reset['requested_formats'][1]['url'])
            
-            #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
-            #self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, proxies=self.proxies))
+
             self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
 
             self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
 
 
-            #self.frag_queue.append(deque())
-            #self.frag_queue.append(deque())
 
         else: #single stream
             self.headers.append(info_reset['http_headers'])
@@ -334,9 +333,9 @@ class AsyncHLSDownloader():
 
 
             self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
-            #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
 
-            #self.frag_queue.append(deque())
+
+
         
 
         self.frag_queue = deque()
@@ -353,10 +352,7 @@ class AsyncHLSDownloader():
 
             part = 0
             uri_ant = ""
-            byte_range = {}
-
-
-            
+            byte_range = {}            
             
             for i, segment in enumerate(self.m3u8_obj[j].segments):
 
@@ -456,14 +452,12 @@ class AsyncHLSDownloader():
         else:
             return 0
 
-    async def fetch_async(self):
-        
+    async def fetch_async(self):        
         cont = 5
         while (len(self.fragsnotdl()) != 0):
 
             self.status = "downloading"
             try:
-
                 
                 async with AioPool(size=self.iworkers) as pool:
 
@@ -565,11 +559,8 @@ class AsyncHLSDownloader():
         return (f"{self.webpage_url}:{self.status}")
 
     
-    def ensamblfrags(self):
-        
-        
+    def ensamblfrags(self):        
         for j in range(self.n_streams):
-
         
             try:
                 
@@ -600,44 +591,49 @@ class AsyncHLSDownloader():
         return res
 
 
-
-    def not_dl(self, j):
-        
+    def not_dl(self, j):        
         res = []
         for frag in self.info_frag[j]:
             if frag['downloaded'] == False:
                 res.append(frag['frag'])
         
         return res
-        
+    
+    async def read_stream(self, stream):
+        msg = ""
+        while (self.proc is not None and not self.proc.returncode):
+            try:
+                line = await stream.readline()
+            except (asyncio.LimitOverrunError, ValueError):
+                continue
+            if line: 
+                line = line.decode('utf-8').strip()
+                msg = f"{msg}{line}\n"                                                            
+            else:
+                break
+        self.logger.debug(f"[{self.info_dict['title']}]:{msg}")
 
     
-    async def merge(self):
-        
+    async def merge(self):        
         cmd = f"ffmpeg -y -loglevel repeat+info -i 'file:{str(self.filename_stream[0])}' -i \'file:{str(self.filename_stream[1])}' -c copy -map 0:v:0 -map 1:a:0 'file:{str(self.filename)}'"
         
         self.logger.debug(f"[{self.info_dict['title']}]:{cmd}")
         
-        proc = await asyncio.create_subprocess_shell(cmd) 
-                                    
-        await proc.wait()
+        self.proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=1024 * 1024) 
         
-        #self.logger.debug(f"ffmpeg RC={task.returncode}")
-
-        #return task.returncode
+        await asyncio.gather(self.read_stream(self.proc.stdout), self.read_stream(self.proc.stderr), self.proc.wait())
+        
+        return self.proc.returncode
 
     def videoexits(self):
         return self.filename.exists()
 
-    def remove(self):
-        
+    def remove(self):        
         rmtree(str(self.base_download_path),ignore_errors=True)
         
    
     
-    def print_hookup(self):
-        
-        #self.down_size = naturalsize(foldersize(str(self.base_download_path)))
-        return (f"{self.webpage_url}: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
+    def print_hookup(self):        
+        return (f"[{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
             
         

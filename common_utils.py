@@ -176,7 +176,7 @@ def init_argparser():
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
     parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
     parser.add_argument("--proxy", default=None, type=str)
-    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.16; rv:84.0) Gecko/20100101 Firefox/84.0", type=str)
+    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 11.2; rv:85.0) Gecko/20100101 Firefox/85.0", type=str)
     parser.add_argument("--start", default=None, type=int)
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
@@ -187,11 +187,6 @@ def init_argparser():
 
 def init_ytdl(dict_opts, uagent):
 
-    #fecha = (datetime.now()).strftime("%Y%m%d")
-    #dlpath = Path(Path.home(), "testing", fecha)
-    #dlpath.mkdir(parents=True, exist_ok=True)
-
-    #outtmpl = f"{str(dlpath)}/{fecha}_%(id)5s_%(title)s.%(ext)s"
 
     logger = logging.getLogger("_ytdl_")
 

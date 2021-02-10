@@ -27,6 +27,8 @@ from shutil import rmtree
 
 from asyncio_pool import AioPool
 
+import hashlib
+
 
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -63,6 +65,9 @@ class AsyncHTTPDownloader():
         self.video_url = video_dict.get('url')
         self.webpage_url = video_dict.get('webpage_url')
         self.n_part = n_parts
+        self.videoid = self.info_dict.get('id', None)
+        if not self.videoid:
+            self.videoid = int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8
         
         self.ytdl = ytdl
         self.proxies = ytdl.params.get('proxy', None)
@@ -77,8 +82,10 @@ class AsyncHTTPDownloader():
         self.date_file = datetime.now().strftime("%Y%m%d")
         self.download_path = Path(Path.home(),"testing", self.date_file, self.info_dict['id'])
         self.download_path.mkdir(parents=True, exist_ok=True)
-        self.filename = Path(Path.home(),"testing", self.date_file, self.date_file + "_" + \
-            str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict['ext'])        
+        #self.filename = Path(Path.home(),"testing", self.date_file, self.date_file + "_" + \
+        #    str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict['ext'])        
+        self.filename = Path(Path.home(),"testing", self.date_file,
+            str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict['ext']) 
         self.filesize = self.info_dict.get('filesize', None)        
         self.down_size = 0        
         self.parts_header = []
@@ -178,8 +185,6 @@ class AsyncHTTPDownloader():
                     self.logger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
                 except Exception as e:
                     self.logger.debug(f"{self.webpage_url}:{e}")
-
-
                 await asyncio.gather(*pending_tasks, return_exceptions=True)
         
             if done_tasks:
@@ -214,7 +219,7 @@ class AsyncHTTPDownloader():
     
     def print_hookup(self):
         
-        return (f"{self.webpage_url}: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
+        return (f"[{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
 
        
         

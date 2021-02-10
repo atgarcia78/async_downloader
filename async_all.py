@@ -1,18 +1,14 @@
 #!/usr/bin/env python
 
 
-from asyncio.events import new_event_loop
 from queue import Queue
 import logging
-from re import U
-from urllib.parse import urlparse
 import sys
 import json
 import ast
 
 from tkinter import Tk, Text, END
 import tkinter
-import uvloop
 
 
 from asynchttpdownloader import (
@@ -27,9 +23,7 @@ from common_utils import (
     init_logging,
     init_ytdl,
     get_protocol,
-    init_argparser,
-    foldersize,
-    naturalsize
+    init_argparser
 
 )
 
@@ -47,6 +41,9 @@ from asyncio_pool import AioPool
 
 from time import sleep
 
+from pathlib import Path
+
+
 async def run_tk(root, text, list_dl, logger, interval):
     '''
     Run a tkinter app in an asyncio event loop.
@@ -55,19 +52,18 @@ async def run_tk(root, text, list_dl, logger, interval):
         
         while True:
             root.update()
-            text.delete(1.0,END)
             res = set([dl.status for dl in list_dl])
-            logger.debug(res)
+            #logger.debug(res)
             if "init" in res: 
                 pass
-            elif not "downloading" in res:
-                
+            elif not "downloading" in res:                
                 break
-            else:    
+            else:
+                text.delete(1.0,END)    
                 for dl in list_dl:
                     mens = dl.print_hookup()
                     text.insert(END, mens)
-                    logger.debug(mens)                 
+                    #logger.debug(mens)                 
                 
             await asyncio.sleep(interval)
                   
@@ -78,9 +74,6 @@ async def run_tk(root, text, list_dl, logger, interval):
     
     logger.debug("RUN TK BYE")
 
-
-
-        
 
 def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
     #worker que lanza los AsyncHLSDownloaders, uno por video
@@ -130,8 +123,6 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
 
 
 async def main(list_dl, workers, dl_dict, logger, text, root):
-
-    
     try:
         async with AioPool(size=workers) as pool:
             
@@ -150,8 +141,7 @@ async def main(list_dl, workers, dl_dict, logger, text, root):
                     logger.debug(f"{len(pending)} tasks pending cancelled")
                 except Exception as e:
                     logger.debug(f"{e}")
-
-            await asyncio.gather(*pending, return_exceptions=True)
+                await asyncio.gather(*pending, return_exceptions=True)
             
             for task in done:
                 try:
@@ -162,7 +152,6 @@ async def main(list_dl, workers, dl_dict, logger, text, root):
 
     except Exception as e:
         logger.warning(e)
-
     
     asyncio.get_running_loop().stop()
 
@@ -179,9 +168,7 @@ def main_program(logger):
     if args.ytdlopts:
         dict_opts.update(ast.literal_eval(args.ytdlopts))
 
-    #lets get the list of videos to download
-
-    
+    #lets get the list of videos to download    
     with (init_ytdl(dict_opts,args.useragent)) as ytdl:
     
         logger.debug(ytdl.params)
@@ -199,7 +186,6 @@ def main_program(logger):
                 logger.debug(info)                
                 list_videos = list(info.get('entries'))
 
-
             else:
                 with open(args.target, "r") as file_json:
                     info_json = json.loads(file_json.read())
@@ -209,7 +195,6 @@ def main_program(logger):
         else: #url no son playlist
 
             if not args.file:
-
                 list_videos = [{'_type': 'url', 'url': el} for el in args.target.split(",")]
 
             else:
@@ -231,7 +216,8 @@ def main_program(logger):
                 list_videos = list_videos[args.start-1:args.end-1]
         
 
-        logger.debug(list_videos)
+        logger.info(list_videos)
+        
 
         queue_vid = Queue()
         for video in list_videos:
@@ -253,12 +239,21 @@ def main_program(logger):
         dl_dict = dict()
 
         n_downloads = 0
+        
+        #TO DO revisar para meter como opción
+        
+        folder_extra = Path("/Volumes/Pandaext4/videos/FRATERNITYX")
+        files_id_list = []
+        for file in folder_extra.iterdir():
+            files_id_list.append(file.stem.split("_")[0])
+            
+        ######
 
         while not queue_dl.empty():
             
             dl = queue_dl.get()   
             logger.debug(f"{dl.filename}:{dl.info_dict}")
-            if dl.filename.exists():
+            if dl.filename.exists() or dl.videoid in files_id_list:
                 logger.info(f"Video already downloaded: {dl.filename} {dl.webpage_url}")
                 n_downloads += 1
                 dl.remove()
