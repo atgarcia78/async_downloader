@@ -219,7 +219,12 @@ class AsyncHTTPDownloader():
     
     def print_hookup(self):
         
-        return (f"[{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
+        if self.status == "done":
+            return (f"[{self.info_dict['title']}]: Completed [{naturalsize(self.filename.stat().st_size)}]\n")
+        elif self.status == "init":
+            return (f"[{self.info_dict['title']}]: Waiting to enter in the pool [{naturalsize(self.filesize)}]\n")            
+        else:            
+            return (f"[{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n")
 
        
         

@@ -54,16 +54,15 @@ async def run_tk(root, text, list_dl, logger, interval):
             root.update()
             res = set([dl.status for dl in list_dl])
             #logger.debug(res)
-            if ("init" in res and not "downloading" in res): 
+            if "init" in res: 
                 pass
-            elif (not "init" in res and not "downloading" in res):                
+            elif not "downloading" in res:                
                 break
             else:
                 text.delete(1.0,END)    
                 for dl in list_dl:
-                    if dl.status in ["downloading", "done", "init"]:
-                        mens = dl.print_hookup()
-                        text.insert(END, mens)
+                    mens = dl.print_hookup()
+                    text.insert(END, mens)
                     #logger.debug(mens)                 
                 
             await asyncio.sleep(interval)
@@ -125,15 +124,15 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
 
 async def main(list_dl, workers, dl_dict, logger, text, root):
     try:
-        async with AioPool(size=workers+1) as pool:
+        async with AioPool(size=workers) as pool:
             
-            fut = pool.spawn_n(run_tk(root, text, list_dl, logger, 0.25))
             futures = [pool.spawn_n(dl.fetch_async()) for dl in list_dl]
-            futures.append(fut)
-            
 
-            done, pending = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)
-                        
+            [_, (done, pending)] = await asyncio.gather(
+                asyncio.wait_for(run_tk(root, text, list_dl, logger, 1),None),
+                asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)                
+            )
+            
             #done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)
 
             if pending:
@@ -284,8 +283,8 @@ def main_program(logger):
             root.geometry('{}x{}'.format(1250, 100))
             text = Text(root, font=("Source Code Pro", 9))
             text.pack(expand=True, fill='both')
-            #for dl in list_dl:                
-            #    text.insert(END, dl.print_hookup())            
+            for dl in list_dl:                
+                text.insert(END, dl.print_hookup())            
             
             res = aiorun.run(main(list_dl, workers, dl_dict, logger, text, root), use_uvloop=True) 
         
