@@ -127,11 +127,8 @@ class AsyncHLSDownloader():
             self.headers.append(self.info_dict['requested_formats'][1]['http_headers'])
             self.stream_url.append(self.info_dict['requested_formats'][0]['url'])
             self.stream_url.append(self.info_dict['requested_formats'][1]['url'])
-           
-            #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
-            #self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, proxies=self.proxies))
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
 
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
             self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
 
             self.download_path.append(Path(self.base_download_path, "video"))
@@ -153,9 +150,7 @@ class AsyncHLSDownloader():
             self.headers.append(self.info_dict['http_headers'])
             self.stream_url.append(self.info_dict['url'])
 
-
             self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
-            #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
             self.download_path.append(self.base_download_path)
             self.download_path[0].mkdir(parents=True, exist_ok=True)
             self.filename_stream.append(self.filename)
@@ -188,13 +183,10 @@ class AsyncHLSDownloader():
         
             part = 0
             uri_ant = ""
-            byte_range = {}
-            
-            
+            byte_range = {}            
 
             for i, segment in enumerate(self.m3u8_obj[j].segments):
-                 
-                
+                                 
                 if segment.byterange:
                     if segment.uri == uri_ant:
                         part += 1
@@ -243,10 +235,7 @@ class AsyncHLSDownloader():
         
         self.logger.info(f"[{self.info_dict['title']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {naturalsize(self.filesize, False, False)} -- already downloaded {naturalsize(self.down_size)}")       
         
-        
-   
-                       
-        
+         
     def calculate_duration(self):
         self.totalduration = 0
         for segment in self.m3u8_obj[0].segments:
@@ -261,7 +250,6 @@ class AsyncHLSDownloader():
         self.filesize = self.totalduration * 1000 * tbr / 8 #bytes  
         
     async def reset(self):
-
         self.logger.debug(f"[{self.info_dict['title']}]:RESET:close clients")
         
         try:

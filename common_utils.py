@@ -15,6 +15,8 @@ import httpx
 from pathlib import Path
 import re
 import argparse
+from tkinter import Tk, Text
+
 
 def foldersize(folder):
     #devuelve en bytes size folder
@@ -216,6 +218,14 @@ def init_ytdl(dict_opts, uagent):
     std_headers["User-Agent"] = uagent
 
     return ytdl
+
+def init_tk(n_dl):
+    root = Tk()
+    root.geometry('{}x{}'.format(500, 15*n_dl))
+    text = Text(root, font=("Source Code Pro", 9))
+    text.pack(expand=True, fill='both')
+        
+    return(root, text)
 
 def get_info_dl(info_dict):
     if info_dict.get("_type") == "playlist":

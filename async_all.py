@@ -6,9 +6,11 @@ import logging
 import sys
 import json
 import ast
-
-from tkinter import Tk, Text, END
 import tkinter
+import asyncio
+import aiorun 
+from asyncio_pool import AioPool
+from pathlib import Path
 
 
 from asynchttpdownloader import (
@@ -22,6 +24,7 @@ from asynchlsdownloader import (
 from common_utils import ( 
     init_logging,
     init_ytdl,
+    init_tk,
     get_info_dl,
     init_argparser
 
@@ -32,17 +35,6 @@ from concurrent.futures import (
     ALL_COMPLETED,
     wait
 )
-
-import asyncio
-
-import aiorun 
-
-from asyncio_pool import AioPool
-
-from time import sleep
-
-from pathlib import Path
-
 
 async def run_tk(root, text, list_dl, logger, interval):
     '''
@@ -59,11 +51,11 @@ async def run_tk(root, text, list_dl, logger, interval):
             elif (not "init" in res and not "downloading" in res):                
                 break
             else:
-                text.delete(1.0,END)    
+                text.delete(1.0, tkinter.END)    
                 for dl in list_dl:
                     if dl.status in ["downloading", "done", "init"]:
                         mens = dl.print_hookup()
-                        text.insert(END, mens)
+                        text.insert(tkinter.END, mens)
                     #logger.debug(mens)                 
                 
             await asyncio.sleep(interval)
@@ -125,7 +117,7 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
 
 
 
-async def main(list_dl, workers, dl_dict, logger, text, root):
+async def async_ex(list_dl, workers, dl_dict, logger, text, root):
     try:
         async with AioPool(size=workers+1) as pool:
             
@@ -133,10 +125,7 @@ async def main(list_dl, workers, dl_dict, logger, text, root):
             futures = [pool.spawn_n(dl.fetch_async()) for dl in list_dl]
             futures.append(fut)
             
-
             done, pending = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)
-                        
-            #done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)
 
             if pending:
                 try:
@@ -255,12 +244,12 @@ def main_program(logger):
             dl = queue_dl.get()   
             logger.debug(f"{dl.filename}:{dl.info_dict}")
             if dl.filename.exists() or dl.videoid in files_id_list:
-                logger.info(f"Video already downloaded: {dl.filename} {dl.webpage_url}")
+                logger.info(f"{dl.webpage_url}: Video already downloaded")
                 n_downloads += 1
                 dl.remove()
             else:
                 list_dl.append(dl)
-                logger.info(f"Video will be processed: {dl.webpage_url}")
+                logger.info(f"{dl.webpage_url}: Video will be processed")
                 dl_dict[dl.info_dict['id']] = dl.webpage_url
 
         n_nok = 0
@@ -268,7 +257,7 @@ def main_program(logger):
         while not queue_nok.empty():
             
             res = queue_nok.get()
-            logger.info(f"Video wont be processed: {res[0]} - {res[1]}")
+            logger.info(f"{res[0]}: Video wont be processed - {res[1]}")
             n_nok += 1
         
         logger.info(f"Request to DL total of {len(list_videos)}: Already DL: {n_downloads} - Number of videos to process: {len(list_dl)} - Can't DL: {n_nok}")
@@ -282,14 +271,9 @@ def main_program(logger):
         
         try:
             
-            root = Tk()
-            root.geometry('{}x{}'.format(500, 15*len(list_dl)))
-            text = Text(root, font=("Source Code Pro", 9))
-            text.pack(expand=True, fill='both')
-            #for dl in list_dl:                
-            #    text.insert(END, dl.print_hookup())            
-            
-            res = aiorun.run(main(list_dl, workers, dl_dict, logger, text, root), use_uvloop=True) 
+            root_tk, text_tk = init_tk(len(list_dl))            
+           
+            res = aiorun.run(async_ex(list_dl, workers, dl_dict, logger, text_tk, root_tk), use_uvloop=True) 
         
         except Exception as e:
             logger.warning(e, exc_info=True)
