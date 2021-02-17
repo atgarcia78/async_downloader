@@ -119,7 +119,6 @@ class AsyncHLSDownloader():
 
         #timeout = httpx.Timeout(20, connect=60)
         timeout = None
-        limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
 
         if self.n_streams == 2:
 
@@ -130,9 +129,9 @@ class AsyncHLSDownloader():
            
             #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
             #self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, proxies=self.proxies))
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
 
-            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
 
             self.download_path.append(Path(self.base_download_path, "video"))
             self.download_path.append(Path(self.base_download_path, "audio"))
@@ -154,7 +153,7 @@ class AsyncHLSDownloader():
             self.stream_url.append(self.info_dict['url'])
 
 
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
             #self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, proxies=self.proxies))
             self.download_path.append(self.base_download_path)
             self.download_path[0].mkdir(parents=True, exist_ok=True)

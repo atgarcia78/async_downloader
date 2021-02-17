@@ -3,7 +3,6 @@ from asyncio.exceptions import (
     CancelledError,
     InvalidStateError
 )
-from os import CLD_CONTINUED
 import httpx
 import aiofile
 import sys
@@ -101,10 +100,10 @@ class AsyncHTTPDownloader():
         start_range = 0
         for i in range(self.n_parts):
             if i == (self.n_parts - 1):
-                self.parts_header.append({'range' : f'bytes={start_range}-'})                
+                self.parts_header.append({'range' : f"'bytes={start_range}-'"})                
             else:
                 end_range = start_range + (self.filesize//self.n_parts)
-                self.parts_header.append({'range' : f'bytes={start_range}-{end_range}'})
+                self.parts_header.append({'range' : f"'bytes={start_range}-{end_range}'"})
                 start_range = end_range + 1
 
     def remove(self):
@@ -114,19 +113,21 @@ class AsyncHTTPDownloader():
         
         while not self.parts_queue.empty():
 
-            part = await self.parts_queue.get()
-            tempfilename = Path(self.download_path, f"{self.filename.stem}_part_{part+1}_of_{self.n_parts}")
+            part, range_header = await self.parts_queue.get()
+            tempfilename = Path(self.download_path, f"{self.filename.stem}_part_{part}")
             self.logger.debug(tempfilename)
             # req = self.client.build_request("GET", self.video_url, headers=range_header)
             # self.logger.debug(f"Part:{part} {req.headers}")
-                    
+            
+            
+        
             try:
         
                 async with self.client.stream("GET", self.video_url, 
-                    headers=self.parts_header[part]) as res:            
+                    headers=range_header) as res:            
                     
                     if res.status_code >= 400:                               
-                        raise AsyncHTTPDLError(f"{self.webpage_url}:Part_{part+1} resp code:{str(res)}")
+                        raise AsyncHTTPDLError(f"Part:{str(part)} resp code:{str(res)}")
                     else:
                         async with aiofile.async_open(tempfilename, mode='wb') as f:
                             async for chunk in res.aiter_bytes(chunk_size=1024*1024):
@@ -170,26 +171,13 @@ class AsyncHTTPDownloader():
 
         self.parts_queue = asyncio.Queue()
 
-        for part in range(self.n_parts):
-            tempfilename = Path(self.download_path, f"{self.filename.stem}_part_{part+1}_of_{self.n_parts}")
-            if part != self.n_parts - 1: tempfilesize = self.filesize // self.n_parts
-            else: tempfilesize = self.filesize // self.n_parts + self.filesize % self.n_parts
-            
-            if not tempfilename.exists():
-                self.logger.debug(f"{self.webpage_url}: Part_{part+1} don't exits, lets DL")
-                self.parts_queue.put_nowait(part)
-            else:
-                if (partsize:= tempfilename.stat().st_size) >= tempfilesize: 
-                    self.logger.debug(f"{self.webpage_url}: Part_{part+1} exits and full downloaded")
-                    self.down_size += partsize
-                    continue
-                else:
-                    self.logger.debug(f"{self.webpage_url}: Part_{part+1} exits and not fully downloaded. Reload")
-                    tempfilename.unlink()
-                    self.parts_queue.put_nowait(part)
-            
-        self.status = "downloading"
+        for i, r in enumerate(self.parts_header):
+            tempfilename = Path(self.download_path, f"{self.filename.stem}_part_{part}_of_{self.n_parts}")
+            tempfilesize = r'bytes=(?P<start>)-(?P<end>)'
+            if tempfilename.exists() and tempfilename.stat().st_size
+            self.parts_queue.put_nowait((i, r))
         
+        self.status = "downloading"
         async with AioPool(size=self.n_parts) as pool:
 
             futures = [pool.spawn_n(self.fetch()) for _ in range(self.n_parts)]        

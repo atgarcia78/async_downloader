@@ -22,7 +22,7 @@ from asynchlsdownloader import (
 from common_utils import ( 
     init_logging,
     init_ytdl,
-    get_protocol,
+    get_info_dl,
     init_argparser
 
 )
@@ -99,24 +99,26 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
                 
             if info_dict:
                 logger.debug(info_dict)
-                protocol = get_protocol(info_dict)
+                protocol, final_dict = get_info_dl(info_dict)
                 logger.debug(f"protocol: {protocol}")
+                logger.debug(final_dict)
                 if protocol in ('http', 'https'):
-                    dl = AsyncHTTPDownloader(info_dict, ytdl, nparts)
+                    dl = AsyncHTTPDownloader(final_dict, ytdl, nparts)
                 elif protocol in ('m3u8', 'm3u8_native'):
-                    dl = AsyncHLSDownloader(info_dict, ytdl, nparts)
+                    dl = AsyncHLSDownloader(final_dict, ytdl, nparts)
                 else:
                     logger.error(f"{vid['url']}: protocol not supported")
-                    raise Exception(f"{vid['url']}: protocol not supported")
+                    raise Exception("protocol not supported")
                 
                 queue_dl.put(dl)
                 logger.debug(f"worker_init_dl[{i}]: DL constructor ok for {vid['url']}")
             else:
                 logger.error(f"{vid['url']}:no info dict")                
-                raise Exception(f"{vid['url']}:no info dict")
+                raise Exception("no info dict")
         except Exception as e:
-            logger.error(f"worker_init_dl[{i}]: DL constructor failed for {vid['url']} - Error: {e}")
-            queue_nok.put((vid['url'], f"Error: {e}"))
+            queue_nok.put((vid['url'], f"Error:{e}"))
+            logger.error(f"worker_init_dl[{i}]: DL constructor failed for {vid['url']} - Error:{e}")
+            
         
     logger.debug(f"worker_init_dl[{i}]: finds queue init empty, says bye")
     
@@ -243,7 +245,7 @@ def main_program(logger):
         
         #TO DO revisar para meter como opción
         
-        folder_extra = Path("/Users/antoniotorres/testing/20210213")
+        folder_extra = Path("/Users/antoniotorres/testing/FRATERNITYX")
         files_id_list = [file.stem.split("_")[0] for file in folder_extra.iterdir() if file.is_file()]
                    
         ######
@@ -265,8 +267,8 @@ def main_program(logger):
         
         while not queue_nok.empty():
             
-            v_url, error_m = queue_nok.get()
-            logger.debug(f"Video wont be processed {v_url}:{error_m}")
+            res = queue_nok.get()
+            logger.info(f"Video wont be processed: {res[0]} - {res[1]}")
             n_nok += 1
         
         logger.info(f"Request to DL total of {len(list_videos)}: Already DL: {n_downloads} - Number of videos to process: {len(list_dl)} - Can't DL: {n_nok}")
@@ -281,7 +283,7 @@ def main_program(logger):
         try:
             
             root = Tk()
-            root.geometry('{}x{}'.format(1250, 100))
+            root.geometry('{}x{}'.format(500, 15*len(list_dl)))
             text = Text(root, font=("Source Code Pro", 9))
             text.pack(expand=True, fill='both')
             #for dl in list_dl:                

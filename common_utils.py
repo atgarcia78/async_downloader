@@ -217,8 +217,11 @@ def init_ytdl(dict_opts, uagent):
 
     return ytdl
 
-def get_protocol(info_dict):
-    if info_dict.get('requested_formats'):
-        return(determine_protocol(info_dict['requested_formats'][0]))
+def get_info_dl(info_dict):
+    if info_dict.get("_type") == "playlist":
+        f_info_dict = info_dict['entries'][0]
+    else: f_info_dict = info_dict
+    if f_info_dict.get('requested_formats'):
+        return(determine_protocol(f_info_dict['requested_formats'][0]), f_info_dict)
     else:
-        return determine_protocol(info_dict)
+        return (determine_protocol(f_info_dict), f_info_dict)
