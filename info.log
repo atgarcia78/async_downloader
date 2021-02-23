@@ -1,4 +1,0 @@
-2021-02-05 18:56:40,238 [96540] INFO     __main__: It works and log to stdout and /dev/null with JSON
-2021-02-05 18:57:45,660 [96731] INFO     __main__: It works and log to stdout and /dev/null with JSON
-2021-02-05 18:57:45,660 [96731] ERROR    __main__: mal todo
-2021-02-05 18:57:45,660 [96731] WARNING  __main__: cuidadin
