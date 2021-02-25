@@ -11,6 +11,7 @@ import asyncio
 import aiorun 
 from asyncio_pool import AioPool
 from pathlib import Path
+from tqdm import tqdm
 
 
 from asynchttpdownloader import (
@@ -66,10 +67,21 @@ async def run_tk(root, text, list_dl, logger, interval):
             raise
     
     logger.debug("RUN TK BYE")
+    
+
+async def update_tqdm(list_dl, pbar, interval):
+            
+    data1 = [dl.down_size for dl in list_dl]
+    while True:
+        data2 = [dl.down_size for dl in list_dl]
+        for i, pb in enumerate(pbar):
+            pb.update(data2[i] - data1[i])
+            data1[i] = data2[i]
+        await asyncio.sleep(interval)    
 
 
 def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
-    #worker que lanza los AsyncHLSDownloaders, uno por video
+    #worker que lanza los Downloaders, uno por video
     
     logger.debug(f"worker_init_dl[{i}]: launched")
 
@@ -115,15 +127,22 @@ def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, logger, queue_nok):
     logger.debug(f"worker_init_dl[{i}]: finds queue init empty, says bye")
     
 
+def init_pbar(list_dl):
+    barformat = '{desc}: {percentage:3.0f}% of {total_fmt}|{bar}|at {rate_fmt} ETA {remaining}'
+    
+    return([tqdm(desc=dl.info_dict['title'], bar_format=barformat, unit='B', unit_scale=True, dynamic_ncols=True, initial=dl.down_size, unit_divisor=1024, smoothing=0, mininterval=0.5, maxinterval = 1, total=dl.filesize, position=i) for i, dl in enumerate(list_dl)])
+        
 
 
 async def async_ex(list_dl, workers, dl_dict, logger, text, root):
     try:
         async with AioPool(size=workers+1) as pool:
             
-            fut = pool.spawn_n(run_tk(root, text, list_dl, logger, 0.25))
+            fut1 = pool.spawn_n(run_tk(root, text, list_dl, logger, 0.25))
+            #fut2 = pool.spawn_n(update_tqdm(list_dl, pbar, 0.25))
             futures = [pool.spawn_n(dl.fetch_async()) for dl in list_dl]
-            futures.append(fut)
+            #futures.append(fut1, fut2)
+            futures.append(fut1)
             
             done, pending = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)
 
@@ -217,16 +236,18 @@ def main_program(logger):
 
         queue_dl = Queue()
         queue_nok = Queue()
+        
+        if args.nomult:
+            worker_init_dl(ytdl, queue_vid, parts, queue_dl, 1 , logger, queue_nok)
+
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as exe:
+                
+                futures = [exe.submit(worker_init_dl, ytdl, queue_vid, parts, queue_dl, i, logger, queue_nok) for i in range(workers)]
+        
+                done_futs, _ = wait(futures, return_when=ALL_COMPLETED)
 
         
-        with ThreadPoolExecutor(max_workers=workers) as exe:
-            
-            futures = [exe.submit(worker_init_dl, ytdl, queue_vid, parts, queue_dl, i, logger, queue_nok) for i in range(workers)]
-     
-            done_futs, _ = wait(futures, return_when=ALL_COMPLETED)
-
-                    
-
         list_dl = []
         dl_dict = dict()
 
@@ -271,7 +292,9 @@ def main_program(logger):
         
         try:
             
-            root_tk, text_tk = init_tk(len(list_dl))            
+            root_tk, text_tk = init_tk(len(list_dl))
+            
+            #pbar = init_pbar(list_dl)            
            
             res = aiorun.run(async_ex(list_dl, workers, dl_dict, logger, text_tk, root_tk), use_uvloop=True) 
         

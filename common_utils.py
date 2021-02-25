@@ -30,7 +30,7 @@ SUFFIXES = {
     "gnu": "KMGTPEZY",
 }
 
-def naturalsize(value, binary=False, gnu=False, format="%.2f"):
+def naturalsize(value, binary=False, gnu=False, format="%.4f"):
     """Format a number of bytes like a human readable filesize (e.g. 10 kB).
 
     By default, decimal suffixes (kB, MB) are used.
@@ -182,6 +182,8 @@ def init_argparser():
     parser.add_argument("--start", default=None, type=int)
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
+    parser.add_argument("--nomult", help="init not concurrent", action="store_true")
+    
     parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
 
     return parser.parse_args()
@@ -221,11 +223,13 @@ def init_ytdl(dict_opts, uagent):
 
 def init_tk(n_dl):
     root = Tk()
-    root.geometry('{}x{}'.format(500, 15*n_dl))
+    root.geometry('{}x{}'.format(500, 25*n_dl))
     text = Text(root, font=("Source Code Pro", 9))
     text.pack(expand=True, fill='both')
         
     return(root, text)
+
+   
 
 def get_info_dl(info_dict):
     if info_dict.get("_type") == "playlist":
