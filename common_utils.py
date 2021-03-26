@@ -15,12 +15,19 @@ import httpx
 from pathlib import Path
 import re
 import argparse
-from tkinter import Tk, Text
+import tkinter as tk
 
 
 def foldersize(folder):
     #devuelve en bytes size folder
-    return sum(file.stat().st_size for file in Path(folder).rglob('*'))
+    return sum(file.stat().st_size for file in Path(folder).rglob('*') if file.is_file())
+
+def folderfiles(folder):
+    count = 0
+    for file in Path(folder).rglob('*'):
+        if file.is_file(): count += 1
+        
+    return count
 
 """Bits and bytes related humanization."""
 
@@ -152,6 +159,17 @@ def status_proxy():
 
     return(list_ok)
 
+# def init_ffprofiles_file():
+#     with open(Path(Path.home(), "testing/firefoxprofiles.json"), "r") as f:
+#         ffprofiles_dict = json.loads(f.read())
+        
+#     for prof in ffprofiles_dict['profiles']:
+#         prof['count'] = 0
+    
+#     with open(Path(Path.home(), "testing/firefoxprofiles.json"), "w") as f:
+#         json.dump(ffprofiles_dict, f)
+
+
 def init_logging(file_path=None):
 
     if not file_path:
@@ -183,6 +201,7 @@ def init_argparser():
     parser.add_argument("--end", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
     parser.add_argument("--nomult", help="init not concurrent", action="store_true")
+    parser.add_argument("--cache", default=None, type=str)
     
     parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
 
@@ -192,7 +211,7 @@ def init_argparser():
 def init_ytdl(dict_opts, uagent):
 
 
-    logger = logging.getLogger("_ytdl_")
+    logger = logging.getLogger("ytdl")
 
     ytdl_opts = {
         #"debug_printtraffic": True,
@@ -222,14 +241,70 @@ def init_ytdl(dict_opts, uagent):
     return ytdl
 
 def init_tk(n_dl):
-    root = Tk()
-    root.geometry('{}x{}'.format(500, 25*n_dl))
-    text = Text(root, font=("Source Code Pro", 9))
-    text.pack(expand=True, fill='both')
-        
-    return(root, text)
-
+    window = tk.Tk()
+    window.title("async_downloader")
+    #window.geometry('{}x{}'.format(500, 25*n_dl))
+    
+    frame0 = tk.Frame(master=window, width=300, height=25*n_dl, bg="white")
+  
+    frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
+    
+    frame1 = tk.Frame(master=window, width=300, bg="white")
+  
+    frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
+    
+    frame2 = tk.Frame(master=window, width=300, bg="white")
    
+    frame2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    label0 = tk.Label(master=frame0, text="WAITING TO ENTER IN POOL", bg="blue")
+    label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text0 = tk.Text(master=frame0, font=("Source Code Pro", 9))
+    text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    label1 = tk.Label(master=frame1, text="NOW DOWNLOADING", bg="blue")
+    label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text1 = tk.Text(master=frame1, font=("Source Code Pro", 9))
+    text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    label2 = tk.Label(master=frame2, text="DOWNLOADED/ERRROS", bg="blue")
+    label2.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text2 = tk.Text(master=frame2, font=("Source Code Pro", 9))
+    text2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)   
+    
+    text0.insert(tk.END, "Waiting for info") 
+    text1.insert(tk.END, "Waiting for info") 
+    text2.insert(tk.END, "Waiting for info")  
+           
+    return(window, text0, text1, text2)
+
+def init_tk_afiles(n_files):
+    window = tk.Tk()
+    window.title("async_files")
+    
+    frame0 = tk.Frame(master=window, width=300, height=25*n_files, bg="white")
+  
+    frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True) 
+    
+    label0 = tk.Label(master=frame0, text="MOVING", bg="blue")
+    label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text0 = tk.Text(master=frame0, font=("Source Code Pro", 9))
+    text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    text0.insert(tk.END, "Waiting for info") 
+    
+    # frame1 = tk.Frame(master=window, width=300, bg="white")
+  
+    # frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True) 
+    
+    # label1 = tk.Label(master=frame1, text="NCORUTINAS", bg="blue")
+    # label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    # text1 = tk.Text(master=frame1, font=("Source Code Pro", 9))
+    # text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    # text1.insert(tk.END, "Waiting for info") 
+    
+    return(window, text0)
+       
+    
 
 def get_info_dl(info_dict):
     if info_dict.get("_type") == "playlist":

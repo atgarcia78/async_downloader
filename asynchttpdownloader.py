@@ -5,7 +5,6 @@ from asyncio.exceptions import (
 )
 from os import CLD_CONTINUED
 import httpx
-import aiofile
 import sys
 from pathlib import Path
 import logging
@@ -94,7 +93,7 @@ class AsyncHTTPDownloader():
         self.parts = []
         self.status = "init"
         self.prepare_parts()
-        self.logger.debug(f"{self.webpage_url}:[init] {self.parts}")        
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [init] {self.parts}")        
 
     def create_parts(self):
        
@@ -122,7 +121,7 @@ class AsyncHTTPDownloader():
             
             try:
                 res = self.cl.head(self.video_url, allow_redirects=True)
-                #self.logger.debug(f"{self.webpage_url}:{res.headers}:{res.request.headers}")
+                #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{res.headers}:{res.request.headers}")
                 if res.status_code > 400: #repeat request without header referer
                     h_ref = self.cl.headers.pop('referer', None)
                     res = self.cl.head(self.video_url, allow_redirects=True)
@@ -134,9 +133,9 @@ class AsyncHTTPDownloader():
                         self.create_parts()
                         return
                 
-                else: logging.warning(f"{self.webpage_url}:{res.status_code}: Can't get size of file, will download http without parts")
+                else: logging.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {res.status_code}: Can't get size of file, will download http without parts")
             except Exception as e:
-                logging.warning(f"{self.webpage_url}: Can't get size of file, will download http without parts {e}")
+                logging.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Can't get size of file, will download http without parts {e}")
                 
         if not self.filesize:
             self.n_parts = 1
@@ -152,21 +151,21 @@ class AsyncHTTPDownloader():
         
 
         for part in self.parts:
-            self.logger.debug(f"{self.webpage_url}:[feed queue] {part}")
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [feed queue] {part}")
             if not part['tempfilename'].exists():
-                self.logger.debug(f"{self.webpage_url}:[feed queue] Part_{part['part']} doesn't exits, lets DL")
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [feed queue] Part_{part['part']} doesn't exits, lets DL")
                 self.parts_queue.put_nowait(part['part'])
             else:
                 partsize = part['tempfilename'].stat().st_size
                 if part.get('tempfilesize'):
                     if partsize in range(part['tempfilesize'] - 100, part['tempfilesize'] + 100):
-                        self.logger.debug(f"{self.webpage_url}:[feed queue] Part_{part['part']} exits with size {partsize} and full downloaded")
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [feed queue] Part_{part['part']} exits with size {partsize} and full downloaded")
                         self.down_size += partsize
                         part['dl'] = True
                         self.n_parts_dl += 1
                         continue
                     else:
-                        self.logger.debug(f"{self.webpage_url}:[feed queue] Part_{part['part']} exits with size {partsize} and not full downloaded {part['tempfilesize']}. Re-downloaded")
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [feed queue] Part_{part['part']} exits with size {partsize} and not full downloaded {part['tempfilesize']}. Re-downloaded")
                         part['tempfilename'].unlink()
                         self.parts_queue.put_nowait(part)
                 else:
@@ -195,14 +194,14 @@ class AsyncHTTPDownloader():
                     async with self.client.stream("GET", self.video_url, 
                         headers=self.parts[part-1]['headers']) as res:            
                         
-                        self.logger.debug(f"{self.webpage_url}: Part_{part}: resp code {str(res.status_code)}: rep {n_repeat}")
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{part}: [fetch] resp code {str(res.status_code)}: rep {n_repeat}")
                         if res.status_code >= 400:                               
                             #self.parts_queue.put_nowait(part)                            
                             n_repeat += 1
                             if n_repeat == 5: break
                             ndl_enter = self.n_parts_dl
-                            ndl_while = self.n_parts_dl 
-                            self.logger.debug(f"{self.webpage_url}: Part_{part}: awaiting enter {ndl_enter}")
+                            ndl_while = ndl_enter 
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{part}: awaiting enter {ndl_enter}")
                             count = 30                           
                             while(ndl_while == ndl_enter):
                                 await asyncio.sleep(1)
@@ -211,14 +210,14 @@ class AsyncHTTPDownloader():
                                 if count == 0:
                                     break                                    
                                 
-                            self.logger.debug(f"{self.webpage_url}: Part_{part}: end awaiting with {ndl_while} (enter {ndl_enter})")    
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{part}: end awaiting with {ndl_while} (enter {ndl_enter})")    
                             continue
-                            #raise AsyncHTTPDLError(f"{self.webpage_url}:Part_{part} resp code:{str(res)}")
+                            #raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Part_{part} resp code:{str(res)}")
                         else:
-                            async with aiofile.async_open(tempfilename, mode='wb') as f:
+                            with open(tempfilename, mode='wb') as f:
                                 num_bytes_downloaded = res.num_bytes_downloaded
                                 async for chunk in res.aiter_bytes(chunk_size=1024):
-                                    await f.write(chunk)
+                                    f.write(chunk)
                                     self.down_size += res.num_bytes_downloaded - num_bytes_downloaded
                                     num_bytes_downloaded = res.num_bytes_downloaded
                             self.parts[part-1]['dl'] = True
@@ -227,11 +226,11 @@ class AsyncHTTPDownloader():
 
                 except (httpx.HTTPError, httpx.CloseError, httpx.RemoteProtocolError, httpx.ReadTimeout, 
                     httpx.ProxyError, AttributeError, RuntimeError) as e:
-                    self.logger.warning(f"{self.webpage_url}: [fetch] Part_{part} error", exc_info=True)
+                    self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [fetch] Part_{part} error {e}")
                     n_repeat += 1
                     
-            if (n_repeat == 5): self.logger.warning(f"{self.webpage_url}: Part_{part} not DL")
-            else: self.logger.debug(f"{self.webpage_url}: Part_{part} DL: total {self.n_parts_dl}")
+            if (n_repeat == 5): self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{part} not DL")
+            else: self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{part} DL: total {self.n_parts_dl}")
     
     async def fetch_async(self):
 
@@ -252,9 +251,9 @@ class AsyncHTTPDownloader():
             if pending_tasks:
                 try:
                     await pool.cancel(pending_tasks)
-                    self.logger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {len(pending_tasks)} tasks pending cancelled")
                 except Exception as e:
-                    self.logger.debug(f"{self.webpage_url}:{e}")
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {e}")
                 await asyncio.gather(*pending_tasks, return_exceptions=True)
         
             if done_tasks:
@@ -262,7 +261,7 @@ class AsyncHTTPDownloader():
                     try:                        
                         done.result()  
                     except Exception as e:
-                        self.logger.debug(f"{self.webpage_url}:{e}")
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {e}")
             
         await self.client.aclose()        
 
@@ -273,24 +272,24 @@ class AsyncHTTPDownloader():
             completed, pending = await asyncio.wait(blocking_task)
             if completed:
                 results = [t.exception() for t in completed]
-            # self.logger.debug(f"{self.webpage_url}: out of the coroutine in other thread")
+            # self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: out of the coroutine in other thread")
             #result.result()
             #self.ensamble_file()
-            self.logger.debug(f"{self.webpage_url}: [fetch_async] ensambled OK")
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [fetch_async] ensambled OK")
         except TypeError as e:
-            self.logger.debug(f"{self.webpage_url}: [fetch_async] type error", exc_info=True) 
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [fetch_async] type error", exc_info=True) 
         except Exception as e:
-            self.logger.warning(f"{self.webpage_url}: [fetch_async] error when ensambling parts {e} {sys.exc_info()}")
+            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [fetch_async] error when ensambling parts {e} {sys.exc_info()}")
             if self.filename.exists(): self.filename.unlink()
             self.status = "error"
-            raise AsyncHTTPDLError(f"{self.webpage_url}: [fetch_async] error when ensambling parts {e}")
+            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [fetch_async] error when ensambling parts {e}")
             
         if self.filename.exists() and self.filename.stat().st_size in range(self.filesize - 100, self.filesize + 100):
             rmtree(str(self.download_path),ignore_errors=True)
             self.status = "done"
         else:
             self.status = "error"
-            raise AsyncHTTPDLError(f"{self.webpage_url}: error when ensambling parts")
+            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when ensambling parts")
     
     def print_hookup(self):
         
@@ -306,28 +305,29 @@ class AsyncHTTPDownloader():
        
     def ensamble_file(self):
         
-        part_files = natsorted(self.download_path.iterdir(), alg=ns.PATH)
+        part_files = natsorted((file for file in self.download_path.iterdir() if file.is_file()), alg=ns.PATH)
         
         #self.logger.debug(part_files)
-        self.logger.debug(f"{self.webpage_url}: [ensamble_file] start ensambling {self.filename}")
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [ensamble_file] start ensambling {self.filename}")
                     
         if len(part_files) != self.n_parts:
             self.status = "error"
-            raise AsyncHTTPDLError(f"{self.webpage_url}:Number of part files {len(part_files)} < parts {self.n_parts}")
+            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Number of part files {len(part_files)} < parts {self.n_parts}")
         
         else:
             
             for i, f in enumerate(part_files):
-                if i != (self.n_parts-1): tempfilesize = self.filesize // self.n_parts
-                else: tempfilesize = self.filesize // self.n_parts + self.filesize % self.n_parts            
+                # if i != (self.n_parts-1): tempfilesize = self.filesize // self.n_parts
+                # else: tempfilesize = self.filesize // self.n_parts + self.filesize % self.n_parts
+                tempfilesize = self.parts[i]['tempfilesize']            
                 partsize = f.stat().st_size
                 #self.logger.debug(f"part_{i}:{partsize}:{tempfilesize}")
                 if partsize not in range(tempfilesize - 100, tempfilesize + 100):
-                    #self.logger.debug(f"{self.webpage_url}: Part_{i+1} exits with size {partsize} and not full downloaded {tempfilesize}")
+                    #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} exits with size {partsize} and not full downloaded {tempfilesize}")
                     self.status = "error"
-                    raise AsyncHTTPDLError(f"{self.webpage_url}: Part_{i+1} file size {partsize} doesnt match expected {tempfilesize}")
+                    raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} file size {partsize} doesnt match expected {tempfilesize}")
                 else:
-                    #self.logger.debug(f"{self.webpage_url}: Part_{i+1} exits {partsize} full downloaded {tempfilesize}")
+                    #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} exits {partsize} full downloaded {tempfilesize}")
                     pass    
             
             with open(self.filename, 'wb') as dest:
@@ -339,9 +339,9 @@ class AsyncHTTPDownloader():
                             dest.write(source.read())
                             #self.logger.debug(f"{f} read and write")
                 except Exception as e:
-                    self.logger.warning(f"{self.webpage_url}: [ensamble_file] error when ensambling parts {e}")
+                    self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [ensamble_file] error when ensambling parts {e}")
                     if self.filename.exists(): self.filename.unlink()
                     self.status = "error"
-                    raise AsyncHTTPDLError(f"{self.webpage_url}: error when ensambling parts {e}")
+                    raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when ensambling parts {e}")
 
-            self.logger.debug(f"{self.webpage_url}: [ensamble_file] file ensambled")
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [ensamble_file] file ensambled")

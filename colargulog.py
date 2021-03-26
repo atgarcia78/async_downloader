@@ -131,3 +131,14 @@ class BraceFormatStyleFormatter(logging.Formatter):
         record.msg = orig_msg
         record.args = orig_args
         return formatted
+    
+class FilterModule(logging.Filter):
+
+    def __init__(self, patterns):
+        super(FilterModule, self).__init__()
+        self._patterns = patterns
+
+    def filter(self, record):
+        for pattern in self._patterns:
+            if pattern in record.name: return False
+        else: return True
