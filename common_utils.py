@@ -173,7 +173,7 @@ def status_proxy():
 def init_logging(file_path=None):
 
     if not file_path:
-        config_file = Path(Path.home(), "testing/logging.json")
+        config_file = Path(Path.home(), "Projects/common/logging.json")
     else:
         config_file = Path(file_path)
     

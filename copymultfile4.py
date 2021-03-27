@@ -12,8 +12,9 @@ from common_utils import (
     naturalsize
 )
 import tkinter as tk
-from asyncfile_v2 import AsyncFile
+from asyncfile_v3 import AsyncFile
 from asyncio_pool import AioPool
+import argparse
     
 async def run_tk(afiles, root, text, interval):
     
@@ -76,17 +77,21 @@ async def async_main(list_files, root, text):
     asyncio.get_running_loop().stop()
             
 
-    
-    
- 
+
 def main():
     
     logger = logging.getLogger("main")
     
     time1 = datetime.now()
     
-    vid_orig = [file for file in Path(Path.home(), "testing/20210325/temp2").iterdir() if file.is_file() and not file.name.startswith(".")]
-    vid_dest = [Path(f"/Volumes/Pandaext4/videos/20210325", file.name) for file in vid_orig]
+    parser = argparse.ArgumentParser(description="Async move files")
+    parser.add_argument("--orig", help="orig folder", default="", type=str)
+    parser.add_argument("--dest", help="dest folder", default="", type=str)
+    
+    args = parser.parse_args()
+    
+    vid_orig = [file for file in Path(Path.home(), args.orig).iterdir() if file.is_file() and not file.name.startswith(".")]
+    vid_dest = [Path("/Volumes/Pandaext4/videos", args.dest, file.name) for file in vid_orig]
     
     logger.info(vid_orig)
     logger.info(vid_dest)
