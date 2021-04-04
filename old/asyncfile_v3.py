@@ -86,7 +86,7 @@ class AsyncFile(object):
             if part == "KILLANDFILL":
                 for _ in range(self.n_parts):
                     self.queue_chunks.put_nowait(("KILL", None))
-                    await asyncio.sleep(0.1)
+                    await asyncio.sleep(1)
                 break
                     
             
@@ -170,8 +170,21 @@ class AsyncFile(object):
             done, pending = await asyncio.wait(readers_tasks + writers_tasks, return_when=asyncio.ALL_COMPLETED)
             
             if (dest_size := self.file_dest.stat().st_size) == self.size: self.status = 'done'
+            else: self.status = 'error'
             
             self.logger.info(f"[{self.file_orig.name}] origfile size {self.size} destfile size {dest_size} {self.status}")
+            
+    def print_hookup(self):
+        
+            
+        if self.status == "done":
+            return (f"[{self.file_orig.name}]: DONE size dest[{naturalsize(self.file_dest.stat().st_size)}] orig[{naturalsize(self.size)}]\n")
+        elif self.status == "init":
+            return (f"[{self.file_orig.name}]: Waiting to enter in the pool size orig[{naturalsize(self.size)}\n")            
+        elif self.status == "error":
+            return (f"[{self.file_orig.name}]: ERROR progress [{naturalsize(self.progress)}] of [{naturalsize(self.size)}]\n")
+        else:            
+            return (f"[{self.file_orig.name}]: Progress {naturalsize(self.progress)} of [{naturalsize(self.size)}]\n")
         
                
        

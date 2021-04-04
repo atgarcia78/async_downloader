@@ -120,10 +120,19 @@ def get_value_regex(value, str_reg, str_content, not_found):
         else:
             return not_found
 
+
+
+
+def generate_random_ua():
+    cl = httpx.Client()
+    list_el = []
+    for i in range(25):
+        list_el += re.find(cl.get("https://generate-name.net/user-agent").text)
+
 IPS_TORGUARD = ["88.202.177.243","96.44.144.122","194.59.250.210","88.202.177.234","68.71.244.42","194.59.250.226","173.254.222.146","68.71.244.98","88.202.177.241","185.212.171.118","98.143.158.50","88.202.177.242","173.44.37.82","194.59.250.242","194.59.250.202","68.71.244.66","173.44.37.114","2.58.44.226","88.202.177.240","96.44.148.66","37.120.153.242","185.156.172.154","68.71.244.30","46.23.78.24","88.202.177.238","88.202.177.239","68.71.244.38","194.59.250.218", "88.202.177.230"]
 
 def get_ip_proxy():
-    with open(Path(Path.home(),"testing/ipproxies.json"), "r") as f:
+    with open(Path(Path.home(),"Projects/common/ipproxies.json"), "r") as f:
         return(random.choice(json.load(f)))
 
 def status_proxy():
@@ -140,22 +149,9 @@ def status_proxy():
             pass
             print(f"{proxy}:{e}")
 
-    with open(Path(Path.home(),"testing/ipproxies.json"), "w") as f:
+    with open(Path(Path.home(),"Projects/common/ipproxies.json"), "w") as f:
         f.write(json.dumps(list_ok))
-    list_ok = []
-    for proxy in IPS_TORGUARD:
-        try:
-            cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{proxy}:6060")
-            res = cl.get("https://torguard.net/whats-my-ip.php")            
-            #print(f"{proxy}:{res}")
-            if res.status_code == 200:
-                list_ok.append(proxy)
-        except Exception as e:
-            pass
-            #print(f"{proxy}:{e}")
-
-    with open(Path(Path.home(),"testing/ipproxies.json"), "w") as f:
-        f.write(json.dumps(list_ok))
+    
 
     return(list_ok)
 
@@ -257,6 +253,8 @@ def init_tk(n_dl):
    
     frame2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
     
+    
+    
     label0 = tk.Label(master=frame0, text="WAITING TO ENTER IN POOL", bg="blue")
     label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
     text0 = tk.Text(master=frame0, font=("Source Code Pro", 9))
@@ -274,9 +272,21 @@ def init_tk(n_dl):
     
     text0.insert(tk.END, "Waiting for info") 
     text1.insert(tk.END, "Waiting for info") 
-    text2.insert(tk.END, "Waiting for info")  
-           
-    return(window, text0, text1, text2)
+    text2.insert(tk.END, "Waiting for info")
+    
+    window2 = tk.Tk()
+    window2.title("async_downloader")  
+    frame3 = tk.Frame(master=window2, width=300, height=25, bg="white")
+    frame3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    label3 = tk.Label(master=frame3, text="NUMBER OF TASKS", bg="blue")
+    label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text3 = tk.Text(master=frame3, font=("Source Code Pro", 9))
+    text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    res = [window, text0, text1, text2, window2, text3]       
+    #return(window, text0, text1, text2, window2, text3)
+    
+    return(res) 
 
 def init_tk_afiles(n_files):
     window = tk.Tk()
@@ -286,23 +296,37 @@ def init_tk_afiles(n_files):
   
     frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True) 
     
-    label0 = tk.Label(master=frame0, text="MOVING", bg="blue")
+    frame1 = tk.Frame(master=window, width=300, bg="white")
+  
+    frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
+    
+    frame2 = tk.Frame(master=window, width=300, bg="white")
+   
+    frame2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    label0 = tk.Label(master=frame0, text="WAITING TO ENTER IN POOL", bg="blue")
     label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
     text0 = tk.Text(master=frame0, font=("Source Code Pro", 9))
     text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    label1 = tk.Label(master=frame1, text="NOW RUNNING", bg="blue")
+    label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text1 = tk.Text(master=frame1, font=("Source Code Pro", 9))
+    text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    label2 = tk.Label(master=frame2, text="DONE/ERRORS", bg="blue")
+    label2.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text2 = tk.Text(master=frame2, font=("Source Code Pro", 9))
+    text2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)   
+    
     text0.insert(tk.END, "Waiting for info") 
+    text1.insert(tk.END, "Waiting for info") 
+    text2.insert(tk.END, "Waiting for info")  
+           
+    return(window, text0, text1, text2)
     
-    # frame1 = tk.Frame(master=window, width=300, bg="white")
-  
-    # frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True) 
-    
-    # label1 = tk.Label(master=frame1, text="NCORUTINAS", bg="blue")
-    # label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    # text1 = tk.Text(master=frame1, font=("Source Code Pro", 9))
-    # text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    # text1.insert(tk.END, "Waiting for info") 
-    
-    return(window, text0)
+
+
        
     
 
@@ -314,3 +338,37 @@ def get_info_dl(info_dict):
         return(determine_protocol(f_info_dict['requested_formats'][0]), f_info_dict)
     else:
         return (determine_protocol(f_info_dict), f_info_dict)
+    
+def patch_http_connection_pool(**constructor_kwargs):
+    """
+    This allows to override the default parameters of the 
+    HTTPConnectionPool constructor.
+    For example, to increase the poolsize to fix problems 
+    with "HttpConnectionPool is full, discarding connection"
+    call this function with maxsize=16 (or whatever size 
+    you want to give to the connection pool)
+    """
+    from urllib3 import connectionpool, poolmanager
+
+    class MyHTTPConnectionPool(connectionpool.HTTPConnectionPool):
+        def __init__(self, *args,**kwargs):
+            kwargs.update(constructor_kwargs)
+            super(MyHTTPConnectionPool, self).__init__(*args,**kwargs)
+    poolmanager.pool_classes_by_scheme['http'] = MyHTTPConnectionPool
+    
+def patch_https_connection_pool(**constructor_kwargs):
+    """
+    This allows to override the default parameters of the
+    HTTPConnectionPool constructor.
+    For example, to increase the poolsize to fix problems
+    with "HttpSConnectionPool is full, discarding connection"
+    call this function with maxsize=16 (or whatever size
+    you want to give to the connection pool)
+    """
+    from urllib3 import connectionpool, poolmanager
+
+    class MyHTTPSConnectionPool(connectionpool.HTTPSConnectionPool):
+        def __init__(self, *args,**kwargs):
+            kwargs.update(constructor_kwargs)
+            super(MyHTTPSConnectionPool, self).__init__(*args,**kwargs)
+    poolmanager.pool_classes_by_scheme['https'] = MyHTTPSConnectionPool

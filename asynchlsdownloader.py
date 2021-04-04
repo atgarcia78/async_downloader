@@ -39,6 +39,8 @@ from common_utils import (
     folderfiles
 )
 
+import aiofiles
+
 class AsyncHLSDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -59,6 +61,7 @@ class AsyncHLSDLError(Exception):
 
 class AsyncHLSDownloader():
 
+    _CHUNK_SIZE = 1048576
        
     def __init__(self, ie_result, ytdl, workers):
 
@@ -75,9 +78,12 @@ class AsyncHLSDownloader():
 
         self.date_file = datetime.now().strftime("%Y%m%d")
         
-        self.videoid = self.info_dict.get('id', None)
-        if not self.videoid:
-            self.videoid = int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8
+        _video_id = str(self.info_dict['id'])
+        self.info_dict['id'] = _video_id[:15] if len(_video_id) > 15 else _video_id 
+        self.videoid = self.info_dict['id']
+        
+        # if not self.videoid:
+        #     self.videoid = int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8
 
         self.base_download_path = Path(Path.home(),"testing", self.date_file, str(self.videoid))
         
@@ -431,12 +437,14 @@ class AsyncHLSDownloader():
                         if res.status_code >= 400:                        
                             raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} resp code:{str(res)}")
                         
-                        with open(filename, mode='wb') as f:
+                        #with open(filename, mode='wb') as f:
+                        async with aiofiles.open(filename, mode='wb') as f:
                             num_bytes_downloaded = res.num_bytes_downloaded
-                            async for chunk in res.aiter_bytes(chunk_size=1024):
+                            async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
                                 if cipher: data = cipher.decrypt(chunk)
                                 else: data = chunk 
-                                f.write(data)
+                                #f.write(data)
+                                await f.write(data)
                                 self.down_size += res.num_bytes_downloaded - num_bytes_downloaded
                                 num_bytes_downloaded = res.num_bytes_downloaded
                         
@@ -577,10 +585,10 @@ class AsyncHLSDownloader():
         for j in range(self.n_streams):
         
             try:
-                
-                frag_files = natsorted(self.download_path[j].iterdir(), alg=ns.PATH)
+                frag_files = natsorted((file for file in self.download_path[j].iterdir() if file.is_file() and not file.name.startswith('.')), alg=ns.PATH)
+                #frag_files = natsorted(self.download_path[j].iterdir(), alg=ns.PATH)
                 if len(frag_files) != len(self.info_frag[j]):
-                    raise AsyncHLSDLError(f"Stream({j}):{self.filename_stream[j]}:Number of frag files < frags")
+                    raise AsyncHLSDLError(f"Stream({j}):{self.filename_stream[j]}:Number of frag files - {len(frag_files)} != frags - {len(self.info_frag[j])} ")
             
                 self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{self.filename_stream[j]}")
                 with open(self.filename_stream[j], mode='wb') as dest:
@@ -649,12 +657,12 @@ class AsyncHLSDownloader():
     
     def print_hookup(self):
         if self.status == "done":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.filename.stat().st_size)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.filename.stat().st_size)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
         elif self.status == "init":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to enter in the pool [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")            
+            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to enter in the pool [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")            
         elif self.status == "error":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
         else:            
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
             
         

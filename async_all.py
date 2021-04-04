@@ -27,346 +27,495 @@ from common_utils import (
     init_ytdl,
     init_tk,
     get_info_dl,
-    init_argparser
+    init_argparser,
+    patch_http_connection_pool,
+    patch_https_connection_pool
 )
 
 from concurrent.futures import (
     ThreadPoolExecutor,
+    ProcessPoolExecutor,
     ALL_COMPLETED,
     wait
 )
 
+from codetiming import Timer
+
+import time
+
+from datetime import datetime
 
 
-async def run_tk(root, text0, text1, text2, list_dl, logger, interval):
-    '''
-    Run a tkinter app in an asyncio event loop.
-    '''
-    try:
+class AsyncDL():
+
+    def __init__(self, args):
+    
         
-        while True:
-            root.update()
-            res = set([dl.status for dl in list_dl])
-            #logger.debug(res)
-            if ("init" in res and not "downloading" in res): 
-                pass
-            elif (not "init" in res and not "downloading" in res):                
-                break
-            else:
-                text0.delete(1.0, tk.END)
-                text1.delete(1.0, tk.END)
-                text2.delete(1.0, tk.END)    
-                for dl in list_dl:
-                    mens = dl.print_hookup()
-                    if dl.status in ["init"]:
-                        text0.insert(tk.END, mens)
-                    if dl.status in ["downloading"]:                        
-                        text1.insert(tk.END, mens)
-                    if dl.status in ["done", "error"]:
-                        text2.insert(tk.END,mens)
-                    #logger.debug(mens)                 
-                
-            await asyncio.sleep(interval)
-                  
-            
-    except tk.TclError as e:
-        if "application has been destroyed" not in e.args[0]:
-            raise
-    
-    logger.debug("RUN TK BYE")
-    
-
-async def update_tqdm(list_dl, pbar, interval):
-            
-    data1 = [dl.down_size for dl in list_dl]
-    while True:
-        data2 = [dl.down_size for dl in list_dl]
-        for i, pb in enumerate(pbar):
-            pb.update(data2[i] - data1[i])
-            data1[i] = data2[i]
-        await asyncio.sleep(interval)    
-
-
-def worker_init_dl(ytdl, queue_vid, nparts, queue_dl, i, nvideos, logger, queue_nok, queue_aldl, files_cached):
-    #worker que lanza los Downloaders, uno por video
-    
-    logger.debug(f"worker_init_dl[{i}]: launched")
-
-    while not queue_vid.empty():
-        vid = queue_vid.get()
-        logger.debug(f"worker_init_dl[{i}]: get for a video to init:")
-        logger.debug(f"worker_init_dl[{i}]: {vid}")
+        self.logger = logging.getLogger("asyncDL")
+        self.queue_vid = Queue()
         
-        try:
-            
-            
-            if vid.get('id') and vid.get('title'):
-                vid_name = f"{vid.get('id')}_{vid.get('title')}"
-                #next((s for s in files_cached if file in s), None)
-                if vid_name in files_cached:
-                    queue_aldl.put(vid)
-                    logger.info(f"worker_init_dl[{i}] [{vid.get('id')}][{vid.get('title')}]: init DL already DL : progress [{queue_aldl.qsize() + queue_dl.qsize() + queue_nok.qsize()} out of {nvideos}]")
-                    continue
-            
-            info_dict = None    
-            if vid.get('_type') in ('url_transparent', None, 'video'):
-                info_dict = ytdl.process_ie_result(vid,download=False)
-            elif vid.get('_type') == 'url':
-                info_dict = ytdl.extract_info(vid['url'], download=False)
-            else:
-                logger.debug(f"Type of result not treated yet: {vid.get('_type')}")
-                pass
-                
-            if info_dict:
-                logger.debug(f"worker_init_dl[{i}] {info_dict}")
-                protocol, final_dict = get_info_dl(info_dict)
-                #logger.debug(f"protocol: {protocol}")
-                #logger.debug(final_dict)
-                dl = None
-                if protocol in ('http', 'https'):
-                    dl = AsyncHTTPDownloader(final_dict, ytdl, nparts)
-                elif protocol in ('m3u8', 'm3u8_native'):
-                    dl = AsyncHLSDownloader(final_dict, ytdl, nparts)
-                else:
-                    logger.error(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: protocol not supported")
-                    raise Exception("protocol not supported")
-                
-                if dl:
-                    queue_dl.put(dl)
-                    logger.info(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : progress [{queue_aldl.qsize() + queue_dl.qsize() + queue_nok.qsize()} out of {nvideos}]")
-                else: 
-                    #queue_nok.put((vid, "Error:NoDLinit"))
-                    raise Exception("no DL init")
-            else:
-                # logger.error(f"{vid['url']}:no info dict")                
-                raise Exception("no info dict")
-        except Exception as e:
-            queue_nok.put((vid, f"Error:{e}"))
-            logger.warning(f"worker_init_dl[{i}]: DL constructor failed for {vid} - Error:{e}")
-            
+        self.list_initnok = []
+        self.list_initaldl = []
+        self.list_dl = []
         
-    logger.debug(f"worker_init_dl[{i}]: finds queue init empty, says bye")
-    
-
-def init_pbar(list_dl):
-    barformat = '{desc}: {percentage:3.0f}% of {total_fmt}|{bar}|at {rate_fmt} ETA {remaining}'
-    
-    return([tqdm(desc=dl.info_dict['title'], bar_format=barformat, unit='B', unit_scale=True, dynamic_ncols=True, initial=dl.down_size, unit_divisor=1024, smoothing=0, mininterval=0.5, maxinterval = 1, total=dl.filesize, position=i) for i, dl in enumerate(list_dl)])
         
-
-
-async def async_ex(list_dl, workers, logger, text0, text1, text2, root):
-    try:
-        async with AioPool(size=workers+1) as pool:
-            
-            fut1 = pool.spawn_n(run_tk(root, text0, text1, text2, list_dl, logger, 0.25))
-            #fut2 = pool.spawn_n(update_tqdm(list_dl, pbar, 0.25))
-            futures = [pool.spawn_n(dl.fetch_async()) for dl in list_dl]
-            #futures.append(fut1, fut2)
-            futures.append(fut1)
-            
-            done, pending = await asyncio.wait(futures, return_when=asyncio.ALL_COMPLETED)
-
-            if pending:
-                try:
-                    await pool.cancel(pending)
-                    logger.debug(f"{len(pending)} tasks pending cancelled")
-                except Exception as e:
-                    logger.debug(f"{e}")
-                await asyncio.gather(*pending, return_exceptions=True)
-            
-            for task in done:
-                try:
-                    res = task.result()
-                    logger.debug(res)
-                except Exception as e:
-                    logger.warning(f"{e}")    
-
-    except Exception as e:
-        logger.warning(e)
+        self.args = args
+        self.parts = self.args.p
+        self.workers = self.args.w
     
-    asyncio.get_running_loop().stop()
-
-
-def main_program(logger):
-
+        dict_opts = {'format': self.args.format, 'proxy': self.args.proxy}
+        if self.args.nocheckcert:
+            dict_opts.update({"nocheckcertificate" : True})
+        if self.args.ytdlopts:
+            dict_opts.update(ast.literal_eval(self.args.ytdlopts))        
+        self.ytdl = init_ytdl(dict_opts,self.args.useragent)
     
-    args = init_argparser()
-    parts = args.p
-    workers = args.w
-    
-    dict_opts = {'format': args.format, 'proxy': args.proxy}
-    if args.nocheckcert:
-        dict_opts.update({"nocheckcertificate" : True})
-    if args.ytdlopts:
-        dict_opts.update(ast.literal_eval(args.ytdlopts))
 
-    #lets get the list of videos to download    
-    with (init_ytdl(dict_opts,args.useragent)) as ytdl:
-    
-        #logger.debug(ytdl.params)
-
-        if args.playlist:
-
- 
-            if not args.file:            
-            
-
-                list_videos = []
-                url_pl_list = args.target.split(',')
-                with ThreadPoolExecutor(max_workers=workers) as ex:
-                    futures = [ytdl.extract_info(url_pl) for url_pl in url_pl_list]
-                
-                for fut in futures:
-                    logger.debug(fut)
-                    list_videos += fut.get('entries')
+        self.get_videos_cached()
+        self.get_list_videos()
+        
+        
+        
+    def get_videos_cached(self):
+        
+        self.files_cached = dict()
+        if self.args.cache:
+        
+            folder_extra_list = [Path(folder) for folder in self.args.cache.split(',')]
+            for folder in folder_extra_list:
+                for file in folder.rglob('*'):
+                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8'):
+                        self.files_cached.update({f"{file.stem.upper()}": str(file)})
                     
+            # self.files_cached = [{f"{file.stem.upper()}": file}
+            #                  for folder in folder_extra_list
+            #                     #for file in folder.iterdir()
+            #                     for file in folder.rglob('*')
+            #                         if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8')]
+       
+        
+        list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos")]
+        
+        for folder in list_folders:
+                for file in folder.rglob('*'):
+                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8'):
+                        self.files_cached.update({f"{file.stem.upper()}": str(file)})
+        
+        # self.files_cached = self.files_cached + [{f"{file.stem.upper()}": file}
+        #                                for folder in list_folders 
+        #                                 for file in folder.rglob('*')
+        #                                     if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8')]
+       
+           
+        self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
+        
+        with open(Path(Path.home(), "Projects/async_downloader/files_cached.json"),"w") as f:
+            json.dump(self.files_cached,f)
+               
+        
+    def get_list_videos(self):
+        
+        if self.args.playlist:
+ 
+            if not self.args.file:
+
+                self.list_videos = []
+                url_pl_list = self.args.target.split(',')
+                if len(url_pl_list) == 1: 
+                    info_dict = self.ytdl.extract_info(url_pl_list[0], download=False)
+                    self.logger.debug(info_dict)
+                    self.list_videos = info_dict.get('entries')
+                else:
+                    with ThreadPoolExecutor(max_workers=self.workers) as ex:
+                        futures = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
+                    
+                    for fut in futures:
+                        self.logger.debug(fut)
+                        self.list_videos += fut.get('entries')                        
 
 
             else:
-                with open(args.target, "r") as file_json:
+                with open(self.args.target, "r") as file_json:
                     info_json = json.loads(file_json.read())
                 
-                list_videos = list(info_json)
+                self.list_videos = list(info_json)
 
         else: #url no son playlist
 
-            if not args.file:
-                list_videos = [{'_type': 'url', 'url': el.strip(r' \'"')} for el in args.target.split('","')]
+            if not self.args.file:
+                self.list_videos = [{'_type': 'url', 'url': el.strip(r' \'"')} for el in self.args.target.split(',')]
 
             else:
                 def get_info_json(file):
                     with open(file, "r") as f:
                         return json.loads(f.read())
                 
-                list_videos = [get_info_json(file) for file in args.target.split(",")]
+                self.list_videos = [get_info_json(file) for file in self.args.target.split(",")]
+        
+        time_now = datetime.now()
+        date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
+        with open(Path(Path.home(), f"Projects/async_downloader/{date_file}_videolist.json"), "w") as f:
+            json.dump(self.list_videos,f)
 
-
-        if args.index:
-            if args.index in range(1,len(list_videos)):
-                list_videos = [list_videos[args.index-1]]
+        if self.args.index:
+            if self.args.index in range(1,len(self.list_videos)):
+                self.list_videos = [self.list_videos[self.args.index-1]]
             else:
-                logger.error(f"index video {args.index} out of range [1..{len(list_videos)}]")
+                self.logger.error(f"index video {self.args.index} out of range [1..{len(self.list_videos)}]")
                 sys.exit(127)
                 
-        if args.start and args.end:
-            if ((args.start in range(1,len(list_videos))) and (args.end in range(1,len(list_videos))) and (args.start <= args.end)):
-                list_videos = list_videos[args.start-1:args.end-1]
+        if self.args.start and self.args.end:
+            if (self.args.start in range(1,len(self.list_videos))) and (self.args.end in range(1,len(self.list_videos))) and (self.args.start <= self.args.end):
+                self.list_videos = self.list_videos[self.args.start-1:self.args.end-1]
         
 
-        logger.info(f"Total requested videos: {len(list_videos)}")
-        logger.debug(list_videos)
+        self.logger.debug(f"Total requested videos: {len(self.list_videos)}")
+        self.logger.debug(self.list_videos)
         
-        if args.cache:
+        self.videos_to_dl = []
+        for video in self.list_videos:
+            if (_id := video.get('id') or video.get('video_id')) and (_title := video.get('title') or video.get('video_title')):               
+                vid_name = f"{_id}_{_title}"
+                #if vid_name in self.files_cached:
+                if (vid_path:=self.files_cached.get(vid_name)):
+                    self.list_initaldl.append({'id': _id, 'title': _title})
+                    self.logger.info(f"[{_id}][{_title}]: already DL")
+                    daypath = Path(Path.home(),"testing",time_now.strftime('%Y%m%d'))
+                    daypath.mkdir(parents=True, exist_ok=True)
+                    file_aldl = Path(daypath, Path(vid_path).name)
+                    if file_aldl not in daypath.iterdir():
+                        file_aldl.symlink_to(Path(vid_path))
+                    
+                else: 
+                    self.videos_to_dl.append(video)
+            else: self.videos_to_dl.append(video)
+            
         
-            folder_extra_list = [Path(folder) for folder in args.cache.split(',')]
-            files_cached = [f"{file.stem.upper()}"
-                             for folder in folder_extra_list
-                                #for file in folder.iterdir()
-                                for file in folder.rglob('*')
-                                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8')]
-        else: files_cached = []
+        self.nvideos = len(self.videos_to_dl)
+        for i,video in enumerate(self.videos_to_dl):
+            self.queue_vid.put((i, video))
+        self.logger.debug(f"Videos to DL not in local storage: {self.nvideos}")
+        self.logger.debug(self.videos_to_dl)
         
-        list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos")]
+        nworkers = min(self.workers, self.nvideos)
+        for _ in range(nworkers-1):
+            self.queue_vid.put((-1, "KILL"))
+        self.queue_vid.put((-1, "KILLANDCLEAN"))
         
-        files_cached = files_cached + [f"{file.stem.upper()}"
-                                       for folder in list_folders 
-                                        for file in folder.rglob('*')
-                                            if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8')]
-        # files_cached = files_cached + [f"{file.stem.upper()}" for file in Path(Path.home(), "testing").rglob('*')
-        #                             if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8')]
-           
-        logger.info(f"Total cached videos: [{len(files_cached)}]")
-
-        queue_vid = Queue()
-        for video in list_videos:
-            queue_vid.put(video)
-
-        queue_dl = Queue()
-        queue_nok = Queue()
-        queue_aldl = Queue()
+        self.logger.debug(f"Queue content for running: \n {list(self.queue_vid.queue)}")
+    
+    async def run_tk(self, args_tk, interval):
+        '''
+        Run a tkinter app in an asyncio event loop.
+        '''
         
-                 
-        
-        if args.nomult:
-            worker_init_dl(ytdl, queue_vid, parts, queue_dl, 1 , logger, queue_nok)
-
-        else:
-            with ThreadPoolExecutor(max_workers=workers) as exe:
-                
-                futures = [exe.submit(worker_init_dl, ytdl, queue_vid, 
-                                      parts, queue_dl, i, len(list_videos), logger, queue_nok, queue_aldl, files_cached)
-                           for i in range(workers)]
-        
-                #done_futs, _ = wait(futures, return_when=ALL_COMPLETED)
-
-        #will store the DL exit videos
-        videos_dl = list(queue_dl.queue)
-        #will store videos nok for problems udirng download        
-        videos_nok = list(queue_nok.queue)
-        #will store videos already DL        
-        videos_aldl = list(queue_aldl.queue)
-        
-        logger.info(f"Request to DL total of {len(list_videos)}: Already DL: {len(videos_aldl)} - Number of videos to process: {len(videos_dl)} - Can't DL: {len(videos_nok)}")
-        
-        #logger.info(dl_dict)
-
-        if args.nodl:
-            return 0
- 
+        root, text0, text1, text2, root2, text3 = args_tk
         
         try:
-            
-            root_tk, text0_tk, text1_tk, text2_tk = init_tk(len(videos_dl))
-            
-            #pbar = init_pbar(list_dl)            
-           
-            res = aiorun.run(async_ex(videos_dl, workers, logger, text0_tk, text1_tk, text2_tk, root_tk), use_uvloop=True) 
+
+                 
+            while True:
+                
+                root.update()
+                root2.update()
+                
+                #self.logger.debug(f"[tk] {all_tasks}")                
+                
+                # for dl in list(self.queue_dl._queue):
+                #     if dl == "KILL" or dl == "KILLANDCLEAN":
+                #         video_queue_str.append(dl)
+                        
+                #     else:
+                #         video_queue_str.append(video.info_dict['title'])
+                # video_queue_str = ",".join(video_queue)                    
+                text3.delete(1.0, tk.END)
+                all_tasks = [f"{t.get_name()}" for t in asyncio.all_tasks()]                
+                all_tasks.sort()
+                video_queue = []
+                for dl in (_dl_queue:=list(self.queue_dl._queue)):
+                    if dl in ("KILL", "KILLTK"): video_queue.append(dl)
+                    else: video_queue.append(dl.info_dict['title'])
+                    
+                
+                text3.insert(tk.END, f"{video_queue}\n{len(all_tasks)}\n{all_tasks}")
+                if (len(video_queue) == 1) and (video_queue[0] == "KILLTK"):
+                    break
+                
+                
+                res = set([dl.status for dl in self.list_dl])
+                if not res:
+                    pass
+                else:
+                    if ("init" in res and not "downloading" in res): 
+                        pass
+                    elif (not "init" in res and not "downloading" in res):                
+                        break
+                    else:
+                        text0.delete(1.0, tk.END)
+                        text1.delete(1.0, tk.END)
+                        text2.delete(1.0, tk.END)    
+                        for dl in self.list_dl:
+                            mens = dl.print_hookup()
+                            if dl.status in ["init"]:
+                                text0.insert(tk.END, mens)
+                            if dl.status in ["downloading"]:                        
+                                text1.insert(tk.END, mens)
+                            if dl.status in ["done", "error"]:
+                                text2.insert(tk.END,mens)
+                            #logger.debug(mens)
+                                        
+                        
+                await asyncio.sleep(interval)
+                #time.sleep(interval)    
+                
+        except tk.TclError as e:
+            if "application has been destroyed" not in e.args[0]:
+                raise
         
+        self.logger.debug("RUN TK BYE")     
+
+
+
+
+    def worker_init_dl(self, i):
+        #worker que lanza los Downloaders, uno por video
+        
+        self.logger.info(f"worker_init_dl[{i}]: launched")
+
+        while True:
+            
+            num, vid = self.queue_vid.get()
+            self.logger.debug(f"worker_init_dl[{i}]: get for a video")
+            self.logger.info(f"worker_init_dl[{i}]: [{num}]:{vid}")
+            if vid == "KILL":
+                self.logger.debug(f"worker_init_dl[{i}]: finds KILL, says bye")
+                break
+            elif vid == "KILLANDCLEAN":
+                self.logger.info(f"worker_init_dl[{i}]: finds KILLANDCLEAN, says bye")
+                for _ in range(min(self.workers,self.nvideos)):
+                        self.queue_dl.put_nowait("KILL")
+                self.queue_dl.put_nowait("KILLTK")
+                info_dl = [dl.info_dict for dl in self.list_dl]
+                if info_dl:
+                    time_now = datetime.now()
+                    date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
+                    with open(Path(Path.home(), f"Projects/async_downloader/{date_file}_lastsession.json"), "w") as f:
+                        
+                        json.dump(info_dl, f)                
+                break
+            
+            else:        
+                try:               
+                    
+                    
+                    info_dict = None    
+                    # if vid.get('_type') in ('url_transparent', None, 'video'):
+                    #     info_dict = self.ytdl.process_ie_result(vid,download=False)
+                    # elif vid.get('_type') == 'url':
+                    #     info_dict = self.ytdl.extract_info(vid['url'], download=False)
+                    # else:
+                    #     self.logger.debug(f"Type of result not treated yet: {vid.get('_type')}")
+                    #     pass
+                    
+                    info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
+                    if info:                        
+                        self.logger.info(f"worker_init_dl[{i}] {info}")
+                        if info.get('_type') == 'url_transparent':
+                       
+                            _name = f"{(_id:=(info.get('id') or info.get('video_id')))}_{(_title:=(info.get('title') or info.get('video_title')))}"
+                            if _name:
+                                if (vid_path:=self.files_cached.get(_name)):
+                                    self.list_initaldl.append({'id': _id, 'title': _title})
+                                    self.logger.info(f"[{_name}]: already DL")
+                                    time_now = datetime.now()
+                                    daypath = Path(Path.home(),"testing",time_now.strftime('%Y%m%d'))
+                                    daypath.mkdir(parents=True, exist_ok=True)
+                                    file_aldl = Path(daypath, Path(vid_path).name)
+                                    if file_aldl not in daypath.iterdir():
+                                        file_aldl.symlink_to(Path(vid_path))
+                                    self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")                            
+                                    continue
+                                                    
+                            #self.logger.debug(f"protocol: {protocol}")
+                            #self.logger.debug(final_dict)
+                        info_dict = self.ytdl.process_ie_result(info,download=False)
+                        self.logger.info(f"worker_init_dl[{i}] {info_dict}")
+                        protocol, final_dict = get_info_dl(info_dict)
+                        dl = None
+                        if protocol in ('http', 'https'):
+                            dl = AsyncHTTPDownloader(final_dict, self.ytdl, self.parts)
+                        elif protocol in ('m3u8', 'm3u8_native'):
+                            dl = AsyncHLSDownloader(final_dict, self.ytdl, self.parts)
+                        else:
+                            self.logger.error(f"worker_init_dl[{i}] [{info_dict['id']}][{info_dict['title']}]: protocol not supported")
+                            raise Exception("protocol not supported")
+                            
+                        if dl:
+                            self.queue_dl.put_nowait(dl)
+                            self.list_dl.append(dl)
+                            self.logger.info(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {self.nvideos}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}")
+                        else: 
+                                
+                            raise Exception("no DL init")
+                    else:
+                        # logger.error(f"{vid['url']}:no info dict")                
+                        raise Exception("no info dict")
+                except Exception as e:
+                    self.list_initnok.append((vid, f"Error:{str(e)}"))
+                    self.logger.error(f"worker_init_dl[{i}]: DL constructor failed for {vid} - Error:{str(e)}")       
+            
+        
+    
+    async def worker_run(self, i):
+        
+        self.logger.debug(f"worker_run[{i}]: launched")       
+        await asyncio.sleep(1)
+        
+        
+        while True:
+            
+            try:
+            
+                
+                dl = await self.queue_dl.get()
+                self.logger.debug(f"worker_run[{i}]: get for a DL")
+                await asyncio.sleep(1)
+                
+                if dl == "KILL":
+                    self.logger.debug(f"worker_run[{i}]: get KILL, bye")
+                    await asyncio.sleep(1)
+                    break
+                
+                
+                else:
+                    self.logger.debug(f"worker_run[{i}]: start to dl {dl.info_dict['title']}")
+                    task_run = asyncio.create_task(dl.fetch_async())
+                    task_run.set_name(f"worker_run[{i}][{dl.info_dict['title']}]")
+                    await asyncio.wait([task_run], return_when=asyncio.ALL_COMPLETED)
+            except Exception as e:
+                self.logger.error(f"worker_run[{i}]: Error:{str(e)}", exc_info=True)
+                
+    
+    async def async_ex(self, args_tk, interval):
+    
+        self.queue_dl = asyncio.Queue()
+
+        nworkers = min(self.workers,self.nvideos)
+        self.logger.info(f"MAX WORKERS [{nworkers}]")
+        
+        try:        
+            loop = asyncio.get_event_loop()
+            #with ThreadPoolExecutor(max_workers=nworkers) as executor:
+            
+                
+            t1 = asyncio.create_task(self.run_tk(args_tk, interval))
+            t1.set_name("tk")
+            tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(nworkers)]
+            for i,t in enumerate(tasks_run):
+                t.set_name(f"worker_run[{i}]")
+
+            executor = ThreadPoolExecutor(max_workers=nworkers)
+            tasks_init = [loop.run_in_executor(executor, self.worker_init_dl, i) for i in range(nworkers)]
+                                
+            await asyncio.wait([t1] + tasks_init + tasks_run, return_when=asyncio.ALL_COMPLETED)
+ 
         except Exception as e:
-            logger.warning(e, exc_info=True)
+           self.logger.error(f"[async_ex] {str(e)}", exc_info=True)
+    
+        asyncio.get_running_loop().stop()
+
+
+@Timer(name="decorator")
+def main_program(logger):
+
+    
+    args = init_argparser()
+    
+    asyncDL = AsyncDL(args)    
+    
+    #will store the DL init exit videos
+   
+    if asyncDL.nvideos > 0:    
+            
+        try:
+                    
+    
+            #root_tk, text0_tk, text1_tk, text2_tk, root2_tk, text3_tk = init_tk(asyncDL.nvideos)
+            args_tk = init_tk(asyncDL.nvideos)      
+        
+            res = aiorun.run(asyncDL.async_ex(args_tk, 0.25), use_uvloop=True) 
+                
+        except Exception as e:
+            logger.error(str(e), exc_info=True)
             res = 1
 
     # if not list_dl: return 1
     # else:
-        res = 0
-        videos_okdl = []
-        videos_kodl = []
-        
-        if videos_dl:
-            
-            for dl in videos_dl:
-                if not dl.filename.exists():
-                    if dl.info_dict.get('playlist'):
-                        item = f"{dl.webpage_url} --index {dl.info_dict['playlist_index']}"
-                    else: item = dl.webpage_url
-                    videos_kodl.append(item)
-                else: videos_okdl.append(f"[{dl.info_dict['id']}][{dl.info_dict['title']}]")
-                
-        logger.info(f"******* FINAL SUMMARY *******")
-        logger.info(f"Init request: [{len(list_videos)}]")
-        logger.info(f"              Already DL: [{len(videos_aldl)}]")
-        logger.info(f"              ERROR init DL: [{len(videos_nok)}]")
-        logger.info(f"              Videos to DL: [{len(videos_dl)}]")
-        logger.info(f"                            OK DL: [{len(videos_okdl)}]")
-        logger.info(f"                            ERROR DL: [{len(videos_kodl)}]")
-        
-        logger.info(f"******* VIDEO RESULT LISTS *******")        
-        logger.info(f"Videos ERROR INIT DL: {','.join(videos_nok)}")
-        logger.info(f"Videos ERROR DL: {','.join(videos_kodl)}")
-        logger.info(f"Videos ALREADY DL: {videos_aldl}") 
-        logger.info(f"Videos DL: {videos_okdl}")
-        
+    res = 0
     
+    _videos_dl = asyncDL.list_dl
+    #will store videos nok during init     
+    _videos_initnok = asyncDL.list_initnok
+    #will store videos already DL        
+    _videos_aldl = asyncDL.list_initaldl    
+    
+            
+    videos_okdl = []
+    videos_kodl = []
+    videos_kodl_str = []
+    if _videos_dl:
         
-        if not res and (videos_kodl or videos_nok): return 1             
-        return res
+        for dl in _videos_dl:
+            if not dl.filename.exists():
+                videos_kodl.append(f"[{dl.info_dict['id']}][{dl.info_dict['title']}]") 
+                videos_kodl_str.append(f"{dl.info_dict['webpage_url']}")
+            else: videos_okdl.append(f"[{dl.info_dict['id']}][{dl.info_dict['title']}]")
+    
+    videos_initnok = []
+    videos_initnok_str = []        
+    
+    if _videos_initnok:
+
+        
+        for vid in _videos_initnok:
+            #logger.debug(vid)
+            _id = vid[0].get('id') or vid[0].get('videoid')
+            _title = vid[0].get('title') or vid[0].get('video_title')
+            if _id and _title:
+                item = f"[{_id}][{_title}]"
+            else: item = vid[0].get('url')
+            videos_initnok.append(item) 
+            videos_initnok_str.append(f"{vid[0].get('url')}")
+    
+            
+    
+            
+    logger.info(f"******* FINAL SUMMARY *******")
+    logger.info(f"Init request: Request to DL: [{asyncDL.nvideos}]")
+    logger.info(f"              Already DL: [{len(_videos_aldl)}]")
+    logger.info(f"              ERROR init DL: [{len(videos_initnok)}]")
+    logger.info(f"Videos to DL: [{len(_videos_dl)}]")
+    logger.info(f"              OK DL: [{len(videos_okdl)}]")
+    logger.info(f"              ERROR DL: [{len(videos_kodl)}]")
+    
+    logger.info(f"******* VIDEO RESULT LISTS *******")        
+    logger.info(f"Videos ERROR INIT DL: {videos_initnok} \n[{','.join(videos_initnok_str)}]")
+    logger.info(f"Videos ERROR DL: {videos_kodl} \n[{','.join(videos_kodl_str)}]")
+    logger.info(f"Videos ALREADY DL: {_videos_aldl}") 
+    logger.info(f"Videos DL: {videos_okdl}")
+    
+
+    
+    if not res and (videos_kodl or videos_initnok): return 1             
+    return res
 
 
 if __name__ == "__main__":
 
     init_logging()
     logger = logging.getLogger("async_all")
+    patch_http_connection_pool(maxsize=100)
+    patch_https_connection_pool(maxsize=100)
 
     return_value = main_program(logger)
 
