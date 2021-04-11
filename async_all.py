@@ -68,7 +68,7 @@ class AsyncDL():
             dict_opts.update({"nocheckcertificate" : True})
         if self.args.ytdlopts:
             dict_opts.update(ast.literal_eval(self.args.ytdlopts))        
-        self.ytdl = init_ytdl(dict_opts,self.args.useragent)
+        self.ytdl = init_ytdl(dict_opts,self.args.useragent, self.args.referer)
     
 
         self.get_videos_cached()
@@ -108,19 +108,24 @@ class AsyncDL():
        
            
         self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
+        time_now = datetime.now()
+        date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
         
-        with open(Path(Path.home(), "Projects/async_downloader/files_cached.json"),"w") as f:
+        with open(Path(Path.home(), f"Projects/common/logs/{date_file}files_cached.json"),"w") as f:
             json.dump(self.files_cached,f)
                
         
     def get_list_videos(self):
         
+        
+        self.list_videos = []
+        
         if self.args.playlist:
  
             if not self.args.file:
 
-                self.list_videos = []
-                url_pl_list = self.args.target.split(',')
+                
+                url_pl_list = self.args.collection
                 if len(url_pl_list) == 1: 
                     info_dict = self.ytdl.extract_info(url_pl_list[0], download=False)
                     self.logger.debug(info_dict)
@@ -135,15 +140,19 @@ class AsyncDL():
 
 
             else:
-                with open(self.args.target, "r") as file_json:
-                    info_json = json.loads(file_json.read())
                 
-                self.list_videos = list(info_json)
+                file_list = self.args.collection
+                for file in file_list:
+                    with open(file, "r") as file_json:
+                        info_json = json.loads(file_json.read())
+                
+                    self.list_videos += list(info_json)
 
         else: #url no son playlist
 
             if not self.args.file:
-                self.list_videos = [{'_type': 'url', 'url': el.strip(r' \'"')} for el in self.args.target.split(',')]
+                
+                self.list_videos = [{'_type': 'url', 'url': _url} for _url in self.args.collection]
 
             else:
                 def get_info_json(file):
@@ -154,7 +163,7 @@ class AsyncDL():
         
         time_now = datetime.now()
         date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
-        with open(Path(Path.home(), f"Projects/async_downloader/{date_file}_videolist.json"), "w") as f:
+        with open(Path(Path.home(), f"Projects/common/logs/{date_file}_videolist.json"), "w") as f:
             json.dump(self.list_videos,f)
 
         if self.args.index:
@@ -164,9 +173,9 @@ class AsyncDL():
                 self.logger.error(f"index video {self.args.index} out of range [1..{len(self.list_videos)}]")
                 sys.exit(127)
                 
-        if self.args.start and self.args.end:
-            if (self.args.start in range(1,len(self.list_videos))) and (self.args.end in range(1,len(self.list_videos))) and (self.args.start <= self.args.end):
-                self.list_videos = self.list_videos[self.args.start-1:self.args.end-1]
+        if self.args.first and self.args.last:
+            if (self.args.first in range(1,len(self.list_videos))) and (self.args.last in range(1,len(self.list_videos))) and (self.args.first <= self.args.last):
+                self.list_videos = self.list_videos[self.args.first-1:self.args.last]
         
 
         self.logger.debug(f"Total requested videos: {len(self.list_videos)}")
@@ -175,7 +184,7 @@ class AsyncDL():
         self.videos_to_dl = []
         for video in self.list_videos:
             if (_id := video.get('id') or video.get('video_id')) and (_title := video.get('title') or video.get('video_title')):               
-                vid_name = f"{_id}_{_title}"
+                vid_name = f"{_id}_{_title}".upper()
                 #if vid_name in self.files_cached:
                 if (vid_path:=self.files_cached.get(vid_name)):
                     self.list_initaldl.append({'id': _id, 'title': _title})
@@ -299,7 +308,7 @@ class AsyncDL():
                 if info_dl:
                     time_now = datetime.now()
                     date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
-                    with open(Path(Path.home(), f"Projects/async_downloader/{date_file}_lastsession.json"), "w") as f:
+                    with open(Path(Path.home(), f"Projects/common/logs/{date_file}_lastsession.json"), "w") as f:
                         
                         json.dump(info_dl, f)                
                 break
@@ -320,21 +329,21 @@ class AsyncDL():
                     info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
                     if info:                        
                         self.logger.info(f"worker_init_dl[{i}] {info}")
-                        if info.get('_type') == 'url_transparent':
+                        #if info.get('_type') == 'url_transparent':
                        
-                            _name = f"{(_id:=(info.get('id') or info.get('video_id')))}_{(_title:=(info.get('title') or info.get('video_title')))}"
-                            if _name:
-                                if (vid_path:=self.files_cached.get(_name)):
-                                    self.list_initaldl.append({'id': _id, 'title': _title})
-                                    self.logger.info(f"[{_name}]: already DL")
-                                    time_now = datetime.now()
-                                    daypath = Path(Path.home(),"testing",time_now.strftime('%Y%m%d'))
-                                    daypath.mkdir(parents=True, exist_ok=True)
-                                    file_aldl = Path(daypath, Path(vid_path).name)
-                                    if file_aldl not in daypath.iterdir():
-                                        file_aldl.symlink_to(Path(vid_path))
-                                    self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")                            
-                                    continue
+                        _name = f"{(_id:=(info.get('id') or info.get('video_id')))}_{(_title:=(info.get('title') or info.get('video_title')))}".upper()
+                        if _name:
+                            if (vid_path:=self.files_cached.get(_name)):
+                                self.list_initaldl.append({'id': _id, 'title': _title})
+                                self.logger.info(f"[{_name}]: already DL")
+                                time_now = datetime.now()
+                                daypath = Path(Path.home(),"testing",time_now.strftime('%Y%m%d'))
+                                daypath.mkdir(parents=True, exist_ok=True)
+                                file_aldl = Path(daypath, Path(vid_path).name)
+                                if file_aldl not in daypath.iterdir():
+                                    file_aldl.symlink_to(Path(vid_path))
+                                self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")                            
+                                continue
                                                     
                             #self.logger.debug(f"protocol: {protocol}")
                             #self.logger.debug(final_dict)

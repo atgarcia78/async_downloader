@@ -192,19 +192,21 @@ def init_argparser():
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
     parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
     parser.add_argument("--proxy", default=None, type=str)
-    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 11.2; rv:85.0) Gecko/20100101 Firefox/85.0", type=str)
-    parser.add_argument("--start", default=None, type=int)
-    parser.add_argument("--end", default=None, type=int)
+    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.5; rv:87.0) Gecko/20100101 Firefox/87.0", type=str)
+    parser.add_argument("--first", default=None, type=int)
+    parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
     parser.add_argument("--nomult", help="init not concurrent", action="store_true")
     parser.add_argument("--cache", default=None, type=str)
+    parser.add_argument("--referer", default=None, type=str)
     
-    parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
+    #parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
+    parser.add_argument("-u", action="append", dest="collection", default=[])
 
     return parser.parse_args()
 
 
-def init_ytdl(dict_opts, uagent):
+def init_ytdl(dict_opts, uagent, referer):
 
 
     logger = logging.getLogger("ytdl")
@@ -233,7 +235,11 @@ def init_ytdl(dict_opts, uagent):
     ytdl.add_default_info_extractors()
 
     std_headers["User-Agent"] = uagent
-
+    if referer:
+        std_headers["Referer"] = referer
+        std_headers["Origin"] = referer
+        std_headers["Accept"] = "*/*"
+    logger.debug(f"std-headers: {std_headers}")
     return ytdl
 
 def init_tk(n_dl):

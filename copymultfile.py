@@ -19,6 +19,8 @@ import argparse
 import time
 from threading import Thread
 
+from codetiming import Timer
+
 _CHUNK_SIZE = 1048576*100
     
 async def run_tk(afiles, args_tk, interval):
@@ -149,6 +151,7 @@ async def async_main(list_files, workers, args_tk):
     
 
     logger.info([afile.file_orig.name for afile in list_files])
+    await asyncio.sleep(0.1)
     queue_files = asyncio.Queue()
     for file in list_files:
         queue_files.put_nowait(file)
@@ -157,6 +160,7 @@ async def async_main(list_files, workers, args_tk):
         queue_files.put_nowait("KILL")
         
     logger.info(list(queue_files._queue))
+    await asyncio.sleep(0.1)
     
     try:
         
@@ -166,6 +170,7 @@ async def async_main(list_files, workers, args_tk):
             tasks_run = [asyncio.create_task(worker_run(queue_files,i)) for i in range(workers)]
             for i,t in enumerate(tasks_run):
                 t.set_name(f"worker_run[{i}]")
+            await asyncio.sleep(0.1)
             
             await asyncio.wait([t1] + tasks_run, return_when=asyncio.ALL_COMPLETED)
             
@@ -176,13 +181,12 @@ async def async_main(list_files, workers, args_tk):
     asyncio.get_running_loop().stop()
             
 
-
+@Timer(name="decorator")
 def main():
     
     logger = logging.getLogger("main")
     
-    time1 = datetime.now()
-    
+        
     parser = argparse.ArgumentParser(description="Async move files")
     parser.add_argument("--orig", help="orig folder", default="", type=str)
     parser.add_argument("--dest", help="dest folder", default="", type=str)
@@ -192,7 +196,7 @@ def main():
     
     args = parser.parse_args()
     
-    vid_orig = [file for file in Path(Path.home(), args.orig).iterdir() if file.is_file() and not file.name.startswith(".")]    
+    vid_orig = [file for file in Path(args.orig).iterdir() if file.is_file() and not file.name.startswith(".")]    
     vid_dest = [Path(args.dest, file.name) for file in vid_orig]
     workers = args.w 
     parts = args.p
@@ -228,7 +232,7 @@ def main():
     except Exception as e:
         logger.info(f"aiorun {e}", exc_info=True)   
     
-    logger.info(datetime.now() - time1)
+    
 
 
 if __name__ == "__main__":

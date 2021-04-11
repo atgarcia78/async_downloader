@@ -4,6 +4,7 @@ from asyncio.exceptions import (
     InvalidStateError
 )
 import httpx
+import requests
 import sys
 from shutil import (
     rmtree
@@ -153,7 +154,7 @@ class AsyncHLSDownloader():
             self.info_frag.append(list())
 
         else: #single stream
-            self.headers.append(self.info_dict['http_headers'])
+            self.headers.append(self.info_dict.get('http_headers'))            
             self.stream_url.append(self.info_dict['url'])
 
             self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
@@ -175,14 +176,18 @@ class AsyncHLSDownloader():
 
             try:
                 #self.m3u8_obj.append(m3u8.loads(httpx.get(self.stream_url[j], headers=self.headers[j]).text,uri=self.stream_url[j]))
-                #self.logger.debug("HEADERS")
-                #self.logger.debug(self.headers[j])
+                self.logger.debug("HEADERS")
+                self.logger.debug(self.headers[j])
+                self.logger.debug(self.stream_url[j])
                 res = httpx.get(self.stream_url[j],headers=self.headers[j])
-                #self.logger.debug(res.request)
-                #self.logger.debug(res.request.headers)
+                #res = requests.get(self.stream_url[j],headers=self.headers[j])
+                #res = self.client[j].get_(self.stream_url[j])
+                self.logger.debug(res.url)
+                self.logger.debug(res)
+                self.logger.debug(res.request.headers)
                 m3u8_file = res.text
                 self.logger.debug("M3U8 file")
-                #self.logger.debug(m3u8_file)
+                self.logger.debug(m3u8_file)
                 self.m3u8_obj.append(m3u8.loads(m3u8_file,uri=self.stream_url[j]))
                 self.logger.debug(self.m3u8_obj[j].data)
             except Exception as e:

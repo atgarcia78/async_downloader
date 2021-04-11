@@ -137,10 +137,11 @@ class AsyncHTTPDownloader():
                 logging.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Can't get size of file, will download http without parts {e}")
                 
         if not self.filesize:
+            self.filesize = 0
             self.n_parts = 1
             self.parts = [{'part': 1, 'headers' : {'range' : 'bytes=0-'}, 'dl' : False,
                                    'tempfilename': Path(self.download_path, f"{self.filename.stem}_part_1_of_1"),
-                                   'tempfilesize': None}]
+                                   'tempfilesize': 0}]
            
 
         else: self.create_parts()    
@@ -246,11 +247,11 @@ class AsyncHTTPDownloader():
                 except Exception as e:
                     self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{i}]: [fetch] Part_{part} error {e} not DL")
                     break
-                    
-             
+                                
              
         
         self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: worker_fetch [{i}] says bye")
+        
     
     async def fetch_async(self):
 
@@ -351,13 +352,17 @@ class AsyncHTTPDownloader():
                 tempfilesize = self.parts[i]['tempfilesize']            
                 partsize = f.stat().st_size
                 #self.logger.debug(f"part_{i}:{partsize}:{tempfilesize}")
-                if partsize not in range(tempfilesize - 100, tempfilesize + 100):
+                if tempfilesize and partsize:
+                    if partsize not in range(tempfilesize - 100, tempfilesize + 100):
                     #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} exits with size {partsize} and not full downloaded {tempfilesize}")
-                    self.status = "error"
-                    raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} file size {partsize} doesnt match expected {tempfilesize}")
+                        self.status = "error"
+                        raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} file size {partsize} doesnt match expected {tempfilesize}")
                 else:
                     #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} exits {partsize} full downloaded {tempfilesize}")
-                    pass    
+                    self.status = "error"
+                    
+                    raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Part_{i+1} file size {partsize} doesnt match expected {tempfilesize}")
+                       
             
             with open(self.filename, 'wb') as dest:
                 try:

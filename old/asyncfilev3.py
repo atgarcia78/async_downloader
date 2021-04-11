@@ -8,7 +8,7 @@ from common_utils import (
 
 class AsyncFile(object):
     
-    _CHUNK_SIZE = 1048576
+    _CHUNK_SIZE = 1048576*10
     
     def __init__(self, file_orig, file_dest, n_parts):
         
@@ -52,20 +52,49 @@ class AsyncFile(object):
     async def _move_part(self, i):
         
         
-        offset = int(self.parts[i]['start'])
+        offset_init = int(self.parts[i]['start'])
         nbytes = int(self.parts[i]['size'])
-        #self.logger.debug(f"[move_part][{i}] init size {nbytes}")              
+        part_end = offset_init + nbytes
+        progress_part = 0
+        offset = offset_init
+        self.logger.info(f"[move_part][{i}] init {offset_init} size {nbytes}")              
+        while True:
+            
+            if offset >= part_end:
+                break
+            if (offset + self._CHUNK_SIZE) > part_end:
+                _nbytes = part_end - offset
+            else: _nbytes = self._CHUNK_SIZE
+            self.logger.info(f"[move_part][{i}] read _nbytes {_nbytes}")
+            
+            async with self.lock:                
+                self.aforig.seek(offset)  
+                      
+                chunk = await self.aforig.read(_nbytes)
+            
+                  
+                _offset = await self.aforig.tell()
+                
+                await asyncio.sleep(0.1)    
+           
+                self.afdest.seek(offset)
+            
+                written = await self.afdest.write(chunk)
+                
+            self.progress += written
+            progress_part += written
+            offset = _offset
+            self.logger.info(f"[move_part][{i}] new offset {offset}  {part_end}")
+            
         
-        async with self.lock:
-            self.aforig.seek(offset)
-            #self.logger.debug(f"[move_part][{i}] pos orig {self.aforig.tell()}")
-            chunk = await self.aforig.read(nbytes)
-        await asyncio.sleep(0.1)
-        async with self.lock:
-            self.afdest.seek(offset)
-            #self.logger.debug(f"[move_part][{i}] pos dest {self.afdest.tell()}")
-            self.progress += await self.afdest.write(chunk)
-        
+        self.logger.info(f"[move_part][{i}] bye")
+        # #self.logger.debug(f"[move_part][{i}] pos orig {self.aforig.tell()}")
+        # chunk = await self.aforig.read(nbytes)
+        # await asyncio.sleep(0.1)
+        # self.afdest.seek(offset)
+        # #self.logger.debug(f"[move_part][{i}] pos dest {self.afdest.tell()}")
+        # self.progress += await self.afdest.write(chunk)
+    
     
        
     
@@ -75,11 +104,11 @@ class AsyncFile(object):
         self.logger.info(f"[executor] {self.file_orig.name}")
         self.logger.debug(f"[executor] {self.file_orig.name} {self.parts}")
         
-        self.lock = asyncio.Lock()
-       
+        self.lock = asyncio.Lock()       
 
         self.status = 'running'
         await asyncio.sleep(0.1)
+        
         
         async with aiofiles.open(self.file_orig, 'rb') as self.aforig, aiofiles.open(self.file_dest, 'wb') as self.afdest:
         
@@ -92,7 +121,7 @@ class AsyncFile(object):
             
         if (dest_size := self.file_dest.stat().st_size) == self.size: 
             self.status = 'done'
-            self.file_orig.unlink()
+            #self.file_orig.unlink()
         else: 
             self.status = 'error'
             self.file_dest.unlink()
@@ -109,7 +138,7 @@ class AsyncFile(object):
         elif self.status == "error":
             return (f"[{self.file_orig.name}]: ERROR progress [{naturalsize(self.progress)}] of [{naturalsize(self.size)}]\n")
         else:            
-            return (f"[{self.file_orig.name}]: Progress {naturalsize(self.progress)} of [{naturalsize(self.size)}]\n")
+            return (f"[{self.file_orig.name}]: Progress {naturalsize(self.progress)} of [{(self.size)}]\n")
         
                
        
