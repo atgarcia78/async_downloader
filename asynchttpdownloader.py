@@ -28,6 +28,8 @@ from asyncio_pool import AioPool
 
 import aiofiles
 
+import hashlib
+
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -50,6 +52,7 @@ class AsyncHTTPDLError(Exception):
 class AsyncHTTPDownloader():
     
     _CHUNK_SIZE = 1048576
+    #_CHUNK_SIZE = 102400
     
     def __init__(self, video_dict, ytdl, n_parts):
 
@@ -65,8 +68,10 @@ class AsyncHTTPDownloader():
         self.video_url = video_dict.get('url')
         self.webpage_url = video_dict.get('webpage_url')
         
-        _video_id = str(self.info_dict['id'])
-        self.info_dict['id'] = _video_id[:15] if len(_video_id) > 15 else _video_id 
+        if not self.info_dict.get('id'):
+            _video_id = str(int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8)
+        else: _video_id = str(self.info_dict['id'])
+        self.info_dict.update({'id': _video_id[:15] if len(_video_id) > 15 else _video_id})
         self.videoid = self.info_dict['id']
         
         self.ytdl = ytdl
@@ -75,7 +80,7 @@ class AsyncHTTPDownloader():
             self.proxies = f"http://{self.proxies}"
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
-        timeout = httpx.Timeout(20, connect=30)
+        timeout = httpx.Timeout(5, connect=30)
         #timeout = None
         limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
         self.headers = self.info_dict.get('http_headers')
@@ -116,9 +121,12 @@ class AsyncHTTPDownloader():
         
     def prepare_parts(self):
         
-        if not self.filesize:
+        if self.filesize: self.create_parts() 
+        
+        else:
             
             try:
+                size = None
                 res = self.cl.head(self.video_url, allow_redirects=True)
                 #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{res.headers}:{res.request.headers}")
                 if res.status_code > 400: #repeat request without header referer
@@ -128,23 +136,25 @@ class AsyncHTTPDownloader():
                 if res.status_code < 400:
                     size = res.headers.get('content-length', None)
                     if size:
-                        self.filesize = int(size)
-                        self.create_parts()
-                        return
+                        self.filesize = int(size)                      
                 
-                else: logging.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {res.status_code}: Can't get size of file, will download http without parts")
+                
             except Exception as e:
-                logging.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Can't get size of file, will download http without parts {e}")
+                logging.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when trying to get filesize {e}")
                 
-        if not self.filesize:
-            self.filesize = 0
-            self.n_parts = 1
-            self.parts = [{'part': 1, 'headers' : {'range' : 'bytes=0-'}, 'dl' : False,
-                                   'tempfilename': Path(self.download_path, f"{self.filename.stem}_part_1_of_1"),
-                                   'tempfilesize': 0}]
+            if size: self.create_parts()
+            else:
+                logging.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {res.status_code}: Can't get size of file")
+                # self.filesize = 0
+                # self.n_parts = 1
+                # self.parts = [{'part': 1, 'headers' : {'range' : 'bytes=0-'}, 'dl' : False,
+                #                    'tempfilename': Path(self.download_path, f"{self.filename.stem}_part_1_of_1"),
+                #                    'tempfilesize': 0}]
+                raise AsyncHTTPDLErrorFatal("Can't get filesize")
+            
            
 
-        else: self.create_parts()    
+            
     
 
     def feed_queue(self):

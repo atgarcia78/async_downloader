@@ -39,6 +39,8 @@ from concurrent.futures import (
     wait
 )
 
+from youtube_dl.utils import sanitize_filename
+
 from codetiming import Timer
 
 import time
@@ -84,27 +86,24 @@ class AsyncDL():
             folder_extra_list = [Path(folder) for folder in self.args.cache.split(',')]
             for folder in folder_extra_list:
                 for file in folder.rglob('*'):
-                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8'):
-                        self.files_cached.update({f"{file.stem.upper()}": str(file)})
-                    
-            # self.files_cached = [{f"{file.stem.upper()}": file}
-            #                  for folder in folder_extra_list
-            #                     #for file in folder.iterdir()
-            #                     for file in folder.rglob('*')
-            #                         if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8')]
-       
+                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip'):
+                        _filestr = file.stem.upper()
+                        _index = _filestr.find("_")
+                        _filestr = sanitize_filename(_filestr[_index+1:], restricted=True)
+                        self.files_cached.update({f"{_filestr}": str(file)})
+          
         
         list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos")]
         
         for folder in list_folders:
                 for file in folder.rglob('*'):
-                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8'):
-                        self.files_cached.update({f"{file.stem.upper()}": str(file)})
+                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip'):
+                        _filestr = file.stem.upper()
+                        _index = _filestr.find("_")
+                        _filestr = sanitize_filename(_filestr[_index+1:], restricted=True)
+                        self.files_cached.update({f"{_filestr}": str(file)})
         
-        # self.files_cached = self.files_cached + [{f"{file.stem.upper()}": file}
-        #                                for folder in list_folders 
-        #                                 for file in folder.rglob('*')
-        #                                     if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8')]
+        
        
            
         self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
@@ -122,7 +121,7 @@ class AsyncDL():
         
         if self.args.playlist:
  
-            if not self.args.file:
+            if not self.args.collection_files:
 
                 
                 url_pl_list = self.args.collection
@@ -141,7 +140,7 @@ class AsyncDL():
 
             else:
                 
-                file_list = self.args.collection
+                file_list = self.args.collection_files
                 for file in file_list:
                     with open(file, "r") as file_json:
                         info_json = json.loads(file_json.read())
@@ -150,7 +149,7 @@ class AsyncDL():
 
         else: #url no son playlist
 
-            if not self.args.file:
+            if not self.args.collection_files:
                 
                 self.list_videos = [{'_type': 'url', 'url': _url} for _url in self.args.collection]
 
@@ -159,7 +158,7 @@ class AsyncDL():
                     with open(file, "r") as f:
                         return json.loads(f.read())
                 
-                self.list_videos = [get_info_json(file) for file in self.args.target.split(",")]
+                self.list_videos = [get_info_json(file) for file in self.args.collection_files]
         
         time_now = datetime.now()
         date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
@@ -183,12 +182,15 @@ class AsyncDL():
         
         self.videos_to_dl = []
         for video in self.list_videos:
-            if (_id := video.get('id') or video.get('video_id')) and (_title := video.get('title') or video.get('video_title')):               
-                vid_name = f"{_id}_{_title}".upper()
-                #if vid_name in self.files_cached:
+            #if (_id := video.get('id') or video.get('video_id')) and (_title := video.get('title') or video.get('video_title')):               
+            if (_title := video.get('title') or video.get('video_title')):
+                #vid_name = f"{_id}_{_title}".upper()
+                
+                vid_name = _title.upper()
+                #if (vid_path:=self.files_cached.get(vid_name)):
                 if (vid_path:=self.files_cached.get(vid_name)):
-                    self.list_initaldl.append({'id': _id, 'title': _title})
-                    self.logger.info(f"[{_id}][{_title}]: already DL")
+                    self.list_initaldl.append({'title': vid_name})
+                    self.logger.info(f"[{vid_name}]: already DL")
                     daypath = Path(Path.home(),"testing",time_now.strftime('%Y%m%d'))
                     daypath.mkdir(parents=True, exist_ok=True)
                     file_aldl = Path(daypath, Path(vid_path).name)
@@ -333,7 +335,7 @@ class AsyncDL():
                        
                         _name = f"{(_id:=(info.get('id') or info.get('video_id')))}_{(_title:=(info.get('title') or info.get('video_title')))}".upper()
                         if _name:
-                            if (vid_path:=self.files_cached.get(_name)):
+                            if (vid_path:=self.files_cached.get(_title)):
                                 self.list_initaldl.append({'id': _id, 'title': _title})
                                 self.logger.info(f"[{_name}]: already DL")
                                 time_now = datetime.now()
@@ -350,6 +352,9 @@ class AsyncDL():
                         info_dict = self.ytdl.process_ie_result(info,download=False)
                         self.logger.info(f"worker_init_dl[{i}] {info_dict}")
                         protocol, final_dict = get_info_dl(info_dict)
+                        if not final_dict.get('filesize'):
+                            if (_size:=(vid.get('size') or vid.get('filesize'))):
+                                final_dict.update({'filesize': _size})
                         dl = None
                         if protocol in ('http', 'https'):
                             dl = AsyncHTTPDownloader(final_dict, self.ytdl, self.parts)
@@ -508,8 +513,8 @@ def main_program(logger):
     logger.info(f"              ERROR DL: [{len(videos_kodl)}]")
     
     logger.info(f"******* VIDEO RESULT LISTS *******")        
-    logger.info(f"Videos ERROR INIT DL: {videos_initnok} \n[{','.join(videos_initnok_str)}]")
-    logger.info(f"Videos ERROR DL: {videos_kodl} \n[{','.join(videos_kodl_str)}]")
+    logger.info(f"Videos ERROR INIT DL: {videos_initnok} \n [-u {' -u '.join(videos_initnok_str)}]")
+    logger.info(f"Videos ERROR DL: {videos_kodl} \n[-u {' -u '.join(videos_kodl_str)}]")
     logger.info(f"Videos ALREADY DL: {_videos_aldl}") 
     logger.info(f"Videos DL: {videos_okdl}")
     

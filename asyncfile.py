@@ -1,5 +1,9 @@
 import aiofiles 
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    wait)
 import asyncio
+import threading
 from pathlib import Path
 import logging
 from common_utils import (
@@ -33,7 +37,9 @@ class AsyncFile(object):
         
         self.status = 'init'
         
+        self.lock = threading.Lock()
         
+        self.afdest = open(self.file_dest, "wb") 
         
         
     def _get_parts(self):
@@ -49,47 +55,64 @@ class AsyncFile(object):
                             'size': self.size //self.n_parts})
                 start_range = end_range + 1
                 
-    async def _move_part(self, i):
+    def _move_part(self, i):
         
         
         offset = int(self.parts[i]['start'])
         nbytes = int(self.parts[i]['size'])
-        #self.logger.debug(f"[move_part][{i}] init size {nbytes}")              
+        self.logger.info(f"[move_part][{i}] init size {nbytes}")              
         
-        async with self.lock:
-            self.aforig.seek(offset)
+        
+        with open(self.file_orig, 'rb') as aforig:
+            aforig.seek(offset)
             #self.logger.debug(f"[move_part][{i}] pos orig {self.aforig.tell()}")
-            chunk = await self.aforig.read(nbytes)
-        await asyncio.sleep(0.1)
-        async with self.lock:
-            self.afdest.seek(offset)
-            #self.logger.debug(f"[move_part][{i}] pos dest {self.afdest.tell()}")
-            self.progress += await self.afdest.write(chunk)
+            chunk = aforig.read(nbytes)
         
+        
+        
+        with self.lock:
+             
+        
+            self.afdest.seek(offset)
+            #await afdest.truncate()
+            #pos = await afdest.seek(offset)
+            #self.logger.debug(f"[move_part][{i}] pos dest {self.afdest.tell()}")
+            written = self.afdest.write(chunk)
+            self.progress += written
+            #apos = await afdest.tell()
+        
+        #self.logger.info(f"[{self.file_orig.stem}][move_part][{i}] init size {nbytes} pos {pos} apos {apos} written {written}")
+       #await asyncio.sleep(0.1)
     
        
     
-    async def executor(self):
+    def executor(self):
         
        
         self.logger.info(f"[executor] {self.file_orig.name}")
-        self.logger.debug(f"[executor] {self.file_orig.name} {self.parts}")
+        self.logger.info(f"[executor] {self.file_orig.name} {self.parts}")
         
-        self.lock = asyncio.Lock()
        
+        #self.lock = asyncio.Lock()
 
         self.status = 'running'
-        await asyncio.sleep(0.1)
+        #await asyncio.sleep(0.1)
         
-        async with aiofiles.open(self.file_orig, 'rb') as self.aforig, aiofiles.open(self.file_dest, 'wb') as self.afdest:
         
+        
+        #async with aiofiles.open(self.file_dest, "wb") as self.afdest:
+        with ThreadPoolExecutor(thread_name_prefix=f"[{self.file_orig.stem}]", max_workers=self.n_parts) as ex:
+            self.move_fut = [ex.submit(self._move_part, i) for i in range(self.n_parts)]    
+        #self.move_tasks = [asyncio.to_thread(self._move_part, i) for i in range(self.n_parts)]
+            wait(self.move_fut)
+            #self.move_tasks = [asyncio.create_task(self._move_part(i)) for i in range(self.n_parts)]
             
-            self.move_tasks = [asyncio.create_task(self._move_part(i)) for i in range(self.n_parts)]
+        #self.logger.info(f"[executor] {self.file_orig.name} tasks readers&writers in  loop")
             
-            self.logger.info(f"[executor] {self.file_orig.name} tasks readers&writers in the loop")
-            
-            done, pending = await asyncio.wait(self.move_tasks, return_when=asyncio.ALL_COMPLETED)
-            
+        #await asyncio.gather(*self.move_tasks, asyncio.sleep(1))
+        
+        self.afdest.close()
+                  
         if (dest_size := self.file_dest.stat().st_size) == self.size: 
             self.status = 'done'
             self.file_orig.unlink()

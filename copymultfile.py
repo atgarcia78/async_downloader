@@ -5,7 +5,7 @@ import aiofiles
 import asyncio
 import aiorun
 from pathlib import Path
-import uvloop
+#import uvloop
 import logging
 from common_utils import (
     init_logging, init_tk,
@@ -14,10 +14,10 @@ from common_utils import (
 )
 import tkinter as tk
 from asyncfile import AsyncFile
-from asyncio_pool import AioPool
+#from asyncio_pool import AioPool
 import argparse
-import time
-from threading import Thread
+#import time
+
 
 from codetiming import Timer
 
@@ -115,35 +115,35 @@ async def run_tk(afiles, args_tk, interval):
     
 #     completed, pending = await asyncio.wait(blocking_tasks)
     
-async def worker_run(queue_files, i):
+# async def worker_run(queue_files, i):
         
-        logger = logging.getLogger("worker_run")
+#         logger = logging.getLogger("worker_run")
         
-        logger.debug(f"worker_run[{i}]: launched")       
-        await asyncio.sleep(1)
+#         logger.debug(f"worker_run[{i}]: launched")       
+#         await asyncio.sleep(1)
         
         
-        while True:
+#         while True:
             
-            try:
+#             try:
             
-                await asyncio.sleep(1)
-                file = await queue_files.get()
-                logger.debug(f"worker_run[{i}]: get for a file")
+#                 await asyncio.sleep(1)
+#                 file = await queue_files.get()
+#                 logger.debug(f"worker_run[{i}]: get for a file")
                 
-                if file == "KILL":
-                    logger.debug(f"worker_run[{i}]: get KILL, bye")
-                    break
+#                 if file == "KILL":
+#                     logger.debug(f"worker_run[{i}]: get KILL, bye")
+#                     break
                 
                 
                 
-                else:
-                    logger.debug(f"worker_run[{i}]: start to mv {file.file_orig.name}")
-                    task_run = asyncio.create_task(file.executor())
-                    task_run.set_name(f"worker_run[{i}][{file.file_orig.name}]")
-                    await asyncio.wait([task_run], return_when=asyncio.ALL_COMPLETED)
-            except Exception as e:
-                logger.error(f"worker_run[{i}]: Error:{str(e)}", exc_info=True)       
+#                 else:
+#                     logger.debug(f"worker_run[{i}]: start to mv {file.file_orig.name}")
+#                     task_run = asyncio.create_task(file.executor())
+#                     task_run.set_name(f"worker_run[{i}][{file.file_orig.name}]")
+#                     await asyncio.wait([task_run], return_when=asyncio.ALL_COMPLETED)
+#             except Exception as e:
+#                 logger.error(f"worker_run[{i}]: Error:{str(e)}", exc_info=True)       
     
 async def async_main(list_files, workers, args_tk):
     
@@ -151,28 +151,34 @@ async def async_main(list_files, workers, args_tk):
     
 
     logger.info([afile.file_orig.name for afile in list_files])
-    await asyncio.sleep(0.1)
-    queue_files = asyncio.Queue()
-    for file in list_files:
-        queue_files.put_nowait(file)
+    # await asyncio.sleep(0.1)
+    # queue_files = asyncio.Queue()
+    # for file in list_files:
+    #     queue_files.put_nowait(file)
         
-    for _ in range(workers):
-        queue_files.put_nowait("KILL")
+    # for _ in range(workers):
+    #     queue_files.put_nowait("KILL")
         
-    logger.info(list(queue_files._queue))
+    # logger.info(list(queue_files._queue))
     await asyncio.sleep(0.1)
+    
+    loop = asyncio.get_running_loop()
     
     try:
         
-         
+                 
             t1 = asyncio.create_task(run_tk(list_files, args_tk, 0.25))
             t1.set_name("tk")
-            tasks_run = [asyncio.create_task(worker_run(queue_files,i)) for i in range(workers)]
-            for i,t in enumerate(tasks_run):
-                t.set_name(f"worker_run[{i}]")
-            await asyncio.sleep(0.1)
+            #tasks_run = [asyncio.create_task(worker_run(queue_files,i)) for i in range(workers)]
+            # for i,t in enumerate(tasks_run):
+            #     t.set_name(f"worker_run[{i}]")
+            # await asyncio.sleep(0.1)
+            with ThreadPoolExecutor(thread_name_prefix="copyfile", max_workers=workers) as ex:
+                fut = [loop.run_in_executor(ex, file.executor) for file in list_files]
+                
+                await asyncio.wait([t1] + fut, return_when=asyncio.ALL_COMPLETED)
             
-            await asyncio.wait([t1] + tasks_run, return_when=asyncio.ALL_COMPLETED)
+            #await asyncio.wait([t1] + tasks_run, return_when=asyncio.ALL_COMPLETED)
             
             
     except Exception as e:
@@ -204,22 +210,30 @@ def main():
     logger.info(vid_orig)
     logger.info(vid_dest)
     
+    vid_orig_final = []
+    vid_dest_final = []
     for i, file in enumerate(vid_orig):
         
         if file.is_symlink():
             logger.info(f"{i}:{file} is symlink to {file.readlink()} file dest {vid_dest[i]}")
-            vid_dest[i].symlink_to(file.readlink())
+            if not file.readlink() == vid_dest[i]:
+                if not vid_dest[i].exists():
+                    vid_dest[i].symlink_to(file.readlink())
             file.unlink()
-            del vid_orig[i]
-            del vid_dest[i]
+        
+        else:
+            vid_orig_final.append(vid_orig[i])
+            vid_dest_final.append(vid_dest[i])
+            #del vid_orig[i]
+            #del vid_dest[i]
     
     logger.info("Copy symlinks done")    
-    logger.info(vid_orig)
-    logger.info(vid_dest)
+    logger.info(vid_orig_final)
+    logger.info(vid_dest_final)
     
-  
+    
 
-    list_files = [AsyncFile(vid1, vid2, parts) for vid1, vid2 in zip(vid_orig, vid_dest)]
+    list_files = [AsyncFile(vid1, vid2, parts) for vid1, vid2 in zip(vid_orig_final, vid_dest_final)]
     
     #logger.info([afile.file_orig.name for afile in list_files])
     

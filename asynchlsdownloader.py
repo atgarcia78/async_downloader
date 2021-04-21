@@ -62,7 +62,7 @@ class AsyncHLSDLError(Exception):
 
 class AsyncHLSDownloader():
 
-    _CHUNK_SIZE = 1048576
+    _CHUNK_SIZE = 1048576*10
        
     def __init__(self, ie_result, ytdl, workers):
 
@@ -79,12 +79,13 @@ class AsyncHLSDownloader():
 
         self.date_file = datetime.now().strftime("%Y%m%d")
         
-        _video_id = str(self.info_dict['id'])
-        self.info_dict['id'] = _video_id[:15] if len(_video_id) > 15 else _video_id 
+        if not self.info_dict.get('id'):
+            _video_id = str(int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8)
+        else: _video_id = str(self.info_dict['id'])
+        self.info_dict.update({'id': _video_id[:15] if len(_video_id) > 15 else _video_id})
         self.videoid = self.info_dict['id']
         
-        # if not self.videoid:
-        #     self.videoid = int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8
+        
 
         self.base_download_path = Path(Path.home(),"testing", self.date_file, str(self.videoid))
         
@@ -125,7 +126,8 @@ class AsyncHLSDownloader():
         
 
         #timeout = httpx.Timeout(20, connect=60)
-        timeout = None
+        #timeout = None
+        timeout = httpx.Timeout(10, connect=30)
         limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
 
         if self.n_streams == 2:
@@ -144,10 +146,10 @@ class AsyncHLSDownloader():
             self.download_path[1].mkdir(parents=True, exist_ok=True)
 
             self.filename_stream.append(Path(self.download_path[0].parent, self.date_file + "_" + \
-                str(self.videoid) + "_" + self.info_dict['title'] + "_video" + "." + \
+                str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "_video" + "." + \
                 self.info_dict['requested_formats'][0]['ext']))
             self.filename_stream.append(Path(self.download_path[1].parent, self.date_file + "_" + \
-                str(self.videoid) + "_" + self.info_dict['title'] + "_audio" + "." + \
+                str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "_audio" + "." + \
                 self.info_dict['requested_formats'][1]['ext']))
             
             self.info_frag.append(list())
@@ -330,8 +332,9 @@ class AsyncHLSDownloader():
         self.key_cache = dict()
         self.client = []
 
-        #timeout = httpx.Timeout(20, connect=60)
-        timeout = None
+        timeout = httpx.Timeout(5, connect=30)
+        limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
+        #timeout = None
 
         if self.n_streams == 2:
             
@@ -342,9 +345,9 @@ class AsyncHLSDownloader():
             self.stream_url.append(info_reset['requested_formats'][1]['url'])
            
 
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies))
 
-            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies))
 
 
 
@@ -353,7 +356,7 @@ class AsyncHLSDownloader():
             self.stream_url.append(info_reset['url'])
 
 
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
+            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies))
 
 
 
@@ -461,12 +464,12 @@ class AsyncHLSDownloader():
 
                 except (AsyncHLSDLErrorFatal, httpx.ConnectError) as e:
                     self.info_frag[j][q - 1]['error'].append(str(e))
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:fatalError:{e}:{url}")
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:fatalError:{str(e)}:{url}", exc_info=True)
                     raise AsyncHLSDLErrorFatal(f"{e}")
                 except (AsyncHLSDLError, httpx.HTTPError, httpx.CloseError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ProxyError, AttributeError, RuntimeError) as e:
                     #self.logger.debug(f"Exception ocurred: {e}", exc_info=True)
                     self.info_frag[j][q - 1]['error'].append(f"{str(e)}")
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:error:{e}:{url}")
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:error:{str(e)}:{url}", exc_info=True)
                     self.info_frag[j][q - 1]['n_retries'] += 1
                     continue
 
@@ -498,7 +501,7 @@ class AsyncHLSDownloader():
                             await pool.cancel(pending_tasks)
                             self.logger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
                         except Exception as e:
-                            self.logger.debug(f"{self.webpage_url}: {e}")
+                            self.logger.debug(f"{self.webpage_url}: {str(e)}")
                     
                         await asyncio.gather(*pending_tasks, return_exceptions=True)
                                

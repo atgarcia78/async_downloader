@@ -18,6 +18,7 @@ import argparse
 import tkinter as tk
 
 
+
 def foldersize(folder):
     #devuelve en bytes size folder
     return sum(file.stat().st_size for file in Path(folder).rglob('*') if file.is_file())
@@ -137,6 +138,7 @@ def get_ip_proxy():
 
 def status_proxy():
 
+    from scapy.all import sr,IP,ICMP
     list_ok = []
     for proxy in IPS_TORGUARD:
         try:
@@ -149,11 +151,27 @@ def status_proxy():
             pass
             print(f"{proxy}:{e}")
 
+    
+        
+    list_ord = []
+    for ipl in list_ok:
+        ans, unans = sr([IP(dst=ipl)/ICMP()/b"Sent" for i in range(5)])
+        t = [(a[1].time - a[0].sent_time)*1000 for a in ans]
+        t.sort()
+        tmed = sum(t[1:-1])/3
+        print(f"{ipl}:{t}:{tmed}")
+        list_ord.append({'ip': ipl, 'time': tmed})
+
+    def myFunc(e):
+        return(e['time'])
+    
+    list_ord.sort(key=myFunc)
+    
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "w") as f:
-        f.write(json.dumps(list_ok))
+        f.write(json.dumps(list_ord))
     
 
-    return(list_ok)
+    return(list_ord)
 
 # def init_ffprofiles_file():
 #     with open(Path(Path.home(), "testing/firefoxprofiles.json"), "r") as f:
@@ -188,7 +206,7 @@ def init_argparser():
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
     parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
-    parser.add_argument("--file", help="jsonfile", action="store_true")
+    parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
     parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
     parser.add_argument("--proxy", default=None, type=str)
