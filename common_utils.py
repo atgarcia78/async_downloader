@@ -298,15 +298,16 @@ def init_tk(n_dl):
     text1.insert(tk.END, "Waiting for info") 
     text2.insert(tk.END, "Waiting for info")
     
-    window2 = tk.Tk()
-    window2.title("async_downloader")  
-    frame3 = tk.Frame(master=window2, width=300, height=25, bg="white")
-    frame3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    label3 = tk.Label(master=frame3, text="NUMBER OF TASKS", bg="blue")
-    label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text3 = tk.Text(master=frame3, font=("Source Code Pro", 9))
-    text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
+    # window2 = tk.Tk()
+    # window2.title("async_downloader")  
+    # frame3 = tk.Frame(master=window2, width=300, height=25, bg="white")
+    # frame3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    # label3 = tk.Label(master=frame3, text="NUMBER OF TASKS", bg="blue")
+    # label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    # text3 = tk.Text(master=frame3, font=("Source Code Pro", 9))
+    # text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    window2 = None
+    text3 = None
     res = [window, text0, text1, text2, window2, text3]       
     #return(window, text0, text1, text2, window2, text3)
     
@@ -345,7 +346,9 @@ def init_tk_afiles(n_files):
     
     text0.insert(tk.END, "Waiting for info") 
     text1.insert(tk.END, "Waiting for info") 
-    text2.insert(tk.END, "Waiting for info")  
+    text2.insert(tk.END, "Waiting for info") 
+    
+    
            
     return(window, text0, text1, text2)
     

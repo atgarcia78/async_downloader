@@ -1,190 +1,82 @@
 # coding: utf-8        
 from concurrent.futures.thread import ThreadPoolExecutor
-from datetime import datetime
-import aiofiles
-import asyncio
-import aiorun
+
 from pathlib import Path
-#import uvloop
+
 import logging
 from common_utils import (
-    init_logging, init_tk,
-    init_tk_afiles,
-    naturalsize
+    init_logging, 
+    init_tk_afiles
+    
 )
 import tkinter as tk
 from asyncfile import AsyncFile
-#from asyncio_pool import AioPool
+import PySimpleGUI as sg
+
 import argparse
-#import time
+
+import time
 
 
 from codetiming import Timer
 
-_CHUNK_SIZE = 1048576*100
-    
-async def run_tk(afiles, args_tk, interval):
+import threading
+
+def run_tk(afiles, window, interval):
     
     logger = logging.getLogger("run_tk")    
     
     logger.info("INIT TK")
     
-    root, text0, text1, text2 = args_tk
+    #root, text0, text1, text2 = args_tk
     
     try:
-        count = 0
-        while True:
-            root.update()
+        
+        while True:            
             res = set([file.status for file in afiles])
-            #logger.debug(res)
-            if ("init" in res and not "running" in res): 
-                pass
-            elif (not "init" in res and not "running" in res):                
+            #logger.info(res)
+            window.write_event_value('-PROGRESS-', None)
+            #if ("init" in res and not "running" in res): 
+            
+            if (not "init" in res and not "running" in res):                
+            #    window.write_event_value('-PROGRESS-', None)
                 break
-            else:
-                text0.delete(1.0, tk.END)
-                text1.delete(1.0, tk.END)
-                text2.delete(1.0, tk.END)    
-                for file in afiles:
-                    mens = file.print_hookup()                    
-                    if file.status in ["init"]:
-                        text0.insert(tk.END, mens)
-                    if file.status in ["running"]:                        
-                        text1.insert(tk.END, mens)
-                    if file.status in ["done", "error"]:
-                        text2.insert(tk.END,mens)
-                    
-                
-           
-                    #logger.debug(mens)                 
-                
-            await asyncio.sleep(interval)
+            #else:
+            #    window.write_event_value('-PROGRESS-', None)
+
+              
+            time.sleep(interval)   
+            
                   
             
-    except tk.TclError as e:
-        if "application has been destroyed" not in e.args[0]:
+    except Exception as e:        
             raise
     
-    logger.debug("RUN TK BYE")
+    logger.info("RUN TK BYE")
 
-# def run_tk(afiles, root, text0, text1, text2, interval):
-    
-#     logger = logging.getLogger("run_tk")
-#     logger.info("INIT TK")    
-    
-  
-#     try:
-        
-#         while True:
-#             root.update()
-#             res = set([file.status for file in afiles])
-#             #logger.debug(res)
-#             if ("init" in res and not "running" in res): 
-#                 pass
-#             elif (not "init" in res and not "running" in res):                
-#                 break
-#             else:
-#                 text0.delete(1.0, tk.END)
-#                 text1.delete(1.0, tk.END)
-#                 text2.delete(1.0, tk.END)    
-#                 for file in afiles:
-#                     mens = file.print_hookup()
-#                     if file.status in ["init"]:
-#                         text0.insert(tk.END, mens)
-#                     if file.status in ["running"]:                        
-#                         text1.insert(tk.END, mens)
-#                     if file.status in ["done", "error"]:
-#                         text2.insert(tk.END,mens)
-                    
-#                     logger.info(mens)                 
-                
-#             time.sleep(interval)
-                  
-            
-#     except tk.TclError as e:
-#         if "application has been destroyed" not in e.args[0]:
-#             raise
-    
-#     logger.info("RUN TK BYE")
 
-# async def run_blocking_task(ex, list_files, root_tk, text0_tk, text1_tk, text2_tk, interval):
-#     loop = asyncio.get_running_loop()
     
+def copy_main(list_files, workers, window):
     
-#     blocking_tasks = [loop.run_in_executor(ex, run_tk, list_files, root_tk, text0_tk, text1_tk, text2_tk, interval)]
-    
-#     completed, pending = await asyncio.wait(blocking_tasks)
-    
-# async def worker_run(queue_files, i):
-        
-#         logger = logging.getLogger("worker_run")
-        
-#         logger.debug(f"worker_run[{i}]: launched")       
-#         await asyncio.sleep(1)
-        
-        
-#         while True:
-            
-#             try:
-            
-#                 await asyncio.sleep(1)
-#                 file = await queue_files.get()
-#                 logger.debug(f"worker_run[{i}]: get for a file")
-                
-#                 if file == "KILL":
-#                     logger.debug(f"worker_run[{i}]: get KILL, bye")
-#                     break
-                
-                
-                
-#                 else:
-#                     logger.debug(f"worker_run[{i}]: start to mv {file.file_orig.name}")
-#                     task_run = asyncio.create_task(file.executor())
-#                     task_run.set_name(f"worker_run[{i}][{file.file_orig.name}]")
-#                     await asyncio.wait([task_run], return_when=asyncio.ALL_COMPLETED)
-#             except Exception as e:
-#                 logger.error(f"worker_run[{i}]: Error:{str(e)}", exc_info=True)       
-    
-async def async_main(list_files, workers, args_tk):
-    
-    logger = logging.getLogger("async_main")
+    logger = logging.getLogger("copy_main")
     
 
     logger.info([afile.file_orig.name for afile in list_files])
-    # await asyncio.sleep(0.1)
-    # queue_files = asyncio.Queue()
-    # for file in list_files:
-    #     queue_files.put_nowait(file)
-        
-    # for _ in range(workers):
-    #     queue_files.put_nowait("KILL")
-        
-    # logger.info(list(queue_files._queue))
-    await asyncio.sleep(0.1)
     
-    loop = asyncio.get_running_loop()
+    
+             
+        
     
     try:
-        
-                 
-            t1 = asyncio.create_task(run_tk(list_files, args_tk, 0.25))
-            t1.set_name("tk")
-            #tasks_run = [asyncio.create_task(worker_run(queue_files,i)) for i in range(workers)]
-            # for i,t in enumerate(tasks_run):
-            #     t.set_name(f"worker_run[{i}]")
-            # await asyncio.sleep(0.1)
-            with ThreadPoolExecutor(thread_name_prefix="copyfile", max_workers=workers) as ex:
-                fut = [loop.run_in_executor(ex, file.executor) for file in list_files]
-                
-                await asyncio.wait([t1] + fut, return_when=asyncio.ALL_COMPLETED)
-            
-            #await asyncio.wait([t1] + tasks_run, return_when=asyncio.ALL_COMPLETED)
-            
-            
+
+        with ThreadPoolExecutor(thread_name_prefix="copyfile", max_workers=workers+1) as ex:
+                fut_tk = ex.submit(run_tk, list_files, window, 0.25)
+                fut = [ex.submit(file.executor) for file in list_files]
+         
     except Exception as e:
         logger.info(str(e))
         
-    asyncio.get_running_loop().stop()
+    window.write_event_value('-DONE-', None)
             
 
 @Timer(name="decorator")
@@ -235,18 +127,50 @@ def main():
 
     list_files = [AsyncFile(vid1, vid2, parts) for vid1, vid2 in zip(vid_orig_final, vid_dest_final)]
     
-    #logger.info([afile.file_orig.name for afile in list_files])
+    total_size = sum([file.size for file in list_files])
+    
+    col1 = [ [sg.Text('Waiting to enter in pool', font='Any 15')],
+             [sg.MLine(key='-ML1-'+sg.WRITE_ONLY_KEY, size=(70,30), font='Any 8', default_text="Waiting")]            
+            ]
+    
+    col2 = [ [sg.Text('Now running', font='Any 15')],
+             [sg.MLine(key='-ML2-'+sg.WRITE_ONLY_KEY, size=(100,30), font='Any 8', default_text="Waiting")]            
+            ]
+    
+    col3 = [ [sg.Text('Done/Error', font='Any 15')],
+             [sg.MLine(key='-ML3-'+sg.WRITE_ONLY_KEY, size=(100,30), font='Any 8', default_text="Waiting")]            
+            ]
+    
+    layout = [  
+                [sg.Column(col1), sg.Column(col2), sg.Column(col3)],
+                [sg.Button('Show'), sg.Button('Go'), sg.Button('Exit')]
+              
+            ]
+
+    window = sg.Window('COPY FILE', layout, finalize=True)
     
     
-   #ex = ThreadPoolExecutor(max_workers=1)
-    try:
-        args_tk = init_tk_afiles(len(list_files))
-        aiorun.run(async_main(list_files, workers,args_tk), use_uvloop=True) 
-        
-    except Exception as e:
-        logger.info(f"aiorun {e}", exc_info=True)   
     
-    
+    while True:
+        event, values = window.read()
+        if event in ['Go']:
+            threading.Thread(target=copy_main, args=(list_files, workers, window,), daemon=True).start()            
+        elif event in ['-DONE-', 'Exit']:
+            break
+        elif event in ['-PROGRESS-']:
+            window['-ML1-'+sg.WRITE_ONLY_KEY].update('')
+            window['-ML2-'+sg.WRITE_ONLY_KEY].update('')
+            window['-ML3-'+sg.WRITE_ONLY_KEY].update('')
+            
+            for file in list_files:
+                mens = file.print_hookup()
+                #logger.info(f"{file.status}:{mens}")                                        
+                if file.status in ["init"]:
+                    window['-ML1-'+sg.WRITE_ONLY_KEY].print(mens)
+                if file.status in ["running"]:                        
+                    window['-ML2-'+sg.WRITE_ONLY_KEY].print(mens)
+                if file.status in ["done", "error"]:
+                    window['-ML3-'+sg.WRITE_ONLY_KEY].print(mens)
 
 
 if __name__ == "__main__":

@@ -93,15 +93,17 @@ class AsyncDL():
                         self.files_cached.update({f"{_filestr}": str(file)})
           
         
-        list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos")]
+        list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos")]
         
         for folder in list_folders:
-                for file in folder.rglob('*'):
-                    if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip'):
-                        _filestr = file.stem.upper()
-                        _index = _filestr.find("_")
-                        _filestr = sanitize_filename(_filestr[_index+1:], restricted=True)
-                        self.files_cached.update({f"{_filestr}": str(file)})
+            #self.logger.debug(f"[CACHED] Folder: {folder.name}")
+            for file in folder.rglob('*'):
+                #self.logger.debug(f"[CACHED] \tFile: {file.name}")
+                if (file.is_file() or file.is_symlink()) and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip'):
+                    _filestr = file.stem.upper()
+                    _index = _filestr.find("_")
+                    _filestr = sanitize_filename(_filestr[_index+1:], restricted=True)
+                    self.files_cached.update({f"{_filestr}": str(file)})
         
         
        
@@ -112,6 +114,10 @@ class AsyncDL():
         
         with open(Path(Path.home(), f"Projects/common/logs/{date_file}files_cached.json"),"w") as f:
             json.dump(self.files_cached,f)
+            
+        # with open(Path(Path.home(), "Projects/common/logs/files_cached.json"),"w") as f:
+        #     json.dump(self.files_cached,f)
+        
                
         
     def get_list_videos(self):
@@ -162,8 +168,12 @@ class AsyncDL():
         
         time_now = datetime.now()
         date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
-        with open(Path(Path.home(), f"Projects/common/logs/{date_file}_videolist.json"), "w") as f:
+        videolist_file = Path(Path.home(), "Projects/common/logs/{date_file}_videolist.json")
+        with open(videolist_file, "w") as f:
             json.dump(self.list_videos,f)
+        
+        list_to_remove = [file for file in Path(Path.home(), "Projects/common/logs").iterdir() if ("videolist" in file.stem or "lastsession" in file.stem or "files_cached" in file.stem) and not file.stem.startswith(date_file.split('_')[0])]
+        for file in list_to_remove: file.unlink()
 
         if self.args.index:
             if self.args.index in range(1,len(self.list_videos)):
@@ -228,7 +238,7 @@ class AsyncDL():
             while True:
                 
                 root.update()
-                root2.update()
+                #root2.update()
                 
                 #self.logger.debug(f"[tk] {all_tasks}")                
                 
@@ -239,16 +249,18 @@ class AsyncDL():
                 #     else:
                 #         video_queue_str.append(video.info_dict['title'])
                 # video_queue_str = ",".join(video_queue)                    
-                text3.delete(1.0, tk.END)
-                all_tasks = [f"{t.get_name()}" for t in asyncio.all_tasks()]                
-                all_tasks.sort()
+                
+                #text3.delete(1.0, tk.END)
+                #all_tasks = [f"{t.get_name()}" for t in asyncio.all_tasks()]                
+                #all_tasks.sort()
+                
                 video_queue = []
                 for dl in (_dl_queue:=list(self.queue_dl._queue)):
                     if dl in ("KILL", "KILLTK"): video_queue.append(dl)
                     else: video_queue.append(dl.info_dict['title'])
                     
                 
-                text3.insert(tk.END, f"{video_queue}\n{len(all_tasks)}\n{all_tasks}")
+                #text3.insert(tk.END, f"{video_queue}\n{len(all_tasks)}\n{all_tasks}")
                 if (len(video_queue) == 1) and (video_queue[0] == "KILLTK"):
                     break
                 
@@ -316,40 +328,43 @@ class AsyncDL():
                 break
             
             else:        
+                
                 try:               
                     
                     
-                    info_dict = None    
-                    # if vid.get('_type') in ('url_transparent', None, 'video'):
-                    #     info_dict = self.ytdl.process_ie_result(vid,download=False)
-                    # elif vid.get('_type') == 'url':
-                    #     info_dict = self.ytdl.extract_info(vid['url'], download=False)
-                    # else:
-                    #     self.logger.debug(f"Type of result not treated yet: {vid.get('_type')}")
-                    #     pass
                     
-                    info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
-                    if info:                        
-                        self.logger.info(f"worker_init_dl[{i}] {info}")
-                        #if info.get('_type') == 'url_transparent':
-                       
-                        _name = f"{(_id:=(info.get('id') or info.get('video_id')))}_{(_title:=(info.get('title') or info.get('video_title')))}".upper()
-                        if _name:
-                            if (vid_path:=self.files_cached.get(_title)):
-                                self.list_initaldl.append({'id': _id, 'title': _title})
-                                self.logger.info(f"[{_name}]: already DL")
-                                time_now = datetime.now()
-                                daypath = Path(Path.home(),"testing",time_now.strftime('%Y%m%d'))
-                                daypath.mkdir(parents=True, exist_ok=True)
-                                file_aldl = Path(daypath, Path(vid_path).name)
-                                if file_aldl not in daypath.iterdir():
-                                    file_aldl.symlink_to(Path(vid_path))
-                                self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")                            
-                                continue
-                                                    
-                            #self.logger.debug(f"protocol: {protocol}")
-                            #self.logger.debug(final_dict)
-                        info_dict = self.ytdl.process_ie_result(info,download=False)
+                    if not vid.get('format_id') and not vid.get('requested_formats'):
+                    
+                        info_dict = None    
+
+                        
+                        info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
+                        if info:                        
+                            self.logger.info(f"worker_init_dl[{i}] {info}")
+                            #if info.get('_type') == 'url_transparent':
+                        
+                            _name = f"{(_id:=(info.get('id') or info.get('video_id')))}_{(_title:=(info.get('title') or info.get('video_title')))}".upper()
+                            if _name:
+                                if (vid_path:=self.files_cached.get(_title.upper())):
+                                    self.list_initaldl.append({'id': _id, 'title': _title})
+                                    self.logger.info(f"[{_name}]: already DL")
+                                    time_now = datetime.now()
+                                    daypath = Path(Path.home(),"testing",time_now.strftime('%Y%m%d'))
+                                    daypath.mkdir(parents=True, exist_ok=True)
+                                    file_aldl = Path(daypath, Path(vid_path).name)
+                                    if file_aldl not in daypath.iterdir():
+                                        file_aldl.symlink_to(Path(vid_path))
+                                    self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")                            
+                                    continue
+                                                        
+                                #self.logger.debug(f"protocol: {protocol}")
+                                #self.logger.debug(final_dict)
+                            info_dict = self.ytdl.process_ie_result(info,download=False)
+                    else:
+                        info_dict = vid
+                    
+                    if info_dict:
+                            
                         self.logger.info(f"worker_init_dl[{i}] {info_dict}")
                         protocol, final_dict = get_info_dl(info_dict)
                         if not final_dict.get('filesize'):
@@ -363,16 +378,16 @@ class AsyncDL():
                         else:
                             self.logger.error(f"worker_init_dl[{i}] [{info_dict['id']}][{info_dict['title']}]: protocol not supported")
                             raise Exception("protocol not supported")
-                            
+                                
                         if dl:
                             self.queue_dl.put_nowait(dl)
                             self.list_dl.append(dl)
                             self.logger.info(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {self.nvideos}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}")
                         else: 
-                                
+                                    
                             raise Exception("no DL init")
                     else:
-                        # logger.error(f"{vid['url']}:no info dict")                
+                                      
                         raise Exception("no info dict")
                 except Exception as e:
                     self.list_initnok.append((vid, f"Error:{str(e)}"))
