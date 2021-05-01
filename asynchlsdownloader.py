@@ -1,11 +1,8 @@
 import asyncio
-from asyncio.exceptions import (
-    CancelledError,
-    InvalidStateError
-)
+from concurrent.futures import ThreadPoolExecutor
 import httpx
-import requests
 import sys
+import traceback
 from shutil import (
     rmtree
 
@@ -16,14 +13,12 @@ from Crypto.Cipher import AES
 
 
 from pathlib import Path
-from user_agent import generate_user_agent
-from datetime import datetime
 
 from natsort import (
     natsorted,
     ns
 )
-from youtube_dl.utils import sanitize_filename
+
 
 from collections import deque
 from urllib.parse import urlparse
@@ -31,16 +26,21 @@ import logging
 
 from asyncio_pool import AioPool
 
-import hashlib
+
+
+import time
 
 from common_utils import (
     print_norm_time,
     naturalsize,
-    foldersize,
-    folderfiles
+    int_or_none
 )
 
 import aiofiles
+
+import concurrent.futures
+
+from asynclogger import AsyncLogger
 
 class AsyncHLSDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -62,46 +62,49 @@ class AsyncHLSDLError(Exception):
 
 class AsyncHLSDownloader():
 
-    _CHUNK_SIZE = 1048576*10
+    _CHUNK_SIZE = 1048576
+    #_CHUNK_SIZE = 1024
        
-    def __init__(self, ie_result, ytdl, workers):
+    def __init__(self, video_dict, vid_dl):
 
 
         self.logger = logging.getLogger("async_HLS_DL")
+        self.alogger = AsyncLogger(self.logger)
                  
-        self.info_dict = ie_result
-        self.ytdl = ytdl
-        self.proxies = ytdl.params.get('proxy', None)
+        self.info_dict = video_dict
+        self.video_downloader = vid_dl
+        self.iworkers = vid_dl.n_workers 
+        self.video_url = video_dict.get('url')
+        self.webpage_url = video_dict.get('webpage_url')
+        
+
+        self.videoid = self.info_dict['id']
+        
+        self.ytdl = vid_dl.ytdl
+        self.proxies = self.ytdl.params.get('proxy', None)
         if self.proxies:
             self.proxies = f"http://{self.proxies}"
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
-        self.webpage_url = self.info_dict.get('webpage_url')
 
-        self.date_file = datetime.now().strftime("%Y%m%d")
+        self.timeout = httpx.Timeout(10, connect=30)
         
-        if not self.info_dict.get('id'):
-            _video_id = str(int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8)
-        else: _video_id = str(self.info_dict['id'])
-        self.info_dict.update({'id': _video_id[:15] if len(_video_id) > 15 else _video_id})
-        self.videoid = self.info_dict['id']
+        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
+        self.headers = self.info_dict.get('http_headers')
+        #self.client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+        #self.cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
         
-        
-
-        self.base_download_path = Path(Path.home(),"testing", self.date_file, str(self.videoid))
-        
-        #self.filename = Path(Path.home(),"testing", self.date_file, self.date_file + "_" + \
-        #    str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "." + self.info_dict['ext'])
-        
-        self.filename = Path(Path.home(),"testing", self.date_file, str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "." + self.info_dict['ext'])
-
-        if self.info_dict.get('requested_formats', None): #multi stream
-            self.n_streams = 2
+        self.base_download_path = self.info_dict['download_path']
+        if (_filename:=self.info_dict.get('_filename')):
+            self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
+            self.download_path.mkdir(parents=True, exist_ok=True) 
+            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
         else:
-            self.n_streams = 1
+            self.download_path = self.base_download_path
+            self.filename = self.info_dict.get('filename')
 
+        self.key_cache = dict()
         self.n_reset = 0
   
-        self.iworkers = workers
 
         self.prep_init()
         
@@ -110,204 +113,115 @@ class AsyncHLSDownloader():
     
     def prep_init(self):
 
-           
-        #self.frag_queue = []
-        self.headers = []
-        self.stream_url = []        
-        self.m3u8_obj = []
-        self.info_frag = []
-        self.key_cache = dict()
-        self.client = []
+        self.info_seg = []
+        self.segs_to_dl = []
         
-        self.download_path = []       
-        self.filename_stream = []
+        try:            
 
-        
-        
-
-        #timeout = httpx.Timeout(20, connect=60)
-        #timeout = None
-        timeout = httpx.Timeout(10, connect=30)
-        limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
-
-        if self.n_streams == 2:
-
-            self.headers.append(self.info_dict['requested_formats'][0]['http_headers'])
-            self.headers.append(self.info_dict['requested_formats'][1]['http_headers'])
-            self.stream_url.append(self.info_dict['requested_formats'][0]['url'])
-            self.stream_url.append(self.info_dict['requested_formats'][1]['url'])
-
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
-            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
-
-            self.download_path.append(Path(self.base_download_path, "video"))
-            self.download_path.append(Path(self.base_download_path, "audio"))
-            self.download_path[0].mkdir(parents=True, exist_ok=True)
-            self.download_path[1].mkdir(parents=True, exist_ok=True)
-
-            self.filename_stream.append(Path(self.download_path[0].parent, self.date_file + "_" + \
-                str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "_video" + "." + \
-                self.info_dict['requested_formats'][0]['ext']))
-            self.filename_stream.append(Path(self.download_path[1].parent, self.date_file + "_" + \
-                str(self.videoid) + "_" + sanitize_filename(self.info_dict['title'], restricted=True) + "_audio" + "." + \
-                self.info_dict['requested_formats'][1]['ext']))
-            
-            self.info_frag.append(list())
-            self.info_frag.append(list())
-
-        else: #single stream
-            self.headers.append(self.info_dict.get('http_headers'))            
-            self.stream_url.append(self.info_dict['url'])
-
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, limits=limits, timeout=timeout, verify=self.verifycert, proxies=self.proxies))
-            self.download_path.append(self.base_download_path)
-            self.download_path[0].mkdir(parents=True, exist_ok=True)
-            self.filename_stream.append(self.filename)
-            
-            self.info_frag.append(list())
-            
-
-        self.frag_queue = deque()
-        
-        if self.n_streams == 1:
-            tbr = self.info_dict.get('tbr', 0)
-        else:
-            tbr = self.info_dict['requested_formats'][0].get('tbr', 0)
-        
-        for j in range(self.n_streams):
-
-            try:
-                #self.m3u8_obj.append(m3u8.loads(httpx.get(self.stream_url[j], headers=self.headers[j]).text,uri=self.stream_url[j]))
-                self.logger.debug("HEADERS")
-                self.logger.debug(self.headers[j])
-                self.logger.debug(self.stream_url[j])
-                res = httpx.get(self.stream_url[j],headers=self.headers[j])
-                #res = requests.get(self.stream_url[j],headers=self.headers[j])
-                #res = self.client[j].get_(self.stream_url[j])
-                self.logger.debug(res.url)
-                self.logger.debug(res)
-                self.logger.debug(res.request.headers)
-                m3u8_file = res.text
-                self.logger.debug("M3U8 file")
-                self.logger.debug(m3u8_file)
-                self.m3u8_obj.append(m3u8.loads(m3u8_file,uri=self.stream_url[j]))
-                self.logger.debug(self.m3u8_obj[j].data)
-            except Exception as e:
-                self.logger.warning(f"No hay descriptor: {e}", exc_info=True)
-                raise AsyncHLSDLErrorFatal("no hay descriptor")
-
-
-            #self.logger.debug((self.m3u8_obj[j].data))
-        
-            part = 0
-            uri_ant = ""
-            byte_range = {}            
-            
-
-            for i, segment in enumerate(self.m3u8_obj[j].segments):
-                                 
-                if segment.byterange:
-                    if segment.uri == uri_ant:
-                        part += 1
-                    else:
-                        part = 1
-                        
-                    uri_ant = segment.uri
-                    file_path =  Path(self.download_path[j], f"{Path(urlparse(segment.uri).path).name}_part_{part}")
-                    splitted_byte_range = segment.byterange.split('@')
-                    sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
-                    byte_range = {
-                        'start': sub_range_start,
-                        'end': sub_range_start + int(splitted_byte_range[0]),
-                    }
-
-                else:
-                    file_path =  Path(self.download_path[j],Path(urlparse(segment.uri).path).name)
-                    byte_range = {}
-
-
-                # size = 0
-                # try:
-                #     size = file_path.stat().st_size
-                # except Exception as e:
-                #     pass
-
-                # if size == 0:
-                est_size = tbr * segment.duration * 1000 / 8
-                if file_path.exists():
-                    size = file_path.stat().st_size
-                else: size = -1
-                
-                if size < 0.90 * est_size:
-                    if size != -1: file_path.unlink()
-                    self.info_frag[j].append({"frag" : i+1, "url" : segment.absolute_uri, "key": segment.key, "file" : file_path, "byterange" : byte_range, "downloaded" : False, "n_retries": 0, "error" : []})
-                    self.frag_queue.append((j, i+1))
-                    if segment.key is not None and segment.key.method == 'AES-128':
-                        if segment.key.absolute_uri not in self.key_cache:
-                            self.key_cache[segment.key.absolute_uri] = httpx.get(segment.key.absolute_uri, headers=self.headers[j]).content
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{self.key_cache[segment.key.absolute_uri]}")
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{segment.key.iv}")
-
-                else:
-                    self.info_frag[j].append({"frag" : i+1, "url" : segment.absolute_uri, "file" : file_path, "byterange" : byte_range, "downloaded" : True, "n_retries": 0, "error" : "AlreadyDL"})
+            res = httpx.get(self.video_url,headers=self.headers)
+            m3u8_file = res.text  
+            self.m3u8_obj = m3u8.loads(m3u8_file,uri=self.video_url)
  
+        except Exception as e:
+            self.logger.warning(f"No hay descriptor: {e}", exc_info=True)
+            raise AsyncHLSDLErrorFatal("no hay descriptor")
+           
+        part = 0
+        uri_ant = ""
+        byte_range = {}            
+        
+        self.n_dl_segments = 0
+        self.down_size = 0
 
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Frags for stream {str(j)}")
-            self.logger.debug(self.info_frag[j])
+        for i, segment in enumerate(self.m3u8_obj.segments):
+                                
+            if segment.byterange:
+                if segment.uri == uri_ant:
+                    part += 1
+                else:
+                    part = 1
+                    
+                uri_ant = segment.uri
+                file_path =  Path(self.download_path, f"{Path(urlparse(segment.uri).path).name}_part_{part}")
+                splitted_byte_range = segment.byterange.split('@')
+                sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
+                byte_range = {
+                    'start': sub_range_start,
+                    'end': sub_range_start + int(splitted_byte_range[0]),
+                }
+
+            else:
+                file_path =  Path(self.download_path,Path(urlparse(segment.uri).path).name)
+                byte_range = {}
+       
+            self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
+            est_size = self.tbr * segment.duration * 1000 / 8
+            if file_path.exists():
+                size = file_path.stat().st_size
+            else: size = -1
+            if not est_size: est_size = size
             
-        self.get_number_segments()
+            
+            #hsize = int_or_none(httpx.get(segment.absolute_uri,headers=self.headers).headers.get('content-length'))
+            
+            #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: seg[{i}] size[{size}] est_size[{est_size}] hsize[{hsize}]")
+            
+            if  est_size*0.9 <= size <= est_size*1.1:
+                self.info_seg.append({"seg" : i+1, "url" : segment.absolute_uri, "key": segment.key, "file" : file_path, "byterange" : byte_range, "downloaded" : True, "estsize" : est_size, "headersize" : None, "size": size, "n_retries": 0, "error" : ["AlreadyDL"]})
+                
+                self.n_dl_segments += 1
+                self.down_size += size
+                self.segs_to_dl.append(i+1)
+                
+            else:
+                if file_path.exists(): file_path.unlink()
+                self.info_seg.append({"seg" : i+1, "url" : segment.absolute_uri, "key": segment.key, "file" : file_path, "byterange" : byte_range, "downloaded" : False, "estsize" : est_size, "headersize": None, "size": None, "n_retries": 0, "error" : []})
+                self.segs_to_dl.append(i+1)
+                if segment.key is not None and segment.key.method == 'AES-128':
+                    if segment.key.absolute_uri not in self.key_cache:
+                        self.key_cache.update({segment.key.absolute_uri : httpx.get(segment.key.absolute_uri, headers=self.headers).content})
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.key_cache[segment.key.absolute_uri]}")
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{segment.key.iv}")
+
+
+
+
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nSegs DL: {self.segsdl()}\nSegs not DL: {self.segsnotdl()}")
+        
+          
+        self.n_total_segments = len(self.m3u8_obj.segments)
         self.calculate_duration() #get total duration
         self.calculate_filesize() #get filesize estimated
-        self.n_dl_segments = folderfiles(str(self.base_download_path))
-        self.down_size = foldersize(str(self.base_download_path)) #init in case there's part DL
         
-        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {naturalsize(self.filesize, False, False)} -- already downloaded {naturalsize(self.down_size)} -- total segments {self.n_total_segments} -- segments already dl {self.n_dl_segments}")       
+        if self.filesize == 0: _est_size = "NA"
+        else: _est_size = naturalsize(self.filesize, False, False)
+        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total segments {self.n_total_segments} -- segments already dl {self.n_dl_segments}")    
         
          
-    def get_number_segments(self):
-        self.n_total_segments = len(self.m3u8_obj[0].segments)
-        if self.n_streams == 2:
-            self.n_total_segments += len(self.m3u8_obj[1].segments)        
         
+
                                          
     def calculate_duration(self):
         self.totalduration = 0
-        for segment in self.m3u8_obj[0].segments:
+        for segment in self.m3u8_obj.segments:
             self.totalduration += segment.duration
             
     def calculate_filesize(self):
-        if self.n_streams == 1:
-            tbr = self.info_dict.get('tbr', 0)
-        else:
-            tbr = self.info_dict['requested_formats'][0].get('tbr', 0)
+                
+        self.filesize = int(self.totalduration * 1000 * self.tbr / 8)
         
-        self.filesize = self.totalduration * 1000 * tbr / 8 #bytes  
+    async def reset(self): 
+
+        #ya tenemos toda la info, sólo queremos refrescar la info de los segmentos
         
-    async def reset(self):
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:RESET:close clients")
-        
-        try:
-            await self.client[0].aclose()
-            if self.n_streams == 2:
-                await self.client[1].aclose()
-        except Exception as e:
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Exception ocurred when closing client: {str(e)}", exc_info=True)    
- 
-        
-        #ya tenemos toda la info, sólo queremos refrescar la info de los fragmentos
-        
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:RESET:get video dict: {self.webpage_url}")
+        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET:get video dict: {self.webpage_url}")
         
         try:
             
-            info = self.ytdl.process_ie_result({'_type':'url_transparent', 'url': self.webpage_url, 'title': self.info_dict['title'], 'ie_key': self.info_dict['extractor_key']}, download=False)
-            if info.get('playlist'):
-                info_reset = info['entries'][self.info_dict['playlist_index']]
-            else:
-                info_reset = info
+            info_reset = self.ytdl.extract_info(self.webpage_url, download=False, process=True)
             
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:New info video")
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{info_reset}")
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:New info video")
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{info_reset}")
             
         except Exception as e:
             raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")
@@ -319,175 +233,226 @@ class AsyncHLSDownloader():
             self.prep_reset(info_reset)
             self.n_reset += 1
         except Exception as e:
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Exception occurred when reset: {str(e)}")
-            raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
-
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception occurred when reset: {str(e)}")
+            raise AsyncHLSDLErrorFatal("RESET fails: preparation segs failed")
     
     def prep_reset(self, info_reset):
        
-        #self.frag_queue = []
-        self.headers = []
-        self.stream_url = []        
-        self.m3u8_obj = []
-        self.key_cache = dict()
-        self.client = []
-
-        timeout = httpx.Timeout(5, connect=30)
-        limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
-        #timeout = None
-
-        if self.n_streams == 2:
-            
+       
  
-            self.headers.append(info_reset['requested_formats'][0]['http_headers'])
-            self.headers.append(info_reset['requested_formats'][1]['http_headers'])
-            self.stream_url.append(info_reset['requested_formats'][0]['url'])
-            self.stream_url.append(info_reset['requested_formats'][1]['url'])
-           
-
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies))
-
-            self.client.append(httpx.AsyncClient(headers=self.headers[1], http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies))
-
-
-
-        else: #single stream
-            self.headers.append(info_reset['http_headers'])
-            self.stream_url.append(info_reset['url'])
-
-
-            self.client.append(httpx.AsyncClient(headers=self.headers[0], http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies))
-
-
-
+        self.headers = info_reset.get('headers')
+        self.video_url = info_reset.get('url')
         
+        # self.client = httpx.AsyncClient(headers=self.headers, http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies)
 
-        self.frag_queue = deque()
+        self.segs_to_dl = []
 
-        for j in range(self.n_streams):
 
-            try:
-                #self.m3u8_obj.append(m3u8.loads(httpx.get(self.stream_url[j], headers=self.headers[j]).text,uri=self.stream_url[j]))
-                m3u8_file = httpx.get(self.stream_url[j],headers=self.headers[j]).text
-                #self.logger.debug(m3u8_file)
-                self.m3u8_obj.append(m3u8.loads(m3u8_file,uri=self.stream_url[j]))
-            except Exception as e:
-                raise AsyncHLSDLErrorFatal("no video descriptor")
+        try:
+            #self.m3u8_obj.append(m3u8.loads(httpx.get(self.video_url, headers=self.headers).text,uri=self.video_url))
+            m3u8_file = httpx.get(self.video_url,headers=self.headers).text
+            #self.logger.debug(m3u8_file)
+            self.m3u8_obj = m3u8.loads(m3u8_file,uri=self.video_url)
+        except Exception as e:
+            raise AsyncHLSDLErrorFatal("no video descriptor")
 
-            part = 0
-            uri_ant = ""
-            byte_range = {}            
+        part = 0
+        uri_ant = ""
+        byte_range = {}            
+        
+        for i, segment in enumerate(self.m3u8_obj.segments):
+
             
-            for i, segment in enumerate(self.m3u8_obj[j].segments):
-
-                
-                if segment.byterange:
-                    if segment.uri == uri_ant:
-                        part += 1
-                    else:
-                        part = 1
-                        
-                    uri_ant = segment.uri
-                    file_path =  Path(self.download_path[j], f"{Path(urlparse(segment.uri).path).name}_part_{part}")
-                    splitted_byte_range = segment.byterange.split('@')
-                    sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
-                    byte_range = {
-                        'start': sub_range_start,
-                        'end': sub_range_start + int(splitted_byte_range[0]),
-                    }
-
+            if segment.byterange:
+                if segment.uri == uri_ant:
+                    part += 1
                 else:
-                    file_path =  Path(self.download_path[j], Path(urlparse(segment.uri).path).name)
-                    byte_range = {}
+                    part = 1
+                    
+                uri_ant = segment.uri
+                file_path =  Path(self.download_path, f"{Path(urlparse(segment.uri).path).name}_part_{part}")
+                splitted_byte_range = segment.byterange.split('@')
+                sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
+                byte_range = {
+                    'start': sub_range_start,
+                    'end': sub_range_start + int(splitted_byte_range[0]),
+                }
+
+            else:
+                file_path =  Path(self.download_path, Path(urlparse(segment.uri).path).name)
+                byte_range = {}
 
 
 
-                if not self.info_frag[j][i]['downloaded']:
-                    self.frag_queue.append((j, i+1))                        
-                    self.info_frag[j][i]['url'] = segment.absolute_uri
-                    self.info_frag[j][i]['file'] = file_path
-                    if (self.info_frag[j][i]['file']).exists(): 
-                        (self.info_frag[j][i]['file']).unlink()
-                    self.info_frag[j][i]['n_retries'] = 0
-                    self.info_frag[j][i]['byterange'] = byte_range
-                    self.info_frag[j][i]['key'] = segment.key
-                    if segment.key is not None and segment.key.method == 'AES-128':
-                        if segment.key.absolute_uri not in self.key_cache:
-                            self.key_cache[segment.key.absolute_uri] = httpx.get(segment.key.absolute_uri, headers=self.headers[j]).content
+            if not self.info_seg[i]['downloaded'] or (self.info_seg[i]['downloaded'] and not self.info_seg[i]['headersize']):
+                self.segs_to_dl.append(i+1)                        
+                self.info_seg[i]['url'] = segment.absolute_uri
+                self.info_seg[i]['file'] = file_path
+                if not self.info_seg[i]['downloaded'] and self.info_seg[i]['file'].exists(): 
+                    self.info_seg[i]['file'].unlink()
+                self.info_seg[i]['n_retries'] = 0
+                self.info_seg[i]['byterange'] = byte_range
+                self.info_seg[i]['key'] = segment.key
+                if segment.key is not None and segment.key.method == 'AES-128':
+                    if segment.key.absolute_uri not in self.key_cache:
+                        self.key_cache[segment.key.absolute_uri] = httpx.get(segment.key.absolute_uri, headers=self.headers).content
  
+    
+    async def await_time(self, n):
+        ex = ThreadPoolExecutor(max_workers=1)
+        loop = asyncio.get_running_loop()
+        
+        blocking_task = [loop.run_in_executor(ex, time.sleep, n)]
+        await asyncio.wait(blocking_task)
+       
+    
     async def fetch(self, nco):
         
-        while self.frag_queue:
+        client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
 
-            j, q = self.frag_queue.popleft()
-            url = self.info_frag[j][q - 1]['url']
-            filename = self.info_frag[j][q - 1]['file']
-            key = self.info_frag[j][q - 1]['key']
+        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
+        
+        while True:
+
+            q = await self.segs_queue.get()
+            
+            if q =="KILL":
+                break  
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: seg[{q}]: request to dl \n{self.info_seg[q-1]}")          
+            url = self.info_seg[q - 1]['url']
+            filename = self.info_seg[q - 1]['file']
+            key = self.info_seg[q - 1]['key']
             cipher = None
             if key is not None and key.method == 'AES-128':
                 iv = binascii.unhexlify(key.iv[2:])
                 cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
-            byte_range = self.info_frag[j][q - 1]['byterange']
+            byte_range = self.info_seg[q - 1]['byterange']
             headers = {}
             if byte_range:
                 headers['range'] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
 
-            #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]{j}:{q}:{url}")                       
+            await asyncio.sleep(0)        
             
-            while self.info_frag[j][q - 1]['n_retries'] < 5:
+            while self.info_seg[q - 1]['n_retries'] < 5:
  
                 try: 
                     
-                    async with self.client[j].stream("GET", url, headers=headers) as res:
+                    async with client.stream("GET", url, headers=headers) as res:
                     
-                        #res = await self.client[j].get(url,headers=headers)
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] : [worker{nco}]: stream{j} : frag{q} : {res.http_version} {res.status_code} {res.reason_phrase} : {filename.name}")
-                        if res.status_code >= 400:                        
+                        #res = await self.client.get(url,headers=headers)
+                        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: {res.status_code} {res.reason_phrase}")
+                        if res.status_code >= 400:                                                   
                             raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} resp code:{str(res)}")
                         
-                        #with open(filename, mode='wb') as f:
-                        async with aiofiles.open(filename, mode='wb') as f:
-                            num_bytes_downloaded = res.num_bytes_downloaded
-                            async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                                if cipher: data = cipher.decrypt(chunk)
-                                else: data = chunk 
-                                #f.write(data)
-                                await f.write(data)
-                                self.down_size += res.num_bytes_downloaded - num_bytes_downloaded
+                        else:
+                                
+                            _hsize = int_or_none(res.headers.get('content-length'))
+                            if _hsize:
+                                self.info_seg[q-1]['headersize'] = _hsize
+                            else:
+                                raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} _hsize is None")
+                                
+                            
+                            if self.info_seg[q-1]['downloaded']:
+                                
+                                
+                                _size = self.info_seg[q-1]['size']
+                                if _size and  (_hsize - 5 <=_size <= _hsize + 5):                            
+                            
+                                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: Already DL with hsize[{_hsize} and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
+                                    break
+                                else:
+                                    filename.unlink()
+                                    self.info_seg[q-1]['downloaded'] = False
+                                    async with self.video_downloader.lock:
+                                        self.n_dl_segments -= 1
+                                        self.down_size -= _size
+                                        self.video_downloader.down_size -= _size
+                                                            
+                            
+                            
+                            async with aiofiles.open(filename, mode='wb') as f:
                                 num_bytes_downloaded = res.num_bytes_downloaded
-                        
-                        self.n_dl_segments += 1
-                        self.info_frag[j][q - 1]['downloaded'] = True
-                        self.info_frag[j][q - 1]['error'].append(str(res))
-                        break                                                         
+                                async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
+                                    if chunk:
+                                        if cipher: data = cipher.decrypt(chunk)
+                                        else: data = chunk 
+                                        #f.write(data)
+                                        await f.write(data)
+                                        async with self.video_downloader.lock:
+                                            self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)
+                                            self.video_downloader.down_size += _iter_bytes                                
+                                        
+                                        num_bytes_downloaded = res.num_bytes_downloaded
+                            
+                            async with self.video_downloader.lock:
+                                self.n_dl_segments += 1
+                            self.info_seg[q - 1]['downloaded'] = True
+                            self.info_seg[q - 1]['error'].append(str(res))
+                            self.info_seg[q - 1]['size'] = filename.stat().st_size
+                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: DL OK")
+                            await asyncio.sleep(0)
+                            break                                                         
                         
 
-                except (AsyncHLSDLErrorFatal, httpx.ConnectError) as e:
-                    self.info_frag[j][q - 1]['error'].append(str(e))
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:fatalError:{str(e)}:{url}", exc_info=True)
-                    raise AsyncHLSDLErrorFatal(f"{e}")
-                except (AsyncHLSDLError, httpx.HTTPError, httpx.CloseError, httpx.RemoteProtocolError, httpx.ReadTimeout, httpx.ProxyError, AttributeError, RuntimeError) as e:
-                    #self.logger.debug(f"Exception ocurred: {e}", exc_info=True)
-                    self.info_frag[j][q - 1]['error'].append(f"{str(e)}")
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]stream[{j}]:frag[{q}]:error:{str(e)}:{url}", exc_info=True)
-                    self.info_frag[j][q - 1]['n_retries'] += 1
-                    continue
-
+                except AsyncHLSDLErrorFatal as e:
+                    self.info_seg[q - 1]['error'].append(f'{type(e)}')
+                    lines = traceback.format_exception(*sys.exc_info())
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: fatalError: \n{'!!'.join(lines)}")
+                    await client.aclose()
+                    await asyncio.sleep(0)
+                    raise AsyncHLSDLErrorFatal(f"{e}")                
+                
+                except httpx.ReadTimeout as e:
+                    self.info_seg[q - 1]['error'].append(f'{type(e)}')
+                    lines = traceback.format_exception(*sys.exc_info())
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: timeout error: \n{'!!'.join(lines)}")
+                    self.info_seg[q - 1]['n_retries'] += 1
+                    await client.aclose()
+                    await self.await_time(1)
+                    client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)                    
+                    await asyncio.sleep(0)                    
+                except Exception as e:
+                    #await self.alogger.debug(f"Exception ocurred: {e}", exc_info=True)
+                    self.info_seg[q - 1]['error'].append(f'{type(e)}')
+                    lines = traceback.format_exception(*sys.exc_info())
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error: \n{'!!'.join(lines)}")
+                    self.info_seg[q - 1]['n_retries'] += 1
+                    await client.aclose()
+                    client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+                    await asyncio.sleep(0)
             
-            if self.info_frag[j][q - 1]['n_retries'] == 5:
-                self.info_frag[j][q - 1]['error'].append("MaxLimitRetries")
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[{nco}]{j}:(MaxLimitRetries)Frag: {q}")
-                raise AsyncHLSDLErrorFatal(f"MaxLimitretries Frag: {q}")
+            if self.info_seg[q - 1]['n_retries'] == 5:
+                self.info_seg[q - 1]['error'].append("MaxLimitRetries")
+                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seq[{q}]: MaxLimitRetries")
+                await client.aclose()
+                await asyncio.sleep(0)
+                raise AsyncHLSDLErrorFatal(f"MaxLimitretries seq[{q}]")
+            
+        
+        await client.aclose()
+        
+        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
+            
+            
 
-        else:
-            return 0
-
-    async def fetch_async(self):        
+    async def fetch_async(self):
+                
+        
+        self.segs_queue = asyncio.Queue()
+        for seg in self.segs_to_dl:
+            self.segs_queue.put_nowait(seg)        
+        for _ in range(self.iworkers):
+            self.segs_queue.put_nowait("KILL")
+           
         cont = 5
-        while (len(self.fragsnotdl()) != 0):
+                    
+        while True:
 
             self.status = "downloading"
             try:
+                
+                await asyncio.sleep(0)
                 
                 async with AioPool(size=self.iworkers) as pool:
 
@@ -495,182 +460,173 @@ class AsyncHLSDownloader():
     
                     done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.FIRST_EXCEPTION)    
 
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Fuera del wait tasks, vamos a cancelar pending tasks")           
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Fuera del wait tasks, vamos a cancelar pending tasks")           
                     if pending_tasks:
                         try:
                             await pool.cancel(pending_tasks)
-                            self.logger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
+                            await self.alogger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
                         except Exception as e:
-                            self.logger.debug(f"{self.webpage_url}: {str(e)}")
+                            await self.alogger.debug(f"{self.webpage_url}: {str(e)}")
                     
                         await asyncio.gather(*pending_tasks, return_exceptions=True)
                                
                             
-                    #recorro done para lanzar las excepciones, si hay un Fatal no lo caapturo en el try except
-                    #del bucle para q llegue al otro except y lance el reset
-                    fatal_errors = []
-                    if done_tasks:
-                        for done in done_tasks:
-                            try:
-                                done.result()
-                            except AsyncHLSDLErrorFatal as e:
-                                fatal_errors.append(e)
-                            except (CancelledError, InvalidStateError, httpx.HTTPError, httpx.StreamError) as e:
-                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:rec excepciones:{str(e)}")
+                #recorro done para lanzar las excepciones, si hay un Fatal no lo caapturo en el try except
+                #del bucle para q llegue al otro except y lance el reset
+                fatal_errors = []
+                if done_tasks:
+                    for done in done_tasks:
+                        try:
+                            done.result()
+                        except AsyncHLSDLErrorFatal as e:
+                            fatal_errors.append(e)
+                            lines = traceback.format_exception(*sys.exc_info())
+                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:rec excepciones: \n{'!!'.join(lines)}")
+                        except Exception as e:
+                            lines = traceback.format_exception(*sys.exc_info())
+                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:rec excepciones: \n{'!!'.join(lines)}")
 
-                    if fatal_errors: raise AsyncHLSDLErrorFatal("reset")
-                    else: 
+                if fatal_errors:
+                    raise AsyncHLSDLErrorFatal("reset")
+                else: 
+                    if self.segs_queue.empty():
+                        break
+                    else:
                         cont -= 1
-                        if cont == 0:
-                            if len(self.fragsnotdl()) != 0:  raise AsyncHLSDLErrorFatal("count to zero")
-                            else: break
-                   
-
+                        if (cont == 0): raise AsyncHLSDLErrorFatal("reset") 
+                        await asyncio.sleep(0) 
 
             except AsyncHLSDLErrorFatal as e:
-                self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Exception ocurred: {str(e)}")
+                lines = traceback.format_exception(*sys.exc_info())
+                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception fatal curred: \n{'!!'.join(lines)}")
                 if cont == 0: 
                     self.status = "error"
+                    self.clean_when_error()
+                    await asyncio.sleep(0)
                     raise
 
                 if self.n_reset < 5:
                     cont = 5
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:RESET)")
-                    await asyncio.wait_for(self.reset(), None)                    
-                    for i in range(self.n_streams):
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:stream[{i}]:RESET:Pending frags {len(self.not_dl(i))}")
+                    await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
+                    #await asyncio.wait_for(self.reset(), None) 
+                    _reset_task = [asyncio.create_task(self.reset())]
+                    await asyncio.wait(_reset_task)
+                    self.segs_queue = asyncio.Queue()
+                    for seg in self.segs_to_dl:
+                        self.segs_queue.put_nowait(seg)
+                    for _ in range(self.iworkers):
+                        self.segs_queue.put_nowait("KILL")
+                                       
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET:Pending segs {len(self.segsnotdl())}")
+                    await asyncio.sleep(0)
                 else:
-                    self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]:ERROR:Max_number_of_resets {str(e)}")
-                    for i in range(self.n_streams):
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:stream[{i}]:E:Pending frags {len(self.not_dl(i))}")
-                        #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:stream[{i}]:{self.info_frag[i]}")
-                    try:
-                        await self.client[0].aclose()
-                        if self.n_streams == 2:
-                            await self.client[1].aclose()             
-                    except Exception as e:
-                        self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Exception ocurred when closing clients: {str(e)}") 
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:ERROR:Max_number_of_resets {type(e)}")
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Pending segs {len(self.segsnotdl())}")
+    
                     self.status = "error"
+                    self.clean_when_error()
+                    await asyncio.sleep(0)
                     raise
+            except Exception as e:
+                lines = traceback.format_exception(*sys.exc_info())
+                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception ocurred: \n{'!!'.join(lines)}")
 
-        #vemos en disco si están todos los fragmentos
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Frags DL completed")
-        try:            
-            await self.client[0].aclose()
-            if self.n_streams == 2:
-                await self.client[1].aclose() 
-        except Exception as e:
-            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Exception ocurred when closing clients: {str(e)}")
+       
+        
+        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
 
-        try:   
-            self.ensamblfrags()            
+
+        try:
+            loop = asyncio.get_running_loop()
+            ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            blocking_task = [loop.run_in_executor(ex, self.ensamble_file)]
+            completed, pending = await asyncio.wait(blocking_task)
+            for c in completed:
+                c.result()
+                
+            await asyncio.sleep(0)
+                    
         except AsyncHLSDLError as e:
-            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Exception ocurred when ensambling frags: {str(e)}") 
+            lines = traceback.format_exception(*sys.exc_info())
+            await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred when ensambling segs: \n{'!!'.join(lines)}") 
             self.status = "error"
-            raise             
-
-              
-        if self.n_streams == 2:
-            rc = await self.merge()
-            if rc == 0 and self.filename.exists():
-                self.filename_stream[0].unlink()
-                self.filename_stream[1].unlink()
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Streams merged for: {self.filename}")
+            self.clean_when_error()
+            await asyncio.sleep(0)
+            raise
         
-            else:
-                self.status = "error"
-                raise AsyncHLSDLErrorFatal(f"error merge, ffmpeg error: {rc}")
-
-        self.status = "done"
-        
-        rmtree(str(self.base_download_path),ignore_errors=True)
+        if self.filename.exists():
+            self.status == "done"  
+            rmtree(str(self.download_path),ignore_errors=True)      
+        else:
+            self.status = "error"    
+            self.clean_when_error()
+            raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")       
         
         
-        return (f"{self.webpage_url}: {self.status}")
 
     
-    def ensamblfrags(self):        
-        for j in range(self.n_streams):
+    def clean_when_error(self):
+        for f in self.info_seg:
+            if f['downloaded'] == False:
+                if f['file'].exists():
+                    f['file'].unlink()
+   
+    
+    def ensamble_file(self):        
+       
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Segments DL \n{self.segsdl()}")
         
-            try:
-                frag_files = natsorted((file for file in self.download_path[j].iterdir() if file.is_file() and not file.name.startswith('.')), alg=ns.PATH)
-                #frag_files = natsorted(self.download_path[j].iterdir(), alg=ns.PATH)
-                if len(frag_files) != len(self.info_frag[j]):
-                    raise AsyncHLSDLError(f"Stream({j}):{self.filename_stream[j]}:Number of frag files - {len(frag_files)} != frags - {len(self.info_frag[j])} ")
-            
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{self.filename_stream[j]}")
-                with open(self.filename_stream[j], mode='wb') as dest:
-                    for f in frag_files:                    
-                        with open(f, 'rb') as source:
+        try:
+            seg_files = natsorted((file for file in self.download_path.iterdir() if file.is_file() and not file.name.startswith('.')), alg=ns.PATH)
+            #seg_files = natsorted(self.download_path.iterdir(), alg=ns.PATH)
+            if len(seg_files) != len(self.info_seg):
+                raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Number of seg files - {len(seg_files)} != segs - {len(self.info_seg)} ")
+        
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
+            with open(self.filename, mode='wb') as dest:
+                for f in self.info_seg: 
+                                        
+                    res = {'file': f['file'],'exists': f['file'].exists(), 'estsize': f['estsize'], 'size': f['file'].stat().st_size, 'hsize': f['headersize'], 'check': f['headersize'] - 5 <= f['file'].stat().st_size <= f['headersize'] + 5}
+                    if f['file'].exists() and (f['headersize'] - 5 <= f['file'].stat().st_size <= f['headersize'] + 5):                  
+                    #if f['file'].exists():
+                        with open(f['file'], 'rb') as source:
                             dest.write(source.read())
-            
-            except Exception as e:
-                if self.filename_stream[j].exists():
-                    self.filename_stream[j].unlink()
-                self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Exception ocurred: {str(e)}")
-                raise
+                    else: raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {res}")
+        
+        except Exception as e:
+            if self.filename.exists():
+                self.filename.unlink()
+            lines = traceback.format_exception(*sys.exc_info())
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred: \n{'!!'.join(lines)}")
+            raise
 
         
      
-    def fragsnotdl(self):
+    def segsnotdl(self):
         res = []
-        for stream in range(self.n_streams):
-            for frag in self.info_frag[stream]:
-                if frag['downloaded'] == False:
-                    res.append(frag['frag'])
+        for seg in self.info_seg:
+            if seg['downloaded'] == False:
+                res.append(seg['seg'])
+        return res
+    
+    def segsdl(self):
+        res = []
+        for seg in self.info_seg:
+            if seg['downloaded'] == True:
+                res.append({'seg': seg['seg'], 'headersize': seg['headersize'], 'size': seg['size']})
         return res
 
 
-    def not_dl(self, j):        
-        res = []
-        for frag in self.info_frag[j]:
-            if frag['downloaded'] == False:
-                res.append(frag['frag'])
+    def print_hookup(self): 
         
-        return res
-    
-    async def read_stream(self, stream):
-        msg = ""
-        while (self.proc is not None and not self.proc.returncode):
-            try:
-                line = await stream.readline()
-            except (asyncio.LimitOverrunError, ValueError):
-                continue
-            if line: 
-                line = line.decode('utf-8').strip()
-                msg = f"{msg}{line}\n"                                                            
-            else:
-                break
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{msg}")
-
-    
-    async def merge(self):        
-        cmd = f"ffmpeg -y -loglevel repeat+info -i 'file:{str(self.filename_stream[0])}' -i \'file:{str(self.filename_stream[1])}' -c copy -map 0:v:0 -map 1:a:0 'file:{str(self.filename)}'"
-        
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{cmd}")
-        
-        self.proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=1024 * 1024) 
-        
-        await asyncio.gather(self.read_stream(self.proc.stdout), self.read_stream(self.proc.stderr), self.proc.wait())
-        
-        return self.proc.returncode
-
-    def videoexits(self):
-        return self.filename.exists()
-
-    def remove(self):        
-        rmtree(str(self.base_download_path),ignore_errors=True)
-        
-   
-    
-    def print_hookup(self):
-        if self.status == "done":
-            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.filename.stat().st_size)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
-        elif self.status == "init":
-            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to enter in the pool [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")            
-        elif self.status == "error":
-            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
-        else:            
-            return (f"[HLS][{self.info_dict['id']}][{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+        if self.filesize == 0: _est_size = "NA"
+        else: _est_size = naturalsize(self.filesize)
             
-        
+        if self.status == "done":
+            return (f"[HLS][{self.info_dict['format_id']}]: Completed [{naturalsize(self.filename.stat().st_size)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+        elif self.status == "init":
+            return (f"[HLS][{self.info_dict['format_id']}]: Waiting to enter in the pool [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")            
+        elif self.status == "error":
+            return (f"[HLS][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+        else:            
+            return (f"[HLS][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")

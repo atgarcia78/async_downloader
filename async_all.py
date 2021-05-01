@@ -4,14 +4,14 @@
 from queue import Queue
 import logging
 import sys
+import traceback
 import json
 import ast
 import tkinter as tk
 import asyncio
 import aiorun 
-from asyncio_pool import AioPool
 from pathlib import Path
-from tqdm import tqdm
+
 
 
 from asynchttpdownloader import (
@@ -22,6 +22,11 @@ from asynchlsdownloader import (
     AsyncHLSDownloader
 )
 
+from asyncdashdownloader import (
+    AsyncDASHDownloader
+    
+)
+
 from common_utils import ( 
     init_logging,
     init_ytdl,
@@ -29,7 +34,8 @@ from common_utils import (
     get_info_dl,
     init_argparser,
     patch_http_connection_pool,
-    patch_https_connection_pool
+    patch_https_connection_pool,
+    naturalsize,
 )
 
 from concurrent.futures import (
@@ -39,14 +45,167 @@ from concurrent.futures import (
     wait
 )
 
-from youtube_dl.utils import sanitize_filename
+from youtube_dl.utils import determine_ext, sanitize_filename, determine_protocol
 
 from codetiming import Timer
 
-import time
 
 from datetime import datetime
 
+import hashlib
+
+
+from shutil import (
+    rmtree
+
+)
+
+from asynclogger import AsyncLogger
+
+
+
+class VideoDownloader():
+    
+    def __init__(self, video_dict, ytdl, n_workers):
+        
+        self.logger = logging.getLogger("video_DL")
+        self.alogger = AsyncLogger(self.logger)
+        
+        # self.proxies = "http://atgarcia:ID4KrSc6mo6aiy8@proxy.torguard.org:6060"
+        # #self.proxies = "http://192.168.1.133:5555"
+        
+        #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
+                
+        self.info_dict = video_dict
+        self.n_workers = n_workers 
+        
+        self.webpage_url = video_dict.get('webpage_url')
+        self.title = video_dict.get('title')
+        
+        if not self.info_dict.get('id'):
+            _video_id = str(int(hashlib.sha256(b"{self.webpage_url}").hexdigest(),16) % 10**8)
+        else: _video_id = str(self.info_dict['id'])
+        self.info_dict.update({'id': _video_id[:15] if len(_video_id) > 15 else _video_id})
+        self.videoid = self.info_dict['id']
+        
+        self.ytdl = ytdl
+        
+        self.date_file = datetime.now().strftime("%Y%m%d")
+        self.download_path = Path(Path.home(),"testing", self.date_file, self.info_dict['id'])
+        self.download_path.mkdir(parents=True, exist_ok=True)    
+        self.filename = Path(Path.home(),"testing", self.date_file,
+            str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict['ext'])
+        
+        
+        self.downloaders = []
+        if not (_requested_formats:=self.info_dict.get('requested_formats')):
+            _new_info_dict = dict(self.info_dict)
+            _new_info_dict.update({'filename': self.filename, 'download_path': self.download_path})
+            self.downloaders.append(self._get_dl(_new_info_dict))
+        else:
+            for f in _requested_formats:
+                _new_info_dict = dict(f)                
+                _new_info_dict.update({'id': self.videoid, 'title': self.title, '_filename': self.filename, 'download_path': self.download_path, 'webpage_url': self.webpage_url})
+                self.downloaders.append(self._get_dl(_new_info_dict))
+        
+        self.filesize = sum([dl.filesize for dl in self.downloaders])
+        self.down_size = sum([dl.down_size for dl in self.downloaders])
+        self.status = "init"
+                
+    def _get_dl(self, info):
+        
+        protocol = determine_protocol(info)
+        if protocol in ('http', 'https'):
+            dl = AsyncHTTPDownloader(info, self)
+        elif protocol in ('m3u8', 'm3u8_native'):
+            dl = AsyncHLSDownloader(info, self)
+        elif protocol in ('http_dash_segments'):
+            dl = AsyncDASHDownloader(info, self)            
+            #raise NotImplementedError("AsyncDASHDownloader pending")
+        else:
+            self.logger.error(f"[{info['id']}][{info['title']}]: protocol not supported")
+            raise NotImplementedError("protocol not supported")
+        
+        return dl
+    
+    async def run(self):
+        
+        self.status = "downloading"
+        self.lock = asyncio.Lock()
+        tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.downloaders]
+        done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
+        
+    
+        if done:
+            for d in done:
+                try:                        
+                    d.result()  
+                except Exception as e:
+                    lines = traceback.format_exception(*sys.exc_info())                
+                    await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: result de dl.fetch_async\n{'!!'.join(lines)}")
+        
+        
+        if len(self.downloaders) > 1:        
+            rc = await self._merge()
+            if rc == 0 and self.filename.exists():
+                self.status = "done"
+                for dl in self.downloaders:
+                    dl.filename.unlink()
+                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Streams merged for: {self.filename}")
+            
+            else:
+                self.status = "error"
+                raise Exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error merge, ffmpeg error: {rc}")
+        else:
+            if self.filename.exists(): self.status = "done"
+            else:
+                self.status = "error"
+                raise Exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: file not dl")  
+            
+        if self.status == "done": rmtree(str(self.download_path),ignore_errors=True)
+        
+    async def _merge(self):        
+        cmd = f"ffmpeg -y -loglevel repeat+info -i 'file:{str(self.downloaders[0].filename)}' -i \'file:{str(self.downloaders[1].filename)}' -c copy -map 0:v:0 -map 1:a:0 'file:{str(self.filename)}'"
+        
+        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{cmd}")
+        
+        proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, limit=1024 * 1024) 
+        
+        async def read_stream(stream):
+            msg = ""
+            while (proc is not None and not proc.returncode):
+                try:
+                    line = await stream.readline()
+                except (asyncio.LimitOverrunError, ValueError):
+                    continue
+                if line: 
+                    line = line.decode('utf-8').strip()
+                    msg = f"{msg}{line}\n"                                                            
+                else:
+                    break
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{msg}")
+            
+        await asyncio.gather(read_stream(proc.stdout), read_stream(proc.stderr), proc.wait())
+        
+        return proc.returncode
+    
+    def print_hookup(self):
+        
+        
+        msg = ""
+        for dl in self.downloaders:
+            msg += f"\t{dl.print_hookup()}"
+        if self.status == "done":
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.filename.stat().st_size)}]\n")
+        elif self.status == "init":
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to enter in the pool [{naturalsize(self.filesize)}]\n")            
+        elif self.status == "error":
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n {msg}")
+        else:            
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]\n {msg}")
+        
+        
+                
 
 class AsyncDL():
 
@@ -54,6 +213,7 @@ class AsyncDL():
     
         
         self.logger = logging.getLogger("asyncDL")
+        self.alogger = AsyncLogger(self.logger)
         self.queue_vid = Queue()
         
         self.list_initnok = []
@@ -73,8 +233,8 @@ class AsyncDL():
         self.ytdl = init_ytdl(dict_opts,self.args.useragent, self.args.referer)
     
 
-        self.get_videos_cached()
-        self.get_list_videos()
+        # self.get_videos_cached()
+        # self.get_list_videos()
         
         
         
@@ -133,15 +293,19 @@ class AsyncDL():
                 url_pl_list = self.args.collection
                 if len(url_pl_list) == 1: 
                     info_dict = self.ytdl.extract_info(url_pl_list[0], download=False)
-                    self.logger.debug(info_dict)
+                    self.logger.info(f"[get_list_videos]: \n{info_dict.get('entries')}")
                     self.list_videos = info_dict.get('entries')
                 else:
                     with ThreadPoolExecutor(max_workers=self.workers) as ex:
                         futures = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
+                        
                     
-                    for fut in futures:
-                        self.logger.debug(fut)
-                        self.list_videos += fut.get('entries')                        
+                    for url_pl, fut in zip(url_pl_list, futures):
+                        done, _ = wait([fut])
+                        res = [d.result() for d in done]
+                        list_url_pl = res[0].get('entries')
+                        self.logger.info(f"[get_list_videos] url_pl {url_pl} \n {list_url_pl}")
+                        self.list_videos += list_url_pl
 
 
             else:
@@ -166,14 +330,14 @@ class AsyncDL():
                 
                 self.list_videos = [get_info_json(file) for file in self.args.collection_files]
         
-        time_now = datetime.now()
-        date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
-        videolist_file = Path(Path.home(), "Projects/common/logs/{date_file}_videolist.json")
-        with open(videolist_file, "w") as f:
-            json.dump(self.list_videos,f)
+        # time_now = datetime.now()
+        # date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
+        # videolist_file = Path(Path.home(), "Projects/common/logs/{date_file}_videolist.json")
+        # with open(videolist_file, "w") as f:
+        #     json.dump(self.list_videos,f)
         
-        list_to_remove = [file for file in Path(Path.home(), "Projects/common/logs").iterdir() if ("videolist" in file.stem or "lastsession" in file.stem or "files_cached" in file.stem) and not file.stem.startswith(date_file.split('_')[0])]
-        for file in list_to_remove: file.unlink()
+        # list_to_remove = [file for file in Path(Path.home(), "Projects/common/logs").iterdir() if ("videolist" in file.stem or "lastsession" in file.stem or "files_cached" in file.stem) and not file.stem.startswith(date_file.split('_')[0])]
+        # for file in list_to_remove: file.unlink()
 
         if self.args.index:
             if self.args.index in range(1,len(self.list_videos)):
@@ -189,6 +353,15 @@ class AsyncDL():
 
         self.logger.debug(f"Total requested videos: {len(self.list_videos)}")
         self.logger.debug(self.list_videos)
+        
+        return(self.list_videos)
+        
+        
+        
+        
+        
+        
+    def get_videos_to_dl(self):        
         
         self.videos_to_dl = []
         for video in self.list_videos:
@@ -238,21 +411,7 @@ class AsyncDL():
             while True:
                 
                 root.update()
-                #root2.update()
-                
-                #self.logger.debug(f"[tk] {all_tasks}")                
-                
-                # for dl in list(self.queue_dl._queue):
-                #     if dl == "KILL" or dl == "KILLANDCLEAN":
-                #         video_queue_str.append(dl)
-                        
-                #     else:
-                #         video_queue_str.append(video.info_dict['title'])
-                # video_queue_str = ",".join(video_queue)                    
-                
-                #text3.delete(1.0, tk.END)
-                #all_tasks = [f"{t.get_name()}" for t in asyncio.all_tasks()]                
-                #all_tasks.sort()
+ 
                 
                 video_queue = []
                 for dl in (_dl_queue:=list(self.queue_dl._queue)):
@@ -260,7 +419,7 @@ class AsyncDL():
                     else: video_queue.append(dl.info_dict['title'])
                     
                 
-                #text3.insert(tk.END, f"{video_queue}\n{len(all_tasks)}\n{all_tasks}")
+
                 if (len(video_queue) == 1) and (video_queue[0] == "KILLTK"):
                     break
                 
@@ -322,17 +481,13 @@ class AsyncDL():
                 if info_dl:
                     time_now = datetime.now()
                     date_file = f"{time_now.strftime('%Y%m%d')}_{time_now.strftime('%H%M%S')}"
-                    with open(Path(Path.home(), f"Projects/common/logs/{date_file}_lastsession.json"), "w") as f:
-                        
+                    with open(Path(Path.home(), f"Projects/common/logs/{date_file}_lastsession.json"), "w") as f:                        
                         json.dump(info_dl, f)                
                 break
             
             else:        
                 
-                try:               
-                    
-                    
-                    
+                try: 
                     if not vid.get('format_id') and not vid.get('requested_formats'):
                     
                         info_dict = None    
@@ -366,18 +521,7 @@ class AsyncDL():
                     if info_dict:
                             
                         self.logger.info(f"worker_init_dl[{i}] {info_dict}")
-                        protocol, final_dict = get_info_dl(info_dict)
-                        if not final_dict.get('filesize'):
-                            if (_size:=(vid.get('size') or vid.get('filesize'))):
-                                final_dict.update({'filesize': _size})
-                        dl = None
-                        if protocol in ('http', 'https'):
-                            dl = AsyncHTTPDownloader(final_dict, self.ytdl, self.parts)
-                        elif protocol in ('m3u8', 'm3u8_native'):
-                            dl = AsyncHLSDownloader(final_dict, self.ytdl, self.parts)
-                        else:
-                            self.logger.error(f"worker_init_dl[{i}] [{info_dict['id']}][{info_dict['title']}]: protocol not supported")
-                            raise Exception("protocol not supported")
+                        dl = VideoDownloader(info_dict, self.ytdl, self.parts)
                                 
                         if dl:
                             self.queue_dl.put_nowait(dl)
@@ -391,13 +535,13 @@ class AsyncDL():
                         raise Exception("no info dict")
                 except Exception as e:
                     self.list_initnok.append((vid, f"Error:{str(e)}"))
-                    self.logger.error(f"worker_init_dl[{i}]: DL constructor failed for {vid} - Error:{str(e)}")       
+                    self.logger.error(f"worker_init_dl[{i}]: DL constructor failed for {vid} - Error:{str(e)}", exc_info=True)       
             
         
     
     async def worker_run(self, i):
         
-        self.logger.debug(f"worker_run[{i}]: launched")       
+        await self.alogger.debug(f"worker_run[{i}]: launched")       
         await asyncio.sleep(1)
         
         
@@ -406,23 +550,24 @@ class AsyncDL():
             try:
             
                 
-                dl = await self.queue_dl.get()
-                self.logger.debug(f"worker_run[{i}]: get for a DL")
+                video_dl = await self.queue_dl.get()
+                await self.alogger.debug(f"worker_run[{i}]: get for a video_DL")
                 await asyncio.sleep(1)
                 
-                if dl == "KILL":
-                    self.logger.debug(f"worker_run[{i}]: get KILL, bye")
+                if video_dl == "KILL":
+                    await self.alogger.debug(f"worker_run[{i}]: get KILL, bye")
                     await asyncio.sleep(1)
                     break
                 
                 
                 else:
-                    self.logger.debug(f"worker_run[{i}]: start to dl {dl.info_dict['title']}")
-                    task_run = asyncio.create_task(dl.fetch_async())
-                    task_run.set_name(f"worker_run[{i}][{dl.info_dict['title']}]")
+                    await self.alogger.debug(f"worker_run[{i}]: start to dl {video_dl.info_dict['title']}")
+                    task_run = asyncio.create_task(video_dl.run())
+                    task_run.set_name(f"worker_run[{i}][{video_dl.info_dict['title']}]")
                     await asyncio.wait([task_run], return_when=asyncio.ALL_COMPLETED)
             except Exception as e:
-                self.logger.error(f"worker_run[{i}]: Error:{str(e)}", exc_info=True)
+                lines = traceback.format_exception(*sys.exc_info())
+                await self.alogger.error(f"worker_run[{i}]: Error:{lines}")
                 
     
     async def async_ex(self, args_tk, interval):
@@ -430,7 +575,7 @@ class AsyncDL():
         self.queue_dl = asyncio.Queue()
 
         nworkers = min(self.workers,self.nvideos)
-        self.logger.info(f"MAX WORKERS [{nworkers}]")
+        await self.alogger.info(f"MAX WORKERS [{nworkers}]")
         
         try:        
             loop = asyncio.get_event_loop()
@@ -446,10 +591,20 @@ class AsyncDL():
             executor = ThreadPoolExecutor(max_workers=nworkers)
             tasks_init = [loop.run_in_executor(executor, self.worker_init_dl, i) for i in range(nworkers)]
                                 
-            await asyncio.wait([t1] + tasks_init + tasks_run, return_when=asyncio.ALL_COMPLETED)
+            done, _ = await asyncio.wait([t1] + tasks_init + tasks_run, return_when=asyncio.ALL_COMPLETED)
+            
+            if done:
+                for d in done:
+                    try:                        
+                        d.result()  
+                    except Exception as e:
+                        lines = traceback.format_exception(*sys.exc_info())
+                        await self.alogger.error(f"[async_ex] {lines}")
  
         except Exception as e:
-           self.logger.error(f"[async_ex] {str(e)}", exc_info=True)
+            lines = traceback.format_exception(*sys.exc_info())
+                
+            await self.alogger.error(f"[async_ex] {lines}")
     
         asyncio.get_running_loop().stop()
 
@@ -462,16 +617,25 @@ def main_program(logger):
     
     asyncDL = AsyncDL(args)    
     
-    #will store the DL init exit videos
-   
+    
+    list_videos= asyncDL.get_list_videos()
+    
+    if args.listvideos:
+        
+        list_videos_str = [vid['url'] for vid in list_videos]
+        logger.info(f"{' -u '.join(list_videos_str)}")
+        sys.exit("Done")
+        
+    asyncDL.get_videos_cached()
+    
+    asyncDL.get_videos_to_dl()
+    
+       
     if asyncDL.nvideos > 0:    
             
         try:
-                    
-    
-            #root_tk, text0_tk, text1_tk, text2_tk, root2_tk, text3_tk = init_tk(asyncDL.nvideos)
-            args_tk = init_tk(asyncDL.nvideos)      
-        
+
+            args_tk = init_tk(asyncDL.nvideos)        
             res = aiorun.run(asyncDL.async_ex(args_tk, 0.25), use_uvloop=True) 
                 
         except Exception as e:

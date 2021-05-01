@@ -210,13 +210,14 @@ def init_argparser():
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
     parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
     parser.add_argument("--proxy", default=None, type=str)
-    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.5; rv:87.0) Gecko/20100101 Firefox/87.0", type=str)
+    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.5; rv:88.0) Gecko/20100101 Firefox/88.0", type=str)
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
     parser.add_argument("--nomult", help="init not concurrent", action="store_true")
     parser.add_argument("--cache", default=None, type=str)
     parser.add_argument("--referer", default=None, type=str)
+    parser.add_argument("--listvideos", help="get list videos. no dl", action="store_true")
     
     #parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
     parser.add_argument("-u", action="append", dest="collection", default=[])
@@ -362,9 +363,17 @@ def get_info_dl(info_dict):
         f_info_dict = info_dict['entries'][0]
     else: f_info_dict = info_dict
     if f_info_dict.get('requested_formats'):
-        return(determine_protocol(f_info_dict['requested_formats'][0]), f_info_dict)
+        protocol = determine_protocol(f_info_dict['requested_formats'][0])
+        container = f_info_dict['requested_formats'][0].get('container')
+        #if container and "dash" in container:
+        #    protocol = "http_dash_segments"
+        return(protocol, f_info_dict)
     else:
-        return (determine_protocol(f_info_dict), f_info_dict)
+        protocol = determine_protocol(f_info_dict)
+        container = f_info_dict.get('container')
+        #if container and "dash" in container:
+        #    protocol = "http_dash_segments"
+        return (protocol, f_info_dict)
     
 def patch_http_connection_pool(**constructor_kwargs):
     """
@@ -399,3 +408,7 @@ def patch_https_connection_pool(**constructor_kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPSConnectionPool, self).__init__(*args,**kwargs)
     poolmanager.pool_classes_by_scheme['https'] = MyHTTPSConnectionPool
+    
+def int_or_none(res):
+    if res: return int(res)
+    else: return None
