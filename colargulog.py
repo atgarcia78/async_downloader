@@ -142,3 +142,11 @@ class FilterModule(logging.Filter):
         for pattern in self._patterns:
             if pattern in record.name: return False
         else: return True
+        
+
+    
+    
+
+            
+    
+ 

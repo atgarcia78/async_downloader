@@ -1,7 +1,6 @@
 import asyncio
 from asyncio.tasks import ALL_COMPLETED
 
-from os import CLD_CONTINUED
 import httpx
 import sys
 from pathlib import Path
@@ -13,8 +12,6 @@ from common_utils import (
 )
 
 from concurrent.futures import ThreadPoolExecutor, wait, ALL_COMPLETED
-
-
 
 from natsort import (
     natsorted,
@@ -29,14 +26,7 @@ import aiofiles
 
 import traceback
 
-import functools
-
-
 from asynclogger import AsyncLogger
-
-
-import snoop
-
 
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -76,7 +66,7 @@ class AsyncHTTPDownloader():
                 
         self.info_dict = video_dict
         self.video_downloader = vid_dl
-        self.n_parts = vid_dl.n_workers
+        self.n_parts = self.video_downloader.info_dl['n_workers']
         self._NUM_WORKERS = self.n_parts 
         self.video_url = video_dict.get('url')
         self.webpage_url = video_dict.get('webpage_url')
@@ -84,7 +74,7 @@ class AsyncHTTPDownloader():
 
         self.videoid = self.info_dict['id']
         
-        self.ytdl = vid_dl.ytdl
+        self.ytdl = self.video_downloader.info_dl['ytdl']
         self.proxies = self.ytdl.params.get('proxy', None)
         if self.proxies:
             self.proxies = f"http://{self.proxies}"
@@ -101,8 +91,12 @@ class AsyncHTTPDownloader():
             self.download_path.mkdir(parents=True, exist_ok=True) 
             self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
         else:
-            self.download_path = self.base_download_path
-            self.filename = self.info_dict.get('filename')
+            # self.download_path = self.base_download_path
+            _filename = self.info_dict.get('filename')
+            self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
+            self.download_path.mkdir(parents=True, exist_ok=True)
+            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
+            
         
         
         self.filesize = self.info_dict.get('filesize', None)        
@@ -144,12 +138,12 @@ class AsyncHTTPDownloader():
                 if i == self.n_parts:
                     self.parts.append({'part': i, 'headers' : {'range' : f'bytes={start_range}-'}, 'dl': False, 
                                     'filepath': Path(self.download_path, f"{self.filename.stem}_part_{i}_of_{self.n_parts}"),
-                                    'tempfilesize': self.filesize // self.n_parts + self.filesize % self.n_parts, 'headersize' : -1})             
+                                    'tempfilesize': self.filesize // self.n_parts + self.filesize % self.n_parts, 'headersize' : -1, 'size' : -1})             
                 else:
                     end_range = start_range + (self.filesize//self.n_parts)
                     self.parts.append({'part': i , 'headers' : {'range' : f'bytes={start_range}-{end_range}'}, 'dl' : False,
                                     'filepath': Path(self.download_path, f"{self.filename.stem}_part_{i}_of_{self.n_parts}"),
-                                    'tempfilesize': self.filesize // self.n_parts, 'headersize' : -1}) 
+                                    'tempfilesize': self.filesize // self.n_parts, 'headersize' : -1, 'size': -1}) 
                     
                     
                     start_range = end_range + 1
@@ -199,7 +193,7 @@ class AsyncHTTPDownloader():
             
             if size: 
                 self.create_parts()
-                self.gets_parts_to_dl()
+                self.get_parts_to_dl()
                 self.cl.close()
             else:
                 self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {res.status_code}: Can't get size of file")
@@ -224,6 +218,7 @@ class AsyncHTTPDownloader():
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [feed queue] Part_{part['part']} exits with size {partsize} and full downloaded")
                         self.down_size += partsize                        
                         part['dl'] = True
+                        part['size'] = partsize
                         self.n_parts_dl += 1
                         continue
                     else:
@@ -238,7 +233,10 @@ class AsyncHTTPDownloader():
                 
 
             
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [get_parts_to_dl] \n{list(self.parts_to_dl)}")        
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [get_parts_to_dl] \n{list(self.parts_to_dl)}")  
+        
+        if not self.parts_to_dl:
+            self.status = "manipulating"      
                 
     
     async def await_time(self, n):
@@ -252,13 +250,13 @@ class AsyncHTTPDownloader():
          
         client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
         
-        await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] launched")
+        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] launched")
         
         while True:
             
             await asyncio.sleep(0)
             part = await self.parts_queue.get()     
-            await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: {part}")       
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: {part}")       
             if part == "KILL": break            
             tempfilename = self.parts[part-1]['filepath']
 
@@ -271,7 +269,7 @@ class AsyncHTTPDownloader():
                     
                     async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers']) as res:            
                         
-                        await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part}: [fetch] resp code {str(res.status_code)}: rep {n_repeat}")
+                        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part}: [fetch] resp code {str(res.status_code)}: rep {n_repeat}")
                         #await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: \n {res.headers} \n {self.parts[part-1]['headers']}")
                         if res.status_code >= 400:                               
                             n_repeat += 1 
@@ -297,7 +295,7 @@ class AsyncHTTPDownloader():
                                         await f.write(chunk)   
                                         async with self.video_downloader.lock:
                                             self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)                                        
-                                            self.video_downloader.down_size += _iter_bytes 
+                                            self.video_downloader.info_dl['down_size'] += _iter_bytes 
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                     await asyncio.sleep(0)
                                     
@@ -308,9 +306,9 @@ class AsyncHTTPDownloader():
                             await asyncio.sleep(0)
                             break
 
-                except (httpx.CloseError, httpx.ReadTimeout) as e:
+                except (httpx.CloseError, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
                     lines = traceback.format_exception(*sys.exc_info())
-                    await self.alogger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: [fetch] Part_{part} error {type(e)}, will retry \n{'!!'.join(lines)}")
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: [fetch] Part_{part} error {type(e)}, will retry \n{'!!'.join(lines)}")
                     n_repeat += 1
                     await client.aclose()
                     await self.await_time(1)
@@ -326,11 +324,13 @@ class AsyncHTTPDownloader():
         await client.aclose()
         await asyncio.sleep(0)
         
-        await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] says bye")
+        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] says bye")
         
     
     async def fetch_async(self):
 
+
+            
         self.parts_queue = asyncio.Queue()
         
         for part in self.parts_to_dl:
@@ -352,52 +352,60 @@ class AsyncHTTPDownloader():
         
         done_tasks, _ = await asyncio.wait(tasks_fetch,return_when=asyncio.ALL_COMPLETED)    
         
-             
+            
     
         if done_tasks:
+            
             for done in done_tasks:
                 try:                        
                     done.result()  
                 except Exception as e:
                     await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {str(e)}", exc_info=True)
 
-        try:
-            loop = asyncio.get_running_loop()
-            ex = ThreadPoolExecutor(max_workers=1)
-            blocking_task = [loop.run_in_executor(ex, self.ensamble_file)]
-            completed, pending = await asyncio.wait(blocking_task)
-            for t in completed: t.result() 
+        self.status = "manipulating"
+        
+        # try:
+        #     loop = asyncio.get_running_loop()
+        #     ex = ThreadPoolExecutor(max_workers=1)
+        #     blocking_task = [loop.run_in_executor(ex, self.ensamble_file)]
+        #     completed, pending = await asyncio.wait(blocking_task)
+        #     for t in completed: t.result() 
             
-            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] ensambled OK")
-        except Exception as e:
-            await self.alogger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] error when ensambling parts {str(e)}", exc_info=True)
-            if self.filename.exists(): self.filename.unlink()
-            self.status = "error"
-            self.clean_when_error()
-            await asyncio.sleep(0)
-            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] error when ensambling parts {str(e)}")
+        #     await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] ensambled OK")
+        # except Exception as e:
+        #     await self.alogger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] error when ensambling parts {str(e)}", exc_info=True)
+        #     if self.filename.exists(): self.filename.unlink()
+        #     self.status = "error"
+        #     self.clean_when_error()
+        #     await asyncio.sleep(0)
+        #     raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] error when ensambling parts {str(e)}")
             
-        if self.filename.exists():
-            rmtree(str(self.download_path),ignore_errors=True)
-            self.status = "done"
-            await asyncio.sleep(0)
-        else:
-            self.status = "error"  
-            self.clean_when_error()
-            await asyncio.sleep(0)          
-            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
+        # if self.filename.exists():
+        #     rmtree(str(self.download_path),ignore_errors=True)
+        #     self.status = "done"
+        #     await asyncio.sleep(0)
+        # else:
+        #     self.status = "error"  
+        #     self.clean_when_error()
+        #     await asyncio.sleep(0)          
+        #     raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
             
     
     def print_hookup(self):
         
         if self.status == "done":
-            return (f"[HTTP][{self.info_dict['format_id']}]: Completed [{naturalsize(self.filename.stat().st_size)}][{self.n_parts_dl} of {self.n_parts}]\n")
+            return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")
         elif self.status == "init":
-            return (f"[HTTP][{self.info_dict['format_id']}]: Waiting to enter in the pool [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")            
+            return (f"[HTTP][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")            
         elif self.status == "error":
-            return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")
-        else:            
+            return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
+        elif self.status == "downloading":           
             return (f"[HTTP][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")
+        elif self.status == "manipulating":  
+            if self.filename.exists(): _size = self.filename.stat().st_size
+            else: _size = 0         
+            return (f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")
+    
 
        
     def clean_when_error(self):
@@ -424,17 +432,36 @@ class AsyncHTTPDownloader():
             
                 with open(self.filename, 'wb') as dest:
                     for p in self.parts:
-                        if p['filepath'].exists() and (p['headersize'] - 5 <= p['filepath'].stat().st_size <= p['headersize'] + 5):
-                                res = {'file': p['filepath'], 'estsize': p['tempfilesize'], 'headersize': p['headersize'], 'size': p['filepath'].stat().st_size}
+                        if p['size'] == -1:
+                            if p['filepath'].exists(): p['size'] = p['filepath'].stat().st_size
+                            if (p['size'] != -1) and (p['headersize'] - 5 <= p['size'] <= p['headersize'] + 5):
+                                
                                 with open(p['filepath'], 'rb') as source:
                                     dest.write(source.read())
-                        else: raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {res}")
+                            else: raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {p} ")
+                        else:
+                            with open(p['filepath'], 'rb') as source:
+                                dest.write(source.read())
+
+                        
                                 
 
             except Exception as e:
                 self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] error when ensambling parts {str(e)}")
-                if self.filename.exists(): self.filename.unlink()               
+                if self.filename.exists(): self.filename.unlink()
+                self.status = "error"
+                self.clean_when_error()               
                 raise   
             
-
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")
+            if self.filename.exists():
+                rmtree(str(self.download_path),ignore_errors=True)
+                self.status = "done" 
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")               
+            else:
+                self.status = "error"  
+                self.clean_when_error()                        
+                raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
+            
+            
+            
+           

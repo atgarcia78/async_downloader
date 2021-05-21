@@ -99,6 +99,7 @@ def naturalsize(value, binary=False, gnu=False, format="%.4f"):
     return (format + " %s") % ((base * bytes / unit), s)
 
 
+
 def print_norm_time(time):
     """ Time in secs """
     
@@ -215,12 +216,22 @@ def init_argparser():
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
     parser.add_argument("--nomult", help="init not concurrent", action="store_true")
-    parser.add_argument("--cache", default=None, type=str)
     parser.add_argument("--referer", default=None, type=str)
     parser.add_argument("--listvideos", help="get list videos. no dl", action="store_true")
     
     #parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
     parser.add_argument("-u", action="append", dest="collection", default=[])
+    parser.add_argument("--byfilesize", help="order list of videos to dl by filesize", action="store_true")
+    
+    parser.add_argument("--minsize", default=None, type=str)
+    parser.add_argument("--maxsize", default=None, type=str)
+    parser.add_argument("--name", action="append", dest="col_names", default=[])
+    parser.add_argument("--lastres", help="use last result for get videos list", action="store_true")
+    parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true")
+    parser.add_argument("--path", default=None, type=str)
+    
+    
+    
 
     return parser.parse_args()
 
@@ -228,7 +239,7 @@ def init_argparser():
 def init_ytdl(dict_opts, uagent, referer):
 
 
-    logger = logging.getLogger("ytdl")
+    logger = logging.getLogger("youtube_dl")
 
     ytdl_opts = {
         #"debug_printtraffic": True,
@@ -239,7 +250,7 @@ def init_ytdl(dict_opts, uagent, referer):
         "quiet": False,
         "extract_flat": "in_playlist",
         #"outtmpl": outtmpl,
-        "format" : "bestvideo+bestaudio/best",
+        "format" : "best",
         "usenetrc": True,
         "skip_download": True,
         #"forcejson": True,
@@ -258,6 +269,7 @@ def init_ytdl(dict_opts, uagent, referer):
         std_headers["Referer"] = referer
         std_headers["Origin"] = referer
         std_headers["Accept"] = "*/*"
+    
     logger.debug(f"std-headers: {std_headers}")
     return ytdl
 
@@ -270,6 +282,12 @@ def init_tk(n_dl):
   
     frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
     
+    
+    
+    frame4 = tk.Frame(master=window, width=300, bg="white")
+   
+    frame4.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
     frame1 = tk.Frame(master=window, width=300, bg="white")
   
     frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
@@ -280,12 +298,19 @@ def init_tk(n_dl):
     
     
     
-    label0 = tk.Label(master=frame0, text="WAITING TO ENTER IN POOL", bg="blue")
+    
+    
+    label0 = tk.Label(master=frame0, text="WAITING TO DL", bg="blue")
     label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
     text0 = tk.Text(master=frame0, font=("Source Code Pro", 9))
     text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
     
-    label1 = tk.Label(master=frame1, text="NOW DOWNLOADING", bg="blue")
+    label4 = tk.Label(master=frame4, text="WAITING TO CREATE FILE", bg="blue")
+    label4.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text4 = tk.Text(master=frame4, font=("Source Code Pro", 9))
+    text4.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    
+    label1 = tk.Label(master=frame1, text="NOW DOWNLOADING/CREATING FILE", bg="blue")
     label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
     text1 = tk.Text(master=frame1, font=("Source Code Pro", 9))
     text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
@@ -296,20 +321,28 @@ def init_tk(n_dl):
     text2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)   
     
     text0.insert(tk.END, "Waiting for info") 
+    text4.insert(tk.END, "Waiting for info")
     text1.insert(tk.END, "Waiting for info") 
     text2.insert(tk.END, "Waiting for info")
     
-    # window2 = tk.Tk()
-    # window2.title("async_downloader")  
+    
+    window2 = tk.Tk()
+    window2.title("async_downloader")  
+    frame3 = tk.Frame(master=window2, width=25, height=25, bg="white")
+    frame3.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
+    label3 = tk.Label(master=frame3, text="Total bytes to DL", bg="blue")
+    label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
+    text3 = tk.Text(master=frame3, font=("Source Code Pro", 9))
+    text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
     # frame3 = tk.Frame(master=window2, width=300, height=25, bg="white")
     # frame3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
     # label3 = tk.Label(master=frame3, text="NUMBER OF TASKS", bg="blue")
     # label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
     # text3 = tk.Text(master=frame3, font=("Source Code Pro", 9))
     # text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    window2 = None
-    text3 = None
-    res = [window, text0, text1, text2, window2, text3]       
+    text3.insert(tk.END, "Waiting for info")
+    #text3 = None
+    res = [window, text0, text4, text1, text2, window2, text3]       
     #return(window, text0, text1, text2, window2, text3)
     
     return(res) 

@@ -73,17 +73,18 @@ class AsyncHLSDownloader():
                  
         self.info_dict = video_dict
         self.video_downloader = vid_dl
-        self.iworkers = vid_dl.n_workers 
+        self.iworkers = vid_dl.info_dl['n_workers'] 
         self.video_url = video_dict.get('url')
         self.webpage_url = video_dict.get('webpage_url')
         
 
         self.videoid = self.info_dict['id']
         
-        self.ytdl = vid_dl.ytdl
-        self.proxies = self.ytdl.params.get('proxy', None)
-        if self.proxies:
-            self.proxies = f"http://{self.proxies}"
+        self.ytdl = vid_dl.info_dl['ytdl']
+        proxies = self.ytdl.params.get('proxy', None)
+        if proxies:
+            self.proxies = f"http://{proxies}"
+        else: self.proxies = None
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
         self.timeout = httpx.Timeout(10, connect=30)
@@ -195,7 +196,10 @@ class AsyncHLSDownloader():
         
         if self.filesize == 0: _est_size = "NA"
         else: _est_size = naturalsize(self.filesize, False, False)
-        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total segments {self.n_total_segments} -- segments already dl {self.n_dl_segments}")    
+        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total segments {self.n_total_segments} -- segments already dl {self.n_dl_segments}")  
+        
+        if not self.segs_to_dl:
+            self.status = "manipulating"
         
          
         
@@ -230,7 +234,8 @@ class AsyncHLSDownloader():
             raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")           
 
         try: 
-            self.prep_reset(info_reset)
+            info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
+            self.prep_reset(info_format[0])
             self.n_reset += 1
         except Exception as e:
             await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception occurred when reset: {str(e)}")
@@ -296,6 +301,9 @@ class AsyncHLSDownloader():
                 if segment.key is not None and segment.key.method == 'AES-128':
                     if segment.key.absolute_uri not in self.key_cache:
                         self.key_cache[segment.key.absolute_uri] = httpx.get(segment.key.absolute_uri, headers=self.headers).content
+                        
+        if not self.segs_to_dl:
+            self.status = "manipulating"
  
     
     async def await_time(self, n):
@@ -367,7 +375,7 @@ class AsyncHLSDownloader():
                                     async with self.video_downloader.lock:
                                         self.n_dl_segments -= 1
                                         self.down_size -= _size
-                                        self.video_downloader.down_size -= _size
+                                        self.video_downloader.info_dl['down_size'] -= _size
                                                             
                             
                             
@@ -381,7 +389,7 @@ class AsyncHLSDownloader():
                                         await f.write(data)
                                         async with self.video_downloader.lock:
                                             self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)
-                                            self.video_downloader.down_size += _iter_bytes                                
+                                            self.video_downloader.info_dl['down_size'] += _iter_bytes                                
                                         
                                         num_bytes_downloaded = res.num_bytes_downloaded
                             
@@ -507,7 +515,7 @@ class AsyncHLSDownloader():
 
                 if self.n_reset < 5:
                     cont = 5
-                    await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
+                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
                     #await asyncio.wait_for(self.reset(), None) 
                     _reset_task = [asyncio.create_task(self.reset())]
                     await asyncio.wait(_reset_task)
@@ -536,31 +544,33 @@ class AsyncHLSDownloader():
         await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
 
 
-        try:
-            loop = asyncio.get_running_loop()
-            ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-            blocking_task = [loop.run_in_executor(ex, self.ensamble_file)]
-            completed, pending = await asyncio.wait(blocking_task)
-            for c in completed:
-                c.result()
-                
-            await asyncio.sleep(0)
-                    
-        except AsyncHLSDLError as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred when ensambling segs: \n{'!!'.join(lines)}") 
-            self.status = "error"
-            self.clean_when_error()
-            await asyncio.sleep(0)
-            raise
+        self.status = "manipulating"
         
-        if self.filename.exists():
-            self.status == "done"  
-            rmtree(str(self.download_path),ignore_errors=True)      
-        else:
-            self.status = "error"    
-            self.clean_when_error()
-            raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")       
+        # try:
+        #     loop = asyncio.get_running_loop()
+        #     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        #     blocking_task = [loop.run_in_executor(ex, self.ensamble_file)]
+        #     completed, pending = await asyncio.wait(blocking_task)
+        #     for c in completed:
+        #         c.result()
+                
+        #     await asyncio.sleep(0)
+                    
+        # except AsyncHLSDLError as e:
+        #     lines = traceback.format_exception(*sys.exc_info())
+        #     await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred when ensambling segs: \n{'!!'.join(lines)}") 
+        #     self.status = "error"
+        #     self.clean_when_error()
+        #     await asyncio.sleep(0)
+        #     raise
+        
+        # if self.filename.exists():
+        #     self.status == "done"  
+        #     rmtree(str(self.download_path),ignore_errors=True)      
+        # else:
+        #     self.status = "error"    
+        #     self.clean_when_error()
+        #     raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")       
         
         
 
@@ -586,19 +596,35 @@ class AsyncHLSDownloader():
             with open(self.filename, mode='wb') as dest:
                 for f in self.info_seg: 
                                         
-                    res = {'file': f['file'],'exists': f['file'].exists(), 'estsize': f['estsize'], 'size': f['file'].stat().st_size, 'hsize': f['headersize'], 'check': f['headersize'] - 5 <= f['file'].stat().st_size <= f['headersize'] + 5}
-                    if f['file'].exists() and (f['headersize'] - 5 <= f['file'].stat().st_size <= f['headersize'] + 5):                  
-                    #if f['file'].exists():
+                    if not f['size']:
+                        if f['file'].exists(): f['size'] = f['file'].stat().st_size
+                        if f['size'] and (f['headersize'] - 5 <= f['size'] <= f['headersize'] + 5):                
+                #if f['file'].exists():
+                            with open(f['file'], 'rb') as source:
+                                dest.write(source.read())
+                        else: raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {f}")
+                    else:
                         with open(f['file'], 'rb') as source:
-                            dest.write(source.read())
-                    else: raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {res}")
+                                dest.write(source.read())
+                        
         
         except Exception as e:
             if self.filename.exists():
                 self.filename.unlink()
             lines = traceback.format_exception(*sys.exc_info())
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred: \n{'!!'.join(lines)}")
+            self.status = "error"
+            self.clean_when_error() 
             raise
+        
+        if self.filename.exists():
+            rmtree(str(self.download_path),ignore_errors=True)
+            self.status = "done" 
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")               
+        else:
+            self.status = "error"  
+            self.clean_when_error()                        
+            raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
 
         
      
@@ -623,10 +649,15 @@ class AsyncHLSDownloader():
         else: _est_size = naturalsize(self.filesize)
             
         if self.status == "done":
-            return (f"[HLS][{self.info_dict['format_id']}]: Completed [{naturalsize(self.filename.stat().st_size)}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+            return (f"[HLS][{self.info_dict['format_id']}]: Completed \n")
         elif self.status == "init":
-            return (f"[HLS][{self.info_dict['format_id']}]: Waiting to enter in the pool [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")            
+            return (f"[HLS][{self.info_dict['format_id']}]: Waiting to DL [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")            
         elif self.status == "error":
             return (f"[HLS][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")
-        else:            
+        elif self.status == "downloading":             
             return (f"[HLS][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+        elif self.status == "manipulating":
+            if self.filename.exists(): _size = self.filename.stat().st_size
+            else: _size = 0         
+            return (f"[HLS][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")
+            

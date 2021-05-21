@@ -17,7 +17,7 @@ from send2trash import send2trash
 
 class AsyncFile(object):
     
-    _CHUNK_SIZE = 1048576*500
+    _CHUNK_SIZE = 1048576 * 300
     
     def __init__(self, file_orig, file_dest, max_workers):
         
