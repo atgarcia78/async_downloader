@@ -94,7 +94,7 @@ class AsyncDL():
         
         else:  
         
-            list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/DatosToni1/videos"), Path("/Volumes/DatosToni2/videos"), Path("/Volumes/WD/videos"), Path("/Volumes/DatosToni/videos")]
+            list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/DatosToni/videos"), Path("/Volumes/WD/videos")]
             
             
             for folder in list_folders:
