@@ -47,6 +47,7 @@ class AsyncADBFile():
         client = AdbClient(host="127.0.0.1", port=5037)
         devices = await client.devices()
         dev = devices[0]
+        await self.alogger.info(dev)
         _queue = asyncio.Queue()
         res = await dev.shell(f"ls -l {self.forig}")
         await self.alogger.debug(res)
