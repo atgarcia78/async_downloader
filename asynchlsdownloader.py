@@ -98,10 +98,13 @@ class AsyncHLSDownloader():
         if (_filename:=self.info_dict.get('_filename')):
             self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
             self.download_path.mkdir(parents=True, exist_ok=True) 
-            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
+            #self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
+            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
         else:
-            self.download_path = self.base_download_path
-            self.filename = self.info_dict.get('filename')
+            _filename = self.info_dict.get('filename')
+            self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
+            self.download_path.mkdir(parents=True, exist_ok=True)
+            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
 
         self.key_cache = dict()
         self.n_reset = 0
@@ -234,8 +237,10 @@ class AsyncHLSDownloader():
             raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")           
 
         try: 
-            info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
-            self.prep_reset(info_format[0])
+            if info_reset.get('requested_formats'):
+                info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
+                self.prep_reset(info_format[0])
+            else: self.prep_reset(info_reset)
             self.n_reset += 1
         except Exception as e:
             await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception occurred when reset: {str(e)}")

@@ -153,26 +153,31 @@ class VideoDownloader():
        
         
                 if len(self.info_dl['downloaders']) == 1:
-                    ex = ThreadPoolExecutor(max_workers=1)
-                    loop = asyncio.get_running_loop()
-                    blocking_task = [loop.run_in_executor(ex, shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename'])]
-                    done, pending = await asyncio.wait(blocking_task)
-                    for t in done:
                     
-                        try:
-                            t.result()
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())                
-                            await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: result de move file\n{'!!'.join(lines)}")
+                    cmd = f"ffmpeg -i 'file:{self.info_dl['downloaders'][0].filename}' -map 0 -c copy 'file:{str(self.info_dl['filename'])}'"
+                    rc = await self._postffmpeg(cmd)
                     
-                    if self.info_dl['filename'].exists():                        
+                    # ex = ThreadPoolExecutor(max_workers=1)
+                    # loop = asyncio.get_running_loop()
+                    # blocking_task = [loop.run_in_executor(ex, shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename'])]
+                    # done, pending = await asyncio.wait(blocking_task)
+                    # for t in done:
+                    
+                    #     try:
+                    #         t.result()
+                    #     except Exception as e:
+                    #         lines = traceback.format_exception(*sys.exc_info())                
+                    #         await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: result de move file\n{'!!'.join(lines)}")
+                    
+                    if rc == 0 and self.info_dl['filename'].exists():                        
                         self.info_dl['status'] = "done"
                     else:
                         self.info_dl['status'] = "error"
-                        raise Exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error move file")
+                        raise Exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error move file: {rc}")
                         
-                else:        
-                    rc = await self._merge()
+                else:
+                    cmd = f"ffmpeg -y -loglevel repeat+info -i 'file:{str(self.info_dl['downloaders'][0].filename)}' -i \'file:{str(self.info_dl['downloaders'][1].filename)}' -c copy -map 0:v:0 -map 1:a:0 'file:{str(self.info_dl['filename'])}'"        
+                    rc = await self._postffmpeg(cmd)
                     if rc == 0 and self.info_dl['filename'].exists():
                         self.info_dl['status'] = "done"
                         for dl in self.info_dl['downloaders']:
@@ -192,8 +197,8 @@ class VideoDownloader():
             await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
             
         
-    async def _merge(self):        
-        cmd = f"ffmpeg -y -loglevel repeat+info -i 'file:{str(self.info_dl['downloaders'][0].filename)}' -i \'file:{str(self.info_dl['downloaders'][1].filename)}' -c copy -map 0:v:0 -map 1:a:0 'file:{str(self.info_dl['filename'])}'"
+    async def _postffmpeg(self, cmd):        
+        
         
         await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:{cmd}")
         
@@ -217,6 +222,7 @@ class VideoDownloader():
         
         return proc.returncode
     
+     
     
     def print_hookup(self):        
         
