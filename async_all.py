@@ -89,8 +89,6 @@ class AsyncDL():
                 self.files_cached = json.load(f)
                 
             self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
-            
-            
         
         else:  
         
@@ -692,7 +690,7 @@ class AsyncDL():
                     t.set_name(f"worker_manip[{i}]")             
             
                                 
-            done, _ = await asyncio.wait(t1 + tasks_init + tasks_run + tasks_manip, return_when=asyncio.ALL_COMPLETED)
+            done, _ = await asyncio.wait(t1 + tasks_init + tasks_run + tasks_manip)
             
             if done:
                 for d in done:

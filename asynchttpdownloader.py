@@ -1,5 +1,4 @@
 import asyncio
-from asyncio.tasks import ALL_COMPLETED
 
 import httpx
 import sys
@@ -19,13 +18,9 @@ from natsort import (
 )
 
 from shutil import rmtree
-
 import time
-
 import aiofiles
-
 import traceback
-
 from asynclogger import AsyncLogger
 
 class AsyncHTTPDLErrorFatal(Exception):
@@ -152,9 +147,6 @@ class AsyncHTTPDownloader():
                 fut = [ex.submit(self.upt_hsize, i) for i in range(self.n_parts)]
                 done, pending = wait(fut, return_when=ALL_COMPLETED)
                 
-  
-                    
-                
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [create parts] \n{'!!'.join(lines)}")
@@ -204,7 +196,6 @@ class AsyncHTTPDownloader():
     def get_parts_to_dl(self):
         
         self.parts_to_dl = []
-        
 
         for part in self.parts:
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [feed queue] {part}")
@@ -362,34 +353,8 @@ class AsyncHTTPDownloader():
                 except Exception as e:
                     await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {str(e)}", exc_info=True)
 
-        self.status = "manipulating"
-        
-        # try:
-        #     loop = asyncio.get_running_loop()
-        #     ex = ThreadPoolExecutor(max_workers=1)
-        #     blocking_task = [loop.run_in_executor(ex, self.ensamble_file)]
-        #     completed, pending = await asyncio.wait(blocking_task)
-        #     for t in completed: t.result() 
-            
-        #     await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] ensambled OK")
-        # except Exception as e:
-        #     await self.alogger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] error when ensambling parts {str(e)}", exc_info=True)
-        #     if self.filename.exists(): self.filename.unlink()
-        #     self.status = "error"
-        #     self.clean_when_error()
-        #     await asyncio.sleep(0)
-        #     raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_async] error when ensambling parts {str(e)}")
-            
-        # if self.filename.exists():
-        #     rmtree(str(self.download_path),ignore_errors=True)
-        #     self.status = "done"
-        #     await asyncio.sleep(0)
-        # else:
-        #     self.status = "error"  
-        #     self.clean_when_error()
-        #     await asyncio.sleep(0)          
-        #     raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
-            
+        self.status = "manipulating"        
+   
     
     def print_hookup(self):
         

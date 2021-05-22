@@ -3,10 +3,7 @@ from concurrent.futures import ThreadPoolExecutor
 import httpx
 import sys
 import traceback
-from shutil import (
-    rmtree
-
-)
+from shutil import rmtree
 import m3u8
 import binascii
 from Crypto.Cipher import AES
@@ -25,7 +22,6 @@ from urllib.parse import urlparse
 import logging
 
 from asyncio_pool import AioPool
-
 
 
 import time
@@ -551,31 +547,6 @@ class AsyncHLSDownloader():
 
         self.status = "manipulating"
         
-        # try:
-        #     loop = asyncio.get_running_loop()
-        #     ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        #     blocking_task = [loop.run_in_executor(ex, self.ensamble_file)]
-        #     completed, pending = await asyncio.wait(blocking_task)
-        #     for c in completed:
-        #         c.result()
-                
-        #     await asyncio.sleep(0)
-                    
-        # except AsyncHLSDLError as e:
-        #     lines = traceback.format_exception(*sys.exc_info())
-        #     await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred when ensambling segs: \n{'!!'.join(lines)}") 
-        #     self.status = "error"
-        #     self.clean_when_error()
-        #     await asyncio.sleep(0)
-        #     raise
-        
-        # if self.filename.exists():
-        #     self.status == "done"  
-        #     rmtree(str(self.download_path),ignore_errors=True)      
-        # else:
-        #     self.status = "error"    
-        #     self.clean_when_error()
-        #     raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")       
         
         
 
