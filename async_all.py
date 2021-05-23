@@ -15,6 +15,7 @@ import pandas as pd
 from tabulate import tabulate
 import humanfriendly
 import re
+from aiotools import TaskGroup
 
 
 from common_utils import ( 
@@ -364,15 +365,15 @@ class AsyncDL():
                 root2.update()
  
                 
-                video_queue = []
-                for dl in (_dl_queue:=list(self.queue_manip._queue)):
-                    if dl in ("KILL", "KILLTK", "KILLANDCLEAN"): video_queue.append(dl)
-                    else: video_queue.append(dl.info_dict['title'])
+                # video_queue = []
+                # for dl in (_dl_queue:=list(self.queue_manip._queue)):
+                #     if dl in ("KILL", "KILLTK", "KILLANDCLEAN"): video_queue.append(dl)
+                #     else: video_queue.append(dl.info_dict['title'])
                     
                 
 
-                if (len(video_queue) == 1) and (video_queue[0] == "KILLTK"):
-                    break
+                #if (len(video_queue) == 1) and (video_queue[0] == "KILLTK"):
+                #    break
                 
                 
                 res = set([dl.info_dl['status'] for dl in self.list_dl])
@@ -381,7 +382,9 @@ class AsyncDL():
                 else:
                     #if ("init" in res and not "downloading" in res): 
                     #    pass
-                    if (not "init" in res and not "downloading" in res and not "creating" in res and not "init_manipulating"):                
+                    #if (not "init" in res and not "downloading" in res and not "creating" in res and not "init_manipulating"):                
+                    _res = sorted(list(res))
+                    if _res == ["done", "error"] or _res == ["error"] or _res == ["done"]:
                         break
                     else:
                         text3.delete(1.0,tk.END)
@@ -582,8 +585,7 @@ class AsyncDL():
                     #await asyncio.sleep(0)
                     break
                 
-                elif video_dl == "KILLANDCLEAN":                    
-                    self.queue_manip.put_nowait("KILLTK")
+                elif video_dl == "KILLANDCLEAN":                     
                     await self.alogger.debug(f"worker_manip[{i}]: get KILLANDCLEAN, bye")
                     #await asyncio.sleep(0) 
                     break
@@ -734,8 +736,9 @@ class AsyncDL():
         if _videos_2dl and not self.args.nodl:
 
             for _video in _videos_2dl:
-                if not _video['filename'].exists():
-                    videos_kodl.append(f"[{_video['id']}][{_video['title']}]") 
+                _vid = _video.get('filename')
+                if not _vid or not _vid.exists():
+                    videos_kodl.append(f"[{_video.get('id')}][{_video.get('title')}][[{_video.get('url')}]") 
                     videos_kodl_str.append(f"{_video['url']}")
                 else: videos_okdl.append(f"[{_video['id']}][{_video['title']}")
         

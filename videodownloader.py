@@ -23,10 +23,9 @@ from concurrent.futures import (
 from youtube_dl.utils import sanitize_filename, determine_protocol
 from datetime import datetime
 import hashlib
-from shutil import (
-    rmtree
-)
+from shutil import rmtree, move
 from asynclogger import AsyncLogger
+import functools
 
 
 class VideoDownloader():
@@ -154,8 +153,17 @@ class VideoDownloader():
         
                 if len(self.info_dl['downloaders']) == 1:
                     
-                    cmd = f"ffmpeg -i 'file:{self.info_dl['downloaders'][0].filename}' -map 0 -c copy 'file:{str(self.info_dl['filename'])}'"
-                    rc = await self._postffmpeg(cmd)
+                    rc = -1
+                    
+                    if "ts" in self.info_dl['downloaders'][0].filename.suffix:
+                    
+                        cmd = f"ffmpeg -i 'file:{self.info_dl['downloaders'][0].filename}' -map 0 -c copy 'file:{str(self.info_dl['filename'])}'"
+                        rc = await self._postffmpeg(cmd)
+                        
+                    else:
+                        
+                        res = await asyncio.to_thread(shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename'])
+                        if res == self.info_dl['filename']: rc = 0
                     
                     # ex = ThreadPoolExecutor(max_workers=1)
                     # loop = asyncio.get_running_loop()
@@ -190,8 +198,9 @@ class VideoDownloader():
                 
                     
                 if self.info_dl['status'] == "done":
-                    rmtree(str(self.info_dl['download_path']),ignore_errors=True)
-                
+                    await asyncio.to_thread(functools.partial(rmtree, self.info_dl['download_path'], ignore_errors=True))
+                    
+                 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
