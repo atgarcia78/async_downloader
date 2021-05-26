@@ -7,131 +7,42 @@ License: Apache-2.0
 
 import logging
 import logging.handlers
-import re
+
+from logging.config import ConvertingList, ConvertingDict, valid_ident
+from logging.handlers import QueueHandler, QueueListener
+from queue import Queue
+import atexit
+
+from copy import copy
 
 
-class ColorCodes:
-    grey = "\x1b[38;21m"
-    green = "\x1b[1;32m"
-    yellow = "\x1b[33;21m"
-    red = "\x1b[31;21m"
-    bold_red = "\x1b[31;1m"
-    blue = "\x1b[1;34m"
-    light_blue = "\x1b[1;36m"
-    purple = "\x1b[1;35m"
-    reset = "\x1b[0m"
-
-
-class ColorizedArgsFormatter(logging.Formatter):
-    arg_colors = [ColorCodes.purple, ColorCodes.light_blue]
-    level_fields = ["levelname", "levelno"]
-    level_to_color = {
-        logging.DEBUG: ColorCodes.grey,
-        logging.INFO: ColorCodes.green,
-        logging.WARNING: ColorCodes.yellow,
-        logging.ERROR: ColorCodes.red,
-        logging.CRITICAL: ColorCodes.bold_red,
-    }
-
-    def __init__(self, fmt: str, datefmt: str):
-        super().__init__()
-        self.level_to_formatter = {}
-
-        def add_color_format(level: int):
-            color = ColorizedArgsFormatter.level_to_color[level]
-            _format = fmt
-            for fld in ColorizedArgsFormatter.level_fields:
-                search = "(%\(" + fld + "\).*?s)"
-                _format = re.sub(search, f"{color}\\1{ColorCodes.reset}", _format)
-            formatter = logging.Formatter(_format, datefmt)
-            self.level_to_formatter[level] = formatter
-
-        add_color_format(logging.DEBUG)
-        add_color_format(logging.INFO)
-        add_color_format(logging.WARNING)
-        add_color_format(logging.ERROR)
-        add_color_format(logging.CRITICAL)
-
-    @staticmethod
-    def rewrite_record(record: logging.LogRecord):
-        if not BraceFormatStyleFormatter.is_brace_format_style(record):
-            return
-
-        msg = record.msg
-        msg = msg.replace("{", "_{{")
-        msg = msg.replace("}", "_}}")
-        placeholder_count = 0
-        # add ANSI escape code for next alternating color before each formatting parameter
-        # and reset color after it.
-        while True:
-            if "_{{" not in msg:
-                break
-            color_index = placeholder_count % len(ColorizedArgsFormatter.arg_colors)
-            color = ColorizedArgsFormatter.arg_colors[color_index]
-            msg = msg.replace("_{{", color + "{", 1)
-            msg = msg.replace("_}}", "}" + ColorCodes.reset, 1)
-            placeholder_count += 1
-
-        record.msg = msg.format(*record.args)
-        record.args = []
-
-    def format(self, record):
-        orig_msg = record.msg
-        orig_args = record.args
-        formatter = self.level_to_formatter.get(record.levelno)
-        self.rewrite_record(record)
-        formatted = formatter.format(record)
-
-        # restore log record to original state for other handlers
-        record.msg = orig_msg
-        record.args = orig_args
-        return formatted
-
-
-class BraceFormatStyleFormatter(logging.Formatter):
-    def __init__(self, fmt: str):
-        super().__init__()
-        self.formatter = logging.Formatter(fmt)
-
-    @staticmethod
-    def is_brace_format_style(record: logging.LogRecord):
-        if len(record.args) == 0:
-            return False
-
-        msg = record.msg
-        if '%' in msg:
-            return False
-
-        count_of_start_param = msg.count("{")
-        count_of_end_param = msg.count("}")
-
-        if count_of_start_param != count_of_end_param:
-            return False
-
-        if count_of_start_param != len(record.args):
-            return False
-
-        return True
-
-    @staticmethod
-    def rewrite_record(record: logging.LogRecord):
-        if not BraceFormatStyleFormatter.is_brace_format_style(record):
-            return
-
-        record.msg = record.msg.format(*record.args)
-        record.args = []
-
-    def format(self, record):
-        orig_msg = record.msg
-        orig_args = record.args
-        self.rewrite_record(record)
-        formatted = self.formatter.format(record)
-
-        # restore log record to original state for other handlers
-        record.msg = orig_msg
-        record.args = orig_args
-        return formatted
     
+
+MAPPING = {
+    'DEBUG'   : 34, # white
+    'INFO'    : 32, # cyan
+    'WARNING' : 33, # yellow
+    'ERROR'   : 31, # red
+    'CRITICAL': 41, # white on red bg
+}
+
+PREFIX = '\033['
+SUFFIX = '\033[0m'
+
+class ColoredFormatter(logging.Formatter):
+
+    def __init__(self, patern):
+        logging.Formatter.__init__(self, patern, "%H:%M:%S")
+
+    def format(self, record):
+        colored_record = copy(record)
+        levelname = colored_record.levelname
+        seq = MAPPING.get(levelname, 37) # default white
+        colored_levelname = ('{0}{1}m{2}{3}') \
+            .format(PREFIX, seq, levelname, SUFFIX)
+        colored_record.levelname = colored_levelname
+        return logging.Formatter.format(self, colored_record)
+
 class FilterModule(logging.Filter):
 
     def __init__(self, patterns):
@@ -143,6 +54,56 @@ class FilterModule(logging.Filter):
             if pattern in record.name: return False
         else: return True
         
+        
+def _resolve_handlers(l):
+    if not isinstance(l, ConvertingList):
+        return l
+
+    # Indexing the list performs the evaluation.
+    return [l[i] for i in range(len(l))]
+
+
+def _resolve_queue(q):
+    if not isinstance(q, ConvertingDict):
+        return q
+    if '__resolved_value__' in q:
+        return q['__resolved_value__']
+
+    cname = q.pop('class')
+    klass = q.configurator.resolve(cname)
+    props = q.pop('.', None)
+    kwargs = {k: q[k] for k in q if valid_ident(k)}
+    result = klass(**kwargs)
+    if props:
+        for name, value in props.items():
+            setattr(result, name, value)
+
+    q['__resolved_value__'] = result
+    return result
+
+
+class QueueListenerHandler(QueueHandler):
+
+    def __init__(self, handlers, respect_handler_level=False, auto_run=True, queue=Queue(-1)):
+        queue = _resolve_queue(queue)
+        super().__init__(queue)
+        handlers = _resolve_handlers(handlers)
+        self._listener = QueueListener(
+            self.queue,
+            *handlers,
+            respect_handler_level=respect_handler_level)
+        if auto_run:
+            self.start()
+            atexit.register(self.stop)
+
+    def start(self):
+        self._listener.start()
+
+    def stop(self):
+        self._listener.stop()
+
+    def emit(self, record):
+        return super().emit(record)
 
     
     

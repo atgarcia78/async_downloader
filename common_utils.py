@@ -19,6 +19,10 @@ import tkinter as tk
 
 
 
+def shorter_str(msg, nchars):
+    if len(msg) < nchars: return msg
+    else: return msg[:nchars] 
+
 def foldersize(folder):
     #devuelve en bytes size folder
     return sum(file.stat().st_size for file in Path(folder).rglob('*') if file.is_file())
@@ -185,6 +189,8 @@ def status_proxy():
 #         json.dump(ffprofiles_dict, f)
 
 
+ 
+    
 def init_logging(file_path=None):
 
     if not file_path:
@@ -198,6 +204,8 @@ def init_logging(file_path=None):
     config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(home = str(Path.home()))
     
     logging.config.dictConfig(config)   
+    
+    
 
 def init_argparser():
 

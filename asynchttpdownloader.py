@@ -22,6 +22,7 @@ import time
 import aiofiles
 import traceback
 from asynclogger import AsyncLogger
+from aiotools import TaskGroup
 
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -44,10 +45,8 @@ class AsyncHTTPDLError(Exception):
 
 class AsyncHTTPDownloader():
     
-    #_CHUNK_SIZE = 1024
-    _CHUNK_SIZE = 1048576
     
-   
+    _CHUNK_SIZE = 1048576
     
     def __init__(self, video_dict, vid_dl):
 
@@ -111,7 +110,7 @@ class AsyncHTTPDownloader():
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {res} {res.request} {res.request.headers} {res.headers}")
             if res.status_code > 400:
                 time.sleep(1)
-                cont += 1
+                cont -= 1
             else: break
         
         headers_size = res.headers.get('content-length')
@@ -231,95 +230,93 @@ class AsyncHTTPDownloader():
                 
     
     async def await_time(self, n):
-        ex = ThreadPoolExecutor(max_workers=1)
-        loop = asyncio.get_running_loop()
+        res = await asyncio.to_thread(time.sleep, n)
         
-        blocking_task = [loop.run_in_executor(ex, time.sleep, n)]
-        await asyncio.wait(blocking_task)
         
     async def fetch(self,i):        
          
         client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
         
-        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] launched")
         
-        while True:
+        try:
+        
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] launched")
             
-            await asyncio.sleep(0)
-            part = await self.parts_queue.get()     
-            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: {part}")       
-            if part == "KILL": break            
-            tempfilename = self.parts[part-1]['filepath']
+            while True:
+                
+                await asyncio.sleep(0)
+                part = await self.parts_queue.get()     
+                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: {part}")       
+                if part == "KILL": break            
+                tempfilename = self.parts[part-1]['filepath']
 
-            n_repeat = 0
-               
-            await asyncio.sleep(0)
-            
-            while(n_repeat < 5):
-                try:       
-                    
-                    async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers']) as res:            
+                n_repeat = 0
+                
+                await asyncio.sleep(0)
+                
+                while(n_repeat < 5):
+                    try:       
                         
-                        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part}: [fetch] resp code {str(res.status_code)}: rep {n_repeat}")
-                        #await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: \n {res.headers} \n {self.parts[part-1]['headers']}")
-                        if res.status_code >= 400:                               
-                            n_repeat += 1 
-                            ndl_enter = self.n_parts_dl                             
-                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part}: awaiting enter {ndl_enter}")
-                            count = 10                           
-                            while(count > 10):
-                                await self.await_time(1)
-                                if ndl_enter != self.n_parts_dl: break                                                                
-                                count -= 1                    
-                                await asyncio.sleep(0)                                   
-                                
-                            #await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part}: end awaiting with (enter {ndl_enter}), will retry")    
-                            continue
-                            #raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Part_{part} resp code:{str(res)}")
-                        else:
-                            self.parts[part-1]['headersize'] = int_or_none(res.headers.get('content-length'))
-                            async with aiofiles.open(tempfilename, mode='wb') as f:
-                           
-                                num_bytes_downloaded = res.num_bytes_downloaded
-                                async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                                    if chunk:
-                                        await f.write(chunk)   
-                                        async with self.video_downloader.lock:
-                                            self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)                                        
-                                            self.video_downloader.info_dl['down_size'] += _iter_bytes 
-                                        num_bytes_downloaded = res.num_bytes_downloaded
-                                    await asyncio.sleep(0)
-                                    
-                            self.parts[part-1]['dl'] = True
-                            async with self.video_downloader.lock:
-                                self.n_parts_dl += 1
-                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part} DL: total {self.n_parts_dl}")
-                            await asyncio.sleep(0)
-                            break
+                        async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers']) as res:            
+                            
+                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part}: [fetch] resp code {str(res.status_code)}: rep {n_repeat}")
+                            #await self.alogger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: \n {res.headers} \n {self.parts[part-1]['headers']}")
+                            if res.status_code >= 400:                               
+                                n_repeat += 1 
+                                ndl_enter = self.n_parts_dl                             
+                                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part}: awaiting enter {ndl_enter}")
+                                count = 10                           
+                                while(count > 10):
+                                    _t = asyncio.create_task(self.await_time(1))
+                                    await asyncio.wait({_t})
+                                    if ndl_enter != self.n_parts_dl: break                                                                
+                                    count -= 1                    
+                                    await asyncio.sleep(0) 
+                                continue
+                            else:
+                                self.parts[part-1]['headersize'] = int_or_none(res.headers.get('content-length'))
+                                async with aiofiles.open(tempfilename, mode='wb') as f:
+                            
+                                    num_bytes_downloaded = res.num_bytes_downloaded
+                                    async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
+                                        if chunk:
+                                            await f.write(chunk)   
+                                            async with self.video_downloader.lock:
+                                                self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)                                        
+                                                self.video_downloader.info_dl['down_size'] += _iter_bytes 
+                                            num_bytes_downloaded = res.num_bytes_downloaded
+                                        await asyncio.sleep(0)
+                                        
+                                self.parts[part-1]['dl'] = True
+                                async with self.video_downloader.lock:
+                                    self.n_parts_dl += 1
+                                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: Part_{part} DL: total {self.n_parts_dl}")
+                                await asyncio.sleep(0)
+                                break
 
-                except (httpx.CloseError, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
-                    lines = traceback.format_exception(*sys.exc_info())
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: [fetch] Part_{part} error {type(e)}, will retry \n{'!!'.join(lines)}")
-                    n_repeat += 1
-                    await client.aclose()
-                    await self.await_time(1)
-                    client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-                    await asyncio.sleep(0)
-                except Exception as e:
-                    lines = traceback.format_exception(*sys.exc_info())
-                    await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: [fetch] Part_{part} error {type(e)} not DL \n{'!!'.join(lines)}")
-                    break
-                                
-             
-        
-        await client.aclose()
-        await asyncio.sleep(0)
-        
-        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] says bye")
-        
+                    except (httpx.CloseError, httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
+                        lines = traceback.format_exception(*sys.exc_info())
+                        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: [fetch] Part_{part} error {type(e)}, will retry \n{'!!'.join(lines)}")
+                        n_repeat += 1
+                        await client.aclose()
+                        _t = asyncio.create_task(self.await_time(1))
+                        await asyncio.wait({_t})
+                        client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+                        await asyncio.sleep(0)
+                    except Exception as e:
+                        lines = traceback.format_exception(*sys.exc_info())
+                        await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]: [fetch] Part_{part} error {type(e)} not DL \n{'!!'.join(lines)}")
+                        break
+            
+            await asyncio.sleep(0)
+            
+            
+        finally:
+            await client.aclose()
+            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: worker_fetch [{i}] says bye")
+            
     
     async def fetch_async(self):
-
 
             
         self.parts_queue = asyncio.Queue()
@@ -335,23 +332,17 @@ class AsyncHTTPDownloader():
         
         await asyncio.sleep(0)        
         
+        
+        try:
                 
-        
-        tasks_fetch = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
-        for i,t in enumerate(tasks_fetch):
-            t.set_name(f"[{self.info_dict['title']}][{i}]") 
-        
-        done_tasks, _ = await asyncio.wait(tasks_fetch,return_when=asyncio.ALL_COMPLETED)    
-        
-            
-    
-        if done_tasks:
-            
-            for done in done_tasks:
-                try:                        
-                    done.result()  
-                except Exception as e:
-                    await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {str(e)}", exc_info=True)
+            async with TaskGroup() as tg:
+                
+                tasks_fetch = [tg.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
+                
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
+
 
         self.status = "manipulating"        
    
@@ -407,9 +398,7 @@ class AsyncHTTPDownloader():
                         else:
                             with open(p['filepath'], 'rb') as source:
                                 dest.write(source.read())
-
-                        
-                                
+                 
 
             except Exception as e:
                 self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] error when ensambling parts {str(e)}")

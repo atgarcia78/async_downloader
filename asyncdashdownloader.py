@@ -1,10 +1,5 @@
 import asyncio
-from asyncio.exceptions import (
-    CancelledError,
-    InvalidStateError
-)
 import httpx
-import httpcore
 import sys
 from shutil import (
     rmtree
@@ -26,6 +21,8 @@ from natsort import (
 
 from urllib.parse import urljoin
 import logging
+from aiotools import TaskGroup
+
 
 
 from common_utils import (
@@ -39,7 +36,7 @@ import aiofiles
 
 from concurrent.futures import ThreadPoolExecutor
 
-from asynclogger import AsyncLogger
+
 
 class AsyncDASHDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -61,28 +58,29 @@ class AsyncDASHDLError(Exception):
 
 class AsyncDASHDownloader():
 
-    #_CHUNK_SIZE = 1048576
-    _CHUNK_SIZE = 1024
+    _CHUNK_SIZE = 1048576
+   # _CHUNK_SIZE = 1024
        
     def __init__(self, video_dict, vid_dl):
 
 
         self.logger = logging.getLogger("async_DASH_DL")
-        self.alogger = AsyncLogger(self.logger)
+        #self.alogger = AsyncLogger(self.logger)
                  
         self.info_dict = video_dict
         self.video_downloader = vid_dl
-        self.iworkers = vid_dl.n_workers 
+        self.iworkers = vid_dl.info_dl['n_workers']
         self.video_url = video_dict.get('url')
         self.webpage_url = video_dict.get('webpage_url')
         
 
         self.videoid = self.info_dict['id']
         
-        self.ytdl = vid_dl.ytdl
-        self.proxies = self.ytdl.params.get('proxy', None)
-        if self.proxies:
-            self.proxies = f"http://{self.proxies}"
+        self.ytdl = vid_dl.info_dl['ytdl']
+        proxies = self.ytdl.params.get('proxy', None)
+        if proxies:
+            self.proxies = f"http://{proxies}"
+        else: self.proxies = None
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
         self.timeout = httpx.Timeout(10, connect=30)
@@ -95,8 +93,11 @@ class AsyncDASHDownloader():
             self.download_path.mkdir(parents=True, exist_ok=True) 
             self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
         else:
-            self.download_path = self.base_download_path
-            self.filename = self.info_dict.get('filename')
+            
+            _filename = self.info_dict.get('filename')
+            self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
+            self.download_path.mkdir(parents=True, exist_ok=True)
+            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
 
         self.key_cache = dict()
         self.n_reset = 0
@@ -124,11 +125,10 @@ class AsyncDASHDownloader():
        
             self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
             est_size = self.tbr * fragment.get('duration', 0) * 1000 / 8
-            if est_size:
-                if _file_path.exists():
+            if _file_path.exists():
                     size = _file_path.stat().st_size
-                else: size = -1
             else: size = -1
+            if not est_size: est_size = size 
             
             if size < 0.90 * est_size:
                 if _file_path.exists(): _file_path.unlink()
@@ -287,7 +287,7 @@ class AsyncDASHDownloader():
                     await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: frag[{q}]: error: {type(e)}: {url}", exc_info=True)
                     self.info_frag[q - 1]['n_retries'] += 1  
                     await asyncio.sleep(0)                                     
-                except (httpx.ReadTimeout, httpcore.ReadTimeout) as e:
+                except (httpx.ReadTimeout) as e:
                     await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: frag[{q}]: timeout: {type(e)}: {url}", exc_info=True)
                     await client.aclose()
                     client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers) 
@@ -347,7 +347,7 @@ class AsyncDASHDownloader():
                         except AsyncDASHDLErrorFatal as e:
                             await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:rec excepciones DASH Fatal de las finalizadas:{str(e)}", exc_info=True)
                             fatal_errors.append(e)
-                        except (CancelledError, InvalidStateError, httpx.HTTPError, httpx.StreamError, AsyncDASHDLError) as e:
+                        except (httpx.HTTPError, httpx.StreamError, AsyncDASHDLError) as e:
                             await self.alogger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:rec excepciones comunes de las finalizadas :{str(e)}", exc_info=True)
 
                 if fatal_errors: raise AsyncDASHDLErrorFatal("reset")
@@ -471,10 +471,16 @@ class AsyncDASHDownloader():
         else: _est_size = naturalsize(self.filesize)
             
         if self.status == "done":
-            return (f"[DASH][{self.info_dict['format_id']}]: Completed [{naturalsize(self.filename.stat().st_size)}][{self.n_dl_fragments} of {self.n_total_fragments}]\n")
+            return (f"[DASH][{self.info_dict['format_id']}]: Completed \n")
         elif self.status == "init":
             return (f"[DASH][{self.info_dict['format_id']}]: Waiting to enter in the pool [{_est_size}][{self.n_dl_fragments} of {self.n_total_fragments}]\n")            
         elif self.status == "error":
             return (f"[DASH][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_fragments} of {self.n_total_fragments}]\n")
-        else:            
+        elif self.status == "downloading":            
             return (f"[DASH][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_fragments} of {self.n_total_fragments}]\n")
+        elif self.status == "manipulating":
+            if self.filename.exists(): _size = self.filename.stat().st_size
+            else: _size = 0
+            return (f"[DASH][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")
+            
+            

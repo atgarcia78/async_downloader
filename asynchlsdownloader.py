@@ -1,5 +1,4 @@
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import httpx
 import sys
 import traceback
@@ -17,12 +16,10 @@ from natsort import (
 )
 
 
-from collections import deque
 from urllib.parse import urlparse
 import logging
 
-from asyncio_pool import AioPool
-
+from aiotools import TaskGroup
 
 import time
 
@@ -34,9 +31,7 @@ from common_utils import (
 
 import aiofiles
 
-import concurrent.futures
 
-from asynclogger import AsyncLogger
 
 class AsyncHLSDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -65,7 +60,7 @@ class AsyncHLSDownloader():
 
 
         self.logger = logging.getLogger("async_HLS_DL")
-        self.alogger = AsyncLogger(self.logger)
+        #self.alogger = AsyncLogger(self.logger)
                  
         self.info_dict = video_dict
         self.video_downloader = vid_dl
@@ -84,17 +79,12 @@ class AsyncHLSDownloader():
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
         self.timeout = httpx.Timeout(10, connect=30)
-        
         self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
         self.headers = self.info_dict.get('http_headers')
-        #self.client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-        #self.cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-        
         self.base_download_path = self.info_dict['download_path']
         if (_filename:=self.info_dict.get('_filename')):
             self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
             self.download_path.mkdir(parents=True, exist_ok=True) 
-            #self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
             self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
         else:
             _filename = self.info_dict.get('filename')
@@ -106,8 +96,7 @@ class AsyncHLSDownloader():
         self.n_reset = 0
   
 
-        self.prep_init()
-        
+        self.prep_init()        
         self.status = "init"            
                 
     
@@ -159,12 +148,8 @@ class AsyncHLSDownloader():
             if file_path.exists():
                 size = file_path.stat().st_size
             else: size = -1
-            if not est_size: est_size = size
-            
-            
-            #hsize = int_or_none(httpx.get(segment.absolute_uri,headers=self.headers).headers.get('content-length'))
-            
-            #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: seg[{i}] size[{size}] est_size[{est_size}] hsize[{hsize}]")
+            if not est_size: est_size = size            
+
             
             if  est_size*0.9 <= size <= est_size*1.1:
                 self.info_seg.append({"seg" : i+1, "url" : segment.absolute_uri, "key": segment.key, "file" : file_path, "byterange" : byte_range, "downloaded" : True, "estsize" : est_size, "headersize" : None, "size": size, "n_retries": 0, "error" : ["AlreadyDL"]})
@@ -199,9 +184,7 @@ class AsyncHLSDownloader():
         
         if not self.segs_to_dl:
             self.status = "manipulating"
-        
-         
-        
+       
 
                                          
     def calculate_duration(self):
@@ -217,20 +200,20 @@ class AsyncHLSDownloader():
 
         #ya tenemos toda la info, sólo queremos refrescar la info de los segmentos
         
-        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET:get video dict: {self.webpage_url}")
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET:get video dict: {self.webpage_url}")
         
         try:
             
             info_reset = self.ytdl.extract_info(self.webpage_url, download=False, process=True)
             
-            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:New info video")
-            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{info_reset}")
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:New info video")
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{info_reset}")
             
         except Exception as e:
-            raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")
+            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET fails: no descriptor {e}")
 
         if not info_reset:
-            raise AsyncHLSDLErrorFatal("RESET fails: no descriptor")           
+            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET fails: no descriptor")         
 
         try: 
             if info_reset.get('requested_formats'):
@@ -239,7 +222,7 @@ class AsyncHLSDownloader():
             else: self.prep_reset(info_reset)
             self.n_reset += 1
         except Exception as e:
-            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception occurred when reset: {str(e)}")
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception occurred when reset: {str(e)}")
             raise AsyncHLSDLErrorFatal("RESET fails: preparation segs failed")
     
     def prep_reset(self, info_reset):
@@ -247,9 +230,7 @@ class AsyncHLSDownloader():
        
  
         self.headers = info_reset.get('headers')
-        self.video_url = info_reset.get('url')
-        
-        # self.client = httpx.AsyncClient(headers=self.headers, http2=False, timeout=timeout, limits=limits, verify=self.verifycert, proxies=self.proxies)
+        self.video_url = info_reset.get('url')        
 
         self.segs_to_dl = []
 
@@ -308,153 +289,188 @@ class AsyncHLSDownloader():
  
     
     async def await_time(self, n):
-        ex = ThreadPoolExecutor(max_workers=1)
-        loop = asyncio.get_running_loop()
+        res = await asyncio.to_thread(time.sleep, n)
         
-        blocking_task = [loop.run_in_executor(ex, time.sleep, n)]
-        await asyncio.wait(blocking_task)
+    async def await_cancel_group(self, tg):
+        res = await asyncio.to_thread(tg._abort)
        
     
     async def fetch(self, nco):
         
         client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
 
-        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
-        
-        while True:
+        try:
 
-            q = await self.segs_queue.get()
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
             
-            if q =="KILL":
-                break  
-            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: seg[{q}]: request to dl \n{self.info_seg[q-1]}")          
-            url = self.info_seg[q - 1]['url']
-            filename = self.info_seg[q - 1]['file']
-            key = self.info_seg[q - 1]['key']
-            cipher = None
-            if key is not None and key.method == 'AES-128':
-                iv = binascii.unhexlify(key.iv[2:])
-                cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
-            byte_range = self.info_seg[q - 1]['byterange']
-            headers = {}
-            if byte_range:
-                headers['range'] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
+            while True:
 
-            await asyncio.sleep(0)        
-            
-            while self.info_seg[q - 1]['n_retries'] < 5:
- 
-                try: 
-                    
-                    async with client.stream("GET", url, headers=headers) as res:
-                    
-                        #res = await self.client.get(url,headers=headers)
-                        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: {res.status_code} {res.reason_phrase}")
-                        if res.status_code >= 400:                                                   
-                            raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} resp code:{str(res)}")
-                        
-                        else:
-                                
-                            _hsize = int_or_none(res.headers.get('content-length'))
-                            if _hsize:
-                                self.info_seg[q-1]['headersize'] = _hsize
-                            else:
-                                raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} _hsize is None")
-                                
-                            
-                            if self.info_seg[q-1]['downloaded']:
-                                
-                                
-                                _size = self.info_seg[q-1]['size']
-                                if _size and  (_hsize - 5 <=_size <= _hsize + 5):                            
-                            
-                                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: Already DL with hsize[{_hsize} and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
-                                    break
-                                else:
-                                    filename.unlink()
-                                    self.info_seg[q-1]['downloaded'] = False
-                                    async with self.video_downloader.lock:
-                                        self.n_dl_segments -= 1
-                                        self.down_size -= _size
-                                        self.video_downloader.info_dl['down_size'] -= _size
-                                                            
-                            
-                            
-                            async with aiofiles.open(filename, mode='wb') as f:
-                                num_bytes_downloaded = res.num_bytes_downloaded
-                                async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                                    if chunk:
-                                        if cipher: data = cipher.decrypt(chunk)
-                                        else: data = chunk 
-                                        #f.write(data)
-                                        await f.write(data)
-                                        async with self.video_downloader.lock:
-                                            self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)
-                                            self.video_downloader.info_dl['down_size'] += _iter_bytes                                
-                                        
-                                        num_bytes_downloaded = res.num_bytes_downloaded
-                            
-                            async with self.video_downloader.lock:
-                                self.n_dl_segments += 1
-                            self.info_seg[q - 1]['downloaded'] = True
-                            self.info_seg[q - 1]['error'].append(str(res))
-                            self.info_seg[q - 1]['size'] = filename.stat().st_size
-                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: DL OK")
-                            await asyncio.sleep(0)
-                            break                                                         
-                        
-
-                except AsyncHLSDLErrorFatal as e:
-                    self.info_seg[q - 1]['error'].append(f'{type(e)}')
-                    lines = traceback.format_exception(*sys.exc_info())
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: fatalError: \n{'!!'.join(lines)}")
-                    await client.aclose()
-                    await asyncio.sleep(0)
-                    raise AsyncHLSDLErrorFatal(f"{e}")                
+                q = await self.segs_queue.get()
                 
-                except httpx.ReadTimeout as e:
-                    self.info_seg[q - 1]['error'].append(f'{type(e)}')
-                    lines = traceback.format_exception(*sys.exc_info())
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: timeout error: \n{'!!'.join(lines)}")
-                    self.info_seg[q - 1]['n_retries'] += 1
-                    await client.aclose()
-                    await self.await_time(1)
-                    client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)                    
-                    await asyncio.sleep(0)                    
-                except Exception as e:
-                    #await self.alogger.debug(f"Exception ocurred: {e}", exc_info=True)
-                    self.info_seg[q - 1]['error'].append(f'{type(e)}')
-                    lines = traceback.format_exception(*sys.exc_info())
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error: \n{'!!'.join(lines)}")
-                    self.info_seg[q - 1]['n_retries'] += 1
-                    await client.aclose()
-                    client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-                    await asyncio.sleep(0)
-            
-            if self.info_seg[q - 1]['n_retries'] == 5:
-                self.info_seg[q - 1]['error'].append("MaxLimitRetries")
-                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seq[{q}]: MaxLimitRetries")
-                await client.aclose()
-                await asyncio.sleep(0)
-                raise AsyncHLSDLErrorFatal(f"MaxLimitretries seq[{q}]")
-            
-        
-        await client.aclose()
-        
-        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
-            
-            
+                if q =="KILL":
+                    break  
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: seg[{q}]: request to dl \n{self.info_seg[q-1]}")          
+                url = self.info_seg[q - 1]['url']
+                filename = self.info_seg[q - 1]['file']
+                key = self.info_seg[q - 1]['key']
+                cipher = None
+                if key is not None and key.method == 'AES-128':
+                    iv = binascii.unhexlify(key.iv[2:])
+                    cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
+                byte_range = self.info_seg[q - 1]['byterange']
+                headers = {}
+                if byte_range:
+                    headers['range'] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
 
+                await asyncio.sleep(0)        
+                
+                while self.info_seg[q - 1]['n_retries'] < 5:
+    
+                    try: 
+                        
+                        async with client.stream("GET", url, headers=headers) as res:
+                        
+                            #res = await self.client.get(url,headers=headers)
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: {res.status_code} {res.reason_phrase}")
+                            if res.status_code >= 400:                                                   
+                                raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} resp code:{str(res)}")
+                            
+                            else:
+                                    
+                                _hsize = int_or_none(res.headers.get('content-length'))
+                                if _hsize:
+                                    self.info_seg[q-1]['headersize'] = _hsize
+                                else:
+                                    raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} _hsize is None")
+                                    
+                                
+                                if self.info_seg[q-1]['downloaded']:
+                                    
+                                    
+                                    _size = self.info_seg[q-1]['size']
+                                    if _size and  (_hsize - 5 <=_size <= _hsize + 5):                            
+                                
+                                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: Already DL with hsize[{_hsize} and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
+                                        break
+                                    else:
+                                        filename.unlink()
+                                        self.info_seg[q-1]['downloaded'] = False
+                                        async with self.video_downloader.lock:
+                                            self.n_dl_segments -= 1
+                                            self.down_size -= _size
+                                            self.video_downloader.info_dl['down_size'] -= _size
+                                                                
+                                
+                                
+                                async with aiofiles.open(filename, mode='wb') as f:
+                                    num_bytes_downloaded = res.num_bytes_downloaded
+                                    async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
+                                        if chunk:
+                                            if cipher: data = cipher.decrypt(chunk)
+                                            else: data = chunk 
+                                            #f.write(data)
+                                            await f.write(data)
+                                            async with self.video_downloader.lock:
+                                                self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)
+                                                self.video_downloader.info_dl['down_size'] += _iter_bytes                                
+                                            
+                                            num_bytes_downloaded = res.num_bytes_downloaded
+                                        await asyncio.sleep(0)
+                                
+                                async with self.video_downloader.lock:
+                                    self.n_dl_segments += 1
+                                self.info_seg[q - 1]['downloaded'] = True
+                                self.info_seg[q - 1]['error'].append(str(res))
+                                self.info_seg[q - 1]['size'] = filename.stat().st_size
+                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: DL OK")
+                                await asyncio.sleep(0)
+                                break                                                         
+                            
+
+                    except AsyncHLSDLErrorFatal as e:
+                        self.info_seg[q - 1]['error'].append(f'{type(e)}')
+                        lines = traceback.format_exception(*sys.exc_info())
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: fatalError: \n{'!!'.join(lines)}")
+                        await client.aclose()
+                        await asyncio.sleep(0)
+                        await self.channel_queue.put(("ERROR", e, asyncio.current_task()))
+                        raise AsyncHLSDLErrorFatal(f"{e}")                
+                    
+                    except httpx.ReadTimeout as e:
+                        self.info_seg[q - 1]['error'].append(f'{type(e)}')
+                        lines = traceback.format_exception(*sys.exc_info())
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: timeout error: \n{'!!'.join(lines)}")
+                        self.info_seg[q - 1]['n_retries'] += 1
+                        await client.aclose()
+                        _t = asyncio.create_task(self.await_time(1))
+                        await asyncio.wait({_t})
+                        client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)                    
+                        await asyncio.sleep(0)                    
+                    except Exception as e:
+                        #self.logger.debug(f"Exception ocurred: {e}", exc_info=True)
+                        self.info_seg[q - 1]['error'].append(f'{type(e)}')
+                        lines = traceback.format_exception(*sys.exc_info())
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error: \n{'!!'.join(lines)}")
+                        self.info_seg[q - 1]['n_retries'] += 1
+                        await client.aclose()
+                        client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+                        await asyncio.sleep(0)
+                
+                if self.info_seg[q - 1]['n_retries'] == 5:
+                    self.info_seg[q - 1]['error'].append("MaxLimitRetries")
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seq[{q}]: MaxLimitRetries")
+                    await client.aclose()
+                    await asyncio.sleep(0)
+                    await self.channel_queue.put(("ERROR", e, asyncio.current_task()))
+                    raise AsyncHLSDLErrorFatal(f"MaxLimitretries seq[{q}]")
+                
+            await self.channel_queue.put(("DONE", asyncio.current_task()))
+                
+        finally:    
+            await client.aclose()            
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
+            
+            
+    async def monitor(self, tg): 
+        #para detectar cuándo hay un primer ERROR fatal para cancelar el resto y hacr RESET; si no hay error fatal sale cuando recibe los DONE de
+        #de los fetch y los suma
+        
+        
+        count = 0 
+        while True:
+            msg = await self.channel_queue.get()
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[monitor] {msg} - count[{count}] \n{tg}")
+            if "ERROR" in msg[0]:
+                
+                await asyncio.wait({msg[2]})
+                tg._abort()
+                await asyncio.wait(tg._tasks)
+                
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: tras abort\n{tg}")
+                await asyncio.sleep(0)
+                break
+            
+            elif "DONE" in msg[0]:
+                
+                count += 1
+                if count == self.iworkers:
+                    break
+                await asyncio.sleep(0)
+    
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: BYE MONITOR")
+        
+    
     async def fetch_async(self):
                 
         
         self.segs_queue = asyncio.Queue()
         for seg in self.segs_to_dl:
             self.segs_queue.put_nowait(seg)        
+        
         for _ in range(self.iworkers):
             self.segs_queue.put_nowait("KILL")
-           
-        cont = 5
+            
+        n_segs_dl = 0
                     
         while True:
 
@@ -463,95 +479,71 @@ class AsyncHLSDownloader():
                 
                 await asyncio.sleep(0)
                 
-                async with AioPool(size=self.iworkers) as pool:
-
-                    futures = [pool.spawn_n(self.fetch(i)) for i in range(self.iworkers)]
-    
-                    done_tasks, pending_tasks = await asyncio.wait(futures, return_when=asyncio.FIRST_EXCEPTION)    
-
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Fuera del wait tasks, vamos a cancelar pending tasks")           
-                    if pending_tasks:
-                        try:
-                            await pool.cancel(pending_tasks)
-                            await self.alogger.debug(f"{self.webpage_url}: {len(pending_tasks)} tasks pending cancelled")
-                        except Exception as e:
-                            await self.alogger.debug(f"{self.webpage_url}: {str(e)}")
+                self.channel_queue = asyncio.Queue()
+                
+                async with TaskGroup() as tg:
                     
-                        await asyncio.gather(*pending_tasks, return_exceptions=True)
-                               
-                            
-                #recorro done para lanzar las excepciones, si hay un Fatal no lo caapturo en el try except
-                #del bucle para q llegue al otro except y lance el reset
-                fatal_errors = []
-                if done_tasks:
-                    for done in done_tasks:
-                        try:
-                            done.result()
-                        except AsyncHLSDLErrorFatal as e:
-                            fatal_errors.append(e)
-                            lines = traceback.format_exception(*sys.exc_info())
-                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:rec excepciones: \n{'!!'.join(lines)}")
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())
-                            await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:rec excepciones: \n{'!!'.join(lines)}")
+                    self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] IN {tg}") 
+                    task_mon = tg.create_task(self.monitor(tg))
+                    task_fetch = [tg.create_task(self.fetch(i)) for i in range(self.iworkers)]
+                    
 
-                if fatal_errors:
-                    raise AsyncHLSDLErrorFatal("reset")
-                else: 
-                    if self.segs_queue.empty():
-                        break
+                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] OUT {tg}")
+                
+                if self.segs_queue.empty(): 
+                    #todos los segmentos en local
+                    break
+                else:                    
+                    #raise AsyncHLSDLErrorFatal("reset") 
+                    if (inc_segs_dl:=len(self.segsdl)) > n_segs_dl:
+                        
+                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_segs_dl} -> {inc_segs_dl}] new cycle with no fatal error")
                     else:
-                        cont -= 1
-                        if (cont == 0): raise AsyncHLSDLErrorFatal("reset") 
-                        await asyncio.sleep(0) 
-
-            except AsyncHLSDLErrorFatal as e:
+                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_segs_dl} <-> {inc_segs_dl}] no improvement, lets raise an error")
+                        
+                        raise AsyncHLSDLError("no changes in number of dl segs in once cycle")                    
+            
+            except Exception as e:
                 lines = traceback.format_exception(*sys.exc_info())
-                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception fatal curred: \n{'!!'.join(lines)}")
-                if cont == 0: 
-                    self.status = "error"
-                    self.clean_when_error()
-                    await asyncio.sleep(0)
-                    raise
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception fatal: \n{'!!'.join(lines)}")
 
-                if self.n_reset < 5:
-                    cont = 5
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
+
+                if self.n_reset < 10:
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
                     #await asyncio.wait_for(self.reset(), None) 
                     _reset_task = [asyncio.create_task(self.reset())]
-                    await asyncio.wait(_reset_task)
+                    done, pending = await asyncio.wait(_reset_task)
+                    for d in done:
+                        excep = d.exception()
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error when reset {excep}")
+                        
                     self.segs_queue = asyncio.Queue()
                     for seg in self.segs_to_dl:
                         self.segs_queue.put_nowait(seg)
                     for _ in range(self.iworkers):
                         self.segs_queue.put_nowait("KILL")
-                                       
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET:Pending segs {len(self.segsnotdl())}")
+                                                           
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET:Pending segs {len(self.segsnotdl())}")
                     await asyncio.sleep(0)
                 else:
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:ERROR:Max_number_of_resets {type(e)}")
-                    await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Pending segs {len(self.segsnotdl())}")
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:ERROR:Max_number_of_resets {type(e)}")
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Pending segs {len(self.segsnotdl())}")
     
                     self.status = "error"
                     self.clean_when_error()
                     await asyncio.sleep(0)
                     raise
-            except Exception as e:
-                lines = traceback.format_exception(*sys.exc_info())
-                await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception ocurred: \n{'!!'.join(lines)}")
 
        
         
-        await self.alogger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
 
 
         self.status = "manipulating"
-        
-        
-        
 
     
     def clean_when_error(self):
+        
         for f in self.info_seg:
             if f['downloaded'] == False:
                 if f['file'].exists():
@@ -575,7 +567,7 @@ class AsyncHLSDownloader():
                     if not f['size']:
                         if f['file'].exists(): f['size'] = f['file'].stat().st_size
                         if f['size'] and (f['headersize'] - 5 <= f['size'] <= f['headersize'] + 5):                
-                #if f['file'].exists():
+              
                             with open(f['file'], 'rb') as source:
                                 dest.write(source.read())
                         else: raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {f}")
