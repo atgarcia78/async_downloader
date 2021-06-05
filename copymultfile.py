@@ -6,10 +6,10 @@ from pathlib import Path
 import logging
 from common_utils import (
     init_logging, 
-    init_tk_afiles
+
     
 )
-import tkinter as tk
+
 from asyncfile import AsyncFile
 from asyncadbfile import AsyncADBFile
 import PySimpleGUI as sg

@@ -17,6 +17,8 @@ import re
 import argparse
 import tkinter as tk
 
+from user_agent import generate_user_agent
+
 
 
 def shorter_str(msg, nchars):
@@ -127,7 +129,8 @@ def get_value_regex(value, str_reg, str_content, not_found):
             return not_found
 
 
-
+# UA_LIST = ["Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:80.0) Gecko/20100101 Firefox/80.0", "Mozilla/5.0 (Android 11; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0", "Mozilla/5.0 (iPad; CPU OS 10_15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/24.1 Mobile/15E148 Safari/605.1.15", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0"]
+UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0"]
 
 def generate_random_ua():
     cl = httpx.Client()
@@ -212,14 +215,14 @@ def init_argparser():
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
-    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
+    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="best/bestvideo+bestaudio", type=str)
     parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
     parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
     parser.add_argument("--proxy", default=None, type=str)
-    parser.add_argument("--useragent", default="Mozilla/5.0 (Macintosh; Intel Mac OS X 10.5; rv:88.0) Gecko/20100101 Firefox/88.0", type=str)
+    parser.add_argument("--useragent", default=random.choice(UA_LIST), type=str)
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")
@@ -244,40 +247,43 @@ def init_argparser():
     return parser.parse_args()
 
 
-def init_ytdl(dict_opts, uagent, referer):
+def init_ytdl(args):
 
 
     logger = logging.getLogger("youtube_dl")
 
-    ytdl_opts = {
-        #"debug_printtraffic": True,
+    ytdl_opts = {        
         "continue_dl": True,
         "updatetime": False,
         "ignoreerrors": True,
         "verbose": True,
         "quiet": False,
-        "extract_flat": "in_playlist",
-        #"outtmpl": outtmpl,
-        "format" : "best",
+        "extract_flat": "in_playlist",        
+        "format" : args.format,
         "usenetrc": True,
-        "skip_download": True,
-        #"forcejson": True,
-        #"dump_single_json" : True,
-        "logger" : logger,
-        #"proxy" : "192.168.1.139:5555",
-        "nocheckcertificate" : False   
+        "skip_download": True,        
+        "logger" : logger,        
+        "nocheckcertificate" : args.nocheckcert   
     }
 
-    ytdl_opts.update(dict_opts)
+    if args.proxy: ytdl_opts['proxy'] = args.proxy
+    if args.ytdlopts: ytdl_opts.update(args.ytdlopts)
+    logger.debug(f"ytdl opts: \{ytdl_opts}")
+    
     ytdl = YoutubeDL(ytdl_opts, auto_init=False)
     ytdl.add_default_info_extractors()
 
-    std_headers["User-Agent"] = uagent
-    if referer:
-        std_headers["Referer"] = referer
-        std_headers["Origin"] = referer
-        std_headers["Accept"] = "*/*"
-    
+    std_headers["User-Agent"] = args.useragent
+    #std_headers["User-Agent"] = random.choice(UA_LIST)
+    std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+   
+    std_headers["Connection"] = "keep-alive"
+    std_headers["Accept-Language"] = "es-ES,en-US;q=0.7,en;q=0.3"
+    std_headers["Accept-Encoding"] = "gzip, deflate, br"
+    if args.referer:
+        std_headers["Referer"] = args.referer
+       
+        
     logger.debug(f"std-headers: {std_headers}")
     return ytdl
 

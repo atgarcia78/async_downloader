@@ -24,7 +24,6 @@ from youtube_dl.utils import sanitize_filename, determine_protocol
 from datetime import datetime
 import hashlib
 from shutil import rmtree, move
-from asynclogger import AsyncLogger
 import functools
 
 
@@ -156,7 +155,7 @@ class VideoDownloader():
                     
                     if "ts" in self.info_dl['downloaders'][0].filename.suffix: #usamos ffmpeg para cambiar contenedor ts del DL de HLS de un sólo stream a mp4
                     
-                        cmd = f"ffmpeg -i 'file:{self.info_dl['downloaders'][0].filename}' -map 0 -c copy 'file:{str(self.info_dl['filename'])}'"
+                        cmd = f"ffmpeg  -y -loglevel repeat+info -i 'file:{self.info_dl['downloaders'][0].filename}' -c copy 'file:{str(self.info_dl['filename'])}'"
                         rc = await self._postffmpeg(cmd)
                         
                     else:

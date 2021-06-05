@@ -15,14 +15,13 @@ import pandas as pd
 from tabulate import tabulate
 import humanfriendly
 import re
-from aiotools import TaskGroup
+import time
 
 
 from common_utils import ( 
     init_logging,
     init_ytdl,
     init_tk,
-    get_info_dl,
     init_argparser,
     patch_http_connection_pool,
     patch_https_connection_pool,
@@ -40,8 +39,6 @@ from youtube_dl.utils import sanitize_filename
 from codetiming import Timer
 
 from datetime import datetime
-
-from asynclogger import AsyncLogger
 
 from operator import itemgetter
 
@@ -67,13 +64,13 @@ class AsyncDL():
         self.parts = self.args.p
         self.workers = self.args.w
     
-        dict_opts = {'format': self.args.format, 'proxy': self.args.proxy}
-        if self.args.nocheckcert:
-            dict_opts.update({"nocheckcertificate" : True})
-        if self.args.ytdlopts:
-            dict_opts.update(ast.literal_eval(self.args.ytdlopts))        
-        self.ytdl = init_ytdl(dict_opts,self.args.useragent, self.args.referer)
-        
+        #dict_opts = {'format': self.args.format, 'proxy': self.args.proxy}
+        #if self.args.nocheckcert:
+        #    dict_opts.update({"nocheckcertificate" : True})
+        #if self.args.ytdlopts:
+        #    dict_opts.update(ast.literal_eval(self.args.ytdlopts))        
+        #self.ytdl = init_ytdl(dict_opts,self.args.useragent, self.args.referer)
+        self.ytdl = init_ytdl(self.args)
         self.time_now = datetime.now()
         
     def get_videos_cached(self):        
@@ -442,7 +439,18 @@ class AsyncDL():
                     
                         info_dict = None    
                         
-                        info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
+                        count = 0
+                        while(count < 5):
+                            try:
+                                info = None
+                                info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
+                            except Exception as e:
+                                pass
+                            if info: break
+                            else:
+                                time.sleep(2)
+                                count += 1
+                                
                         if info:                        
                             self.logger.debug(f"worker_init_dl[{i}] {info}")
                             #if info.get('_type') == 'url_transparent':
@@ -620,6 +628,9 @@ class AsyncDL():
                         self.logger.error(f"worker_run[{i}][{video_dl.info_dict['title']}]: Error with video DL:\n{'!!'.join(lines)}")
                     
                     if video_dl.info_dl['status'] == "init_manipulating": self.queue_manip.put_nowait(video_dl)
+                    else: 
+                        self.logger.error(f"worker_run[{i}][{video_dl.info_dict['title']}]: error when dl video, can't go por manipulation")
+                        
                     await asyncio.sleep(0)
                         
             except Exception as e:
@@ -642,21 +653,21 @@ class AsyncDL():
             loop = asyncio.get_event_loop()
                    
             tasks_run = []
-            t1 = []
+            task_tk = []
             tasks_manip = []
             executor = ThreadPoolExecutor(max_workers=nworkers)
-                
-            
-            async with TaskGroup() as tg: 
-            
-                tasks_init = [tg.create_task(self.task_in_ex(executor, loop, i)) for i in range(nworkers)]
+          
+            tasks_init = [asyncio.create_task(self.task_in_ex(executor, loop, i)) for i in range(nworkers)]
                             
-                if not self.args.nodl:
-                    task_tk = tg.create_task(self.run_tk(args_tk, interval)) 
-                    tasks_run = [tg.create_task(self.worker_run(i)) for i in range(nworkers)]                  
-                    tasks_manip = [tg.create_task(self.worker_manip(i)) for i in range(nworkers)]          
+            if not self.args.nodl:
+            
+                task_tk = asyncio.create_task(self.run_tk(args_tk, interval)) 
+                tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(nworkers)]                  
+                tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(nworkers)]
                 
- 
+            done, pending = await asyncio.wait(tasks_init + [task_tk] + tasks_run + tasks_manip)
+            
+            _excep_list = [_fut.exception() for _fut in done] 
  
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
@@ -800,8 +811,12 @@ class AsyncDL():
 
 
 @Timer(name="decorator")
-def main_program(logger):
-
+def main():
+    
+    init_logging()
+    logger = logging.getLogger("async_all")
+    patch_http_connection_pool(maxsize=100)
+    patch_https_connection_pool(maxsize=100)
     
     args = init_argparser()
     
@@ -839,15 +854,7 @@ def main_program(logger):
 
 
 if __name__ == "__main__":
+    
+    main()
 
-    init_logging()
-    logger = logging.getLogger("async_all")
-    patch_http_connection_pool(maxsize=100)
-    patch_https_connection_pool(maxsize=100)
-
-    return_value = main_program(logger)
-
-    logger.debug(f"async_all return code: {return_value}")
-
-    if return_value != 0:
-        sys.exit(return_value)
+    
