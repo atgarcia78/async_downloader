@@ -57,19 +57,12 @@ class AsyncDL():
         self.list_initaldl = []
         self.list_dl = []
         self.files_cached = dict()
-        self.videos_to_dl = []
-        
+        self.videos_to_dl = []        
         
         self.args = args
         self.parts = self.args.p
-        self.workers = self.args.w
-    
-        #dict_opts = {'format': self.args.format, 'proxy': self.args.proxy}
-        #if self.args.nocheckcert:
-        #    dict_opts.update({"nocheckcertificate" : True})
-        #if self.args.ytdlopts:
-        #    dict_opts.update(ast.literal_eval(self.args.ytdlopts))        
-        #self.ytdl = init_ytdl(dict_opts,self.args.useragent, self.args.referer)
+        self.workers = self.args.w    
+
         self.ytdl = init_ytdl(self.args)
         self.time_now = datetime.now()
         
@@ -89,8 +82,7 @@ class AsyncDL():
         else:  
         
             list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/DatosToni/videos"), Path("/Volumes/WD/videos")]
-            
-            
+             
             for folder in list_folders:
                 #self.logger.debug(f"[CACHED] Folder: {folder.name}")
                 for file in folder.rglob('*'):
@@ -190,7 +182,6 @@ class AsyncDL():
 
             if self.args.lastres:
                 
-                
                 if fileres.exists():
                     try:
                         with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"r") as f:
@@ -236,11 +227,8 @@ class AsyncDL():
                 
         if self.args.first and self.args.last:
             if (self.args.first in range(1,len(self.videos_to_dl))) and (self.args.last in range(1,len(self.videos_to_dl))) and (self.args.first <= self.args.last):
-                self.videos_to_dl = self.videos_to_dl[self.args.first-1:self.args.last]
-        
+                self.videos_to_dl = self.videos_to_dl[self.args.first-1:self.args.last]       
 
-        #self.logger.debug(f"Total requested videos: {len(self.videos_to_dl)}")
-        #self.logger.debug(self.videos_to_dl)
         
         if (self.args.maxsize or self.args.minsize):
             
@@ -291,8 +279,7 @@ class AsyncDL():
                 _id = _id[:8] if len(_id) > 8 else _id
                 vid_name = f"{_id}_{_title}"
                 
-                #vid_name = _title.upper()
-                #if (vid_path:=self.files_cached.get(vid_name)):
+
                 if (vid_path:=self.files_cached.get(vid_name)):
                     #self.list_initaldl.append({'title': vid_name, 'path': vid_path})
                     self.list_initaldl.append({'title': vid_name, 'path': vid_path})
@@ -325,9 +312,7 @@ class AsyncDL():
             self.queue_vid.put((i, video))
             
         self.totalbytes2dl = sum([vid.get('filesize') for vid in self.videos_to_dl])
-        #self.logger.info(f"Videos already DL in local storage: [{len(self.list_initaldl)}] \n {self.list_initaldl}")
-        self.logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}")
-        
+        self.logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}")       
         
         
         nworkers = min(self.workers, len(self.videos_to_dl))
@@ -453,7 +438,6 @@ class AsyncDL():
                                 
                         if info:                        
                             self.logger.debug(f"worker_init_dl[{i}] {info}")
-                            #if info.get('_type') == 'url_transparent':
                             info_dict = info
                             
                             if (_id := info.get('id') ) and (_title := info.get('title') ):               
@@ -688,8 +672,7 @@ class AsyncDL():
         #will store videos nok during init     
         _videos_initnok = self.list_initnok
         #will store videos already DL        
-        _videos_aldl = self.list_initaldl    
-    
+        _videos_aldl = self.list_initaldl     
             
         videos_okdl = []
         videos_kodl = []
@@ -707,10 +690,8 @@ class AsyncDL():
         videos_initnok_str = []        
         
         if _videos_initnok:
-
             
             for vid in _videos_initnok:
-                #logger.debug(vid)
                 _id = vid[0].get('id') or vid[0].get('videoid')
                 _title = vid[0].get('title') or vid[0].get('video_title')
                 if _id and _title:

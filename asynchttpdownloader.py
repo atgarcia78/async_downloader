@@ -173,12 +173,7 @@ class AsyncHTTPDownloader():
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] {repr(e)} \n{'!!'.join(lines)}")
 
         
-    def prepare_parts(self):
-        
-        
-        
-        
-        
+    def prepare_parts(self): 
         
         if self.filesize:
             
@@ -206,8 +201,6 @@ class AsyncHTTPDownloader():
                 self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when trying to get filesize {e}")
             finally:
                 cl.close()
-                
-            
             
             if size: 
                 self.create_parts()
@@ -324,12 +317,12 @@ class AsyncHTTPDownloader():
                                         await asyncio.sleep(0)
                                         
                             
-                            async with self.video_downloader.lock:
-                                self.n_parts_dl += 1
-                            self.parts[part-1]['dl'] = True
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}] OK DL: total {self.n_parts_dl}")
-                            await asyncio.sleep(0)
-                            break
+                        async with self.video_downloader.lock:
+                            self.n_parts_dl += 1
+                        self.parts[part-1]['dl'] = True
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}] OK DL: total {self.n_parts_dl}")
+                        await asyncio.sleep(0)
+                        break
 
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
@@ -379,24 +372,7 @@ class AsyncHTTPDownloader():
             self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
 
 
-        self.status = "manipulating"        
-   
-    
-    def print_hookup(self):
-        
-        if self.status == "done":
-            return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")
-        elif self.status == "init":
-            return (f"[HTTP][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")            
-        elif self.status == "error":
-            return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
-        elif self.status == "downloading":           
-            return (f"[HTTP][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")
-        elif self.status == "manipulating":  
-            if self.filename.exists(): _size = self.filename.stat().st_size
-            else: _size = 0         
-            return (f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")
-    
+        self.status = "manipulating"  
 
        
     def clean_when_error(self):
@@ -453,4 +429,17 @@ class AsyncHTTPDownloader():
             
             
             
-           
+    def print_hookup(self):
+        
+        if self.status == "done":
+            return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")
+        elif self.status == "init":
+            return (f"[HTTP][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")            
+        elif self.status == "error":
+            return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
+        elif self.status == "downloading":           
+            return (f"[HTTP][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")
+        elif self.status == "manipulating":  
+            if self.filename.exists(): _size = self.filename.stat().st_size
+            else: _size = 0         
+            return (f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")       

@@ -3,7 +3,6 @@ import logging
 import logging.config
 import json
 from pathlib import Path
-import asyncio
 from datetime import datetime
 from youtube_dl import YoutubeDL
 from youtube_dl.utils import (

@@ -318,8 +318,6 @@ class AsyncHLSDownloader():
        
     
     async def fetch(self, nco):
-        
-        
 
         try:
 
@@ -353,8 +351,7 @@ class AsyncHLSDownloader():
                         
                         async with aiofiles.open(filename, mode='wb') as f:
                             
-                            async with client.stream("GET", url, headers=headers) as res:
-                        
+                            async with client.stream("GET", url, headers=headers) as res:                        
                             
                                 self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: {res.status_code} {res.reason_phrase}")
                                 if res.status_code >= 400:                                                   
@@ -437,21 +434,8 @@ class AsyncHLSDownloader():
                             await asyncio.wait([_t])
                             await client.aclose()
                             client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)                    
-                            await asyncio.sleep(0)
-                       
+                            await asyncio.sleep(0)                       
                            
-                            
-                            
-                    # except Exception as e:
-                    #     #self.logger.debug(f"Exception ocurred: {e}", exc_info=True)
-                    #     self.info_seg[q - 1]['error'].append(f'{type(e)}')
-                    #     lines = traceback.format_exception(*sys.exc_info())
-                    #     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error: \n{'!!'.join(lines)}")
-                    #     self.info_seg[q - 1]['n_retries'] += 1
-                    #     await client.aclose()
-                    #     client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-                    #     await asyncio.sleep(0)
-                
                 
                 if (self.info_seg[q - 1]['n_retries'] == 5): 
                     self.info_seg[q - 1]['error'].append("MaxLimitRetries")
@@ -463,12 +447,7 @@ class AsyncHLSDownloader():
                     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]:DL OK")
                 elif not self.info_seg[q - 1]['downloaded']:
                     self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seq[{q}]:option ILLOGICAL:n_retries[{self.info_seg[q - 1]['n_retries']}]:DL[{self.info_seg[q - 1]['downloaded']}]")
-                    
-                
-             
-                
-        # except asyncio.CancelledError as e:
-        #     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: cancelled worker")
+ 
         except Exception as e:
             raise
         else:
