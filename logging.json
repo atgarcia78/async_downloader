@@ -2,52 +2,49 @@
   "version": 1,
   "disable_existing_loggers": false, 
   "objects": {
-    "queue":{
-      "class": "queue.Queue",
-      "maxsize" : 5000
-    }
+    
   },
   "formatters": {
     "simple": {
-      "format": "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"     
+        "format": "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"     
     },
     "colored":{
-      "()": "supportlogging.ColoredFormatter",
-      "patern": "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
+        "()": "supportlogging.ColoredFormatter",
+        "patern": "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
     },
     "file_format":{  
-      "format": "%(asctime)s - %(threadName)s - %(name)-8s - %(levelname)s - %(message)s"
+        "format": "%(asctime)s - %(threadName)s - %(name)-8s - %(levelname)s - %(message)s"
     }
 
   },
   "filters": {
     "filtermodules": {
-      "()": "supporlogging.FilterModule",
-      "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage"]
+        "()": "supportlogging.FilterModule",
+        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "img2pdf"]
     },
     "filterytdl" : {
-      "()": "supportlogging.FilterModule",
-      "patterns": ["youtube_dl"]
+        "()": "supportlogging.FilterModule",
+        "patterns": ["youtube_dl"]
     }    
   },
   "handlers": {
     "console": {
-      "class": "logging.StreamHandler",
-      "level": "INFO",
-      "formatter": "colored",
-      "filters": ["filtermodules", "filterytdl"],      
-      "stream": "ext://sys.stdout"
+        "class": "logging.StreamHandler",
+        "level": "INFO",
+        "formatter": "colored",
+        "filters": ["filtermodules", "filterytdl"],      
+        "stream": "ext://sys.stdout"
     },
 
     "info_file_handler": {
-      "class": "logging.handlers.RotatingFileHandler",
-      "level": "DEBUG",
-      "formatter": "file_format",
-      "filename": "{home}/Projects/common/logs/info.log",
-      "filters": ["filtermodules"],
-      "maxBytes": 50485760,
-      "backupCount": 20,
-      "encoding": "utf8"
+        "class": "logging.handlers.RotatingFileHandler",
+        "level": "DEBUG",
+        "formatter": "file_format",
+        "filename": "{home}/Projects/common/logs/info.log",
+        "filters": ["filtermodules"],
+        "maxBytes": 50485760,
+        "backupCount": 20,
+        "encoding": "utf8"
     },
 
     "queue_listener": {

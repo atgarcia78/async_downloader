@@ -1,8 +1,6 @@
 """
-colargulog - Python3 Logging with Colored Arguments and new string formatting style
+supportlogging - Python3 Logging 
 
-Written by david.ohana@ibm.com
-License: Apache-2.0
 """
 
 import logging
