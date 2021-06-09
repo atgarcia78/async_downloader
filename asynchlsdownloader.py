@@ -310,15 +310,21 @@ class AsyncHLSDownloader():
             for _ in range(self.iworkers): self.segs_queue.put_nowait("KILL")
  
     
-    async def await_time(self, n):
-        res = await asyncio.to_thread(time.sleep, n)
+    async def wait_time(self, n):
+        _timer = httpx._utils.Timer()
+        await _timer.async_start()
+        while True:
+            _t = await _timer.async_elapsed()
+            if _t > n: break
+            await asyncio.sleep(0)
         
-    async def await_cancel_group(self, tg):
-        res = await asyncio.to_thread(tg._abort)
+
        
     
     async def fetch(self, nco):
 
+        _timer = httpx._utils.Timer()
+        
         try:
 
             client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers) 
@@ -383,31 +389,52 @@ class AsyncHLSDownloader():
                                                 self.video_downloader.info_dl['down_size'] -= _size
                                                                 
                                 
+                                    _count = 0
+                                    while(_count < 5):
+                                        try:
                                 
-                                
-                                    num_bytes_downloaded = res.num_bytes_downloaded
-                                    async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                                        if chunk:
-                                            if cipher: data = cipher.decrypt(chunk)
-                                            else: data = chunk 
-                                            #f.write(data)
-                                            await f.write(data)
-                                            async with self.video_downloader.lock:
-                                                self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)
-                                                self.video_downloader.info_dl['down_size'] += _iter_bytes                                
-                                            
                                             num_bytes_downloaded = res.num_bytes_downloaded
-                                        await asyncio.sleep(0)
-                                
-                        async with self.video_downloader.lock:
-                            self.n_dl_segments += 1
-                                
-                        self.info_seg[q - 1]['error'].append(str(res))
-                        self.info_seg[q - 1]['size'] = filename.stat().st_size
-                        self.info_seg[q - 1]['downloaded'] = True
-                                
-                        await asyncio.sleep(0)
-                        break                                                         
+                                            await _timer.async_start()
+                                            async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
+                                                _timechunk = await _timer.async_elapsed()
+                                                #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}] - chunk time[{_timechunk}]")
+                                                if _timechunk > 5: raise AsyncHLSDLError(f"MaxTimeChunk: {_timechunk} - seg[{q}]")
+                                                if chunk:
+                                                    await asyncio.sleep(0)
+                                                    if cipher: data = cipher.decrypt(chunk)
+                                                    else: data = chunk 
+                                                    #f.write(data)
+                                                    await f.write(data)
+                                                    async with self.video_downloader.lock:
+                                                        self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)
+                                                        self.video_downloader.info_dl['down_size'] += _iter_bytes                                
+                                                    
+                                                    num_bytes_downloaded = res.num_bytes_downloaded
+                                                await _timer.async_start()
+                                                
+                                        except (asyncio.exceptions.CancelledError, AsyncHLSDLError) as e:
+                                            raise
+                                        except Exception as e:
+                                            lines = traceback.format_exception(*sys.exc_info())
+                                            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]] error {repr(e)}, will retry \n{'!!'.join(lines)}")
+                                            _count += 1
+                                            await asyncio.sleep(0)
+                                        else:
+                                            break
+                                    
+                                    if _count == 5:
+                                        raise AsyncHLSDLError(f"Maxcount seg[{q}]")
+                                    else:
+                                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}] OK DL: total {self.n_dl_segments}")
+                                        async with self.video_downloader.lock:
+                                            self.n_dl_segments += 1
+                                                
+                                        self.info_seg[q - 1]['error'].append(str(res))
+                                        self.info_seg[q - 1]['size'] = filename.stat().st_size
+                                        self.info_seg[q - 1]['downloaded'] = True
+                                        break
+                                                
+                                                                           
                             
 
                     except AsyncHLSDLErrorFatal as e:
@@ -429,68 +456,59 @@ class AsyncHLSDownloader():
                         lines = traceback.format_exception(*sys.exc_info())
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error {repr(e)} \n{'!!'.join(lines)}")
                         self.info_seg[q - 1]['n_retries'] += 1
-                        if "httpx" in str(e.__class__):                            
-                            _t = asyncio.create_task(self.await_time(1))
-                            await asyncio.wait([_t])
-                            await client.aclose()
-                            client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)                    
-                            await asyncio.sleep(0)                       
-                           
-                
-                if (self.info_seg[q - 1]['n_retries'] == 5): 
-                    self.info_seg[q - 1]['error'].append("MaxLimitRetries")
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]:MaxLimitRetries")
-                    await asyncio.sleep(0)
-                    await self.channel_queue.put_nowait(("ERROR", asyncio.current_task(), self.info_seg[q - 1]['error']))
-                    raise AsyncHLSDLErrorFatal(f"MaxLimitretries seg[{q}]")
-                elif self.info_seg[q - 1]['downloaded']:
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]:DL OK")
-                elif not self.info_seg[q - 1]['downloaded']:
-                    self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seq[{q}]:option ILLOGICAL:n_retries[{self.info_seg[q - 1]['n_retries']}]:DL[{self.info_seg[q - 1]['downloaded']}]")
- 
-        except Exception as e:
-            raise
-        else:
-            self.channel_queue.put_nowait(("DONE", asyncio.current_task()))
+                        if filename.exists(): filename.unlink()
+                        if res.num_bytes_downloaded:
+                            async with self.video_downloader.lock:
+                                self.down_size -= res.num_bytes_downloaded                                        
+                                self.video_downloader.info_dl['down_size'] -= res.num_bytes_downloaded
+                        if self.info_seg[q - 1]['n_retries'] < 5:
+                            if "httpx" in str(e.__class__) or "AsyncHLSDLError" in str(e.__class__):
+                                await client.aclose()
+                                await self.wait_time(5) 
+                                client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+                                await asyncio.sleep(0)
+                                
+                        else:
+                            self.info_seg[q - 1]['error'].append("MaxLimitRetries")
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]:MaxLimitRetries")
+                            raise AsyncHLSDLErrorFatal(f"MaxLimitretries seg[{q}]")         
+     
         finally:    
             await client.aclose()
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
-                                              
-        
-        
-            
-            
-    async def monitor(self): 
-        #para detectar cuándo hay un primer ERROR fatal para cancelar el resto y hacr RESET; si no hay error fatal sale cuando recibe los DONE de
-        #de los fetch y los suma
-        
-        self.channel_queue._init(0)
-        count = 0 
-        while True:
-            msg = await self.channel_queue.get()
-            self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[monitor] {msg} - count[{count}]")
-            if "ERROR" in msg[0]:
-                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[monitor] starts cancel every pending task")
-                if not msg[1].done() and not msg[1].cancelled():
-                    await msg[1]                                
-                for _task in self.tasks:
-                    _tasks = []
-                    if not _task.done() and not _task.cancelled():
-                        _task.cancel()
-                        #_tasks.append(_task)
-                await asyncio.sleep(0)
-                #if _tasks: await asyncio.wait(_tasks)                
-                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[monitor] ends cancel every pending task")
-                break
-            
-            elif "DONE" in msg[0]:
-                
-                count += 1
-                if count == self.iworkers:
-                    break
-                await asyncio.sleep(0)
+             
     
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: BYE MONITOR")
+    # async def monitor(self): 
+    #     #para detectar cuándo hay un primer ERROR fatal para cancelar el resto y hacr RESET; si no hay error fatal sale cuando recibe los DONE de
+    #     #de los fetch y los suma
+        
+    #     self.channel_queue._init(0)
+    #     count = 0 
+    #     while True:
+    #         msg = await self.channel_queue.get()
+    #         self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[monitor] {msg} - count[{count}]")
+    #         if "ERROR" in msg[0]:
+    #             self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[monitor] starts cancel every pending task")
+    #             if not msg[1].done() and not msg[1].cancelled():
+    #                 await msg[1]                                
+    #             for _task in self.tasks:
+    #                 _tasks = []
+    #                 if not _task.done() and not _task.cancelled():
+    #                     _task.cancel()
+    #                     #_tasks.append(_task)
+    #             await asyncio.sleep(0)
+    #             #if _tasks: await asyncio.wait(_tasks)                
+    #             self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[monitor] ends cancel every pending task")
+    #             break
+            
+    #         elif "DONE" in msg[0]:
+                
+    #             count += 1
+    #             if count == self.iworkers:
+    #                 break
+    #             await asyncio.sleep(0)
+    
+    #     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: BYE MONITOR")
         
     
     async def fetch_async(self):

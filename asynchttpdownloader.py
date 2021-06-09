@@ -22,6 +22,7 @@ import time
 import aiofiles
 import traceback
 from aiotools import TaskGroup
+from datetime import datetime
 
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -46,7 +47,7 @@ class AsyncHTTPDownloader():
     
     
     _CHUNK_SIZE = 1048576
-    _MIN_SIZE = 1048576
+    _MIN_SIZE = 1048576 #1MB
     
     def __init__(self, video_dict, vid_dl):
 
@@ -257,11 +258,18 @@ class AsyncHTTPDownloader():
             self.status = "manipulating"      
                 
     
-    async def await_time(self, n):
-        await asyncio.to_thread(time.sleep, n)
+    async def wait_time(self, n):
+        _timer = httpx._utils.Timer()
+        await _timer.async_start()
+        while True:
+            _t = await _timer.async_elapsed()
+            if _t > n: break
+            await asyncio.sleep(0)
         
         
-    async def fetch(self,i):   
+    async def fetch(self,i):
+        
+        _timer = httpx._utils.Timer()   
         
         try:
         
@@ -282,7 +290,7 @@ class AsyncHTTPDownloader():
                 
                 while(n_repeat < 5):
                     
-                    try:       
+                    try:   
                         
                         async with aiofiles.open(tempfilename, mode='wb') as f:
                             
@@ -291,53 +299,89 @@ class AsyncHTTPDownloader():
                                 self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}]: [fetch] resp code {str(res.status_code)}: rep {n_repeat}")
                            
                                 if res.status_code >= 400:                               
-                                    ndl_enter = self.n_parts_dl                             
-                                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}]: awaiting enter {ndl_enter}")
-                                    count = 10                           
-                                    while(count > 10):
-                                        _t = asyncio.create_task(self.await_time(1))
-                                        await asyncio.wait({_t})
-                                        if ndl_enter != self.n_parts_dl: break                                                                
-                                        count -= 1                    
-                                        await asyncio.sleep(0)                                        
-                                    n_repeat += 1
-                                    continue
+                                    # ndl_enter = self.n_parts_dl                             
+                                    # self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}]: awaiting enter {ndl_enter}")
+                                    # count = 0                           
+                                    # while(count < 10):
+                                    #     _t = asyncio.create_task(self.await_time(5))
+                                    #     await asyncio.wait([_t])
+                                    #     if ndl_enter != self.n_parts_dl: break                                                                
+                                    #     count += 1                    
+                                    #     await asyncio.sleep(0)                                        
+                                    await self.wait_time(5)
+                                    raise AsyncHTTPDLError(f"part[{part}] - Error[{res.status_code}]") 
+                                        
                                 else:
                                     self.parts[part-1]['headersize'] = int_or_none(res.headers.get('content-length'))
                                 
-                            
-                                    num_bytes_downloaded = res.num_bytes_downloaded
-                                    async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                                        if chunk:
-                                            await f.write(chunk)   
-                                            async with self.video_downloader.lock:
-                                                self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)                                        
-                                                self.video_downloader.info_dl['down_size'] += _iter_bytes 
-                                            num_bytes_downloaded = res.num_bytes_downloaded
-                                        await asyncio.sleep(0)
+                                    _count = 0
+                                    while(_count < 5):
+                                        try:
                                         
-                            
-                        async with self.video_downloader.lock:
-                            self.n_parts_dl += 1
-                        self.parts[part-1]['dl'] = True
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}] OK DL: total {self.n_parts_dl}")
-                        await asyncio.sleep(0)
-                        break
+                                            num_bytes_downloaded = res.num_bytes_downloaded
+                                            await _timer.async_start()  
+                                            async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
+                                                _timechunk = await _timer.async_elapsed()
+                                                #self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}] - chunk time[{_timechunk}]")
+                                                if _timechunk > 5: raise AsyncHTTPDLError(f"MaxTimeChunk: {_timechunk} - part[{part}]")
+                                                if chunk:
+                                                    await asyncio.sleep(0)
+                                                    await f.write(chunk)   
+                                                    async with self.video_downloader.lock:
+                                                        self.down_size += (_iter_bytes:=res.num_bytes_downloaded - num_bytes_downloaded)                                        
+                                                        self.video_downloader.info_dl['down_size'] += _iter_bytes 
+                                                    num_bytes_downloaded = res.num_bytes_downloaded
+                                                await _timer.async_start()                                              
+                                                
 
+                                        
+                                        except (asyncio.exceptions.CancelledError, AsyncHTTPDLError) as e:
+                                            raise
+                                        except Exception as e:
+                                            lines = traceback.format_exception(*sys.exc_info())
+                                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-stream] Part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")
+                                            _count += 1
+                                            await asyncio.sleep(0)
+                                        else:
+                                            break
+                                    
+                                    if _count == 5:
+                                        raise AsyncHTTPDLError(f"Maxcount part[{part}]")
+                                    else:
+                                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:Part[{part}] OK DL: total {self.n_parts_dl}")
+                                        self.parts[part-1]['dl'] = True
+                                        async with self.video_downloader.lock:
+                                            self.n_parts_dl += 1
+                                        break       
+                        
+
+                    
+                    except asyncio.exceptions.CancelledError as e:
+                        lines = traceback.format_exception(*sys.exc_info())
+                        self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch] Part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")
+                        raise
+                        
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch] Part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch] Part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")                        
+                        if tempfilename.exists(): tempfilename.unlink()
+                        if res.num_bytes_downloaded:
+                            async with self.video_downloader.lock:
+                                self.down_size -= res.num_bytes_downloaded                                        
+                                self.video_downloader.info_dl['down_size'] -= res.num_bytes_downloaded
+                            
                         n_repeat += 1
-                        if "httpx" in str(e.__class__):                            
-                            await client.aclose()
-                            _t = asyncio.create_task(self.await_time(1))
-                            await asyncio.wait({_t})
-                            client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-                            await asyncio.sleep(0)
-                
-                if n_repeat == 5:
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{i}]:part[{part}]:max num repeats")
-                    raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
+                        if n_repeat < 5:
+                            if "httpx" in str(e.__class__) or "AsyncHTTPDLError" in str(e.__class__):                            
+                                await client.aclose()
+                                await self.wait_time(5)
+                                client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+                                await asyncio.sleep(0)
+                        else: 
+                            raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
+                            
+                 
+                    
             
         finally:
             await client.aclose()

@@ -449,7 +449,7 @@ class AsyncDL():
                             info_dict = None    
                             
                             count = 0
-                            while(count < 5):
+                            while(count < 3):
                                 try:
                                     info = None
                                     info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
