@@ -4,6 +4,7 @@ import sys
 import traceback
 import asyncio
 from pathlib import Path
+from aiopath import AsyncPath
 import shutil
 from asynchttpdownloader import (
     AsyncHTTPDownloader
@@ -11,9 +12,9 @@ from asynchttpdownloader import (
 from asynchlsdownloader import (
     AsyncHLSDownloader
 )
-from asyncdashdownloader import (
-    AsyncDASHDownloader    
-)
+# from asyncdashdownloader import (
+#     AsyncDASHDownloader    
+# )
 from common_utils import ( 
     naturalsize,
 )
@@ -51,7 +52,7 @@ class VideoDownloader():
         
         self.info_dl = dict({
             
-            'videoid': self.info_dict['id'],
+            'id': self.info_dict['id'],
             'n_workers': n_workers,
             'webpage_url': self.info_dict.get('webpage_url'),
             'title': self.info_dict.get('title'),
@@ -72,7 +73,7 @@ class VideoDownloader():
         else:
             for f in _requested_formats:
                 _new_info_dict = dict(f)                
-                _new_info_dict.update({'id': self.info_dl['videoid'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url']})
+                _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url']})
                 downloaders.append(self._get_dl(_new_info_dict))        
         
             
@@ -116,7 +117,7 @@ class VideoDownloader():
                     d.result()  
                 except Exception as e:
                     lines = traceback.format_exception(*sys.exc_info())                
-                    self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: result de dl.fetch_async\n{'!!'.join(lines)}")
+                    self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
                     
       
             
@@ -133,13 +134,14 @@ class VideoDownloader():
             blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders']]
             #await asyncio.sleep(0)
             done, pending = await asyncio.wait(blocking_tasks, return_when=asyncio.ALL_COMPLETED)
+            
             for t in done:
                 
                 try:
                     t.result()
                 except Exception as e:
                     lines = traceback.format_exception(*sys.exc_info())                
-                    self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: result de dl.ensamble_file\n{'!!'.join(lines)}")
+                    self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: {repr(e)}\n{'!!'.join(lines)}")
         
             res = True
             for dl in self.info_dl['downloaders']:
@@ -156,15 +158,32 @@ class VideoDownloader():
                     if "ts" in self.info_dl['downloaders'][0].filename.suffix: #usamos ffmpeg para cambiar contenedor ts del DL de HLS de un sólo stream a mp4
                     
                         cmd = f"ffmpeg  -y -loglevel repeat+info -i 'file:{self.info_dl['downloaders'][0].filename}' -c copy 'file:{str(self.info_dl['filename'])}'"
-                        rc = await self._postffmpeg(cmd)
+                        
+                        _btask = asyncio.create_task(self._postffmpeg(cmd))
+                        done, _ = await asyncio.wait([_btask])
+                        rc = -1
+                        try:
+                            for d in done: rc = d.result()
+                        except Exception as e:
+                            lines = traceback.format_exception(*sys.exc_info())                
+                            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
                         
                     else:
                         
-                        res = await asyncio.to_thread(shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename'])
-                        if res == self.info_dl['filename']: rc = 0                   
+                        _btask = asyncio.create_task(asyncio.to_thread(shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename']))
+                        done, _ = await asyncio.wait([_btask])
+                        res = -1 
+                        try:
+                            for d in done: res = d.result()
+                        except Exception as e:
+                            lines = traceback.format_exception(*sys.exc_info())                
+                            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")                       
+                        
+                        if res == self.info_dl['filename']: rc = 0  
+                        else: rc = -1                 
           
-                    
-                    if rc == 0 and self.info_dl['filename'].exists():                        
+                    _afile = AsyncPath(self.info_dl['filename'])
+                    if rc == 0 and (await _afile.exists()):                        
                         self.info_dl['status'] = "done"
                     else:
                         self.info_dl['status'] = "error"
@@ -174,11 +193,21 @@ class VideoDownloader():
                     
                     cmd = f"ffmpeg -y -loglevel repeat+info -i 'file:{str(self.info_dl['downloaders'][0].filename)}' -i \'file:{str(self.info_dl['downloaders'][1].filename)}' -c copy -map 0:v:0 -map 1:a:0 'file:{str(self.info_dl['filename'])}'"
                             
-                    rc = await self._postffmpeg(cmd)
-                    if rc == 0 and self.info_dl['filename'].exists():
-                        self.info_dl['status'] = "done"
+                    _btask = asyncio.create_task(self._postffmpeg(cmd))
+                    done, _ = await asyncio.wait([_btask])
+                    rc = -1
+                    try:
+                        for d in done: rc = d.result()
+                    except Exception as e:
+                        lines = traceback.format_exception(*sys.exc_info())                
+                        self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
+                    
+                    
+                    if rc == 0 and (await (AsyncPath(self.info_dl['filename']).exists())):                        
+                        self.info_dl['status'] = "done"          
                         for dl in self.info_dl['downloaders']:
-                            dl.filename.unlink()
+                            
+                            await AsyncPath(dl.filename).unlink()
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]:Streams merged for: {self.info_dl['filename']}")
                     
                     else:
