@@ -12,10 +12,10 @@ from asynchttpdownloader import (
 from asynchlsdownloader import (
     AsyncHLSDownloader
 )
-# from asyncdashdownloader import (
-#     AsyncDASHDownloader    
-# )
-from common_utils import ( 
+from asyncdashdownloader import (
+     AsyncDASHDownloader    
+)
+from utils import ( 
     naturalsize,
 )
 from concurrent.futures import (
@@ -85,16 +85,37 @@ class VideoDownloader():
         })
                 
     
+    def _get_info_dl(info_dict):
+    
+        if info_dict.get("_type") == "playlist":
+            f_info_dict = info_dict['entries'][0]
+        else: f_info_dict = info_dict
+        if f_info_dict.get('requested_formats'):
+            protocol = determine_protocol(f_info_dict['requested_formats'][0])
+            container = f_info_dict['requested_formats'][0].get('container')
+            if container and "dash" in container:
+                protocol = "http_dash_segments"
+            return(protocol, f_info_dict)
+        else:
+            protocol = determine_protocol(f_info_dict)
+            container = f_info_dict.get('container')
+            if container and "dash" in container:
+                protocol = "http_dash_segments"
+            return (protocol, f_info_dict)
+    
     def _get_dl(self, info):
         
         protocol = determine_protocol(info)
         if protocol in ('http', 'https'):
             dl = AsyncHTTPDownloader(info, self)
+            _type = "http"
         elif protocol in ('m3u8', 'm3u8_native'):
             dl = AsyncHLSDownloader(info, self)
-        elif protocol in ('http_dash_segments'):
-            #dl = AsyncDASHDownloader(info, self) 
-            raise NotImplementedError("dl dash not supported")           
+            _type = "hls"
+        elif protocol in ('http_dash_segments', 'dash'):
+            dl = AsyncDASHDownloader(info, self) 
+            _type = "dash"
+            #raise NotImplementedError("dl dash not supported")           
             
         else:
             self.logger.error(f"[{info['id']}][{info['title']}]: protocol not supported")

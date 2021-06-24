@@ -35,13 +35,6 @@ def folderfiles(folder):
         
     return count
 
-"""Bits and bytes related humanization."""
-
-SUFFIXES = {
-    "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
-    "binary": ("KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"),
-    "gnu": "KMGTPEZY",
-}
 
 def naturalsize(value, binary=False, gnu=False, format="%.4f"):
     """Format a number of bytes like a human readable filesize (e.g. 10 kB).
@@ -75,6 +68,13 @@ def naturalsize(value, binary=False, gnu=False, format="%.4f"):
     Returns:
         str: Human readable representation of a filesize.
     """
+    
+    SUFFIXES = {
+        "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
+        "binary": ("KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"),
+        "gnu": "KMGTPEZY",
+    }
+    
     if gnu:
         suffix = SUFFIXES["gnu"]
     elif binary:
@@ -116,24 +116,21 @@ def print_norm_time(time):
     
     return f"{hour:.0f}h:{minutes:.0f}min:{seconds:.0f}secs"
 
-def get_value_regex(value, str_reg, str_content, not_found):
+def get_values_regex(str_reg, str_content, *_groups, not_found=None):
     mobj = re.search(str_reg, str_content)
     if not mobj:
         return not_found
     else:
-        res = mobj.group(value)
+        res = mobj.group(*_groups)
         if res:
             return res
         else:
             return not_found
         
-def my_findall(patterns, str_content):
-    for p in patterns:
-        res = re.findall()
+
+    
 
 
-# UA_LIST = ["Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:80.0) Gecko/20100101 Firefox/80.0", "Mozilla/5.0 (Android 11; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0", "Mozilla/5.0 (iPad; CPU OS 10_15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/24.1 Mobile/15E148 Safari/605.1.15", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0"]
-UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0"]
 
 def generate_random_ua():
     cl = httpx.Client()
@@ -141,13 +138,15 @@ def generate_random_ua():
     for i in range(25):
         list_el += re.find(cl.get("https://generate-name.net/user-agent").text)
 
-IPS_TORGUARD = ["88.202.177.243","96.44.144.122","194.59.250.210","88.202.177.234","68.71.244.42","194.59.250.226","173.254.222.146","68.71.244.98","88.202.177.241","185.212.171.118","98.143.158.50","88.202.177.242","173.44.37.82","194.59.250.242","194.59.250.202","68.71.244.66","173.44.37.114","2.58.44.226","88.202.177.240","96.44.148.66","37.120.153.242","185.156.172.154","68.71.244.30","46.23.78.24","88.202.177.238","88.202.177.239","68.71.244.38","194.59.250.218", "88.202.177.230"]
+
 
 def get_ip_proxy():
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "r") as f:
         return(random.choice(json.load(f)))
 
 def status_proxy():
+    
+    IPS_TORGUARD = ["88.202.177.243","96.44.144.122","194.59.250.210","88.202.177.234","68.71.244.42","194.59.250.226","173.254.222.146","68.71.244.98","88.202.177.241","185.212.171.118","98.143.158.50","88.202.177.242","173.44.37.82","194.59.250.242","194.59.250.202","68.71.244.66","173.44.37.114","2.58.44.226","88.202.177.240","96.44.148.66","37.120.153.242","185.156.172.154","68.71.244.30","46.23.78.24","88.202.177.238","88.202.177.239","68.71.244.38","194.59.250.218", "88.202.177.230"]
 
     from scapy.all import sr,IP,ICMP
     list_ok = []
@@ -214,6 +213,10 @@ def init_logging(file_path=None):
     
 
 def init_argparser():
+    
+    # UA_LIST = ["Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:80.0) Gecko/20100101 Firefox/80.0", "Mozilla/5.0 (Android 11; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0", "Mozilla/5.0 (iPad; CPU OS 10_15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/24.1 Mobile/15E148 Safari/605.1.15", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0"]
+
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
@@ -244,6 +247,7 @@ def init_argparser():
     parser.add_argument("--path", default=None, type=str)
     parser.add_argument("--isdl", default=None, type=str)
     parser.add_argument("--caplinks", action="store_true")
+    parser.add_argument("--force", action="store_true")
     
     
     
@@ -278,7 +282,6 @@ def init_ytdl(args):
     ytdl.add_default_info_extractors()
 
     std_headers["User-Agent"] = args.useragent
-    #std_headers["User-Agent"] = random.choice(UA_LIST)
     std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
    
     std_headers["Connection"] = "keep-alive"
@@ -409,22 +412,7 @@ def init_tk_afiles(n_files):
        
     
 
-def get_info_dl(info_dict):
-    if info_dict.get("_type") == "playlist":
-        f_info_dict = info_dict['entries'][0]
-    else: f_info_dict = info_dict
-    if f_info_dict.get('requested_formats'):
-        protocol = determine_protocol(f_info_dict['requested_formats'][0])
-        container = f_info_dict['requested_formats'][0].get('container')
-        #if container and "dash" in container:
-        #    protocol = "http_dash_segments"
-        return(protocol, f_info_dict)
-    else:
-        protocol = determine_protocol(f_info_dict)
-        container = f_info_dict.get('container')
-        #if container and "dash" in container:
-        #    protocol = "http_dash_segments"
-        return (protocol, f_info_dict)
+
     
 def patch_http_connection_pool(**constructor_kwargs):
     """

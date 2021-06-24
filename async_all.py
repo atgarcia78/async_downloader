@@ -17,7 +17,7 @@ import re
 import time
 
 
-from common_utils import ( 
+from utils import ( 
     init_logging,
     init_ytdl,
     init_tk,
@@ -142,6 +142,16 @@ class AsyncDL():
             
         return self.files_cached
                
+    def _get_extractor(self, url):
+    
+        extractor = None
+        for ie in self.ytdl._ies:
+            if ie.suitable(url):
+                extractor = ie.ie_key()
+                break
+        return extractor
+    
+
         
     def get_list_videos(self):
         
@@ -157,7 +167,7 @@ class AsyncDL():
                 
             url_list = list(set(_content.splitlines()))
             
-            self.list_videos += [{'_type': 'url', 'url': _url} for _url in url_list]
+            self.list_videos += [{'_type': 'url', 'url': _url, 'ie_key': self._get_extractor(_url)} for _url in url_list]
             
             with open(filecaplinks, "w") as file: 
                 file.truncate()
@@ -249,7 +259,7 @@ class AsyncDL():
             
                 if self.args.collection:
                     url_list = list(set(self.args.collection))  
-                    self.list_videos += [{'_type': 'url', 'url': _url} for _url in url_list]
+                    self.list_videos += [{'_type': 'url', 'url': _url, 'ie_key': self._get_extractor(_url)} for _url in url_list]
 
                 if self.args.collection_files:
                     def get_info_json(file):
@@ -328,25 +338,36 @@ class AsyncDL():
         
         for video in self.list_videos:
             if (_id := video.get('id') ) and (_title := video.get('title')):               
-            #if (_title := video.get('title') or video.get('video_title')):
+            
                 _title = sanitize_filename(_title, restricted=True).upper()
                 _id = _id[:8] if len(_id) > 8 else _id
                 vid_name = f"{_id}_{_title}"
                 
 
                 if (vid_path:=self.files_cached.get(vid_name)):
-                    #self.list_initaldl.append({'title': vid_name, 'path': vid_path})
-                    self.list_initaldl.append({'title': vid_name, 'path': vid_path})
-                    self.logger.debug(f"[{vid_name}]: already DL")
-                    if self.args.path:
-                        _filepath = Path(self.args.path)
-                    else:
-                        _filepath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
-                    _filepath.mkdir(parents=True, exist_ok=True)
-                    file_aldl = Path(_filepath, Path(vid_path).name)
-                    if file_aldl not in _filepath.iterdir():
-                        file_aldl.symlink_to(Path(vid_path))
+
+                    video['aldl_checked'] = True
                     
+                    if self.args.force:
+                        Path(vid_path).unlink()
+                        self.videos_to_dl.append(video)
+                        del self.files_cached[vid_name]
+                        
+                        
+                        
+                    else:                        
+                        
+                        self.list_initaldl.append({'title': vid_name, 'path': vid_path})
+                        self.logger.debug(f"[{vid_name}]: already DL")
+                        if self.args.path:
+                            _filepath = Path(self.args.path)
+                        else:
+                            _filepath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
+                        _filepath.mkdir(parents=True, exist_ok=True)
+                        file_aldl = Path(_filepath, Path(vid_path).name)
+                        if file_aldl not in _filepath.iterdir():
+                            file_aldl.symlink_to(Path(vid_path))
+                        
                 else: 
                     self.videos_to_dl.append(video)
             else: self.videos_to_dl.append(video)
@@ -496,7 +517,7 @@ class AsyncDL():
                     if self.args.nodl and vid.get('filesize'): continue
                     
                     try: 
-                        _filesize = vid.get('filesize', 0)
+                        
                         if not vid.get('format_id') and not vid.get('requested_formats'):
                         
                             info_dict = None    
@@ -513,31 +534,42 @@ class AsyncDL():
                                     time.sleep(2)
                                     count += 1
                                     
-                            if info:                        
+                            if info:
+                                                        
                                 self.logger.debug(f"worker_init_dl[{i}] {info}")
                                 info_dict = info
                                 
-                                if (_id := info.get('id') ) and (_title := info.get('title') ):               
+                                if not vid.get('aldl_checked') and (_id := info.get('id') ) and (_title := info.get('title') ):               
                 
                                     _title = sanitize_filename(_title, restricted=True).upper()
                                     _id = _id[:8] if len(_id) > 8 else _id
                                     _name = f"{_id}_{_title}"
                                     self.logger.debug(f"Look in dict: {_name}")
                                     if (vid_path:=self.files_cached.get(_name)):
-                                        self.list_initaldl.append({'title': _name, 'path': vid_path})
-                                        self.logger.debug(f"[{_name}] : already DL")                                   
-                                        if self.args.path:
-                                            _filepath = Path(self.args.path)
+                                        
+                                        if self.args.force:
+                                            Path(vid_path).unlink()
+                                            del self.files_cached[_name]
+                                            
                                         else:
-                                            _filepath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
-                                        _filepath.mkdir(parents=True, exist_ok=True)
-                                        file_aldl = Path(_filepath, Path(vid_path).name)
-                                        if file_aldl not in _filepath.iterdir():
-                                            file_aldl.symlink_to(Path(vid_path))
-                                        self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")
-                                        self.videos_to_dl.remove(vid)                            
-                                        continue
-    
+                                        
+                                            self.list_initaldl.append({'title': _name, 'path': vid_path})
+                                            self.logger.debug(f"[{_name}] : already DL")                                   
+                                            if self.args.path:
+                                                _filepath = Path(self.args.path)
+                                            else:
+                                                _filepath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
+                                            _filepath.mkdir(parents=True, exist_ok=True)
+                                            file_aldl = Path(_filepath, Path(vid_path).name)
+                                            if file_aldl not in _filepath.iterdir():
+                                                file_aldl.symlink_to(Path(vid_path))
+                                            self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")
+                                            self.videos_to_dl.remove(vid)
+                                            if (_filesize:=vid.get('filesize',0)):
+                                                self.totalbytes2dl -= _filesize
+                                                                            
+                                            continue
+        
                                 if not info.get('format_id') and not info.get('requested_formats'):
                                     
                                     info_dict = self.ytdl.process_ie_result(info,download=False)
@@ -549,13 +581,14 @@ class AsyncDL():
                             self.logger.debug(f"worker_init_dl[{i}] {info_dict}")
                             dl = VideoDownloader(info_dict, self.ytdl, self.parts, self.args.path)
                                     
-                            if dl:
+                            if dl and not dl.info_dl.get('status') == "error":
                                 
                                 _url = vid['url']
+                                _filesize = vid.get('filesize', 0)
                                 for video in self.videos_to_dl:
                                     if video['url'] == _url:                                    
-                                        video.update({'filesize': dl.info_dl['filesize'], 'id': dl.info_dl['id'], 'title': dl.info_dl['title'], 'filename': dl.info_dl['filename'], 'status': dl.info_dl['status']})
-                                        if _filesize == 0: self.totalbytes2dl += dl.info_dl['filesize']
+                                        video.update({'filesize': dl.info_dl.get('filesize',0), 'id': dl.info_dl['id'], 'title': dl.info_dl['title'], 'filename': dl.info_dl['filename'], 'status': dl.info_dl['status']})
+                                        if video['filesize']: self.totalbytes2dl = self.totalbytes2dl - _filesize + video['filesize']
                                         break
                                 for video in self.list_videos:
                                     if video['url'] == _url:
@@ -734,11 +767,11 @@ class AsyncDL():
                             
             if not self.args.nodl:
             
-                task_tk = asyncio.create_task(self.run_tk(args_tk, interval)) 
+                task_tk = [asyncio.create_task(self.run_tk(args_tk, interval))] 
                 tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(nworkers)]                  
                 tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(nworkers)]
                 
-            done, _ = await asyncio.wait(tasks_init + [task_tk] + tasks_run + tasks_manip)
+            done, _ = await asyncio.wait(tasks_init + task_tk + tasks_run + tasks_manip)
             
             for d in done:
                 try:
@@ -841,7 +874,7 @@ class AsyncDL():
         self.logger.info(f"Videos OK INIT DL: {videos_initok}")
         self.logger.info(f"Videos DL: {videos_okdl}")
         
-        return ({'videos_req': self.list_videos, 'videos_2_dl': _videos_2dl, 'videos_al_dl': _videos_aldl, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_initnok, 'videos_error_dl': videos_kodl})
+        return ({'videos_req': self.list_videos, 'videos_2_dl': _videos_2dl, 'videos_al_dl': _videos_aldl, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_initnok_str, 'videos_error_dl': videos_kodl_str})
 
     def print_list_videos(self):
     
@@ -926,8 +959,20 @@ def main():
 
     
     
-    res = asyncDL.get_results_info()   
-  
+    res = asyncDL.get_results_info() 
+    
+ 
+
+    if args.caplinks:
+        
+        with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:
+        
+            for _video in res['videos_error_dl']:
+                line = _video + "\n"
+                file.write(line)
+            
+        
+            
 
 
 if __name__ == "__main__":
