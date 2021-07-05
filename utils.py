@@ -1,9 +1,12 @@
 #!/usr/bin/env python
+from distutils.log import ERROR
 import logging
 import logging.config
 import json
+from multiprocessing.pool import INIT
 from pathlib import Path
 from datetime import datetime
+from h11 import DONE
 from youtube_dl import YoutubeDL
 from youtube_dl.utils import (
     std_headers,
@@ -17,6 +20,7 @@ import argparse
 import tkinter as tk
 
 from user_agent import generate_user_agent
+
 
 
 
@@ -36,7 +40,7 @@ def folderfiles(folder):
     return count
 
 
-def naturalsize(value, binary=False, gnu=False, format="%.4f"):
+def naturalsize(value, binary=False, gnu=False, format="%.2f"):
     """Format a number of bytes like a human readable filesize (e.g. 10 kB).
 
     By default, decimal suffixes (kB, MB) are used.
@@ -116,16 +120,18 @@ def print_norm_time(time):
     
     return f"{hour:.0f}h:{minutes:.0f}min:{seconds:.0f}secs"
 
-def get_values_regex(str_reg, str_content, *_groups, not_found=None):
-    mobj = re.search(str_reg, str_content)
-    if not mobj:
-        return not_found
-    else:
-        res = mobj.group(*_groups)
-        if res:
+def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
+    
+    for str_reg in str_reg_list:
+    
+        mobj = re.search(str_reg, str_content)
+        if mobj:
+            res = mobj.group(*_groups)
             return res
-        else:
-            return not_found
+        
+    return not_found
+        
+
         
 
     
@@ -248,6 +254,7 @@ def init_argparser():
     parser.add_argument("--isdl", default=None, type=str)
     parser.add_argument("--caplinks", action="store_true")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--aria2c", action="store_true")
     
     
     
@@ -286,7 +293,7 @@ def init_ytdl(args):
    
     std_headers["Connection"] = "keep-alive"
     std_headers["Accept-Language"] = "es-ES,en-US;q=0.7,en;q=0.3"
-    std_headers["Accept-Encoding"] = "gzip, deflate, br"
+    std_headers["Accept-Encoding"] = "gzip, deflate"
     if args.referer:
         std_headers["Referer"] = args.referer
        
@@ -294,78 +301,59 @@ def init_ytdl(args):
     logger.debug(f"std-headers: {std_headers}")
     return ytdl
 
-def init_tk(n_dl):
+def init_tk():
     window = tk.Tk()
     window.title("async_downloader")
-    #window.geometry('{}x{}'.format(500, 25*n_dl))
     
-    frame0 = tk.Frame(master=window, width=300, height=25*n_dl, bg="white")
+    
+    frame0 = tk.Frame(master=window, width=25, height=50, bg="white")
   
     frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
     
     
-    
-    frame4 = tk.Frame(master=window, width=300, bg="white")
-   
-    frame4.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
-    frame1 = tk.Frame(master=window, width=300, bg="white")
+    frame1 = tk.Frame(master=window, width=50, bg="white")
   
     frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
     
-    frame2 = tk.Frame(master=window, width=300, bg="white")
+    frame2 = tk.Frame(master=window, width=25, bg="white")
    
     frame2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
     
-    
-    
-    
-    
+        
     label0 = tk.Label(master=frame0, text="WAITING TO DL", bg="blue")
     label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text0 = tk.Text(master=frame0, font=("Source Code Pro", 9))
-    text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
-    label4 = tk.Label(master=frame4, text="WAITING TO CREATE FILE", bg="blue")
-    label4.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text4 = tk.Text(master=frame4, font=("Source Code Pro", 9))
-    text4.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
+    text0 = tk.Text(master=frame0, font=("Source Code Pro", 10))
+    text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
+   
     
     label1 = tk.Label(master=frame1, text="NOW DOWNLOADING/CREATING FILE", bg="blue")
     label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text1 = tk.Text(master=frame1, font=("Source Code Pro", 9))
+    text1 = tk.Text(master=frame1, font=("Source Code Pro", 10))
     text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
     
     label2 = tk.Label(master=frame2, text="DOWNLOADED/ERRROS", bg="blue")
     label2.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text2 = tk.Text(master=frame2, font=("Source Code Pro", 9))
+    text2 = tk.Text(master=frame2, font=("Source Code Pro", 10))
     text2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)   
     
-    text0.insert(tk.END, "Waiting for info") 
-    text4.insert(tk.END, "Waiting for info")
+    text0.insert(tk.END, "Waiting for info")     
     text1.insert(tk.END, "Waiting for info") 
     text2.insert(tk.END, "Waiting for info")
     
     
-    window2 = tk.Tk()
-    window2.title("async_downloader")  
-    frame3 = tk.Frame(master=window2, width=25, height=25, bg="white")
-    frame3.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
-    label3 = tk.Label(master=frame3, text="Total bytes to DL", bg="blue")
-    label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text3 = tk.Text(master=frame3, font=("Source Code Pro", 9))
-    text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    # frame3 = tk.Frame(master=window2, width=300, height=25, bg="white")
-    # frame3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    # label3 = tk.Label(master=frame3, text="NUMBER OF TASKS", bg="blue")
+    # window2 = tk.Tk()
+    # window2.title("async_downloader")  
+    # frame3 = tk.Frame(master=window2, width=25, height=25, bg="white")
+    # frame3.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
+    # label3 = tk.Label(master=frame3, text="Total bytes to DL", bg="blue")
     # label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    # text3 = tk.Text(master=frame3, font=("Source Code Pro", 9))
+    # text3 = tk.Text(master=frame3, font=("Source Code Pro", 15))
     # text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    text3.insert(tk.END, "Waiting for info")
+    # text3.insert(tk.END, "Waiting for info")
     #text3 = None
-    res = [window, text0, text4, text1, text2, window2, text3]       
+    #res = [window, text0, text1, text2, window2, text3]       
     #return(window, text0, text1, text2, window2, text3)
-    
+    res = [window, text0, text1, text2]
     return(res) 
 
 def init_tk_afiles(n_files):

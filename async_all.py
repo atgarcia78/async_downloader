@@ -15,6 +15,7 @@ from tabulate import tabulate
 import humanfriendly
 import re
 import time
+import shutil
 
 
 from utils import ( 
@@ -32,6 +33,8 @@ from concurrent.futures import (
     ThreadPoolExecutor,
     wait
 )
+
+import subprocess
 
 from youtube_dl.utils import sanitize_filename
 
@@ -64,9 +67,12 @@ class AsyncDL():
         
         self.args = args
         self.parts = self.args.p
-        self.workers = self.args.w    
+        self.workers = self.args.w
+        self.init_nworkers = max(16, self.workers)
 
         self.ytdl = init_ytdl(self.args)
+        
+        
        
         self.stop_tk = False
         self.count_init = 0
@@ -98,7 +104,7 @@ class AsyncDL():
         
         else:  
         
-            list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/DatosToni/videos"), Path("/Volumes/WD/videos")]
+            list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/WD/videos"), Path("/Volumes/WD5/videos")]
              
             for folder in list_folders:
                 #self.logger.debug(f"[CACHED] Folder: {folder.name}")
@@ -165,14 +171,36 @@ class AsyncDL():
             with open(filecaplinks, "r") as file:
                 _content = file.read()            
                 
-            url_list = list(set(_content.splitlines()))
+            if self.args.playlist:
+                
+                url_pl_list = list(set([_line for _line in _content.splitlines() if _line]))
+                with ThreadPoolExecutor(max_workers=self.init_nworkers) as ex:
+                    fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
+                    done, _ = wait(fut)
+                            
+                _url_pl = []
+                for d in done:
+                    _url_pl += (d.result()).get('entries')
+                        
+                
+                  
+                items = defaultdict(list)
+                for entry in _url_pl:
+                    items[entry['url']].append(entry)
+                            
+                self.list_videos += [_value[0] for _value in items.values()]
             
-            self.list_videos += [{'_type': 'url', 'url': _url, 'ie_key': self._get_extractor(_url)} for _url in url_list]
             
-            with open(filecaplinks, "w") as file: 
-                file.truncate()
+            else:
+                
+                url_list = list(set(_content.splitlines()))
+                
+                self.list_videos += [{'_type': 'url', 'url': _url, 'ie_key': self._get_extractor(_url)} for _url in url_list]
                 
                 
+            #with open(filecaplinks, "w") as file: 
+            #    file.truncate()        
+                    
             with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"w") as f:
                 json.dump({'entries': self.list_videos},f)
         
@@ -208,7 +236,7 @@ class AsyncDL():
                         self.logger.debug(f"[get_list_videos]: \n{info_dict.get('entries')}")
                         _url_pl = info_dict.get('entries')
                     else:
-                        with ThreadPoolExecutor(max_workers=self.workers) as ex:
+                        with ThreadPoolExecutor(max_workers=self.init_nworkers) as ex:
                             fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
                             done, _ = wait(fut)
                             
@@ -346,9 +374,13 @@ class AsyncDL():
 
                 if (vid_path:=self.files_cached.get(vid_name)):
 
+                    
                     video['aldl_checked'] = True
                     
+                    self.logger.debug(f"[{vid_name}]: already DL: {vid_path}")
+                    
                     if self.args.force:
+                        self.logger.debug(f"[{vid_name}]: force option, delete dl video and dl again")
                         Path(vid_path).unlink()
                         self.videos_to_dl.append(video)
                         del self.files_cached[vid_name]
@@ -357,8 +389,7 @@ class AsyncDL():
                         
                     else:                        
                         
-                        self.list_initaldl.append({'title': vid_name, 'path': vid_path})
-                        self.logger.debug(f"[{vid_name}]: already DL")
+                        self.list_initaldl.append({'title': vid_name, 'path': vid_path})                        
                         if self.args.path:
                             _filepath = Path(self.args.path)
                         else:
@@ -391,8 +422,8 @@ class AsyncDL():
         
         
         #nworkers = min(self.workers, len(self.videos_to_dl))
-        nworkers = self.workers
-        for _ in range(nworkers-1):
+        
+        for _ in range(self.init_nworkers-1):
             self.queue_vid.put((-1, "KILL"))
         self.queue_vid.put((-1, "KILLANDCLEAN"))
         
@@ -405,7 +436,8 @@ class AsyncDL():
         Run a tkinter app in an asyncio event loop.
         '''
         
-        root, text0, text4, text1, text2, root2, text3 = args_tk
+        #root, text0, text1, text2, root2, text3 = args_tk
+        root, text0, text1, text2 = args_tk
         count = 0
         while (not self.list_dl and not self.stop_tk):
             
@@ -423,7 +455,7 @@ class AsyncDL():
             while not self.stop_tk:
                 
                 root.update()
-                root2.update()
+                #root2.update()
                 
                 res = set([dl.info_dl['status'] for dl in self.list_dl])
                 
@@ -432,13 +464,12 @@ class AsyncDL():
                 
                 else:     
                     _res = sorted(list(res))
-                    if (_res == ["done", "error"] or _res == ["error"] or _res == ["done"]) and (self.count_init == self.workers):                        
+                    if (_res == ["done", "error"] or _res == ["error"] or _res == ["done"]) and (self.count_init == self.init_nworkers):                        
                             break
                     else:
-                        text3.delete(1.0,tk.END)
-                        text3.insert(tk.END, naturalsize(self.totalbytes2dl))
-                        text0.delete(1.0, tk.END)
-                        text4.delete(1.0, tk.END)
+                        #text3.delete(1.0,tk.END)
+                        #text3.insert(tk.END, naturalsize(self.totalbytes2dl))
+                        text0.delete(1.0, tk.END)                        
                         text1.delete(1.0, tk.END)
                         text2.delete(1.0, tk.END)
                         list_downloading = []
@@ -447,13 +478,10 @@ class AsyncDL():
                             mens = dl.print_hookup()
                             if dl.info_dl['status'] in ["init"]:
                                 text0.insert(tk.END, mens)
-                            if dl.info_dl['status'] in ["init_manipulating"]:
-                                text4.insert(tk.END, mens)
+                            if dl.info_dl['status'] in ["init_manipulating", "creating"]:
+                                list_manip.append(mens) 
                             if dl.info_dl['status'] in ["downloading"]:
-                                list_downloading.append(mens)
-                            if dl.info_dl['status'] in ["creating"]: 
-                                list_manip.append(mens)                       
-                                
+                                list_downloading.append(mens)  
                             if dl.info_dl['status'] in ["done", "error"]:
                                 text2.insert(tk.END,mens)
                                          
@@ -462,7 +490,7 @@ class AsyncDL():
                             text1.insert(tk.END, ''.join(list_downloading))
                             
                         if list_manip:
-                            text1.insert(tk.END, "\n\n-------CREATING VIDEO------------\n\n")
+                            text1.insert(tk.END, "\n\n-------CREATING FILE------------\n\n")
                             text1.insert(tk.END, ''.join(list_manip))
                                          
                         
@@ -476,10 +504,10 @@ class AsyncDL():
         self.logger.debug("[RUN_TK] BYE") 
 
 
-    def worker_init_dl(self, i):
+    def worker_init(self, i):
         #worker que lanza los Downloaders, uno por video
         
-        self.logger.debug(f"worker_init_dl[{i}]: launched")
+        self.logger.debug(f"worker_init[{i}]: launched")
 
         try:
         
@@ -487,18 +515,18 @@ class AsyncDL():
                 
                 num, vid = self.queue_vid.get()
                                 
-                self.logger.debug(f"worker_init_dl[{i}]: [{num}]{vid}")
+                self.logger.debug(f"worker_init[{i}]: [{num}]{vid}")
                 if vid == "KILL":
-                    self.logger.debug(f"worker_init_dl[{i}]: finds KILL")
+                    self.logger.debug(f"worker_init[{i}]: finds KILL")
                     break
                 elif vid == "KILLANDCLEAN":
-                    self.logger.debug(f"worker_init_dl[{i}]: finds KILLANDCLEAN")
-                    nworkers = self.workers
+                    self.logger.debug(f"worker_init[{i}]: finds KILLANDCLEAN")
+                    
                     #wait for the others workers_init to finish
-                    while (self.count_init < (nworkers - 1)):
+                    while (self.count_init < (self.init_nworkers - 1)):
                         time.sleep(1)
                     
-                    for _ in range(nworkers - 1): self.queue_run.put_nowait("KILL")
+                    for _ in range(self.workers - 1): self.queue_run.put_nowait("KILL")
                     
                     self.queue_run.put_nowait("KILLANDCLEAN")
                     
@@ -520,23 +548,17 @@ class AsyncDL():
                         
                         if not vid.get('format_id') and not vid.get('requested_formats'):
                         
-                            info_dict = None    
                             
-                            count = 0
-                            while(count < 3):
-                                try:
-                                    info = None
-                                    info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
-                                except Exception as e:
-                                    pass
-                                if info: break
-                                else:
-                                    time.sleep(2)
-                                    count += 1
-                                    
+                            try:
+                                
+                                info = self.ytdl.extract_info(vid['url'], download=False,process=False)   
+                            except Exception as e:
+                                info = None
+                            
+                            info_dict = None        
                             if info:
                                                         
-                                self.logger.debug(f"worker_init_dl[{i}] {info}")
+                                self.logger.debug(f"worker_init[{i}] {info}")
                                 info_dict = info
                                 
                                 if not vid.get('aldl_checked') and (_id := info.get('id') ) and (_title := info.get('title') ):               
@@ -563,7 +585,7 @@ class AsyncDL():
                                             file_aldl = Path(_filepath, Path(vid_path).name)
                                             if file_aldl not in _filepath.iterdir():
                                                 file_aldl.symlink_to(Path(vid_path))
-                                            self.logger.debug(f"worker_init_dl[{i}] {_name} already DL")
+                                            self.logger.debug(f"worker_init[{i}] {_name} already DL")
                                             self.videos_to_dl.remove(vid)
                                             if (_filesize:=vid.get('filesize',0)):
                                                 self.totalbytes2dl -= _filesize
@@ -578,8 +600,8 @@ class AsyncDL():
                         
                         if info_dict:
                                 
-                            self.logger.debug(f"worker_init_dl[{i}] {info_dict}")
-                            dl = VideoDownloader(info_dict, self.ytdl, self.parts, self.args.path)
+                            self.logger.debug(f"worker_init[{i}] {info_dict}")
+                            dl = VideoDownloader(info_dict, self.ytdl, self.parts, self.args.path, self.args.aria2c)
                                     
                             if dl and not dl.info_dl.get('status') == "error":
                                 
@@ -607,34 +629,36 @@ class AsyncDL():
                                         
                                         if dl.info_dl['status'] == "init_manipulating":
                                             self.queue_manip.put_nowait(dl)
-                                            self.logger.info(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : {minbytes} < size[{dl.info_dl['filesize']}] < {maxbytes} progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                            self.logger.info(f"worker_init[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : {minbytes} < size[{dl.info_dl['filesize']}] < {maxbytes} progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
                                         else:
                                             self.queue_run.put_nowait(dl)
-                                            self.logger.debug(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : {minbytes} < size[{dl.info_dl['filesize']}] < {maxbytes} progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                            self.logger.debug(f"worker_init[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : {minbytes} < size[{dl.info_dl['filesize']}] < {maxbytes} progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
                                         
                                         
                                     else:
-                                        self.logger.debug(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : but not with requested size: NOT {minbytes} < size[{dl.info_dl['filesize']}] < {maxbytes}")
+                                        self.logger.debug(f"worker_init[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : but not with requested size: NOT {minbytes} < size[{dl.info_dl['filesize']}] < {maxbytes}")
                                         self.videos_to_dl.remove(vid)
                                 else:
                                     self.list_dl.append(dl)
                                     
                                     if dl.info_dl['status'] == "init_manipulating":
                                         self.queue_manip.put_nowait(dl)
-                                        self.logger.info(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                        self.logger.info(f"worker_init[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
                                     else:
                                         self.queue_run.put_nowait(dl)
-                                        self.logger.info(f"worker_init_dl[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                        self.logger.info(f"worker_init[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
                                     
                                         
                             else:                                         
                                 raise Exception("no DL init")
                         else:                                        
                             raise Exception("no info dict")
+                        
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
                         self.list_initnok.append((vid, f"Error:{repr(e)}"))
-                        self.logger.error(f"worker_init_dl[{i}]: DL constructor failed for {vid} - Error:{repr(e)} \n{'!!'.join(lines)}")       
+                        self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid} - Error:{repr(e)} \n{'!!'.join(lines)}")
+                        continue       
                 
         finally:
             self.count_init += 1
@@ -742,18 +766,16 @@ class AsyncDL():
             self.count_manip += 1 
             self.logger.debug(f"worker_manip[{i}]: BYE")       
 
-            
-    
-
-    
+ 
     async def async_ex(self, args_tk, interval):
     
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
 
         #nworkers = min(self.workers,len(self.videos_to_dl))
-        nworkers = self.workers
-        self.logger.info(f"MAX WORKERS [{nworkers}]")
+        
+    
+        self.logger.info(f"MAX WORKERS [{self.workers}]")
         
         try:        
             #loop = asyncio.get_event_loop()
@@ -763,13 +785,13 @@ class AsyncDL():
             tasks_manip = []
 
             
-            tasks_init = [asyncio.create_task(asyncio.to_thread(self.worker_init_dl, i)) for i in range(nworkers)]
+            tasks_init = [asyncio.create_task(asyncio.to_thread(self.worker_init, i)) for i in range(self.init_nworkers)]
                             
             if not self.args.nodl:
             
                 task_tk = [asyncio.create_task(self.run_tk(args_tk, interval))] 
-                tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(nworkers)]                  
-                tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(nworkers)]
+                tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
+                tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(self.workers)]
                 
             done, _ = await asyncio.wait(tasks_init + task_tk + tasks_run + tasks_manip)
             
@@ -788,7 +810,6 @@ class AsyncDL():
     
         asyncio.get_running_loop().stop()      
         
-
 
     def get_results_info(self):
         
@@ -932,48 +953,48 @@ def main():
     
     logger.info(f"Hi, lets dl!\n{args}")
     
-    
     asyncDL = AsyncDL(args)    
     
     
     with ThreadPoolExecutor(max_workers=2) as ex:
         fut = [ex.submit(asyncDL.get_videos_cached), ex.submit(asyncDL.get_list_videos)]
-        
 
-    asyncDL.get_videos_to_dl()
+    asyncDL.get_videos_to_dl()    
     
-    
-    asyncDL.print_list_videos()    
-     
+    asyncDL.print_list_videos()      
        
     if len(asyncDL.videos_to_dl) > 0:    
             
         try:
-
-            args_tk = init_tk(len(asyncDL.videos_to_dl))        
+            if args.aria2c:
+                subprocess.run(["aria2c","--enable-rpc","--daemon"])
+            args_tk = init_tk()        
             res = aiorun.run(asyncDL.async_ex(args_tk, 0.25), use_uvloop=True) 
                 
         except Exception as e:
             logger.error(str(e), exc_info=True)
             res = 1
+        finally:
+            if args.aria2c:
+                #process_id = subprocess.run("ps ax -o pid -o comm | grep 'aria2c'", encoding='utf-8', shell=True,capture_output=True).stdout.replace(" aria2c\n", "")        
+                res = subprocess.run(["ps","ax","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
+                process_id = mobj[0] if (mobj:=re.findall(r'(\d+) aria2c', res)) else None
+                if process_id:
+                    res = subprocess.run(["kill","-9",process_id], encoding='utf-8', capture_output=True)
+                    if res.returncode != 0: logger.error("cant kill aria2c daemon: " + res.stderr.decode())
+                    else: logger.info("aria2c daemon killed")
 
     
-    
-    res = asyncDL.get_results_info() 
-    
+    res = asyncDL.get_results_info()     
  
-
     if args.caplinks:
         
+        shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
         with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:
         
             for _video in res['videos_error_dl']:
                 line = _video + "\n"
-                file.write(line)
-            
-        
-            
-
+                file.write(line)  
 
 if __name__ == "__main__":
     

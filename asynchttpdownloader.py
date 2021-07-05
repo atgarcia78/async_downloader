@@ -22,8 +22,8 @@ import time
 import aiofiles
 import traceback
 from aiotools import TaskGroup
-from datetime import datetime
-from statistics import median, mean
+from statistics import median
+import datetime
 
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -47,14 +47,19 @@ class AsyncHTTPDLError(Exception):
 class AsyncHTTPDownloader():
     
     
-    _CHUNK_SIZE = 1048576
+    
     _MIN_SIZE = 1048576 #1MB
+    _CHUNK_SIZE = 102400 #100KB
+    #_CHUNK_SIZE = 1048576 #1MB
+    
+    
+    
     
     def __init__(self, video_dict, vid_dl):
 
         self.logger = logging.getLogger("async_http_DL")
         
-        #self.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.16; rv:83.0) Gecko/20100101 Firefox/83.0"
+       
         # self.proxies = "http://atgarcia:ID4KrSc6mo6aiy8@proxy.torguard.org:6060"
         # #self.proxies = "http://192.168.1.133:5555"
         
@@ -98,6 +103,9 @@ class AsyncHTTPDownloader():
         
         self.filesize = self.info_dict.get('filesize', None)        
         self.down_size = 0
+        self.down_temp = 0
+        self.timer = httpx._utils.Timer()
+        self.timer.sync_start()
         self.n_parts_dl = 0        
         self.parts = []
         self.status = "init"        
@@ -117,7 +125,9 @@ class AsyncHTTPDownloader():
                     if res.status_code > 400:
                         time.sleep(1)
                         cont -= 1
-                    else: break
+                    else: 
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {res} {res.request.headers} {res.headers}") 
+                        break
                 except Exception as e:
                     cont -= 1
             
@@ -128,8 +138,10 @@ class AsyncHTTPDownloader():
         finally:
             cl.close()
             
-        if cont > 0: _res = res.headers.get('content-range')
-        else: _res = None
+        if cont == 0: _res = None
+        else:
+            _res = res.headers.get('accept-ranges') or res.headers.get('content-range')
+        
         
         return (_res)
         
@@ -193,7 +205,7 @@ class AsyncHTTPDownloader():
             
         elif (_chunksize:=self.filesize // self.n_parts) < self._MIN_SIZE: #size of parts cant be less than _MIN_SIZE
             temp = self.filesize // self._MIN_SIZE            
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: size chunk [{_chunksize}] < {self._MIN_SIZE} -> change nparts [{self.n_parts} -> {temp}]")
+            self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: size chunk [{_chunksize}] < {self._MIN_SIZE} -> change nparts [{self.n_parts} -> {temp}]")
             self.n_parts = temp
             self._NUM_WORKERS = self.n_parts            
         
@@ -206,7 +218,7 @@ class AsyncHTTPDownloader():
                                     'tempfilesize': (_tfs:=(self.filesize // self.n_parts + self.filesize % self.n_parts)), 'headersize' : None, 'hsizeoffset': None, 'size' : -1,
                                     'nchunks': _tfs // self._CHUNK_SIZE, 'nchunks_dl': 0, 'time2dlchunks': [], 'statistics': []})             
                 else:
-                    end_range = start_range + (self.filesize//self.n_parts)
+                    end_range = start_range + (self.filesize//self.n_parts - 1)
                     self.parts.append({'part': i , 'offset': 0, 'start': start_range, 'end': end_range, 'headers' : [{'range' : f'bytes={start_range}-{end_range}'}], 'dl' : False,
                                     'filepath': Path(self.download_path, f"{self.filename.stem}_part_{i}_of_{self.n_parts}"),
                                     'tempfilesize': (_tfs:=(self.filesize // self.n_parts)), 'headersize' : None, 'hsizeoffset': None, 'size': -1, 
@@ -308,7 +320,7 @@ class AsyncHTTPDownloader():
                             part['hsizeoffset'] = _hsizeoffset
                             self.parts_to_dl.append(part['part'])
                             self.down_size += partsize 
-                            self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[feed queue]\n{part}\n{self.parts[i]}")
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[feed queue]\n{part}\n{self.parts[i]}")
                         else:
                             part = _old_part
                             part['filepath'].unlink()
@@ -387,6 +399,10 @@ class AsyncHTTPDownloader():
                                     
                                     num_bytes_downloaded = res.num_bytes_downloaded
                                     
+                                    self.parts[part-1]['nchunks_dl'] = 0
+                                    self.parts[part-1]['time2dlchunks'] = []
+                                    self.parts[part-1]['statistics'] = []
+                                    
                                     await _timer.async_start()
                                     
                                     async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE): 
@@ -404,13 +420,14 @@ class AsyncHTTPDownloader():
                                         self.parts[part-1]['statistics'].append(_median)
                                                 
                                         if self.parts[part-1]['nchunks_dl'] > 10:
-                                            if  (((_time1:=self.parts[part-1]['time2dlchunks'][-1]) > (_max1:=5*self.parts[part-1]['statistics'][-2])) and
-                                                    ((_time2:=self.parts[part-1]['time2dlchunks'][-2]) > (_max2:=5*self.parts[part-1]['statistics'][-3])) and   
-                                                        ((_time3:=self.parts[part-1]['time2dlchunks'][-3]) > (_max3:=5*self.parts[part-1]['statistics'][-4]))): 
+                                            if  (((_time1:=self.parts[part-1]['time2dlchunks'][-1]) > (_max1:=15*self.parts[part-1]['statistics'][-1])) and
+                                                    ((_time2:=self.parts[part-1]['time2dlchunks'][-2]) > (_max2:=15*self.parts[part-1]['statistics'][-2])) and   
+                                                        ((_time3:=self.parts[part-1]['time2dlchunks'][-3]) > (_max3:=15*self.parts[part-1]['statistics'][-3]))): 
                                             
                                                 raise AsyncHTTPDLError(f"timechunk [{_time1}, {_time2}, {_time3}] > [{_max1}, {_max2}, {_max3}] for 3 consecutives chunks")
                                         
                                         await asyncio.sleep(0)
+                                        await _timer.async_start()
                                                                         
                         _size = (await asyncio.to_thread(tempfilename.stat)).st_size
                         self.parts[part-1]['size'] = _size
@@ -429,7 +446,7 @@ class AsyncHTTPDownloader():
                         
                     except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError) as e:
                         lines = traceback.format_exception(*sys.exc_info())
-                        self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")
                         raise
                             
                     except Exception as e:
@@ -437,28 +454,38 @@ class AsyncHTTPDownloader():
                         n_repeat += 1
                         
                         if "httpx" in str(e.__class__) or "AsyncHTTPDLError" in str(e.__class__): 
-                            self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch]-res] part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")                           
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch]-res] part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")                           
                             
-                            if n_repeat < 5:
+                            if n_repeat < 10:
                                 _size = (await asyncio.to_thread(tempfilename.stat)).st_size
-                                self.parts[part-1]['offset'] = _size + 1                                
+                                ##self.parts[part-1]['offset'] = _size + 1 
+                                self.parts[part-1]['offset'] = _size                               
                                 _hsizeoffset = self.upt_hsize(part - 1, offset=True) 
-                                await res.aclose()
+                                #await res.aclose()
                                 await client.aclose()
-                                await self.wait_time(5)
+                                await self.wait_time(1)
                                 client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
                                 await asyncio.sleep(0)
                             else:
                                 raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
                         else:
-                            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected {repr(e)}, will retry \n{'!!'.join(lines)}") 
+                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected {repr(e)}, will retry \n{'!!'.join(lines)}") 
                             
                             
                     
-                    finally:
-                        await res.aclose()
+                    # finally:
+                    #     try:
+                    #         await res.aclose()
+                    #     except Exception as e:
+                    #         self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch]-res] part[{part}] error {repr(e)}")
+                             
                     
-            
+        # except Exception as e:
+        #     lines = traceback.format_exception(*sys.exc_info())            
+        #     if not "AsyncHTTPErrorFatal" in str(e.__class__):
+        #         self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] error {repr(e)} \n{'!!'.join(lines)}")
+        #     else: raise
+                
         finally:
             await client.aclose()
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] says bye")
@@ -491,9 +518,18 @@ class AsyncHTTPDownloader():
             lines = traceback.format_exception(*sys.exc_info())                
             self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
 
+        if (_parts_not_dl:= await asyncio.to_thread(self.partsnotdl)):
+            self.status = "error"
+        
+        else:
+            self.status = "manipulating"  
 
-        self.status = "manipulating"  
-
+    def partsnotdl(self):
+        res = []
+        for part in self.parts:
+            if part['dl'] == False:
+                res.append(part['part'])
+        return res
        
     def sync_clean_when_error(self):
             
@@ -504,51 +540,52 @@ class AsyncHTTPDownloader():
    
     def ensamble_file(self):
         
-        part_files = natsorted((file for file in self.download_path.iterdir() if file.is_file() and file.name.startswith(self.filename.stem)), alg=ns.PATH)
-        
-        #self.logger.debug(part_files)
+   
         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] start ensambling {self.filename}")
-                    
-        if len(part_files) != self.n_parts:
-            
-            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Number of part files {len(part_files)} != parts {self.n_parts}")
         
-        else:
-            
-            try:           
-            
-                with open(self.filename, 'wb') as dest:
-                    for p in self.parts:
-                        if p['filepath'].exists() and p['dl'] == True:
-                            p['size'] = p['filepath'].stat().st_size
-                            if (p['headersize'] - 5 <= p['size'] <= p['headersize'] + 5):
-                                
-                                with open(p['filepath'], 'rb') as source:
-                                    dest.write(source.read())
-                            else: raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling: {p} ")
-                        else:
-                            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling: {p} ")
-                 
+        try:           
+        
+            with open(self.filename, 'wb') as dest:
+                for p in self.parts:
+                    if p['filepath'].exists():
+                        p['size'] = p['filepath'].stat().st_size
+                        if (p['headersize'] - 5 <= p['size'] <= p['headersize'] + 5):
+                            
+                            with open(p['filepath'], 'rb') as source:
+                                dest.write(source.read())
+                        else: raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling: {p} ")
+                    else:
+                        raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling: {p} ")
+                
 
-            except Exception as e:
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling parts {str(e)}")
-                if self.filename.exists(): self.filename.unlink()
-                self.status = "error"
-                self.sync_clean_when_error()               
-                raise   
-            
-            if self.filename.exists():
-                rmtree(str(self.download_path),ignore_errors=True)
-                self.status = "done" 
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] file ensambled")               
-            else:
-                self.status = "error"  
-                self.sync_clean_when_error()                        
-                raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling parts")
+        except Exception as e:
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling parts {str(e)}")
+            if self.filename.exists(): self.filename.unlink()
+            self.status = "error"
+            self.sync_clean_when_error()               
+            raise   
+        
+        if self.filename.exists():
+            rmtree(str(self.download_path),ignore_errors=True)
+            self.status = "done" 
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] file ensambled")               
+        else:
+            self.status = "error"  
+            self.sync_clean_when_error()                        
+            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling parts")
             
             
             
     def print_hookup(self):
+        
+        _time = self.timer.sync_elapsed()
+        _bytes = self.down_size - self.down_temp
+        _speed = _bytes / _time
+        if _speed != 0: 
+            _eta = datetime.timedelta(seconds=((self.filesize - self.down_size)/_speed))
+            _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")])
+        else: _eta_str = "--"
+        
         
         if self.status == "done":
             return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")
@@ -557,8 +594,11 @@ class AsyncHTTPDownloader():
         elif self.status == "error":
             return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
         elif self.status == "downloading":           
-            return (f"[HTTP][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")
+            return (f"[HTTP][{self.info_dict['format_id']}]: DL[{naturalsize(_speed)}s] PR[{naturalsize(self.down_size)}/{naturalsize(self.filesize)}]({(self.down_size/self.filesize)*100:.2f}%) ETA[{_eta_str}] PARTS[{self.n_parts_dl}/{self.n_parts}]\n")
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
             return (f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")       
+
+        self.timer.sync_start()
+        self.down_temp = self.down_size

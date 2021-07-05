@@ -24,7 +24,7 @@
     },
     "filterytdl" : {
         "()": "supportlogging.FilterModule",
-        "patterns": ["youtube_dl"]
+        "patterns": ["____youtube_dl____"]
     }    
   },
   "handlers": {

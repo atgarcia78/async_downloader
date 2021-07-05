@@ -15,6 +15,10 @@ from asynchlsdownloader import (
 from asyncdashdownloader import (
      AsyncDASHDownloader    
 )
+from asyncaria2cdownloader import (
+     AsyncARIA2CDownloader    
+)
+
 from utils import ( 
     naturalsize,
 )
@@ -28,9 +32,12 @@ from shutil import rmtree, move
 import functools
 
 
+
+
+
 class VideoDownloader():
     
-    def __init__(self, video_dict, ytdl, n_workers, dlpath=None):
+    def __init__(self, video_dict, ytdl, n_workers, dlpath=None, aria2c=None):
         
         self.logger = logging.getLogger("video_DL")
         #self.alogger = AsyncLogger(self.logger)
@@ -50,17 +57,28 @@ class VideoDownloader():
         _date_file = datetime.now().strftime("%Y%m%d")
         _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not dlpath else Path(dlpath, self.info_dict['id'])
         
+        
+        
+            
+        
+            
+        
         self.info_dl = dict({
             
             'id': self.info_dict['id'],
             'n_workers': n_workers,
+            'aria2c': aria2c,
             'webpage_url': self.info_dict.get('webpage_url'),
             'title': self.info_dict.get('title'),
             'ytdl': ytdl,
             'date_file': _date_file,
             'download_path': _download_path,
             'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
-        })        
+        })  
+        
+        
+            
+              
         
                
         self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
@@ -76,45 +94,27 @@ class VideoDownloader():
                 _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url']})
                 downloaders.append(self._get_dl(_new_info_dict))        
         
-            
+        res = sorted(list(set([dl.status for dl in downloaders])))    
         self.info_dl.update({
             'downloaders': downloaders,
             'filesize': sum([dl.filesize for dl in downloaders]),
             'down_size': sum([dl.down_size for dl in downloaders]),
-            'status': "init_manipulating" if ((len(res:=set([dl.status for dl in downloaders])) == 1) and (res.pop() == "manipulating")) else "init"             
+            'status': "init_manipulating" if (res == ["manipulating"] or res == ["done"] or res == ["done", "manipulating"]) else "init"             
         })
                 
     
-    def _get_info_dl(info_dict):
-    
-        if info_dict.get("_type") == "playlist":
-            f_info_dict = info_dict['entries'][0]
-        else: f_info_dict = info_dict
-        if f_info_dict.get('requested_formats'):
-            protocol = determine_protocol(f_info_dict['requested_formats'][0])
-            container = f_info_dict['requested_formats'][0].get('container')
-            if container and "dash" in container:
-                protocol = "http_dash_segments"
-            return(protocol, f_info_dict)
-        else:
-            protocol = determine_protocol(f_info_dict)
-            container = f_info_dict.get('container')
-            if container and "dash" in container:
-                protocol = "http_dash_segments"
-            return (protocol, f_info_dict)
+
     
     def _get_dl(self, info):
         
         protocol = determine_protocol(info)
         if protocol in ('http', 'https'):
-            dl = AsyncHTTPDownloader(info, self)
-            _type = "http"
+            if not self.info_dl['aria2c']: dl = AsyncHTTPDownloader(info, self)
+            else: dl = AsyncARIA2CDownloader(info, self)           
         elif protocol in ('m3u8', 'm3u8_native'):
-            dl = AsyncHLSDownloader(info, self)
-            _type = "hls"
+            dl = AsyncHLSDownloader(info, self)            
         elif protocol in ('http_dash_segments', 'dash'):
-            dl = AsyncDASHDownloader(info, self) 
-            _type = "dash"
+            dl = AsyncDASHDownloader(info, self)             
             #raise NotImplementedError("dl dash not supported")           
             
         else:
@@ -141,8 +141,9 @@ class VideoDownloader():
                     self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
                     
       
+        res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
             
-        self.info_dl['status'] = "init_manipulating" if ((len(res:=set([dl.status for dl in self.info_dl['downloaders']])) == 1) and (res.pop() == "manipulating")) else "error" 
+        self.info_dl['status'] = "init_manipulating" if (res == ["manipulating"] or res == ["done"] or res == ["done", "manipulating"]) else "error"
         
     async def run_manip(self):
         
@@ -152,22 +153,25 @@ class VideoDownloader():
             self.info_dl['status'] = "creating"
             loop = asyncio.get_running_loop()
             ex = ThreadPoolExecutor(max_workers=len(self.info_dl['downloaders']))
-            blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders']]
+            blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if dl._type != 'aria2c' ]
             #await asyncio.sleep(0)
-            done, pending = await asyncio.wait(blocking_tasks, return_when=asyncio.ALL_COMPLETED)
+            if blocking_tasks:
+                done, pending = await asyncio.wait(blocking_tasks, return_when=asyncio.ALL_COMPLETED)
             
-            for t in done:
-                
-                try:
-                    t.result()
-                except Exception as e:
-                    lines = traceback.format_exception(*sys.exc_info())                
-                    self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: {repr(e)}\n{'!!'.join(lines)}")
-        
+                for t in done:
+                    
+                    try:
+                        t.result()
+                    except Exception as e:
+                        lines = traceback.format_exception(*sys.exc_info())                
+                        self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: {repr(e)}\n{'!!'.join(lines)}")
+            
             res = True
             for dl in self.info_dl['downloaders']:
-                self.logger.info(f"{dl.filename} exists: [{dl.filename.exists()}] status: [{dl.status}]")
-                res = res and (dl.filename.exists() and dl.status == "done")
+                res = res and (_exists:= await asyncio.to_thread(dl.filename.exists)) and dl.status == "done"
+                self.logger.info(f"{dl.filename} exists: [{_exists}] status: [{dl.status}]")
+                if not res: break
+                
             
             if res:    
                 self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}] ensambled OK")            
@@ -182,7 +186,6 @@ class VideoDownloader():
                         
                         _btask = asyncio.create_task(self._postffmpeg(cmd))
                         done, _ = await asyncio.wait([_btask])
-                        rc = -1
                         try:
                             for d in done: rc = d.result()
                         except Exception as e:
@@ -191,20 +194,30 @@ class VideoDownloader():
                         
                     else:
                         
-                        _btask = asyncio.create_task(asyncio.to_thread(shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename']))
-                        done, _ = await asyncio.wait([_btask])
-                        res = -1 
+                        # _btask = asyncio.create_task(asyncio.to_thread(shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename']))
+                        # done, _ = await asyncio.wait([_btask])
+                        # res = -1 
+                        # try:
+                        #     for d in done: res = d.result()
+                        # except Exception as e:
+                        #     lines = traceback.format_exception(*sys.exc_info())                
+                        #     self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")                       
+                        rc = -1
                         try:
-                            for d in done: res = d.result()
+                            
+                            res = await asyncio.to_thread(shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename'])
+                            if (res == self.info_dl['filename']): rc = 0
+                            
+                            
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())                
-                            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")                       
+                            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
+                            
                         
-                        if res == self.info_dl['filename']: rc = 0  
-                        else: rc = -1                 
+                                    
           
-                    _afile = AsyncPath(self.info_dl['filename'])
-                    if rc == 0 and (await _afile.exists()):                        
+                    
+                    if rc == 0 and (await asyncio.to_thread(self.info_dl['filename'].exists)):                        
                         self.info_dl['status'] = "done"
                     else:
                         self.info_dl['status'] = "error"
@@ -239,7 +252,9 @@ class VideoDownloader():
                 if self.info_dl['status'] == "done":
                     await asyncio.to_thread(functools.partial(rmtree, self.info_dl['download_path'], ignore_errors=True))
                     
-                 
+            
+            else: self.info_dl['status'] = "error"
+                               
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")

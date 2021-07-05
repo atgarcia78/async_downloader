@@ -34,7 +34,9 @@ from utils import (
 
 import aiofiles
 
+from statistics import median
 
+import datetime
 
 class AsyncHLSDLErrorFatal(Exception):
     
@@ -64,8 +66,9 @@ class AsyncHLSDLReset(Exception):
 
 class AsyncHLSDownloader():
 
-    _CHUNK_SIZE = 1048576
+    #_CHUNK_SIZE = 1048576
     #_CHUNK_SIZE = 1024
+    _CHUNK_SIZE = 102400
        
     def __init__(self, video_dict, vid_dl):
 
@@ -106,10 +109,16 @@ class AsyncHLSDownloader():
         self.key_cache = dict()
         self.n_reset = 0
         
+        
   
-
+        self.down_size = 0
+        self.down_temp = 0
         self.prep_init()        
-        self.status = "init"            
+        self.status = "init"  
+        
+        
+        self.timer = httpx._utils.Timer()
+        self.timer.sync_start()          
                 
     
     def prep_init(self):
@@ -132,9 +141,10 @@ class AsyncHLSDownloader():
         byte_range = {}            
         
         self.n_dl_segments = 0
-        self.down_size = 0
+        
         
         self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
+        self.abr = self.info_dict.get('abr', 0)
 
         for i, segment in enumerate(self.m3u8_obj.segments):
                                 
@@ -205,50 +215,57 @@ class AsyncHLSDownloader():
             self.totalduration += segment.duration
             
     def calculate_filesize(self):                
-        self.filesize = int(self.totalduration * 1000 * self.tbr / 8)
+        self.filesize = int(self.totalduration * 1000 * self.tbr / 8) or int(self.totalduration * 1000 * self.abr / 8)
         
     
     def reset(self):         
         #async with self.reslock:
             #ya tenemos toda la info, sólo queremos refrescar la info de los segmentos
-            
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:get video dict: {self.webpage_url}")
+        count = 0
         
-        try:
+        while (count < 5):    
+        
+            try:
             
-            info = self.ytdl.extract_info(self.webpage_url, download=False, process=False)
-            if not info.get('format_id') and not info.get('requested_formats'):                                
-                info_reset = self.ytdl.process_ie_result(info,download=False)
-            else:
-                info_reset = info
-            
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
-            
-            
-        except Exception as e:
-            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:fails no descriptor {e}")
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{count}]:get video dict: {self.webpage_url}")
+                
+                try:
+                    
+                    info = self.ytdl.extract_info(self.webpage_url, download=False, process=False)
+                    if not info.get('format_id') and not info.get('requested_formats'):                                
+                        info_reset = self.ytdl.process_ie_result(info,download=False)
+                    else:
+                        info_reset = info
+                    
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
+                    
+                    
+                except Exception as e:
+                    raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:fails no descriptor {e}")
 
-        if not info_reset:
-            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: fails no descriptor")         
+                if not info_reset:
+                    raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: fails no descriptor")         
 
-        try: 
-            if info_reset.get('requested_formats'):
-                info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
-                self.prep_reset(info_format[0])
-            else: self.prep_reset(info_reset)
-            self.n_reset += 1
-        except Exception as e:
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
-            raise AsyncHLSDLErrorFatal("RESET fails: preparation segs failed")
-    
+                try: 
+                    if info_reset.get('requested_formats'):
+                        info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
+                        self.prep_reset(info_format[0])
+                    else: self.prep_reset(info_reset)
+                    break
+                except Exception as e:
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
+                    raise AsyncHLSDLErrorFatal("RESET fails: preparation segs failed")
+            except Exception as e:
+                count += 1
+                if count == 5: raise AsyncHLSDLErrorFatal("Reset failed")    
+        
+        self.n_reset += 1
     
     def prep_reset(self, info_reset):       
        
- 
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
         self.video_url = self.info_dict['url'] = info_reset.get('url')
-        self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')        
-     
+        self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
 
         self.segs_to_dl = []
 
@@ -354,10 +371,6 @@ class AsyncHLSDownloader():
                         
                         async with aiofiles.open(filename, mode='ab') as f:
                             
-                            # req = client.build_request("GET",url, headers=headers)
-                            
-                            # res = await client.send(req, stream=True)
-                            
                             async with client.stream("GET", url, headers=headers, timeout=30) as res:
                                                  
                             
@@ -403,9 +416,13 @@ class AsyncHLSDownloader():
                                     
                                     num_bytes_downloaded = res.num_bytes_downloaded
                                 
-                                    await _timer.async_start()
+                                    
                                     
                                     self.info_seg[q - 1]['time2dlchunks'] = []
+                                    self.info_seg[q - 1]['nchunks_dl'] = 0
+                                    self.info_seg[q - 1]['statistics'] = []
+                                    
+                                    await _timer.async_start()
                                     
                                     async for chunk in res.aiter_bytes(chunk_size=_chunk_size): 
                                         
@@ -418,7 +435,17 @@ class AsyncHLSDownloader():
                                         async with self.video_downloader.lock:
                                             self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded))                                        
                                             self.video_downloader.info_dl['down_size'] += _iter_bytes 
-                                        num_bytes_downloaded = res.num_bytes_downloaded                                        
+                                        num_bytes_downloaded = res.num_bytes_downloaded
+                                        self.info_seg[q - 1]['nchunks_dl'] += 1 
+                                        _median = median(self.info_seg[q-1]['time2dlchunks'])
+                                        self.info_seg[q - 1]['statistics'].append(_median)
+                                        if self.info_seg[q -1]['nchunks_dl'] > 10:
+                                            if  (((_time1:=self.info_seg[q -1]['time2dlchunks'][-1]) > (_max1:=15*self.info_seg[q -1]['statistics'][-1])) and
+                                                    ((_time2:=self.info_seg[q -1]['time2dlchunks'][-2]) > (_max2:=15*self.info_seg[q -1]['statistics'][-2])) and   
+                                                        ((_time3:=self.info_seg[q -1]['time2dlchunks'][-3]) > (_max3:=15*self.info_seg[q -1]['statistics'][-3]))): 
+                                            
+                                                raise AsyncHLSDLErrorFatal(f"timechunk [{_time1}, {_time2}, {_time3}] > [{_max1}, {_max2}, {_max3}] for 3 consecutives chunks, nchunks[{self.info_seg[q -1]['nchunks_dl']}]")
+                                                                               
                                         await _timer.async_start()
                                     
                         _size = (await asyncio.to_thread(filename.stat)).st_size
@@ -449,7 +476,8 @@ class AsyncHLSDownloader():
                     except Exception as e:                        
                         self.info_seg[q - 1]['error'].append(repr(e))
                         lines = traceback.format_exception(*sys.exc_info())
-                        self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error {repr(e)}")
+                        if not "httpx" in str(e.__class__) and not "AsyncHLSDLError" in str(e.__class__):
+                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error {str(e.__class__)}")
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: error {repr(e)} \n{'!!'.join(lines)}")
                         self.info_seg[q - 1]['n_retries'] += 1
                         if (await asyncio.to_thread(filename.exists)):
@@ -462,7 +490,7 @@ class AsyncHLSDownloader():
                         
                         if self.info_seg[q - 1]['n_retries'] < 5:
                                                      
-                                await res.aclose()
+                                #await res.aclose()
                                 await client.aclose()
                                 await self.wait_time(random.choice([i for i in range(1,5)]))
                                 client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
@@ -473,10 +501,15 @@ class AsyncHLSDownloader():
                             self.info_seg[q - 1]['error'].append("MaxLimitRetries")
                             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]:MaxLimitRetries")
                             raise AsyncHLSDLErrorFatal(f"MaxLimitretries seg[{q}]")
-                    finally:
-                        await res.aclose() 
+                    # finally:
+                    #     await res.aclose() 
                         
-
+        # except Exception as e:
+        #     lines = traceback.format_exception(*sys.exc_info())
+        #     if not "AsyncHLSErrorFatal" in str(e.__class__):
+        #         self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: error {repr(e)} \n{'!!'.join(lines)}")
+        #     else: raise
+            
         finally:    
             await client.aclose()
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
@@ -516,15 +549,18 @@ class AsyncHLSDownloader():
    
                 if pending:
                     #__pending_tasks = [t for t in self.tasks if not t.cancelled() and not t.done()]
-                    _pending_tasks = [t for t in pending if not t.cancelled() and not t.done()]
+                    #_pending_tasks = [t for t in pending if not t.cancelled() and not t.done()]
                     
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] PENDING {_pending_tasks}") 
-                    for t in _pending_tasks: t.cancel()
-                    # for _task in _pending_tasks:
-                    #     if not _task.done() and not _task.cancelled(): _task.cancel()
-                    await asyncio.gather(*_pending_tasks,return_exceptions=True)
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] PENDING {pending}") 
+                    #for t in _pending_tasks: t.cancel() 
+                    #await asyncio.gather(*_pending_tasks,return_exceptions=True)
+                    for t in pending: t.cancel()
+                    await asyncio.gather(*pending,return_exceptions=True)
                     await asyncio.sleep(0)
                     
+                inc_segs_dl = (_nsegsdl:=len(self.segsdl())) - n_segs_dl
+                n_segs_dl = _nsegsdl
+                
                 if done:
                     _res = []
                     for t in done:
@@ -538,20 +574,67 @@ class AsyncHLSDownloader():
                         if (("AsyncHLSDLErrorFatal" in e) or ("CancelledError" in e)): raise AsyncHLSDLReset(e)
    
             
-            except AsyncHLSDLReset as e:
+            except Exception as e:
                 
                 lines = traceback.format_exception(*sys.exc_info())
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:RESET:{repr(e)}\n{'!!'.join(lines)}")
+                
+                if "AsyncHLSDLReset" in  str(e.__class__):
+                
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:RESET:{repr(e)}\n{'!!'.join(lines)}")
 
-                
-                #if (not self.reslock.locked()) and (self.n_reset < 10):
-                if self.n_reset < 10:
-                
-                    n = 0
-                    while(n < 5):
-                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{n}]")
+                    
+                    #if (not self.reslock.locked()) and (self.n_reset < 10):
+                    if self.n_reset < 10:
+                    
+                        
+                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}] {e}")
                         await asyncio.sleep(0)
                         
+                        try:
+                            #await self.wait_time(1)
+                            _reset_task = asyncio.create_task(asyncio.to_thread(self.reset))
+                            done, pending = await asyncio.wait([_reset_task])
+                            await asyncio.sleep(0)
+                            for d in done:d.result()
+                            self.segs_queue = asyncio.Queue()
+                            for seg in self.segs_to_dl: self.segs_queue.put_nowait(seg)
+                            for _ in range(self.iworkers): self.segs_queue.put_nowait("KILL")
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending segs {len(self.segsnotdl())}") 
+                            #await self.wait_time(1)
+                            continue 
+                            
+                        except Exception as e:
+                            lines = traceback.format_exception(*sys.exc_info())
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                            self.status = "error"
+                            await self.clean_when_error()
+                            await asyncio.sleep(0)
+                            raise AsyncHLSDLErrorFatal("ERROR reset couldnt progress")
+                    
+                    else:
+                        
+                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
+                        self.status = "error"
+                        await self.clean_when_error()
+                        await asyncio.sleep(0)
+                        raise AsyncHLSDLErrorFatal("ERROR max resets")     
+                
+                else:
+                
+                
+                    self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception {repr(e)} \n{'!!'.join(lines)}")
+
+                
+            else:
+                
+                if not self.segsnotdl(): 
+                    #todos los segmentos en local
+                    break
+                else:                    
+                    #raise AsyncHLSDLErrorFatal("reset") 
+                    if (inc_segs_dl > 0):
+                        
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_segs_dl} -> {inc_segs_dl}] new cycle with no fatal error")
                         try:
                             _reset_task = asyncio.create_task(asyncio.to_thread(self.reset))
                             done, pending = await asyncio.wait([_reset_task])
@@ -560,53 +643,26 @@ class AsyncHLSDownloader():
                             self.segs_queue = asyncio.Queue()
                             for seg in self.segs_to_dl: self.segs_queue.put_nowait(seg)
                             for _ in range(self.iworkers): self.segs_queue.put_nowait("KILL")
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending segs {len(self.segsnotdl())}") 
+                            self.n_reset -= 1
+                            continue 
                             
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{n}]:ERROR:[{repr(e)}]\n{'!!'.join(lines)}")
-                            n += 1 
-                            if n == 5:
-                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{n}]:ERROR:Max number of attemps in a RESET")                        
-    
-                                self.status = "error"
-                                await self.clean_when_error()
-                                await asyncio.sleep(0)
-                                raise   
-                               
-                        else:
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{n}]:OK:Pending segs {len(self.segsnotdl())}")                            
-                            break                    
-                   
-                else:
-                    if self.n_reset == 10:
-                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{n}]:ERROR:Max_number_of_resets")  
-                        self.status = "error"
-                        await self.clean_when_error()
-                        await asyncio.sleep(0)
-                        raise       
-                
-            except Exception as e:
-                
-                lines = traceback.format_exception(*sys.exc_info())
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception {repr(e)} \n{'!!'.join(lines)}")
-
-            else:    
-                if not self.segsnotdl(): 
-                    #todos los segmentos en local
-                    break
-                else:                    
-                    #raise AsyncHLSDLErrorFatal("reset") 
-                    if (inc_segs_dl:=len(self.segsdl())) > n_segs_dl:
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                            self.status = "error"
+                            await self.clean_when_error()
+                            await asyncio.sleep(0)
+                            raise AsyncHLSDLErrorFatal("ERROR reset couldnt progress")
                         
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_segs_dl} -> {inc_segs_dl}] new cycle with no fatal error")
                     else:
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_segs_dl} <-> {inc_segs_dl}] no improvement, lets raise an error")
                         
                         raise AsyncHLSDLError("no changes in number of dl segs in once cycle")                    
-        
+            
 
         
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
+        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Segs DL completed")
 
 
         self.status = "manipulating"
@@ -691,19 +747,26 @@ class AsyncHLSDownloader():
 
     def print_hookup(self): 
         
-        if self.filesize == 0: _est_size = "NA"
-        else: _est_size = naturalsize(self.filesize)
+        _time = self.timer.sync_elapsed()
+        _bytes = self.down_size - self.down_temp
+        _speed = _bytes / _time
+        if _speed != 0: 
+            _eta = datetime.timedelta(seconds=((self.filesize - self.down_size)/_speed))
+            _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")])
+        else: _eta_str = "--"
             
         if self.status == "done":
             return (f"[HLS][{self.info_dict['format_id']}]: Completed \n")
         elif self.status == "init":
-            return (f"[HLS][{self.info_dict['format_id']}]: Waiting to DL [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")            
+            return (f"[HLS][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}] [{self.n_dl_segments}/{self.n_total_segments}]\n")            
         elif self.status == "error":
-            return (f"[HLS][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+            return (f"[HLS][{self.info_dict['format_id']}]: ERROR [{naturalsize(self.down_size)}/{naturalsize(self.filesize)}] [{self.n_dl_segments}/{self.n_total_segments}]\n")
         elif self.status == "downloading":             
-            return (f"[HLS][{self.info_dict['format_id']}]: Progress {naturalsize(self.down_size)} [{_est_size}][{self.n_dl_segments} of {self.n_total_segments}]\n")
+            return (f"[HLS][{self.info_dict['format_id']}]: DL[{naturalsize(_speed)}s] PR[{naturalsize(self.down_size)}/{naturalsize(self.filesize)}]({(self.down_size/self.filesize)*100:.2f}%) ETA[{_eta_str}] [{self.n_dl_segments}/{self.n_total_segments}]\n")
         elif self.status == "manipulating":
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
-            return (f"[HLS][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")
+            return (f"[HLS][{self.info_dict['format_id']}]: Ensambling [{naturalsize(_size)}/{naturalsize(self.filesize)}]({(_size/self.filesize)*100:.2f}%) \n")
             
+        self.timer.sync_start()
+        self.down_temp = self.down_size
