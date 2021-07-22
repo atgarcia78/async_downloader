@@ -6,15 +6,11 @@ from pathlib import Path
 import logging
 from utils import (
     naturalsize
-  
-
 )
-
-
-
 import traceback
 
 import aria2p
+import copy
 
 class AsyncARIA2CDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -108,12 +104,7 @@ class AsyncARIA2CDownloader():
     
     async def fetch_async(self):
 
-            
-             
-        self.status = "downloading"        
-    
-        
-        await asyncio.sleep(0)        
+       
         
         opts_dict = {'header': [f'{key} : {value}' for key,value in self.headers.items()],
                      'dir': str(self.download_path),
@@ -124,20 +115,25 @@ class AsyncARIA2CDownloader():
         try:
          
             
-            self.dl = await asyncio.to_thread(self.aria2_client.add_uris,[self.video_url], opts)
-            await asyncio.to_thread(self.dl.update)
-            while (self.dl.status not in ('complete','error','removed')):
-                _incsize = self.dl.completed_length - self.down_size
-                self.down_size = self.dl.completed_length 
-                async with self.video_downloader.lock:
+            self.dl_cont = await asyncio.to_thread(self.aria2_client.add_uris,[self.video_url], opts)
+            await asyncio.to_thread(self.dl_cont.update)
+            while not self.dl_cont.total_length:
+                await asyncio.sleep(0)
+                await asyncio.to_thread(self.dl_cont.update)
+                
+            self.status = "downloading"  
+            self.filesize = self.dl_cont.total_length
+            while self.dl_cont.status == 'active':
+                
+                                
+                _incsize = self.dl_cont.completed_length - self.down_size
+                self.down_size = self.dl_cont.completed_length
+                async with self.video_downloader.lock: 
                     self.video_downloader.info_dl['down_size'] += _incsize 
-                if not self.filesize:
-                    self.filesize = self.dl.total_length
-                self.speed = self.dl.download_speed_string()
-                self.progress = self.dl.progress_string()
-                self.connections = self.dl.connections
-                await asyncio.to_thread(self.dl.update)
-                await self.wait_time(0.1)
+                                               
+                #await self.wait_time(0.1)
+                await asyncio.sleep(0)
+                await asyncio.to_thread(self.dl_cont.update)
                 
                 
             
@@ -146,13 +142,11 @@ class AsyncARIA2CDownloader():
             lines = traceback.format_exception(*sys.exc_info())                
             self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
 
-        if self.dl.status == "complete": self.status = "done" 
+        if self.dl_cont.status == "complete": self.status = "done" 
         else: self.status = "error"
 
-       
-     
-    
-            
+        
+        
             
             
     def print_hookup(self):
@@ -163,8 +157,15 @@ class AsyncARIA2CDownloader():
             return (f"[ARIA2C][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}]\n")            
         elif self.status == "error":
             return (f"[ARIA2C][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]")
-        elif self.status == "downloading":           
-            return (f"[ARIA2C][{self.info_dict['format_id']}]: [{self.speed}] Conn[{self.connections}] [{self.progress}] [{naturalsize(self.down_size)}:{naturalsize(self.filesize)}]\n")
+        elif self.status == "downloading":
+            _temp = copy.deepcopy(self.dl_cont)    #mientras calculamos strings progreso no puede haber update de dl_cont, así que deepcopy de la instancia      
+            
+            _speed_str = _temp.download_speed_string()
+            _progress_str = _temp.progress_string()
+            _connections = _temp.connections
+            _eta_str = _temp.eta_string()
+                       
+            return (f"[ARIA2C][{self.info_dict['format_id']}]: DL[{_speed_str}] Conn[{_connections}] PR[{_progress_str}] [{naturalsize(self.down_size)}/{naturalsize(self.filesize)}]({(self.down_size/self.filesize)*100:.2f}%) ETA[{_eta_str}]\n")
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         

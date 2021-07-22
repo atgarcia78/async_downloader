@@ -221,11 +221,12 @@ def init_logging(file_path=None):
 def init_argparser():
     
     # UA_LIST = ["Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:80.0) Gecko/20100101 Firefox/80.0", "Mozilla/5.0 (Android 11; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0", "Mozilla/5.0 (iPad; CPU OS 10_15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/24.1 Mobile/15E148 Safari/605.1.15", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0"]
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:88.0) Gecko/20100101 Firefox/88.0"]
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
+    parser.add_argument("--winit", help="Number of init workers", default="0", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="best/bestvideo+bestaudio", type=str)
     parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
@@ -245,15 +246,15 @@ def init_argparser():
     parser.add_argument("-u", action="append", dest="collection", default=[])
     parser.add_argument("--byfilesize", help="order list of videos to dl by filesize", action="store_true")
     
-    parser.add_argument("--minsize", default=None, type=str)
-    parser.add_argument("--maxsize", default=None, type=str)
+    # parser.add_argument("--minsize", default=None, type=str)
+    # parser.add_argument("--maxsize", default=None, type=str)
     parser.add_argument("--name", action="append", dest="col_names", default=[])
     parser.add_argument("--lastres", help="use last result for get videos list", action="store_true")
     parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true")
     parser.add_argument("--path", default=None, type=str)
-    parser.add_argument("--isdl", default=None, type=str)
+    # parser.add_argument("--isdl", default=None, type=str)
     parser.add_argument("--caplinks", action="store_true")
-    parser.add_argument("--force", action="store_true")
+    # parser.add_argument("--force", action="store_true")
     parser.add_argument("--aria2c", action="store_true")
     
     
@@ -278,7 +279,8 @@ def init_ytdl(args):
         "usenetrc": True,
         "skip_download": True,        
         "logger" : logger,        
-        "nocheckcertificate" : args.nocheckcert   
+        "nocheckcertificate" : args.nocheckcert,
+        "winit" : str(args.winit)   
     }
 
     if args.proxy: ytdl_opts['proxy'] = args.proxy

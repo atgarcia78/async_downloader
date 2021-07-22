@@ -101,27 +101,24 @@ class AsyncDASHDownloader():
 
         self.key_cache = dict()
         self.n_reset = 0
-        
-  
         self.down_size = 0
         self.down_temp = 0
         self.prep_init()        
-        self.status = "init"   
-        
+        self.status = "init"
         self.timer = httpx._utils.Timer()
-        self.timer.sync_start()              
-                
+        self.timer.sync_start()
     
     def prep_init(self):
 
         self.info_frag = []
         self.frags_to_dl = []
         
-        
+
         self.n_dl_fragments = 0
         
         
         self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
+        self.abr = self.info_dict.get('abr', 0)
 
         for i, fragment in enumerate(self.info_dict['fragments']):
                                 
@@ -131,7 +128,8 @@ class AsyncDASHDownloader():
 
        
             
-            est_size = self.tbr * fragment.get('duration', 0) * 1000 / 8
+            _br = self.tbr or self.abr
+            est_size = int(_br * fragment.get('duration', 0) * 1000 / 8)
             
             if _file_path.exists():
                 size = _file_path.stat().st_size
@@ -158,7 +156,7 @@ class AsyncDASHDownloader():
         self.calculate_filesize() #get filesize estimated
         
         if self.filesize == 0: _est_size = "NA"
-        else: _est_size = naturalsize(self.filesize, False, False)
+        else: _est_size = naturalsize(self.filesize)
         self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
         
         if not self.frags_to_dl:
@@ -172,7 +170,8 @@ class AsyncDASHDownloader():
             self.totalduration += fragment.get('duration', 0)
             
     def calculate_filesize(self):                
-        self.filesize = int(self.totalduration * 1000 * self.tbr / 8)
+        _bitrate = self.tbr or self.abr                
+        self.filesize = int(self.totalduration * 1000 * _bitrate / 8)
         
     
     def reset(self):         
@@ -317,7 +316,7 @@ class AsyncDASHDownloader():
                                                 self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag{q}: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
                                                 break
                                             else:
-                                                await asyncio.to_thread(filename.unlink)
+                                                await f.truncate()
                                                 self.info_frag[q-1]['downloaded'] = False
                                                 async with self.video_downloader.lock:
                                                     self.n_dl_fragments -= 1
@@ -385,12 +384,26 @@ class AsyncDASHDownloader():
                     except AsyncDASHDLErrorFatal as e:
                         self.info_frag[q - 1]['error'].append(repr(e))
                         lines = traceback.format_exception(*sys.exc_info())
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: fatalError: \n{'!!'.join(lines)}")                                               
+                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: fatalError: \n{'!!'.join(lines)}")
+                        if (await asyncio.to_thread(filename.exists)):
+                            _size = (await asyncio.to_thread(filename.stat)).st_size                            
+                            await asyncio.to_thread(filename.unlink)
+                        
+                            async with self.video_downloader.lock:
+                                self.down_size -= _size                                        
+                                self.video_downloader.info_dl['down_size'] -= _size                                               
                         raise                 
                     except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError) as e:
                         self.info_frag[q - 1]['error'].append(repr(e))
                         lines = traceback.format_exception(*sys.exc_info())
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: CancelledError: \n{'!!'.join(lines)}")
+                        if (await asyncio.to_thread(filename.exists)):
+                            _size = (await asyncio.to_thread(filename.stat)).st_size                            
+                            await asyncio.to_thread(filename.unlink)
+                        
+                            async with self.video_downloader.lock:
+                                self.down_size -= _size                                        
+                                self.video_downloader.info_dl['down_size'] -= _size
                         raise                   
                     except Exception as e:                        
                         self.info_frag[q - 1]['error'].append(repr(e))

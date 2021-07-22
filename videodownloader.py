@@ -99,7 +99,7 @@ class VideoDownloader():
             'downloaders': downloaders,
             'filesize': sum([dl.filesize for dl in downloaders]),
             'down_size': sum([dl.down_size for dl in downloaders]),
-            'status': "init_manipulating" if (res == ["manipulating"] or res == ["done"] or res == ["done", "manipulating"]) else "init"             
+            'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init"             
         })
                 
     
@@ -128,7 +128,7 @@ class VideoDownloader():
         self.lock = asyncio.Lock()
         
         self.info_dl['status'] = "downloading"
-        tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status != "manipulating"]
+        tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status != "init_manipulating"]
         done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
         
     
@@ -143,18 +143,21 @@ class VideoDownloader():
       
         res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
             
-        self.info_dl['status'] = "init_manipulating" if (res == ["manipulating"] or res == ["done"] or res == ["done", "manipulating"]) else "error"
+        self.info_dl['status'] = "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "error"
         
     async def run_manip(self):
         
         try:
             self.lock = asyncio.Lock()
             
-            self.info_dl['status'] = "creating"
+            self.info_dl['status'] = "manipulating"
+            for dl in self.info_dl['downloaders']: 
+                if dl.status == 'init_manipulating': dl.status = 'manipulating'
+            
             loop = asyncio.get_running_loop()
             ex = ThreadPoolExecutor(max_workers=len(self.info_dl['downloaders']))
-            blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if dl._type != 'aria2c' ]
-            #await asyncio.sleep(0)
+            blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (dl._type != 'aria2c' and dl.status == 'manipulating')]
+            await asyncio.sleep(0)
             if blocking_tasks:
                 done, pending = await asyncio.wait(blocking_tasks, return_when=asyncio.ALL_COMPLETED)
             
@@ -303,7 +306,7 @@ class VideoDownloader():
             return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.info_dl['down_size'])} [{naturalsize(self.info_dl['filesize'])}]\n {msg}\n")
         elif self.info_dl['status'] == "downloading":            
             return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Downloading {naturalsize(self.info_dl['down_size'])} [{naturalsize(self.info_dl['filesize'])}]\n {msg}\n")
-        elif self.info_dl['status'] == "creating": 
+        elif self.info_dl['status'] == "manipulating": 
             if self.info_dl['filename'].exists(): _size = self.info_dl['filename'].stat().st_size
             else: _size = 0
             return (f"[{self.info_dict['id']}][{self.info_dict['title']}]:  Ensambling/Merging {naturalsize(_size)} [{naturalsize(self.info_dl['filesize'])}]\n {msg}\n")

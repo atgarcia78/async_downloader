@@ -51,6 +51,7 @@ class AsyncHTTPDownloader():
     _MIN_SIZE = 1048576 #1MB
     _CHUNK_SIZE = 102400 #100KB
     #_CHUNK_SIZE = 1048576 #1MB
+    _MAX_RETRIES = 20
     
     
     
@@ -82,7 +83,7 @@ class AsyncHTTPDownloader():
             self.proxies = f"http://{self.proxies}"
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
-        self.timeout = httpx.Timeout(5, connect=30)
+        self.timeout = httpx.Timeout(10, connect=30)
         
         self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
         self.headers = self.info_dict.get('http_headers')  
@@ -176,7 +177,7 @@ class AsyncHTTPDownloader():
                     cont -= 1
                     
             
-            if cont >0: headers_size = res.headers.get('content-length')
+            if cont > 0: headers_size = res.headers.get('content-length')
             else: headers_size = None
             if headers_size:
                 headers_size = int(headers_size)
@@ -198,31 +199,33 @@ class AsyncHTTPDownloader():
   
     def create_parts(self):
        
-        start_range = 0
+       
         if not self.check_server(): #server can not handle ranges
             self._NUM_WORKERS = self.n_parts = 1
             self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: server cant handle ranges")
             
-        elif (_chunksize:=self.filesize // self.n_parts) < self._MIN_SIZE: #size of parts cant be less than _MIN_SIZE
+        elif (_partsize:=self.filesize // self.n_parts) < self._MIN_SIZE: #size of parts cant be less than _MIN_SIZE
             temp = self.filesize // self._MIN_SIZE            
-            self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: size chunk [{_chunksize}] < {self._MIN_SIZE} -> change nparts [{self.n_parts} -> {temp}]")
+            self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: size parts [{_partsize}] < {self._MIN_SIZE} -> change nparts [{self.n_parts} -> {temp}]")
             self.n_parts = temp
             self._NUM_WORKERS = self.n_parts            
         
+                
         try:
+            start_range = 0
             for i in range(1, self.n_parts+1):
                 
                 if i == self.n_parts:
-                    self.parts.append({'part': i, 'offset': 0, 'start': start_range, 'end': '', 'headers' : [{'range' : f'bytes={start_range}-'}], 'dl': False, 
+                    self.parts.append({'part': i, 'offset': 0, 'start': start_range, 'end': '', 'headers' : [{'range' : f'bytes={start_range}-'}], 'downloaded': False, 
                                     'filepath': Path(self.download_path, f"{self.filename.stem}_part_{i}_of_{self.n_parts}"),
                                     'tempfilesize': (_tfs:=(self.filesize // self.n_parts + self.filesize % self.n_parts)), 'headersize' : None, 'hsizeoffset': None, 'size' : -1,
-                                    'nchunks': _tfs // self._CHUNK_SIZE, 'nchunks_dl': 0, 'time2dlchunks': [], 'statistics': []})             
+                                    'nchunks': ((_nchunks:=(_tfs // self._CHUNK_SIZE)) + 1) if (_tfs % self._CHUNK_SIZE) else _nchunks, 'nchunks_dl': dict(), 'n_retries': 0, 'time2dlchunks': dict(), 'statistics': dict()})             
                 else:
                     end_range = start_range + (self.filesize//self.n_parts - 1)
-                    self.parts.append({'part': i , 'offset': 0, 'start': start_range, 'end': end_range, 'headers' : [{'range' : f'bytes={start_range}-{end_range}'}], 'dl' : False,
+                    self.parts.append({'part': i , 'offset': 0, 'start': start_range, 'end': end_range, 'headers' : [{'range' : f'bytes={start_range}-{end_range}'}], 'downloaded' : False,
                                     'filepath': Path(self.download_path, f"{self.filename.stem}_part_{i}_of_{self.n_parts}"),
                                     'tempfilesize': (_tfs:=(self.filesize // self.n_parts)), 'headersize' : None, 'hsizeoffset': None, 'size': -1, 
-                                    'nchunks': _tfs // self._CHUNK_SIZE, 'nchunks_dl': 0, 'time2dlchunks': [], 'statistics': []})
+                                    'nchunks': ((_nchunks:=(_tfs // self._CHUNK_SIZE)) + 1) if (_tfs % self._CHUNK_SIZE) else _nchunks, 'nchunks_dl': dict(), 'n_retries': 0, 'time2dlchunks': dict(), 'statistics': dict()})
                     
                     
                     start_range = end_range + 1
@@ -306,14 +309,14 @@ class AsyncHTTPDownloader():
                     elif _headersize - 5 <= partsize <= _headersize + 5: #with a error margen of +-100bytes,file is fully downloaded
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[feed queue] part[{part['part']}] exits with size {partsize} and full downloaded")
                         self.down_size += partsize                        
-                        part['dl'] = True
+                        part['downloaded'] = True
                         part['size'] = partsize
                         self.n_parts_dl += 1
                         continue
                     else: #there's something previously downloaded
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[feed queue] part[{part['part']}] exits with size {partsize} and not full downloaded {_headersize}. Re-define header range to start from the dl size")
                         _old_part = part 
-                        part['offset'] = partsize + 1                        
+                        part['offset'] = partsize                        
                         #part['headers'] = {'range' : f"bytes={part['offset']}-{part['end']}"}
                         _hsizeoffset = self.upt_hsize(i, offset=True)
                         if _hsizeoffset:
@@ -369,7 +372,7 @@ class AsyncHTTPDownloader():
                 if part == "KILL": break            
                 tempfilename = self.parts[part-1]['filepath']
 
-                n_repeat = 0
+                
                 await asyncio.sleep(0)
                 
                                
@@ -382,14 +385,13 @@ class AsyncHTTPDownloader():
                                                        
                             async with client.stream("GET", self.video_url, headers= self.parts[part-1]['headers'][-1]) as res:
                             
-                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}]: [fetch] resp code {str(res.status_code)}: rep {n_repeat}\n{res.request.headers}")
+                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}]: [fetch] resp code {str(res.status_code)}: rep {self.parts[part-1]['n_retries']}\n{res.request.headers}")
                         
                                 if res.status_code >= 400:
-                                    
-                                    n_repeat += 1
-                                    if n_repeat == 10:
+                                    if self.parts[part-1]['n_retries'] == self._MAX_RETRIES:
                                         raise AsyncHTTPDLError(f"error[{res.status_code}] part[{part}]")
                                     else:
+                                        self.parts[part-1]['n_retries'] += 1
                                         await self.wait_time(5) 
                                         continue
                                             
@@ -399,41 +401,42 @@ class AsyncHTTPDownloader():
                                     
                                     num_bytes_downloaded = res.num_bytes_downloaded
                                     
-                                    self.parts[part-1]['nchunks_dl'] = 0
-                                    self.parts[part-1]['time2dlchunks'] = []
-                                    self.parts[part-1]['statistics'] = []
+                                    nth_key = str(self.parts[part-1]['n_retries'])
+                                    self.parts[part-1]['nchunks_dl'].update({nth_key: 0})
+                                    self.parts[part-1]['time2dlchunks'].update({nth_key : []})
+                                    self.parts[part-1]['statistics'].update({nth_key : []})
                                     
+                                                                        
                                     await _timer.async_start()
                                     
                                     async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE): 
                                     
                                         _timechunk = await _timer.async_elapsed() 
-                                        self.parts[part-1]['time2dlchunks'].append(_timechunk)
+                                        self.parts[part-1]['time2dlchunks'][nth_key].append(_timechunk)
                                         await f.write(chunk)                                        
                                            
                                         async with self.video_downloader.lock:
                                             self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded))                                        
                                             self.video_downloader.info_dl['down_size'] += _iter_bytes 
                                         num_bytes_downloaded = res.num_bytes_downloaded
-                                        self.parts[part-1]['nchunks_dl'] += 1
-                                        _median = median(self.parts[part-1]['time2dlchunks'])
-                                        self.parts[part-1]['statistics'].append(_median)
+                                        self.parts[part-1]['nchunks_dl'][nth_key] += 1
+                                        _median = median(self.parts[part-1]['time2dlchunks'][nth_key])
+                                        self.parts[part-1]['statistics'][nth_key].append(_median)
                                                 
-                                        if self.parts[part-1]['nchunks_dl'] > 10:
-                                            if  (((_time1:=self.parts[part-1]['time2dlchunks'][-1]) > (_max1:=15*self.parts[part-1]['statistics'][-1])) and
-                                                    ((_time2:=self.parts[part-1]['time2dlchunks'][-2]) > (_max2:=15*self.parts[part-1]['statistics'][-2])) and   
-                                                        ((_time3:=self.parts[part-1]['time2dlchunks'][-3]) > (_max3:=15*self.parts[part-1]['statistics'][-3]))): 
-                                            
-                                                raise AsyncHTTPDLError(f"timechunk [{_time1}, {_time2}, {_time3}] > [{_max1}, {_max2}, {_max3}] for 3 consecutives chunks")
+                                        if self.parts[part-1]['nchunks_dl'][nth_key] > 10:
+                                        
+                                            _time = self.parts[part -1]['time2dlchunks'][nth_key][-5:]
+                                            _max = [20*_el for _el in self.parts[part -1]['statistics'][nth_key][-5:]]
+                                            if set([_el1>_el2 for _el1,_el2 in zip(_time, _max)]) == {True}:
+                                                raise AsyncHTTPDLErrorFatal(f"timechunk [{_time}] > [{_max}] for consecutives chunks in {nth_key} iteración, nchunks[{self.parts[part -1]['nchunks_dl'][nth_key]}]")
                                         
                                         await asyncio.sleep(0)
                                         await _timer.async_start()
                                                                         
-                        _size = (await asyncio.to_thread(tempfilename.stat)).st_size
-                        self.parts[part-1]['size'] = _size
-                        if (self.parts[part-1]['headersize'] - 5 <= _size <= self.parts[part-1]['headersize'] + 5):
-                            self.parts[part-1]['dl'] = True
-                            
+                        _tempfile_size = (await asyncio.to_thread(tempfilename.stat)).st_size                        
+                        if (self.parts[part-1]['headersize'] - 5 <=  _tempfile_size <= self.parts[part-1]['headersize'] + 5):
+                            self.parts[part-1]['downloaded'] = True
+                            self.parts[part-1]['size'] =  _tempfile_size
                             async with self.video_downloader.lock:
                                 self.n_parts_dl += 1
                             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}] OK DL: total {self.n_parts_dl}\n{self.parts[part-1]}")
@@ -451,17 +454,15 @@ class AsyncHTTPDownloader():
                             
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
-                        n_repeat += 1
                         
                         if "httpx" in str(e.__class__) or "AsyncHTTPDLError" in str(e.__class__): 
                             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch]-res] part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")                           
                             
-                            if n_repeat < 10:
-                                _size = (await asyncio.to_thread(tempfilename.stat)).st_size
-                                ##self.parts[part-1]['offset'] = _size + 1 
-                                self.parts[part-1]['offset'] = _size                               
+                            if self.parts[part-1]['n_retries'] < self._MAX_RETRIES:
+                                self.parts[part-1]['n_retries'] += 1
+                                _tempfile_size = (await asyncio.to_thread(tempfilename.stat)).st_size                                
+                                self.parts[part-1]['offset'] = _tempfile_size                               
                                 _hsizeoffset = self.upt_hsize(part - 1, offset=True) 
-                                #await res.aclose()
                                 await client.aclose()
                                 await self.wait_time(1)
                                 client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
@@ -470,25 +471,11 @@ class AsyncHTTPDownloader():
                                 raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
                         else:
                             self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected {repr(e)}, will retry \n{'!!'.join(lines)}") 
-                            
-                            
-                    
-                    # finally:
-                    #     try:
-                    #         await res.aclose()
-                    #     except Exception as e:
-                    #         self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch]-res] part[{part}] error {repr(e)}")
-                             
-                    
-        # except Exception as e:
-        #     lines = traceback.format_exception(*sys.exc_info())            
-        #     if not "AsyncHTTPErrorFatal" in str(e.__class__):
-        #         self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] error {repr(e)} \n{'!!'.join(lines)}")
-        #     else: raise
                 
         finally:
             await client.aclose()
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] says bye")
+            self.count -= 1
             
     
     async def fetch_async(self):
@@ -502,11 +489,11 @@ class AsyncHTTPDownloader():
         for _ in range(self._NUM_WORKERS):
             self.parts_queue.put_nowait("KILL")
             
-        self.status = "downloading"        
-    
+        self.status = "downloading"  
         
         await asyncio.sleep(0)        
         
+        self.count = self._NUM_WORKERS
         
         try:
                 
@@ -522,24 +509,24 @@ class AsyncHTTPDownloader():
             self.status = "error"
         
         else:
-            self.status = "manipulating"  
+            self.status = "init_manipulating"  
 
     def partsnotdl(self):
         res = []
         for part in self.parts:
-            if part['dl'] == False:
+            if part['downloaded'] == False:
                 res.append(part['part'])
         return res
        
-    def sync_clean_when_error(self):
-            
+    def sync_clean_when_error(self):            
         for f in self.parts:
-            if f['dl'] == False:
+            if f['downloaded'] == False:
                 if f['filepath'].exists():
                     f['filepath'].unlink()
+                    
+                    
    
-    def ensamble_file(self):
-        
+    def ensamble_file(self):        
    
         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] start ensambling {self.filename}")
         
@@ -594,7 +581,9 @@ class AsyncHTTPDownloader():
         elif self.status == "error":
             return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
         elif self.status == "downloading":           
-            return (f"[HTTP][{self.info_dict['format_id']}]: DL[{naturalsize(_speed)}s] PR[{naturalsize(self.down_size)}/{naturalsize(self.filesize)}]({(self.down_size/self.filesize)*100:.2f}%) ETA[{_eta_str}] PARTS[{self.n_parts_dl}/{self.n_parts}]\n")
+            return (f"[HTTP][{self.info_dict['format_id']}]: DL[{naturalsize(_speed)}s] WORKERS[{self.count}] PR[{naturalsize(self.down_size)}/{naturalsize(self.filesize)}]({(self.down_size/self.filesize)*100:.2f}%) ETA[{_eta_str}] PARTS[{self.n_parts_dl}/{self.n_parts}]\n")
+        elif self.status == "init_manipulating":                   
+            return (f"[HTTP][{self.info_dict['format_id']}]: Waiting for Ensambling \n")
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         

@@ -1,58 +1,34 @@
 # coding: utf-8
-import asyncio
-import aiorun
+import re
+import time
+import httpx
+from selenium.webdriver import Firefox, FirefoxProfile, FirefoxOptions, DesiredCapabilities
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as ec
+from selenium.webdriver.common.by import By
+from browsermobproxy import Server
+import sys
+import traceback
+import random
+_FF_PROF = [        
+            "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/0khfuzdw.selenium0","/Users/antoniotorres/Library/Application Support/Firefox/Profiles/xxy6gx94.selenium","/Users/antoniotorres/Library/Application Support/Firefox/Profiles/wajv55x1.selenium2","/Users/antoniotorres/Library/Application Support/Firefox/Profiles/yhlzl1xp.selenium3","/Users/antoniotorres/Library/Application Support/Firefox/Profiles/7mt9y40a.selenium4","/Users/antoniotorres/Library/Application Support/Firefox/Profiles/cs2cluq5.selenium5_sin_proxy", "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/f7zfxja0.selenium_noproxy"
+        ]
 
-async def ncount(queue_in):
-    await asyncio.sleep(1)    
-    while True:
-        all_tasks = [f"{t.get_name()}" for t in asyncio.all_tasks()]
-        print(",".join(all_tasks))
-        all_queue = list(queue_in._queue)
-        print(f"queue: {all_queue}")        
-        if len(all_tasks) == 2: break        
-        await asyncio.sleep(1)
-    return
-     
-async def ntask(i, queue_in):
-    # all_tasks = [f"{t.get_name()}" for t in asyncio.all_tasks()]
-    # print(",".join(all_tasks))
-    # print(str(len(all_tasks)))
-    while True:
-        t = await queue_in.get()
-        print(f"[{i}] value {t}")
-        if t == "KILL":
-            break
-        
-        await asyncio.sleep(2+i)
-    # all_tasks = [f"{t.get_name()}" for t in asyncio.all_tasks()]
-    # print(",".join(all_tasks))
-    # print(str(len(all_tasks)))
-    
-    print(f"{i} BYE")
-    return
+server = Server("/Users/antoniotorres/Projects/async_downloader/venv/lib/python3.9/site-packages/browsermobproxy/browsermob-proxy-2.1.4/bin/browsermob-proxy", options={'port': 9999})
+#server.start()
+proxy = server.create_proxy()
+#proxy.start()
+opts = FirefoxOptions()
+opts.headless = False
+prof_id = random.randint(0,5) 
+prof_ff = FirefoxProfile(_FF_PROF[prof_id])
+prof_ff.set_proxy(proxy.selenium_proxy())
 
-async def main():
+try:
+    driver = Firefox(options=opts,firefox_profile=prof_ff)
+except Exception as e:
+    print(e.__repr__())
     
     
-    aqueue = asyncio.Queue()
-    tasks = []
-    for i in range(50):
-        aqueue.put_nowait(i)
-    for i in range(5):
-        aqueue.put_nowait("KILL")
     
-    for i in range(5):
-        
-        tasks.append(asyncio.create_task(ntask(i, aqueue), name=f"{i}"))
-        
-    tasks.append(asyncio.create_task(ncount(aqueue), name="count"))
-    #tasks.append(asyncio.create_task(count()))
-    await asyncio.wait(tasks)
-    asyncio.get_running_loop().stop()
-    return
     
-
-
-aiorun.run(main())
-    
-

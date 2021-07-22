@@ -20,7 +20,7 @@
   "filters": {
     "filtermodules": {
         "()": "supportlogging.FilterModule",
-        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "img2pdf"]
+        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "seleniumwire.handler", "img2pdf", "hpack", "seleniumwire.mitmproxy", "remote_connection", "passlib"]
     },
     "filterytdl" : {
         "()": "supportlogging.FilterModule",
