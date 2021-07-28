@@ -1,6 +1,5 @@
 #!/usr/bin/env python
 
-
 from queue import Queue
 import logging
 import sys
@@ -12,7 +11,6 @@ import aiorun
 from pathlib import Path
 import pandas as pd
 from tabulate import tabulate
-import humanfriendly
 import re
 import time
 import shutil
@@ -26,7 +24,8 @@ from utils import (
     patch_http_connection_pool,
     patch_https_connection_pool,
     naturalsize,
-    shorter_str
+    is_playlist,
+    get_extractor,  
 )
 
 from concurrent.futures import (
@@ -35,47 +34,48 @@ from concurrent.futures import (
 )
 
 import subprocess
-
 from youtube_dl.utils import sanitize_filename
-
 from codetiming import Timer
-
 from datetime import datetime
-
 from operator import itemgetter
-
-from videodownloader import VideoDownloader    
-
+from videodownloader import VideoDownloader 
 from collections import defaultdict 
-
 import httpx         
+
+
 
 class AsyncDL():
 
+    
+    _INTERVAL_TK = 0.25
+    
     def __init__(self, args):
     
         
         self.logger = logging.getLogger("asyncDL")
                
-        self.queue_vid = Queue()
+        #args
+        self.args = args
+        self.parts = self.args.p
+        self.workers = self.args.w        
+        self.init_nworkers = self.args.winit if self.args.winit > 0 else self.args.w
         
+        #youtube_dl
+        self.ytdl = init_ytdl(self.args)        
+        
+        
+        #listas con videos y queues       
         self.list_initnok = []
         self.list_initaldl = []
         self.list_dl = []
         self.files_cached = dict()
-        self.videos_to_dl = []        
+        self.videos_to_dl = []
+        self.queue_vid = Queue()        
         
-        self.args = args
-        self.parts = self.args.p
-        self.workers = self.args.w
-        #self.init_nworkers = max(6, self.workers)
-        self.init_nworkers = self.args.winit if self.args.winit > 0 else self.args.w
-
-        self.ytdl = init_ytdl(self.args)
-        
-        
-       
+        #tk control      
         self.stop_tk = False
+        
+        #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
         self.count_run = 0        
         self.count_manip = 0 
@@ -89,6 +89,75 @@ class AsyncDL():
             _t = await _timer.async_elapsed()
             if _t > n: break
             else: await asyncio.sleep(0)
+    
+    
+    async def run_tk(self, args_tk):
+        '''
+        Run a tkinter app in an asyncio event loop.
+        '''
+        
+       
+        root, text0, text1, text2 = args_tk
+        count = 0
+        while (not self.list_dl and not self.stop_tk):
+            
+            await self.wait_time(self._INTERVAL_TK)
+            count += 1
+            if count == 10:
+                count = 0
+                self.logger.debug("[RUN_TK] Waiting for dl")
+        
+        self.logger.debug(f"[RUN_TK] End waiting. Signal stop_tk[{self.stop_tk}]")
+        
+        try:  
+            while not self.stop_tk:
+                
+                root.update()
+                
+                
+                res = set([dl.info_dl['status'] for dl in self.list_dl])
+                
+                if res:
+                      
+                    _res = sorted(list(res))
+                    if (_res == ["done", "error"] or _res == ["error"] or _res == ["done"]) and (self.count_init == self.init_nworkers):                        
+                            break
+                    else:
+                      
+                        text0.delete(1.0, tk.END)                        
+                        text1.delete(1.0, tk.END)
+                        text2.delete(1.0, tk.END)
+                        list_downloading = []
+                        list_manip = []    
+                        for dl in self.list_dl:
+                            mens = dl.print_hookup()
+                            if dl.info_dl['status'] in ["init"]:
+                                text0.insert(tk.END, mens)
+                            if dl.info_dl['status'] in ["init_manipulating", "manipulating"]:
+                                list_manip.append(mens) 
+                            if dl.info_dl['status'] in ["downloading"]:
+                                list_downloading.append(mens)  
+                            if dl.info_dl['status'] in ["done", "error"]:
+                                text2.insert(tk.END,mens)
+                                         
+                        if list_downloading:
+                            text1.insert(tk.END, "\n\n-------DOWNLOADING VIDEO------------\n\n")
+                            text1.insert(tk.END, ''.join(list_downloading))
+                            
+                        if list_manip:
+                            text1.insert(tk.END, "\n\n-------CREATING FILE------------\n\n")
+                            text1.insert(tk.END, ''.join(list_manip))
+                                         
+                        
+                await self.wait_time(self._INTERVAL_TK)
+       
+                
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            self.logger.error(f"[run_tk]: error\n{'!!'.join(lines)}")
+        
+        self.logger.debug("[RUN_TK] BYE") 
+    
     
     def get_videos_cached(self):        
         
@@ -108,9 +177,9 @@ class AsyncDL():
             list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/WD/videos"), Path("/Volumes/WD5/videos")]
              
             for folder in list_folders:
-                #self.logger.debug(f"[CACHED] Folder: {folder.name}")
+                
                 for file in folder.rglob('*'):
-                    #self.logger.debug(f"[CACHED] \tFile: {file.name}")
+                    
                     if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip')):
 
                         _res = re.findall(r'^([^_]*)_(.*)', file.stem)
@@ -149,17 +218,7 @@ class AsyncDL():
             
         return self.files_cached
                
-    def _get_extractor(self, url):
-    
-        extractor = None
-        for ie in self.ytdl._ies:
-            if ie.suitable(url):
-                extractor = ie.ie_key()
-                break
-        return extractor
-    
 
-        
     def get_list_videos(self):
         
         
@@ -168,135 +227,70 @@ class AsyncDL():
         filecaplinks = Path(Path.home(), f"Projects/common/logs/captured_links.txt")
         
         
+        
+        if self.args.lastres:                
+                
+            if fileres.exists():
+                try:
+                    with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"r") as f:
+                        self.list_videos += (json.load(f)).get('entries')
+                except Exception as e:
+                    self.logger.error("Couldnt get info form last result")
+                    
+            else:
+                self.logger.error("Couldnt get info form last result")
+        
+        url_list = []
+        
+        
         if self.args.caplinks:
             with open(filecaplinks, "r") as file:
                 _content = file.read()            
                 
-            if self.args.playlist:
-                
-                url_pl_list = list(set([_line for _line in _content.splitlines() if _line]))
-                with ThreadPoolExecutor(max_workers=self.init_nworkers) as ex:
-                    fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
-                    done, _ = wait(fut)
-                            
-                _url_pl = []
-                for d in done:
-                    _url_pl += (d.result()).get('entries')
-                        
-                
-                  
-                items = defaultdict(list)
-                for entry in _url_pl:
-                    items[entry['url']].append(entry)
-                            
-                self.list_videos += [_value[0] for _value in items.values()]
+            url_list += list(set([_line for _line in _content.splitlines() if _line]))
             
+        if self.args.collection:
             
+            url_list += list(set(self.args.collection))    
+                
+        
+        
+        url_pl_list = []
+        for _url in url_list:
+            if is_playlist(_url):
+                url_pl_list.append(_url)
             else:
-                
-                url_list = list(set(_content.splitlines()))
-                
-                self.list_videos += [{'_type': 'url', 'url': _url, 'ie_key': self._get_extractor(_url)} for _url in url_list]
-                
-                
-            #with open(filecaplinks, "w") as file: 
-            #    file.truncate()        
-                    
-            with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"w") as f:
-                json.dump({'entries': self.list_videos},f)
+                self.list_videos.append({'_type': 'url', 'url': _url, 'ie_key': get_extractor(_url)})
+             
         
-        
-            self.logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
-        
-            return self.list_videos
             
-            
+        if url_pl_list:
         
-        if self.args.playlist:
- 
-            if self.args.lastres:                
-                
-                if fileres.exists():
-                    try:
-                        with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"r") as f:
-                            self.list_videos = (json.load(f)).get('entries')
-                    except Exception as e:
-                        self.logger.error("Couldnt get info form last result")
+            with ThreadPoolExecutor(max_workers=self.init_nworkers) as ex:
+                fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
+                done, _ = wait(fut)
                         
-                else:
-                    self.logger.error("Couldnt get info form last result")
+            _url_pl = []
+            for d in done:
+                _url_pl += (d.result()).get('entries')
                     
-            else:    
             
-                if self.args.collection:
-
-                    
-                    url_pl_list = list(set(self.args.collection))
-                    if len(url_pl_list) == 1: 
-                        info_dict = self.ytdl.extract_info(url_pl_list[0], download=False)
-                        self.logger.debug(f"[get_list_videos]: \n{info_dict.get('entries')}")
-                        _url_pl = info_dict.get('entries')
-                    else:
-                        with ThreadPoolExecutor(max_workers=self.init_nworkers) as ex:
-                            fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
-                            done, _ = wait(fut)
-                            
-                        _url_pl = []
-                        for d in done:
-                            _url_pl += (d.result()).get('entries')
-                        
-                        self.logger.info(_url_pl) 
-                        # for url_pl, fut in zip(url_pl_list, futures):
-                        #     done, _ = wait([fut])
-                        #     res = [d.result() for d in done]
-                        #     _url_pl = res[0].get('entries')
-                    
-                            
-                    #por si hay repetidos
-                    items = defaultdict(list)
-                    for entry in _url_pl:
-                        items[entry['url']].append(entry)
-                            
-                    self.list_videos += [_value[0] for _value in items.values()]
-                              
-                                
-                  
-
-                if self.args.collection_files:
-                    
-                    file_list = list(set(self.args.collection_files))
-                    for file in file_list:
-                        with open(file, "r") as file_json:
-                            info_json = json.loads(file_json.read())
-                    
-                        self.list_videos += list(info_json)
-
-        else: #url no son playlist
-
-            if self.args.lastres:
                 
-                if fileres.exists():
-                    try:
-                        with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"r") as f:
-                            self.list_videos = (json.load(f)).get('entries')
-                    except Exception as e:
-                        self.logger.error("Couldnt get info form last result")
+            items = defaultdict(list)
+            for entry in _url_pl:
+                items[entry['url']].append(entry)
                         
-                else:
-                    self.logger.error("Couldnt get info form last result")
-            else:
+            self.list_videos += [_value[0] for _value in items.values()]
             
-                if self.args.collection:
-                    url_list = list(set(self.args.collection))  
-                    self.list_videos += [{'_type': 'url', 'url': _url, 'ie_key': self._get_extractor(_url)} for _url in url_list]
-
-                if self.args.collection_files:
-                    def get_info_json(file):
-                        with open(file, "r") as f:
-                            return json.loads(f.read())
-                    
-                    self.list_videos += [get_info_json(file) for file in self.args.collection_files]
-                    
+            
+        if self.args.collection_files:
+            def get_info_json(file):
+                with open(file, "r") as f:
+                    return json.loads(f.read())
+            
+            self.list_videos += [get_info_json(file) for file in self.args.collection_files]
+        
+        
         
         
         with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"w") as f:
@@ -308,7 +302,6 @@ class AsyncDL():
         return self.list_videos
         
 
-        
     def get_sublist_videos(self):
         
         if self.args.index:
@@ -323,46 +316,12 @@ class AsyncDL():
                 self.videos_to_dl = self.videos_to_dl[self.args.first-1:self.args.last]       
 
         
-        # if (self.args.maxsize or self.args.minsize):
-            
-        #     if self.args.maxsize: maxbytes = humanfriendly.parse_size(self.args.maxsize)            
-        #     else: maxbytes = 10**12
-        #     if self.args.minsize: minbytes = humanfriendly.parse_size(self.args.minsize)
-        #     else: minbytes = -1
-            
-        #     new_list = []
-        #     for vid in self.videos_to_dl:
-        #         if (_size:=vid.get('filesize')) > 0:
-        #             if (minbytes < (_size) < maxbytes):
-        #                 new_list.append(vid)
-        #                 self.logger.debug(f"Video with right size: minsize[{minbytes}] size video [{_size}] maxsize[{maxbytes}]: {vid}")
-                    
-        #             else:
-        #                 self.logger.debug(f"Video removed due to size: minsize[{minbytes}] size video [{_size}] maxsize[{maxbytes}]: {vid}")   
-        #         else:
-        #             new_list.append(vid)
-        #             self.logger.debug(f"Video with unkmown size[0]]: {vid}")              
-                
-        #     self.videos_to_dl = new_list
-            
-        if self.args.col_names:
-            
-                        
-            new_list = []
-            for vid in self.videos_to_dl:
-                if any(name in vid['title'] for name in self.args.col_names):                
-                    new_list.append(vid)
-                    self.logger.debug(f"Video included with title[{vid['title']}] including name[{self.args.col_names}]")
-                else:
-                    self.logger.debug(f"Video removed with title[{vid['title']}] not including name[{self.args.col_names}]")
-                    
-            self.videos_to_dl = new_list    
             
         self.logger.debug(f"[get_sub_list_videos] sub list videos to dl: \n{self.videos_to_dl}")
+        
         return(self.videos_to_dl)
         
-    
-    
+        
     def _check_to_dl(self, info_dict, video=None):  
                     
         if not video: video = info_dict
@@ -404,8 +363,6 @@ class AsyncDL():
             return False
         
  
-                        
-        
     def get_videos_to_dl(self):        
         
         
@@ -424,99 +381,25 @@ class AsyncDL():
         
         self.get_sublist_videos()
         
-       
-        for i,video in enumerate(self.videos_to_dl):
-            self.queue_vid.put((i, video))
-            
+        #preparo queue de videos para workers init
+        for i, video in enumerate(self.videos_to_dl):
+            self.queue_vid.put((i, video))             
+        for _ in range(self.init_nworkers-1):
+            self.queue_vid.put((-1, "KILL"))        
+        self.queue_vid.put((-1, "KILLANDCLEAN"))
+        
+        
         self.totalbytes2dl = sum([vid.get('filesize') for vid in self.videos_to_dl])
         self.logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}")       
         
-        
-        #nworkers = min(self.workers, len(self.videos_to_dl))
-        
-        for _ in range(self.init_nworkers-1):
-            self.queue_vid.put((-1, "KILL"))
-        self.queue_vid.put((-1, "KILLANDCLEAN"))
         
         self.logger.debug(f"Queue content for running: \n {list(self.queue_vid.queue)}")
         
         return self.videos_to_dl
     
-    async def run_tk(self, args_tk, interval):
-        '''
-        Run a tkinter app in an asyncio event loop.
-        '''
-        
-        #root, text0, text1, text2, root2, text3 = args_tk
-        root, text0, text1, text2 = args_tk
-        count = 0
-        while (not self.list_dl and not self.stop_tk):
-            
-            await self.wait_time(interval)
-            count += 1
-            if count == 10:
-                count = 0
-                self.logger.debug("[RUN_TK] Waiting for dl")
-        
-        self.logger.debug(f"[RUN_TK] End waiting. Signal stop_tk[{self.stop_tk}]")
-        
-        try:
-
-                 
-            while not self.stop_tk:
-                
-                root.update()
-                #root2.update()
-                
-                res = set([dl.info_dl['status'] for dl in self.list_dl])
-                
-                if not res:
-                    pass
-                
-                else:     
-                    _res = sorted(list(res))
-                    if (_res == ["done", "error"] or _res == ["error"] or _res == ["done"]) and (self.count_init == self.init_nworkers):                        
-                            break
-                    else:
-                        #text3.delete(1.0,tk.END)
-                        #text3.insert(tk.END, naturalsize(self.totalbytes2dl))
-                        text0.delete(1.0, tk.END)                        
-                        text1.delete(1.0, tk.END)
-                        text2.delete(1.0, tk.END)
-                        list_downloading = []
-                        list_manip = []    
-                        for dl in self.list_dl:
-                            mens = dl.print_hookup()
-                            if dl.info_dl['status'] in ["init"]:
-                                text0.insert(tk.END, mens)
-                            if dl.info_dl['status'] in ["init_manipulating", "manipulating"]:
-                                list_manip.append(mens) 
-                            if dl.info_dl['status'] in ["downloading"]:
-                                list_downloading.append(mens)  
-                            if dl.info_dl['status'] in ["done", "error"]:
-                                text2.insert(tk.END,mens)
-                                         
-                        if list_downloading:
-                            text1.insert(tk.END, "\n\n-------DOWNLOADING VIDEO------------\n\n")
-                            text1.insert(tk.END, ''.join(list_downloading))
-                            
-                        if list_manip:
-                            text1.insert(tk.END, "\n\n-------CREATING FILE------------\n\n")
-                            text1.insert(tk.END, ''.join(list_manip))
-                                         
-                        
-                await self.wait_time(interval)
-       
-                
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            self.logger.error(f"[run_tk]: error\n{'!!'.join(lines)}")
-        
-        self.logger.debug("[RUN_TK] BYE") 
-
 
     def worker_init(self, i):
-        #worker que lanza los Downloaders, uno por video
+        #worker que lanza la creación de los objetos VideoDownloaders, uno por video
         
         self.logger.debug(f"worker_init[{i}]: launched")
 
@@ -549,6 +432,7 @@ class AsyncDL():
                     else:
                         self.stop_tk = True
                         
+                    #kill any zombie process from extractors - firefox, geckodriver, etc
                     res = subprocess.run(["ps","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
                     mobj = re.findall(r'(\d+) ((?:geckodriver|/Applications/Firefox Nightly))', res)
                     if mobj:
@@ -765,18 +649,16 @@ class AsyncDL():
             self.logger.debug(f"worker_manip[{i}]: BYE")       
 
  
-    async def async_ex(self, args_tk, interval):
+    async def async_ex(self, args_tk):
     
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
 
-        #nworkers = min(self.workers,len(self.videos_to_dl))
         
-    
         self.logger.info(f"MAX WORKERS [{self.workers}]")
         
         try:        
-            #loop = asyncio.get_event_loop()
+          
                    
             tasks_run = []
             task_tk = []
@@ -787,7 +669,7 @@ class AsyncDL():
                             
             if not self.args.nodl:
             
-                task_tk = [asyncio.create_task(self.run_tk(args_tk, interval))] 
+                task_tk = [asyncio.create_task(self.run_tk(args_tk))] 
                 tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
                 tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(self.workers)]
                 
@@ -799,9 +681,7 @@ class AsyncDL():
                 except Exception as e:
                     lines = traceback.format_exception(*sys.exc_info())                
                     self.logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
-                    
-                    
- 
+
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             self.logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
@@ -908,12 +788,10 @@ class AsyncDL():
         list_videos2dl = self.videos_to_dl    
         
             
-        list_videos_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': shorter_str(vid.get('url'), 50)} for vid in list_videos]
-        list_videos2dl_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': shorter_str(vid.get('url'), 50)} for vid in list_videos2dl]
+        list_videos_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': (vid.get('url','')[:50])} for vid in list_videos]
+        list_videos2dl_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': (vid.get('url','')[:50])} for vid in list_videos2dl]
         
-        # list_videos_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0))} for vid in list_videos]
-        # list_videos2dl_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0))} for vid in list_videos2dl]
-        
+      
                 
         self.logger.info(f"RESULT: Total videos [{(_tv:=len(list_videos))}] To DL [{(_tv2dl:=len(list_videos2dl))}] Already DL [{(_tval:=len(self.list_initaldl))}]")
         
@@ -931,18 +809,9 @@ class AsyncDL():
         tab_v2dl = tabulate(df_v2dl, showindex=True, headers=df_v2dl.columns)
                 
         self.logger.info(f"Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
-        
-        
-        
+                
         self.logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
         
-        #self.logger.info(f"Already DL: [{_tval}]\n{self.list_initaldl}")
-        
-        if self.args.listvideos:
-            
-            self.logger.info(f"Total videos with CL format: \n{' -u '.join([vid['url'] for vid in list_videos_str])}")
-            self.logger.info(f"Videos to DL with CL format: \n{' -u '.join([vid['url'] for vid in list_videos2dl_str])}")
-            sys.exit()
 
 
 @Timer(name="decorator")
@@ -950,8 +819,8 @@ def main():
     
     init_logging()
     logger = logging.getLogger("async_all")
-    patch_http_connection_pool(maxsize=100)
-    patch_https_connection_pool(maxsize=100)
+    patch_http_connection_pool(maxsize=1000)
+    patch_https_connection_pool(maxsize=1000)
     
     args = init_argparser()
     
@@ -973,14 +842,12 @@ def main():
             if args.aria2c:
                 subprocess.run(["aria2c","--enable-rpc","--daemon"])
             args_tk = init_tk()        
-            res = aiorun.run(asyncDL.async_ex(args_tk, 0.25), use_uvloop=True) 
+            aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True) 
                 
         except Exception as e:
             logger.error(str(e), exc_info=True)
-            res = 1
-        finally:
             
-            #process_id = subprocess.run("ps ax -o pid -o comm | grep 'aria2c'", encoding='utf-8', shell=True,capture_output=True).stdout.replace(" aria2c\n", "")        
+        finally:            
             res = subprocess.run(["ps","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
             mobj = re.findall(r'(\d+) ((?:aria2c|browsermob|geckodriver|java|/Applications/Firefox Nightly))', res)
             if mobj:
@@ -997,7 +864,8 @@ def main():
         shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
         with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:
         
-            for _video in res['videos_error_dl']:
+            session_errors = res['videos_error_dl'] + res['videos_error_init']
+            for _video in set(session_errors):
                 line = _video + "\n"
                 file.write(line)  
 

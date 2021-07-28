@@ -12,10 +12,7 @@ from utils import (
 
 from concurrent.futures import CancelledError, ThreadPoolExecutor, wait, ALL_COMPLETED
 
-from natsort import (
-    natsorted,
-    ns
-)
+
 
 from shutil import rmtree
 import time
@@ -387,6 +384,12 @@ class AsyncHTTPDownloader():
                             
                                 self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}]: [fetch] resp code {str(res.status_code)}: rep {self.parts[part-1]['n_retries']}\n{res.request.headers}")
                         
+                                
+                                nth_key = str(self.parts[part-1]['n_retries'])
+                                self.parts[part-1]['nchunks_dl'].update({nth_key: 0})
+                                self.parts[part-1]['time2dlchunks'].update({nth_key : []})
+                                self.parts[part-1]['statistics'].update({nth_key : []})
+                                
                                 if res.status_code >= 400:
                                     if self.parts[part-1]['n_retries'] == self._MAX_RETRIES:
                                         raise AsyncHTTPDLError(f"error[{res.status_code}] part[{part}]")
@@ -400,12 +403,6 @@ class AsyncHTTPDownloader():
                                         self.parts[part-1]['headersize'] = int_or_none(res.headers.get('content-length'))
                                     
                                     num_bytes_downloaded = res.num_bytes_downloaded
-                                    
-                                    nth_key = str(self.parts[part-1]['n_retries'])
-                                    self.parts[part-1]['nchunks_dl'].update({nth_key: 0})
-                                    self.parts[part-1]['time2dlchunks'].update({nth_key : []})
-                                    self.parts[part-1]['statistics'].update({nth_key : []})
-                                    
                                                                         
                                     await _timer.async_start()
                                     

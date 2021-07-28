@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from concurrent.futures.thread import ThreadPoolExecutor
 from distutils.log import ERROR
 import logging
 import logging.config
@@ -9,9 +10,9 @@ from datetime import datetime
 from h11 import DONE
 from youtube_dl import YoutubeDL
 from youtube_dl.utils import (
-    std_headers,
-    determine_protocol
+    std_headers,   
 )
+from youtube_dl.extractor import gen_extractors
 import random
 import httpx
 from pathlib import Path
@@ -20,13 +21,32 @@ import argparse
 import tkinter as tk
 
 from user_agent import generate_user_agent
+import demjson
+from queue import Queue
+import subprocess
 
 
+def get_extractor(url):
+    
+    extractor = None
+    ies = gen_extractors()
+    for ie in ies:
+        if ie.suitable(url):
+            extractor = ie.ie_key()
+            break
+    return extractor
 
-
-def shorter_str(msg, nchars):
-    if len(msg) < nchars: return msg
-    else: return msg[:nchars] 
+def is_playlist(url):    
+        
+    ies = gen_extractors()    
+    matching_ies = [(_name, ie) for ie in ies if ie.suitable(url) and (_name:=(getattr(ie,'IE_NAME','') or ie.ie_key()).lower()) != 'generic']
+    
+    if matching_ies:
+        ie_name, ie = matching_ies[0]
+        if 'playlist' in ie_name: return True
+        for tc in ie.get_testcases():
+            if tc.get('playlist'): return True
+    return False
 
 def foldersize(folder):
     #devuelve en bytes size folder
@@ -39,6 +59,12 @@ def folderfiles(folder):
         
     return count
 
+def get_el_list(_list: list, _index: int):
+   return _list[_index] if _index < len(_list) else None 
+
+def int_or_none(res):
+    return int(res) if res else None
+    
 
 def naturalsize(value, binary=False, gnu=False, format="%.2f"):
     """Format a number of bytes like a human readable filesize (e.g. 10 kB).
@@ -130,12 +156,6 @@ def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
             return res
         
     return not_found
-        
-
-        
-
-    
-
 
 
 def generate_random_ua():
@@ -143,8 +163,11 @@ def generate_random_ua():
     list_el = []
     for i in range(25):
         list_el += re.find(cl.get("https://generate-name.net/user-agent").text)
+    return list_el
 
 
+    
+    
 
 def get_ip_proxy():
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "r") as f:
@@ -152,31 +175,55 @@ def get_ip_proxy():
 
 def status_proxy():
     
-    IPS_TORGUARD = ["88.202.177.243","96.44.144.122","194.59.250.210","88.202.177.234","68.71.244.42","194.59.250.226","173.254.222.146","68.71.244.98","88.202.177.241","185.212.171.118","98.143.158.50","88.202.177.242","173.44.37.82","194.59.250.242","194.59.250.202","68.71.244.66","173.44.37.114","2.58.44.226","88.202.177.240","96.44.148.66","37.120.153.242","185.156.172.154","68.71.244.30","46.23.78.24","88.202.177.238","88.202.177.239","68.71.244.38","194.59.250.218", "88.202.177.230"]
-
-    from scapy.all import sr,IP,ICMP
-    list_ok = []
-    for proxy in IPS_TORGUARD:
-        try:
-            cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{proxy}:6060")
-            res = cl.get("https://torguard.net/whats-my-ip.php")            
-            print(f"{proxy}:{res}")
-            if res.status_code == 200:
-                list_ok.append(proxy)
-        except Exception as e:
-            pass
-            print(f"{proxy}:{e}")
-
+    #dscacheutil -q host -a name proxy.torguard.org
+    IPS_TORGUARD = ["88.202.177.231", "68.71.244.82", "88.202.177.233", "68.71.244.70", "68.71.244.102", "68.71.244.94", "37.120.153.242", "68.71.244.22", "88.202.177.230", "89.238.177.198", "37.120.244.230", "88.202.177.239", "68.71.244.30", "37.120.244.194", "46.23.78.25", "185.212.171.114", "68.71.244.50", "88.202.177.240", "68.71.244.18", "68.71.244.62", "37.120.244.198", "68.71.244.34", "68.71.244.78", "194.59.250.250", "68.71.244.42", "194.59.250.242", "194.59.250.226", "37.120.244.214", "37.120.244.202", "194.59.250.202", "88.202.177.243", "68.71.244.6", "88.202.177.235", "37.120.141.122", "89.238.177.194", "68.71.244.66", "88.202.177.237", "68.71.244.26", "185.212.171.118", "68.71.244.10", "68.71.244.98", "37.120.244.206", "88.202.177.238", "37.120.153.234", "68.71.244.90", "37.120.244.226", "68.71.244.54", "194.59.250.210", "185.156.172.198", "37.120.244.222", "68.71.244.46", "68.71.244.38", "37.120.141.114", "37.120.244.210", "185.156.172.154", "88.202.177.242", "37.120.244.218", "194.59.250.234", "89.238.177.202", "88.202.177.232", "88.202.177.241", "88.202.177.234", "68.71.244.58", "46.23.78.24", "194.59.250.218", "68.71.244.14", "194.59.250.194", "2.58.44.226"]
     
+    PORTS = [6060,1337,1338,1339,1340,1341,1342,1343]
+
+    #from scapy.all import sr, IP, ICMP
+    queue_ok = Queue()
+    
+    def check_proxy(ip, port):
+        try:
+            cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}",timeout=10)
+            res = cl.get("https://torguard.net/whats-my-ip.php")            
+            print(f"{ip}:{port}:{res}")
+            if res.status_code == 200:
+                queue_ok.put((ip, port, res))
+        except Exception as e:
+            print(f"{ip}:{port}:{e}")
+        finally:
+            cl.close()
+    
+    futures = []
+    
+    _port = 6060
+    
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for proxy in IPS_TORGUARD:            
+            futures.append(ex.submit(check_proxy, proxy, _port))
         
-    list_ord = []
-    for ipl in list_ok:
-        ans, unans = sr([IP(dst=ipl)/ICMP()/b"Sent" for i in range(5)])
-        t = [(a[1].time - a[0].sent_time)*1000 for a in ans]
-        t.sort()
-        tmed = sum(t[1:-1])/3
-        print(f"{ipl}:{t}:{tmed}")
-        list_ord.append({'ip': ipl, 'time': tmed})
+    
+    list_res = list(queue_ok.queue)
+    
+    list_ok = [res[0] for res in list_res]
+    
+    queue_rtt = Queue() 
+    
+    def get_rtt(ipl):
+        res = subprocess.run(["ping","-c","5","-q","-S","192.168.1.128", ipl], encoding='utf-8', capture_output=True).stdout
+        mobj = re.findall(r'= [^\/]+\/([^\/]+)\/', res)
+        if mobj: tavg = float(mobj[0])
+        print(f"{ipl}:{tavg}")
+        queue_rtt.put({'ip': f'{ipl}:{_port}', 'time': tavg})
+         
+    futures = []
+    
+    with ThreadPoolExecutor(max_workers=8) as ex: 
+        for ipl in list_ok:
+            futures.append(ex.submit(get_rtt, ipl))
+        
+    list_ord = list(queue_rtt.queue)
 
     def myFunc(e):
         return(e['time'])
@@ -186,19 +233,8 @@ def status_proxy():
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "w") as f:
         f.write(json.dumps(list_ord))
     
-
+    print(list_ord)
     return(list_ord)
-
-# def init_ffprofiles_file():
-#     with open(Path(Path.home(), "testing/firefoxprofiles.json"), "r") as f:
-#         ffprofiles_dict = json.loads(f.read())
-        
-#     for prof in ffprofiles_dict['profiles']:
-#         prof['count'] = 0
-    
-#     with open(Path(Path.home(), "testing/firefoxprofiles.json"), "w") as f:
-#         json.dump(ffprofiles_dict, f)
-
 
  
     
@@ -239,27 +275,17 @@ def init_argparser():
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")   
-    parser.add_argument("--referer", default=None, type=str)
-    parser.add_argument("--listvideos", help="get list videos. no dl", action="store_true")
-    
-    #parser.add_argument("target", help="Source(s) to download the video(s), either from URLs of JSON YTDL file (with --file option)")
+    parser.add_argument("--headers", default="", type=str)  
     parser.add_argument("-u", action="append", dest="collection", default=[])
     parser.add_argument("--byfilesize", help="order list of videos to dl by filesize", action="store_true")
-    
-    # parser.add_argument("--minsize", default=None, type=str)
-    # parser.add_argument("--maxsize", default=None, type=str)
     parser.add_argument("--name", action="append", dest="col_names", default=[])
     parser.add_argument("--lastres", help="use last result for get videos list", action="store_true")
     parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true")
-    parser.add_argument("--path", default=None, type=str)
-    # parser.add_argument("--isdl", default=None, type=str)
-    parser.add_argument("--caplinks", action="store_true")
-    # parser.add_argument("--force", action="store_true")
+    parser.add_argument("--path", default=None, type=str)    
+    parser.add_argument("--caplinks", action="store_true")    
     parser.add_argument("--aria2c", action="store_true")
     
     
-    
-
     return parser.parse_args()
 
 
@@ -284,7 +310,7 @@ def init_ytdl(args):
     }
 
     if args.proxy: ytdl_opts['proxy'] = args.proxy
-    if args.ytdlopts: ytdl_opts.update(args.ytdlopts)
+    if args.ytdlopts: ytdl_opts.update(demjson.decode(args.ytdlopts))
     logger.debug(f"ytdl opts: \{ytdl_opts}")
     
     ytdl = YoutubeDL(ytdl_opts, auto_init=False)
@@ -294,10 +320,11 @@ def init_ytdl(args):
     std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
    
     std_headers["Connection"] = "keep-alive"
-    std_headers["Accept-Language"] = "es-ES,en-US;q=0.7,en;q=0.3"
+    #std_headers["Accept-Language"] = "es-ES,en-US;q=0.7,en;q=0.3"
+    std_headers["Accept-Language"] = "en-UK;q=0.7,en;q=0.3"
     std_headers["Accept-Encoding"] = "gzip, deflate"
-    if args.referer:
-        std_headers["Referer"] = args.referer
+    if args.headers:
+        std_headers.update(demjson.decode(args.headers))
        
         
     logger.debug(f"std-headers: {std_headers}")
@@ -342,19 +369,6 @@ def init_tk():
     text1.insert(tk.END, "Waiting for info") 
     text2.insert(tk.END, "Waiting for info")
     
-    
-    # window2 = tk.Tk()
-    # window2.title("async_downloader")  
-    # frame3 = tk.Frame(master=window2, width=25, height=25, bg="white")
-    # frame3.pack(fill=tk.BOTH, side=tk.TOP, expand=True)
-    # label3 = tk.Label(master=frame3, text="Total bytes to DL", bg="blue")
-    # label3.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    # text3 = tk.Text(master=frame3, font=("Source Code Pro", 15))
-    # text3.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    # text3.insert(tk.END, "Waiting for info")
-    #text3 = None
-    #res = [window, text0, text1, text2, window2, text3]       
-    #return(window, text0, text1, text2, window2, text3)
     res = [window, text0, text1, text2]
     return(res) 
 
@@ -399,10 +413,6 @@ def init_tk_afiles(n_files):
     
 
 
-       
-    
-
-
     
 def patch_http_connection_pool(**constructor_kwargs):
     """
@@ -438,6 +448,3 @@ def patch_https_connection_pool(**constructor_kwargs):
             super(MyHTTPSConnectionPool, self).__init__(*args,**kwargs)
     poolmanager.pool_classes_by_scheme['https'] = MyHTTPSConnectionPool
     
-def int_or_none(res):
-    if res: return int(res)
-    else: return None
