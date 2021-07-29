@@ -25,7 +25,8 @@ from utils import (
     patch_https_connection_pool,
     naturalsize,
     is_playlist,
-    get_extractor,  
+    get_extractor,
+    wait_time,  
 )
 
 from concurrent.futures import (
@@ -40,7 +41,7 @@ from datetime import datetime
 from operator import itemgetter
 from videodownloader import VideoDownloader 
 from collections import defaultdict 
-import httpx         
+    
 
 
 
@@ -65,11 +66,13 @@ class AsyncDL():
         
         
         #listas con videos y queues       
+        self.list_videos = []
         self.list_initnok = []
         self.list_initaldl = []
         self.list_dl = []
         self.files_cached = dict()
         self.videos_to_dl = []
+        
         self.queue_vid = Queue()        
         
         #tk control      
@@ -82,13 +85,7 @@ class AsyncDL():
         
         self.time_now = datetime.now()
     
-    async def wait_time(self, n):
-        _timer = httpx._utils.Timer()
-        await _timer.async_start()
-        while True:
-            _t = await _timer.async_elapsed()
-            if _t > n: break
-            else: await asyncio.sleep(0)
+    
     
     
     async def run_tk(self, args_tk):
@@ -101,7 +98,7 @@ class AsyncDL():
         count = 0
         while (not self.list_dl and not self.stop_tk):
             
-            await self.wait_time(self._INTERVAL_TK)
+            await wait_time(self._INTERVAL_TK)
             count += 1
             if count == 10:
                 count = 0
@@ -149,7 +146,7 @@ class AsyncDL():
                             text1.insert(tk.END, ''.join(list_manip))
                                          
                         
-                await self.wait_time(self._INTERVAL_TK)
+                await wait_time(self._INTERVAL_TK)
        
                 
         except Exception as e:
@@ -222,11 +219,8 @@ class AsyncDL():
     def get_list_videos(self):
         
         
-        self.list_videos = []
         fileres = Path(Path.home(), f"Projects/common/logs/list_videos.json")
         filecaplinks = Path(Path.home(), f"Projects/common/logs/captured_links.txt")
-        
-        
         
         if self.args.lastres:                
                 
@@ -252,8 +246,7 @@ class AsyncDL():
         if self.args.collection:
             
             url_list += list(set(self.args.collection))    
-                
-        
+       
         
         url_pl_list = []
         for _url in url_list:
@@ -261,8 +254,7 @@ class AsyncDL():
                 url_pl_list.append(_url)
             else:
                 self.list_videos.append({'_type': 'url', 'url': _url, 'ie_key': get_extractor(_url)})
-             
-        
+
             
         if url_pl_list:
         
@@ -290,9 +282,7 @@ class AsyncDL():
             
             self.list_videos += [get_info_json(file) for file in self.args.collection_files]
         
-        
-        
-        
+                
         with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"w") as f:
             json.dump({'entries': self.list_videos},f)
         
@@ -300,26 +290,6 @@ class AsyncDL():
         self.logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
         
         return self.list_videos
-        
-
-    def get_sublist_videos(self):
-        
-        if self.args.index:
-            if self.args.index in range(1,len(self.videos_to_dl)):
-                self.videos_to_dl = [self.videos_to_dl[self.args.index-1]]
-            else:
-                self.logger.error(f"index video {self.args.index} out of range [1..{len(self.videos_to_dl)}]")
-                sys.exit(127)
-                
-        if self.args.first and self.args.last:
-            if (self.args.first in range(1,len(self.videos_to_dl))) and (self.args.last in range(1,len(self.videos_to_dl))) and (self.args.first <= self.args.last):
-                self.videos_to_dl = self.videos_to_dl[self.args.first-1:self.args.last]       
-
-        
-            
-        self.logger.debug(f"[get_sub_list_videos] sub list videos to dl: \n{self.videos_to_dl}")
-        
-        return(self.videos_to_dl)
         
         
     def _check_to_dl(self, info_dict, video=None):  
@@ -363,11 +333,19 @@ class AsyncDL():
             return False
         
  
-    def get_videos_to_dl(self):        
+    def get_videos_to_dl(self): 
         
-        
-        for video in self.list_videos: 
+        if self.args.index:
+            if self.args.index < len(self.list_videos):
+                self.list_videos = [self.list_videos[self.args.index]]
+            else: raise IndexError(f"index video {self.args.index} out of range [0..{len(self.videos_to_dl)-1}]")
                 
+        elif self.args.first and self.args.last:
+            if self.args.first <= self.args.last < len(self.list_videos):
+                self.list_videos = self.list_videos[self.args.first:self.args.last+1] 
+            else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
+            
+        for video in self.list_videos:                
             if self._check_to_dl(video): self.videos_to_dl.append(video)  
             
             
@@ -379,8 +357,7 @@ class AsyncDL():
             
         self.logger.debug(f"[get_videos_to_dl] videos to dl: \n{self.videos_to_dl}")
         
-        self.get_sublist_videos()
-        
+                
         #preparo queue de videos para workers init
         for i, video in enumerate(self.videos_to_dl):
             self.queue_vid.put((i, video))             

@@ -24,7 +24,16 @@ from user_agent import generate_user_agent
 import demjson
 from queue import Queue
 import subprocess
+import asyncio
 
+
+async def wait_time(n):
+    _timer = httpx._utils.Timer()
+    await _timer.async_start()
+    while True:
+        _t = await _timer.async_elapsed()
+        if _t > n: break
+        else: await asyncio.sleep(0)
 
 def get_extractor(url):
     
@@ -158,16 +167,6 @@ def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
     return not_found
 
 
-def generate_random_ua():
-    cl = httpx.Client()
-    list_el = []
-    for i in range(25):
-        list_el += re.find(cl.get("https://generate-name.net/user-agent").text)
-    return list_el
-
-
-    
-    
 
 def get_ip_proxy():
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "r") as f:
@@ -183,7 +182,7 @@ def status_proxy():
     #from scapy.all import sr, IP, ICMP
     queue_ok = Queue()
     
-    def check_proxy(ip, port):
+    def _check_proxy(ip, port):
         try:
             cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}",timeout=10)
             res = cl.get("https://torguard.net/whats-my-ip.php")            
@@ -197,11 +196,11 @@ def status_proxy():
     
     futures = []
     
-    _port = 6060
+    _port = random.choice(PORTS)
     
     with ThreadPoolExecutor(max_workers=8) as ex:
         for proxy in IPS_TORGUARD:            
-            futures.append(ex.submit(check_proxy, proxy, _port))
+            futures.append(ex.submit(_check_proxy, proxy, _port))
         
     
     list_res = list(queue_ok.queue)
@@ -210,18 +209,18 @@ def status_proxy():
     
     queue_rtt = Queue() 
     
-    def get_rtt(ipl):
-        res = subprocess.run(["ping","-c","5","-q","-S","192.168.1.128", ipl], encoding='utf-8', capture_output=True).stdout
+    def _get_rtt(ip, port):
+        res = subprocess.run(["ping","-c","5","-q","-S","192.168.1.128", ip], encoding='utf-8', capture_output=True).stdout
         mobj = re.findall(r'= [^\/]+\/([^\/]+)\/', res)
-        if mobj: tavg = float(mobj[0])
-        print(f"{ipl}:{tavg}")
-        queue_rtt.put({'ip': f'{ipl}:{_port}', 'time': tavg})
+        if mobj: _tavg = float(mobj[0])
+        print(f"{ipl}:{_tavg}")
+        queue_rtt.put({'ip': f'{ip}:{port}', 'time': _tavg})
          
     futures = []
     
     with ThreadPoolExecutor(max_workers=8) as ex: 
         for ipl in list_ok:
-            futures.append(ex.submit(get_rtt, ipl))
+            futures.append(ex.submit(_get_rtt, ipl, _port))
         
     list_ord = list(queue_rtt.queue)
 
