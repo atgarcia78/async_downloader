@@ -80,6 +80,7 @@ mccabe==0.6.1
 mpegdash==0.2.0
 msgpack==1.0.2
 multidict==5.1.0
+mutagen==1.45.1
 mypy-extensions==0.4.3
 natsort==7.1.0
 netifaces==0.11.0
@@ -175,4 +176,5 @@ Werkzeug==2.0.1
 wsproto==1.0.0
 yarl==1.6.3
 youtube-dl @ file:///Users/antoniotorres/Projects/youtube-dl
+yt-dlp @ file:///Users/antoniotorres/Projects/yt-dlp
 zstandard==0.15.2
