@@ -29,8 +29,8 @@ def kill_processes(logger):
     if mobj:
         for process in mobj:                    
             res = subprocess.run(["kill","-9",process[0]], encoding='utf-8', capture_output=True)
-            if res.returncode != 0: logger.error(f"cant kill {process[0]} : {process[1]} : {res.stderr}")
-            else: logger.info(f"killed {process[0]} : {process[1]}")
+            if res.returncode != 0: logger.debug(f"cant kill {process[0]} : {process[1]} : {res.stderr}")
+            else: logger.debug(f"killed {process[0]} : {process[1]}")
 
 async def wait_time(n):
     _timer = httpx._utils.Timer()
