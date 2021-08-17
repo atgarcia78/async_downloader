@@ -78,14 +78,15 @@ class AsyncARIA2CDownloader():
             
         
         
-        self.filesize = self.info_dict.get('filesize', 0)        
+        self.filesize = self.info_dict.get('filesize')
+        
         self.down_size = 0
         self.speed = ""
         self.progress = ""
         self.connections = 0
         
-        self.status = "init"        
-        
+        self.status = 'init'       
+              
               
 
 
@@ -110,43 +111,50 @@ class AsyncARIA2CDownloader():
                      'dir': str(self.download_path),
                      'out': self.filename.name}
         
+        
         opts = aria2p.Options(self.aria2_client, opts_dict)
+        
         
         try:
          
             
             self.dl_cont = await asyncio.to_thread(self.aria2_client.add_uris,[self.video_url], opts)
+
             await asyncio.to_thread(self.dl_cont.update)
-            while not self.dl_cont.total_length:
+
+            while True:
+                if self.dl_cont.total_length or (self.dl_cont.status not in ('active', 'waiting')):
+                    break               
                 await asyncio.sleep(0)
                 await asyncio.to_thread(self.dl_cont.update)
+ 
                 
-            self.status = "downloading"  
-            self.filesize = self.dl_cont.total_length
-            while self.dl_cont.status == 'active':
-                
-                                
-                _incsize = self.dl_cont.completed_length - self.down_size
-                self.down_size = self.dl_cont.completed_length
-                async with self.video_downloader.lock: 
-                    self.video_downloader.info_dl['down_size'] += _incsize 
-                                               
-                #await self.wait_time(0.1)
-                await asyncio.sleep(0)
-                await asyncio.to_thread(self.dl_cont.update)
-                
+            
+             
+            if self.dl_cont.status in ('active', 'waiting'):        
+                self.status = "downloading"  
+                self.filesize = self.dl_cont.total_length
+                while self.dl_cont.status == 'active':
+                    
+                                    
+                    _incsize = self.dl_cont.completed_length - self.down_size
+                    self.down_size = self.dl_cont.completed_length
+                    async with self.video_downloader.lock: 
+                        self.video_downloader.info_dl['down_size'] += _incsize 
+                                                
+                    #await self.wait_time(0.1)
+                    await asyncio.sleep(0)
+                    await asyncio.to_thread(self.dl_cont.update)
+            
+            if self.dl_cont.status in ('complete'): self.status = "done"
+            else: self.status = 'error'
                 
             
                 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
-
-        if self.dl_cont.status == "complete": self.status = "done" 
-        else: self.status = "error"
-
-        
-        
+            self.status = "error"
             
             
     def print_hookup(self):

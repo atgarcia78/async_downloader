@@ -6,13 +6,10 @@ import logging.config
 import json
 from multiprocessing.pool import INIT
 from pathlib import Path
-from datetime import datetime
 from h11 import DONE
-from youtube_dl import YoutubeDL
-from youtube_dl.utils import (
-    std_headers,   
-)
-from youtube_dl.extractor import gen_extractors
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import std_headers
+from yt_dlp.extractor import gen_extractors
 import random
 import httpx
 from pathlib import Path
@@ -20,12 +17,20 @@ import re
 import argparse
 import tkinter as tk
 
-from user_agent import generate_user_agent
 import demjson
 from queue import Queue
 import subprocess
 import asyncio
 
+
+def kill_processes(logger):
+    res = subprocess.run(["ps","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
+    mobj = re.findall(r'(\d+) ((?:aria2c|browsermob|geckodriver|java|/Applications/Firefox Nightly))', res)
+    if mobj:
+        for process in mobj:                    
+            res = subprocess.run(["kill","-9",process[0]], encoding='utf-8', capture_output=True)
+            if res.returncode != 0: logger.error(f"cant kill {process[0]} : {process[1]} : {res.stderr}")
+            else: logger.info(f"killed {process[0]} : {process[1]}")
 
 async def wait_time(n):
     _timer = httpx._utils.Timer()
@@ -171,28 +176,32 @@ def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
 def get_ip_proxy():
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "r") as f:
         return(random.choice(json.load(f)))
+    
+def check_proxy(ip, port, queue_ok=None):
+    try:
+        cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}",timeout=10)
+        res = cl.get("https://torguard.net/whats-my-ip.php")            
+        print(f"{ip}:{port}:{res}")
+        if res.status_code == 200:
+            if queue_ok:
+                queue_ok.put((ip, port, res))
+    except Exception as e:
+        print(f"{ip}:{port}:{e}")
+    finally:
+        cl.close()
 
 def status_proxy():
     
     #dscacheutil -q host -a name proxy.torguard.org
     IPS_TORGUARD = ["88.202.177.231", "68.71.244.82", "88.202.177.233", "68.71.244.70", "68.71.244.102", "68.71.244.94", "37.120.153.242", "68.71.244.22", "88.202.177.230", "89.238.177.198", "37.120.244.230", "88.202.177.239", "68.71.244.30", "37.120.244.194", "46.23.78.25", "185.212.171.114", "68.71.244.50", "88.202.177.240", "68.71.244.18", "68.71.244.62", "37.120.244.198", "68.71.244.34", "68.71.244.78", "194.59.250.250", "68.71.244.42", "194.59.250.242", "194.59.250.226", "37.120.244.214", "37.120.244.202", "194.59.250.202", "88.202.177.243", "68.71.244.6", "88.202.177.235", "37.120.141.122", "89.238.177.194", "68.71.244.66", "88.202.177.237", "68.71.244.26", "185.212.171.118", "68.71.244.10", "68.71.244.98", "37.120.244.206", "88.202.177.238", "37.120.153.234", "68.71.244.90", "37.120.244.226", "68.71.244.54", "194.59.250.210", "185.156.172.198", "37.120.244.222", "68.71.244.46", "68.71.244.38", "37.120.141.114", "37.120.244.210", "185.156.172.154", "88.202.177.242", "37.120.244.218", "194.59.250.234", "89.238.177.202", "88.202.177.232", "88.202.177.241", "88.202.177.234", "68.71.244.58", "46.23.78.24", "194.59.250.218", "68.71.244.14", "194.59.250.194", "2.58.44.226"]
     
+   # IPS_TORGUARD = ["82.129.66.196"]
+    
     PORTS = [6060,1337,1338,1339,1340,1341,1342,1343]
 
-    #from scapy.all import sr, IP, ICMP
     queue_ok = Queue()
     
-    def _check_proxy(ip, port):
-        try:
-            cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}",timeout=10)
-            res = cl.get("https://torguard.net/whats-my-ip.php")            
-            print(f"{ip}:{port}:{res}")
-            if res.status_code == 200:
-                queue_ok.put((ip, port, res))
-        except Exception as e:
-            print(f"{ip}:{port}:{e}")
-        finally:
-            cl.close()
+
     
     futures = []
     
@@ -200,7 +209,7 @@ def status_proxy():
     
     with ThreadPoolExecutor(max_workers=8) as ex:
         for proxy in IPS_TORGUARD:            
-            futures.append(ex.submit(_check_proxy, proxy, _port))
+            futures.append(ex.submit(check_proxy, proxy, _port, queue_ok))
         
     
     list_res = list(queue_ok.queue)
@@ -256,7 +265,9 @@ def init_logging(file_path=None):
 def init_argparser():
     
     # UA_LIST = ["Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:80.0) Gecko/20100101 Firefox/80.0", "Mozilla/5.0 (Android 11; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0", "Mozilla/5.0 (iPad; CPU OS 10_15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/24.1 Mobile/15E148 Safari/605.1.15", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0"]
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:88.0) Gecko/20100101 Firefox/88.0"]
+    #UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:88.0) Gecko/20100101 Firefox/88.0"]
+    
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:93.0) Gecko/20100101 Firefox/93.0"]
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
@@ -264,7 +275,6 @@ def init_argparser():
     parser.add_argument("--winit", help="Number of init workers", default="0", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="best/bestvideo+bestaudio", type=str)
-    parser.add_argument("--playlist", help="URL should be trreated as a playlist", action="store_true") 
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
@@ -276,8 +286,7 @@ def init_argparser():
     parser.add_argument("--nodl", help="not download", action="store_true")   
     parser.add_argument("--headers", default="", type=str)  
     parser.add_argument("-u", action="append", dest="collection", default=[])
-    parser.add_argument("--byfilesize", help="order list of videos to dl by filesize", action="store_true")
-    parser.add_argument("--name", action="append", dest="col_names", default=[])
+    parser.add_argument("--byfilesize", help="order list of videos to dl by filesize", action="store_true")  
     parser.add_argument("--lastres", help="use last result for get videos list", action="store_true")
     parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true")
     parser.add_argument("--path", default=None, type=str)    
@@ -305,7 +314,9 @@ def init_ytdl(args):
         "skip_download": True,        
         "logger" : logger,        
         "nocheckcertificate" : args.nocheckcert,
-        "winit" : str(args.winit)   
+        "writesubtitles": True,
+        "subtitleslangs": ['en','es'],
+        "winit" : args.winit if args.winit > 0 else args.w   
     }
 
     if args.proxy: ytdl_opts['proxy'] = args.proxy
@@ -319,8 +330,7 @@ def init_ytdl(args):
     std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
    
     std_headers["Connection"] = "keep-alive"
-    #std_headers["Accept-Language"] = "es-ES,en-US;q=0.7,en;q=0.3"
-    std_headers["Accept-Language"] = "en-UK;q=0.7,en;q=0.3"
+    std_headers["Accept-Language"] = "en-US;q=0.7,en;q=0.3"
     std_headers["Accept-Encoding"] = "gzip, deflate"
     if args.headers:
         std_headers.update(demjson.decode(args.headers))
@@ -334,17 +344,11 @@ def init_tk():
     window.title("async_downloader")
     
     
-    frame0 = tk.Frame(master=window, width=25, height=50, bg="white")
-  
-    frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
-    
-    
+    frame0 = tk.Frame(master=window, width=25, height=50, bg="white")  
+    frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True) 
     frame1 = tk.Frame(master=window, width=50, bg="white")
-  
-    frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
-    
+    frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)  
     frame2 = tk.Frame(master=window, width=25, bg="white")
-   
     frame2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
     
         

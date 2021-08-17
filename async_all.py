@@ -5,6 +5,7 @@ import logging
 import sys
 import traceback
 import json
+import demjson
 import tkinter as tk
 import asyncio
 import aiorun 
@@ -26,7 +27,8 @@ from utils import (
     naturalsize,
     is_playlist,
     get_extractor,
-    wait_time,  
+    wait_time,
+    kill_processes  
 )
 
 from concurrent.futures import (
@@ -35,7 +37,7 @@ from concurrent.futures import (
 )
 
 import subprocess
-from youtube_dl.utils import sanitize_filename
+from yt_dlp.utils import sanitize_filename
 from codetiming import Timer
 from datetime import datetime
 from operator import itemgetter
@@ -70,7 +72,7 @@ class AsyncDL():
         self.list_initnok = []
         self.list_initaldl = []
         self.list_dl = []
-        self.files_cached = dict()
+        self.files_cached = {}
         self.videos_to_dl = []
         
         self.queue_vid = Queue()        
@@ -84,8 +86,6 @@ class AsyncDL():
         self.count_manip = 0 
         
         self.time_now = datetime.now()
-    
-    
     
     
     async def run_tk(self, args_tk):
@@ -219,15 +219,15 @@ class AsyncDL():
     def get_list_videos(self):
         
         
-        fileres = Path(Path.home(), f"Projects/common/logs/list_videos.json")
-        filecaplinks = Path(Path.home(), f"Projects/common/logs/captured_links.txt")
+        fileres = Path(Path.home(), "Projects/common/logs/list_videos.json")
+        filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
         
         if self.args.lastres:                
                 
             if fileres.exists():
                 try:
-                    with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"r") as f:
-                        self.list_videos += (json.load(f)).get('entries')
+                    with open(fileres, "r") as file:
+                        self.list_videos += (json.load(file)).get('entries')
                 except Exception as e:
                     self.logger.error("Couldnt get info form last result")
                     
@@ -236,8 +236,8 @@ class AsyncDL():
         
         url_list = []
         
-        
         if self.args.caplinks:
+            
             with open(filecaplinks, "r") as file:
                 _content = file.read()            
                 
@@ -265,8 +265,6 @@ class AsyncDL():
             _url_pl = []
             for d in done:
                 _url_pl += (d.result()).get('entries')
-                    
-            
                 
             items = defaultdict(list)
             for entry in _url_pl:
@@ -276,17 +274,25 @@ class AsyncDL():
             
             
         if self.args.collection_files:
-            def get_info_json(file):
-                with open(file, "r") as f:
-                    return json.loads(f.read())
             
-            self.list_videos += [get_info_json(file) for file in self.args.collection_files]
+            def get_info_json(file):
+                try:
+                    with open(file, "r") as f:
+                        return json.loads(f.read())
+                except Exception as e:
+                    lines = traceback.format_exception(*sys.exc_info())
+                    self.logger.error(f"[get_list_videos] Error:{repr(e)} \n{'!!'.join(lines)}")
+                    return {}
+                    
+            
+            for file in self.args.collection_files:
+                self.list_videos += get_info_json(file).get('entries')
         
                 
-        with open(Path(Path.home(), f"Projects/common/logs/list_videos.json"),"w") as f:
+        with open(fileres,"w") as f:
             json.dump({'entries': self.list_videos},f)
         
-        
+                
         self.logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
         
         return self.list_videos
@@ -342,7 +348,7 @@ class AsyncDL():
                 
         elif self.args.first and self.args.last:
             if self.args.first <= self.args.last < len(self.list_videos):
-                self.list_videos = self.list_videos[self.args.first:self.args.last+1] 
+                self.list_videos = self.list_videos[self.args.first-1:self.args.last] 
             else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
             
         for video in self.list_videos:                
@@ -402,21 +408,18 @@ class AsyncDL():
                     self.queue_run.put_nowait("KILLANDCLEAN")
                     
                     if self.list_dl:
-                        info_dl = [dl.info_dict for dl in self.list_dl]
-                        if info_dl:                   
+                        info_dl = {"entries": [dl.info_dict for dl in self.list_dl]}
+                        
+                        if info_dl:
+                            #self.logger.info(info_dl)                   
+                            _info_dl_str = demjson.encode(info_dl)
                             with open(Path(Path.home(), f"Projects/common/logs/lastsession.json"), "w") as f:                        
-                                json.dump(info_dl, f)
+                                f.write(_info_dl_str)
                     else:
                         self.stop_tk = True
                         
                     #kill any zombie process from extractors - firefox, geckodriver, etc
-                    res = subprocess.run(["ps","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
-                    mobj = re.findall(r'(\d+) ((?:geckodriver|/Applications/Firefox Nightly))', res)
-                    if mobj:
-                        for process in mobj:                    
-                            res = subprocess.run(["kill","-9",process[0]], encoding='utf-8', capture_output=True)
-                            if res.returncode != 0: self.logger.debug(f"cant kill {process[0]} : {process[1]} : {res.stderr}")
-                            else: self.logger.info(f"killed {process[0]} : {process[1]}")                
+                    kill_processes(self.logger)                
                             
                     
                     break
@@ -496,7 +499,7 @@ class AsyncDL():
                                 
                                     self.list_dl.append(dl)
                                     
-                                    if dl.info_dl['status'] == "init_manipulating":
+                                    if dl.info_dl['status'] in ("init_manipulating", "done"):
                                         self.queue_manip.put_nowait(dl)
                                         self.logger.info(f"worker_init[{i}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
                                     else:
@@ -636,12 +639,11 @@ class AsyncDL():
         
         try:        
           
-                   
+ 
             tasks_run = []
             task_tk = []
             tasks_manip = []
 
-            
             tasks_init = [asyncio.create_task(asyncio.to_thread(self.worker_init, i)) for i in range(self.init_nworkers)]
                             
             if not self.args.nodl:
@@ -824,14 +826,9 @@ def main():
         except Exception as e:
             logger.error(str(e), exc_info=True)
             
-        finally:            
-            res = subprocess.run(["ps","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
-            mobj = re.findall(r'(\d+) ((?:aria2c|browsermob|geckodriver|java|/Applications/Firefox Nightly))', res)
-            if mobj:
-                for process in mobj:                    
-                    res = subprocess.run(["kill","-9",process[0]], encoding='utf-8', capture_output=True)
-                    if res.returncode != 0: logger.error(f"cant kill {process[0]} : {process[1]} : {res.stderr}")
-                    else: logger.info(f"killed {process[0]} : {process[1]}")
+        finally:
+            kill_processes(logger)            
+
 
     
     res = asyncDL.get_results_info()     

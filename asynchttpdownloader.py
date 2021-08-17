@@ -108,6 +108,8 @@ class AsyncHTTPDownloader():
         self.parts = []
         self.status = "init"        
         self.prepare_parts()
+        self.count = self._NUM_WORKERS #cuenta de los workers activos
+        
         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[init] {self.parts}")        
 
 
@@ -490,7 +492,7 @@ class AsyncHTTPDownloader():
         
         await asyncio.sleep(0)        
         
-        self.count = self._NUM_WORKERS
+        
         
         try:
                 
