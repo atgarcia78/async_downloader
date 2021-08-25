@@ -119,22 +119,19 @@ class AsyncARIA2CDownloader():
          
             
             self.dl_cont = await asyncio.to_thread(self.aria2_client.add_uris,[self.video_url], opts)
-
-            await asyncio.to_thread(self.dl_cont.update)
-
+            
             while True:
+                await asyncio.to_thread(self.dl_cont.update)
                 if self.dl_cont.total_length or (self.dl_cont.status not in ('active', 'waiting')):
                     break               
                 await asyncio.sleep(0)
-                await asyncio.to_thread(self.dl_cont.update)
- 
-                
             
-             
+            if self.dl_cont.total_length:
+                self.filesize = self.dl_cont.total_length 
             if self.dl_cont.status in ('active', 'waiting'):        
                 self.status = "downloading"  
-                self.filesize = self.dl_cont.total_length
-                while self.dl_cont.status == 'active':
+                
+                while self.dl_cont.status in ('active', 'waiting'):
                     
                                     
                     _incsize = self.dl_cont.completed_length - self.down_size
@@ -162,9 +159,9 @@ class AsyncARIA2CDownloader():
         if self.status == "done":
             return (f"[ARIA2C][{self.info_dict['format_id']}]: Completed\n")
         elif self.status == "init":
-            return (f"[ARIA2C][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}]\n")            
+            return (f"[ARIA2C][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize) if self.filesize else 'NA'}]\n")            
         elif self.status == "error":
-            return (f"[ARIA2C][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}]")
+            return (f"[ARIA2C][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize) if self.filesize else 'NA'}]")
         elif self.status == "downloading":
             _temp = copy.deepcopy(self.dl_cont)    #mientras calculamos strings progreso no puede haber update de dl_cont, así que deepcopy de la instancia      
             

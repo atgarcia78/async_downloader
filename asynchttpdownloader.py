@@ -45,7 +45,7 @@ class AsyncHTTPDownloader():
     
     
     
-    _MIN_SIZE = 1048576 #1MB
+    _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
     #_CHUNK_SIZE = 1048576 #1MB
     _MAX_RETRIES = 20
@@ -204,7 +204,7 @@ class AsyncHTTPDownloader():
             self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: server cant handle ranges")
             
         elif (_partsize:=self.filesize // self.n_parts) < self._MIN_SIZE: #size of parts cant be less than _MIN_SIZE
-            temp = self.filesize // self._MIN_SIZE            
+            temp = self.filesize // self._MIN_SIZE + 1            
             self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: size parts [{_partsize}] < {self._MIN_SIZE} -> change nparts [{self.n_parts} -> {temp}]")
             self.n_parts = temp
             self._NUM_WORKERS = self.n_parts            

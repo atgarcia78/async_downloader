@@ -373,7 +373,7 @@ class AsyncDL():
         
         
         self.totalbytes2dl = sum([vid.get('filesize') for vid in self.videos_to_dl])
-        self.logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}")       
+        self.logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}]")       
         
         
         self.logger.debug(f"Queue content for running: \n {list(self.queue_vid.queue)}")
@@ -460,6 +460,8 @@ class AsyncDL():
                                     if not info.get('format_id') and not info.get('requested_formats'):
                                         
                                         info_dict = self.ytdl.process_ie_result(info,download=False)
+                                        if info_dict:
+                                            if info_dict.get('_type') == 'playlist': info_dict = info_dict['entries'][0]
                             
                             else: info_dict = vid
                             
@@ -563,7 +565,7 @@ class AsyncDL():
                     self.logger.debug(f"worker_run[{i}]: start to dl {video_dl.info_dl['title']}")
                     
                     task_run = asyncio.create_task(video_dl.run_dl())
-                    task_run.set_name(f"worker_run[{i}][{video_dl.info_dict['title']}]")
+                    #task_run.set_name(f"worker_run[{i}][{video_dl.info_dict['title']}]")
                     await asyncio.sleep(0)
                     done, pending = await asyncio.wait([task_run])
                     
