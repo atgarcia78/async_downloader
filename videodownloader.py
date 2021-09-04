@@ -48,11 +48,9 @@ class VideoDownloader():
         #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
                 
         self.info_dict = copy.deepcopy(video_dict)
-        
-        if not self.info_dict.get('id'):
-            _video_id = str(int(hashlib.sha256(b"{video_dict.get('webpage_url')}").hexdigest(),16) % 10**8)
-        else: _video_id = str(self.info_dict['id'])
-        self.info_dict.update({'id': _video_id[:8] if len(_video_id) > 8 else _video_id})
+    
+        _video_id = str(self.info_dict['id'])
+        self.info_dict.update({'id': _video_id[:10] if len(_video_id) > 10 else _video_id})
         
         _date_file = datetime.now().strftime("%Y%m%d")
         _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not dlpath else Path(dlpath, self.info_dict['id'])
@@ -99,7 +97,7 @@ class VideoDownloader():
             'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init"             
         })
         
-        print(self.info_dl)
+        #print(self.info_dl)
 
     def _get_dl(self, info):
         

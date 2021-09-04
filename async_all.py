@@ -311,7 +311,7 @@ class AsyncDL():
             return True
         
         _title = sanitize_filename(_title, restricted=True).upper()
-        _id = _id[:8] if len(_id) > 8 else _id
+        _id = _id[:10] if len(_id) > 10 else _id
         vid_name = f"{_id}_{_title}"                    
 
         if not (vid_path:=self.files_cached.get(vid_name)):
@@ -384,7 +384,7 @@ class AsyncDL():
     def worker_init(self, i):
         #worker que lanza la creación de los objetos VideoDownloaders, uno por video
         
-        self.logger.debug(f"worker_init[{i}]: launched")
+        self.logger.info(f"worker_init[{i}]: launched")
 
         try:
         
@@ -392,7 +392,7 @@ class AsyncDL():
                 
                 num, vid = self.queue_vid.get()
                                 
-                self.logger.debug(f"worker_init[{i}]: [{num}]{vid}")
+                self.logger.info(f"worker_init[{i}]: [{num}]{vid}")
                 if vid == "KILL":
                     self.logger.debug(f"worker_init[{i}]: finds KILL")
                     break
