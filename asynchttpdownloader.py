@@ -442,7 +442,8 @@ class AsyncHTTPDownloader():
                             break
                         
                         else:
-                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] part[{part}] end of stream not completed\n{self.parts[part-1]}")
+                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] part[{part}] end of stream not completed")
+                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] {self.parts[part-1]}")
                            
                             raise AsyncHTTPDLError(f"Part not completed in streaming: part[{part}]") 
                         

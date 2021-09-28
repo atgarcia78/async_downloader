@@ -32,7 +32,7 @@
         "class": "logging.StreamHandler",
         "level": "INFO",
         "formatter": "colored",
-        "filters": ["filtermodules", "filterytdl"],      
+        "filters": ["filtermodules"],      
         "stream": "ext://sys.stdout"
     },
 

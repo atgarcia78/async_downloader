@@ -57,10 +57,11 @@ def is_playlist(url):
     
     if matching_ies:
         ie_name, ie = matching_ies[0]
-        if 'playlist' in ie_name: return True
+        if 'playlist' in ie_name: return (True, ie.ie_key())
         for tc in ie.get_testcases():
-            if tc.get('playlist'): return True
-    return False
+            if tc.get('playlist'):
+                return (True, ie.ie_key())
+    return (False, "")
 
 def foldersize(folder):
     #devuelve en bytes size folder
@@ -267,7 +268,7 @@ def init_argparser():
     # UA_LIST = ["Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:80.0) Gecko/20100101 Firefox/80.0", "Mozilla/5.0 (Android 11; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0", "Mozilla/5.0 (iPad; CPU OS 10_15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/24.1 Mobile/15E148 Safari/605.1.15", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0"]
     #UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:88.0) Gecko/20100101 Firefox/88.0"]
     
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:93.0) Gecko/20100101 Firefox/93.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:94.0) Gecko/20100101 Firefox/94.0"]
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
@@ -292,6 +293,7 @@ def init_argparser():
     parser.add_argument("--path", default=None, type=str)    
     parser.add_argument("--caplinks", action="store_true")    
     parser.add_argument("--aria2c", action="store_true")
+    parser.add_argument("-v", "--verbose", help="verbose", action="store_true")
     
     
     return parser.parse_args()
@@ -305,8 +307,8 @@ def init_ytdl(args):
     ytdl_opts = {        
         "continue_dl": True,
         "updatetime": False,
-        "ignoreerrors": True,
-        "verbose": True,
+        "ignoreerrors": False,
+        "verbose": args.verbose,
         "quiet": False,
         "extract_flat": "in_playlist",        
         "format" : args.format,
@@ -316,7 +318,9 @@ def init_ytdl(args):
         "nocheckcertificate" : args.nocheckcert,
         "writesubtitles": True,
         "subtitleslangs": ['en','es'],
-        "winit" : args.winit if args.winit > 0 else args.w   
+        "restrictfilenames": True,
+        "winit" : args.winit if args.winit > 0 else args.w,
+          
     }
 
     if args.proxy: ytdl_opts['proxy'] = args.proxy

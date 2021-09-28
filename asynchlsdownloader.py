@@ -71,6 +71,7 @@ class AsyncHLSDownloader():
     #_CHUNK_SIZE = 1024
     _CHUNK_SIZE = 102400
     _MAX_RETRIES = 5
+    _MAX_RESETS = 10
        
     def __init__(self, video_dict, vid_dl):
 
@@ -234,11 +235,15 @@ class AsyncHLSDownloader():
                 
                 try:
                     
-                    info = self.ytdl.extract_info(self.webpage_url, download=False, process=False)
-                    if not info.get('format_id') and not info.get('requested_formats'):                                
-                        info_reset = self.ytdl.process_ie_result(info,download=False)
-                    else:
-                        info_reset = info
+                    # info = self.ytdl.extract_info(self.webpage_url, download=False, process=False)
+                    # if not info.get('format_id') and not info.get('requested_formats'):                                
+                    #     info_reset = self.ytdl.process_ie_result(info,download=False)
+                    # else:
+                    #     info_reset = info
+                    
+                    _info = self.ytdl.extract_info(self.webpage_url, download=False)
+                    info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
+                                                  
                     
                     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
                     
@@ -376,10 +381,11 @@ class AsyncHLSDownloader():
                             async with self.client.stream("GET", url, headers=headers, timeout=30) as res:
                                                  
                             
-                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: {res.status_code} {res.reason_phrase}")
-                                if res.status_code >= 400:                                                   
+                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: {res.status_code} {res.reason_phrase}")
+                                if res.status_code == 403:                                                   
                                     raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} resp code:{str(res)}")
-                                
+                                elif res.status_code >= 400:
+                                    raise AsyncHLSDLError(f"Frag:{str(q)} resp code:{str(res)}")                                
                                 else:
                                         
                                     _hsize = int_or_none(res.headers.get('content-length'))
@@ -394,7 +400,7 @@ class AsyncHLSDownloader():
                                             _size = self.info_seg[q-1]['size'] = (await asyncio.to_thread(filename.stat)).st_size
                                             if _size and  (_hsize - 5 <= _size <= _hsize + 5):                            
                                     
-                                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
+                                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
                                                 break
                                             else:
                                                 await f.truncate()
@@ -404,7 +410,7 @@ class AsyncHLSDownloader():
                                                     self.down_size -= _size
                                                     self.video_downloader.info_dl['down_size'] -= _size                                                            
                                         else:
-                                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg{q}: seg with mark downloaded but file doesnt exists")
+                                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: seg[{q}:] seg with mark downloaded but file doesnt exists")
                                             self.info_seg[q-1]['downloaded'] = False
                                             async with self.video_downloader.lock:
                                                     self.n_dl_segments -= 1
@@ -448,7 +454,7 @@ class AsyncHLSDownloader():
                                             if set([_el1>_el2 for _el1,_el2 in zip(_time, _max)]) == {True}:
                                             
                                           
-                                                raise AsyncHLSDLErrorFatal(f"timechunk [{_time}] > [{_max}]=20*mean time accumulated for 5 consecutives chunks, nchunks[{self.info_seg[q -1]['nchunks_dl']}]")
+                                                raise AsyncHLSDLError(f"timechunk [{_time}] > [{_max}]=20*mean time accumulated for 5 consecutives chunks, nchunks[{self.info_seg[q -1]['nchunks_dl']}]")
                                                                                
                                         await asyncio.sleep(0)
                                         await _timer.async_start()
@@ -516,8 +522,11 @@ class AsyncHLSDownloader():
                                 
                         else:
                             self.info_seg[q - 1]['error'].append("MaxLimitRetries")
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]:MaxLimitRetries")
-                            raise AsyncHLSDLErrorFatal(f"MaxLimitretries seg[{q}]")
+                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:seg[{q}]:MaxLimitRetries:skip")
+                            #raise AsyncHLSDLErrorFatal(f"MaxLimitretries seg[{q}]")
+                            self.info_seg[q - 1]['skipped'] = True
+                            break
+                            
 
             
         finally:            
@@ -585,7 +594,7 @@ class AsyncHLSDownloader():
                 
                     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:RESET:{repr(e)}\n{'!!'.join(lines)}")
 
-                    if self.n_reset < 10:
+                    if self.n_reset < self._MAX_RESETS:
 
                         self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}] {e}")
                         await asyncio.sleep(0)
@@ -691,15 +700,18 @@ class AsyncHLSDownloader():
         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Segments DL \n{self.segsdl()}")
         
         try:
-            seg_files = natsorted((file for file in self.download_path.iterdir() if file.is_file() and not file.name.startswith('.')), alg=ns.PATH)
+            # seg_files = natsorted((file for file in self.download_path.iterdir() if file.is_file() and not file.name.startswith('.')), alg=ns.PATH)
 
-            if len(seg_files) != len(self.info_seg):
-                raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Number of seg files - {len(seg_files)} != segs - {len(self.info_seg)} ")
+            # if len(seg_files) != len(self.info_seg):
+            #     raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Number of seg files - {len(seg_files)} != segs - {len(self.info_seg)} ")
         
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
             with open(self.filename, mode='wb') as dest:
+                _skipped = 0
                 for f in self.info_seg: 
-                                        
+                    if f.get('skipped', False):
+                        _skipped += 1
+                        continue                  
                     if not f['size']:
                         if f['file'].exists(): f['size'] = f['file'].stat().st_size
                         if f['size'] and (f['headersize'] - 5 <= f['size'] <= f['headersize'] + 5):                
@@ -724,7 +736,9 @@ class AsyncHLSDownloader():
         if self.filename.exists():
             rmtree(str(self.download_path),ignore_errors=True)
             self.status = "done" 
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")               
+            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled") 
+            if _skipped:
+                self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] skipped segs [{_skipped}]")             
         else:
             self.status = "error"  
             self.sync_clean_when_error()                        
@@ -735,14 +749,14 @@ class AsyncHLSDownloader():
     def segsnotdl(self):
         res = []
         for seg in self.info_seg:
-            if seg['downloaded'] == False:
+            if (seg['downloaded'] == False) and not seg.get('skipped', False):
                 res.append(seg['seg'])
         return res
     
     def segsdl(self):
         res = []
         for seg in self.info_seg:
-            if seg['downloaded'] == True:
+            if (seg['downloaded'] == True) or seg.get('skipped', False):
                 res.append({'seg': seg['seg'], 'headersize': seg['headersize'], 'size': seg['size']})
         return res
 

@@ -5,7 +5,8 @@ import sys
 from pathlib import Path
 import logging
 from utils import (
-    naturalsize
+    naturalsize,
+    std_headers
 )
 import traceback
 
@@ -49,19 +50,42 @@ class AsyncARIA2CDownloader():
         self.info_dict = video_dict
         self.video_downloader = vid_dl
         
+        
+        
         self.aria2_client = aria2p.API(aria2p.Client())
         
-        self.video_url = video_dict.get('url')
+        
+        
+        
         self.webpage_url = video_dict.get('webpage_url')
         
 
         self.id = self.info_dict['id']
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
+       
+        
         self.proxies = self.ytdl.params.get('proxy', None)
         if self.proxies:
             self.proxies = f"http://{self.proxies}"
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
+        
+        self.video_url = video_dict.get('url')
+        
+        try:
+            client = httpx.Client(headers=std_headers, verify=self.verifycert, proxies=self.proxies, timeout=60)
+            res = client.head(self.video_url)
+            _video_url = str(res.url)
+            if _video_url != self.video_url:
+                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] url video changed after checking\n{self.video_url}\n{_video_url}")
+                self.video_url = _video_url
+                
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
+        finally:
+            client.close()
+            
 
         
         self.headers = self.info_dict.get('http_headers')  
@@ -109,7 +133,8 @@ class AsyncARIA2CDownloader():
         
         opts_dict = {'header': [f'{key} : {value}' for key,value in self.headers.items()],
                      'dir': str(self.download_path),
-                     'out': self.filename.name}
+                     'out': self.filename.name,
+                     'check-certificate': self.verifycert }
         
         
         opts = aria2p.Options(self.aria2_client, opts_dict)

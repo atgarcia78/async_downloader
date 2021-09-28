@@ -49,8 +49,8 @@ class VideoDownloader():
                 
         self.info_dict = copy.deepcopy(video_dict)
     
-        _video_id = str(self.info_dict['id'])
-        self.info_dict.update({'id': _video_id[:10] if len(_video_id) > 10 else _video_id})
+        #_video_id = str(self.info_dict['id'])
+        #self.info_dict.update({'id': _video_id[:10] if len(_video_id) > 10 else _video_id})
         
         _date_file = datetime.now().strftime("%Y%m%d")
         _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not dlpath else Path(dlpath, self.info_dict['id'])
