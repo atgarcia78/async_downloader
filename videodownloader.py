@@ -47,55 +47,62 @@ class VideoDownloader():
         
         #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
                 
-        self.info_dict = copy.deepcopy(video_dict)
-    
-        #_video_id = str(self.info_dict['id'])
-        #self.info_dict.update({'id': _video_id[:10] if len(_video_id) > 10 else _video_id})
+        try:
         
-        _date_file = datetime.now().strftime("%Y%m%d")
-        _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not dlpath else Path(dlpath, self.info_dict['id'])
+            self.info_dict = copy.deepcopy(video_dict)
         
-               
-        self.info_dl = {
+            #_video_id = str(self.info_dict['id'])
+            #self.info_dict.update({'id': _video_id[:10] if len(_video_id) > 10 else _video_id})
             
-            'id': self.info_dict['id'],
-            'n_workers': n_workers,
-            'aria2c': aria2c,
-            'webpage_url': self.info_dict.get('webpage_url'),
-            'title': self.info_dict.get('title'),
-            'ytdl': ytdl,
-            'date_file': _date_file,
-            'download_path': _download_path,
-            'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
-        } 
+            _date_file = datetime.now().strftime("%Y%m%d")
+            _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not dlpath else Path(dlpath, self.info_dict['id'])
+            
+                
+            self.info_dl = {
+                
+                'id': self.info_dict['id'],
+                'n_workers': n_workers,
+                'aria2c': aria2c,
+                'webpage_url': self.info_dict.get('webpage_url'),
+                'title': self.info_dict.get('title'),
+                'ytdl': ytdl,
+                'date_file': _date_file,
+                'download_path': _download_path,
+                'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
+            } 
+            
         
-       
-        
-               
-        self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
-        
-        downloaders = []
-        if not (_requested_formats:=self.info_dict.get('requested_formats')):
-            _new_info_dict = copy.deepcopy(self.info_dict)
-            _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
-            downloaders.append(self._get_dl(_new_info_dict))
-        else:
-            for f in _requested_formats:
-                _new_info_dict = copy.deepcopy(f)                
-                _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url']})
-                downloaders.append(self._get_dl(_new_info_dict))        
-        
-               
-        
-        
-        res = sorted(list(set([dl.status for dl in downloaders])))    
-        self.info_dl.update({
-            'downloaders': downloaders,
-            'requested_subtitles': copy.deepcopy(_req_sub) if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
-            'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
-            'down_size': sum([dl.down_size for dl in downloaders]),
-            'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init"             
-        })
+            
+                
+            self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
+            
+            downloaders = []
+            if not (_requested_formats:=self.info_dict.get('requested_formats')):
+                _new_info_dict = copy.deepcopy(self.info_dict)
+                _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
+                downloaders.append(self._get_dl(_new_info_dict))
+            else:
+                for f in _requested_formats:
+                    _new_info_dict = copy.deepcopy(f)                
+                    _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url']})
+                    downloaders.append(self._get_dl(_new_info_dict))        
+            
+                
+            
+            
+            res = sorted(list(set([dl.status for dl in downloaders])))    
+            self.info_dl.update({
+                'downloaders': downloaders,
+                'requested_subtitles': copy.deepcopy(_req_sub) if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
+                'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
+                'down_size': sum([dl.down_size for dl in downloaders]),
+                'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init"             
+            })
+            
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())
+            self.logger.error(f"{str(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
+            raise 
         
         #print(self.info_dl)
 

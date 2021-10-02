@@ -40,28 +40,34 @@ async def wait_time(n):
         if _t > n: break
         else: await asyncio.sleep(0)
 
-def get_extractor(url):
+def get_extractor(url, ytdl):
     
     extractor = None
-    ies = gen_extractors()
-    for ie in ies:
+    ies = ytdl._ies
+    for ie_key, ie in ies.items():
         if ie.suitable(url):
-            extractor = ie.ie_key()
+            extractor = ie_key
             break
     return extractor
 
-def is_playlist(url):    
+def is_playlist(url, ytdl):    
         
-    ies = gen_extractors()    
-    matching_ies = [(_name, ie) for ie in ies if ie.suitable(url) and (_name:=(getattr(ie,'IE_NAME','') or ie.ie_key()).lower()) != 'generic']
+    ies = ytdl._ies 
+    for ie_key, ie in ies.items():
+        if ie.suitable(url):
+            extractor = ie_key
+            name = getattr(ie, 'IE_NAME', '')
+            return ("playlist" in extractor.lower() or "playlist" in name.lower(), extractor)
+       
+    # matching_ies = [(_name, ie) for ie_key, ie in ies.items() if ie.suitable(url) and (_name:=(getattr(ie,'IE_NAME','') or ie_key).lower()) != 'generic']
     
-    if matching_ies:
-        ie_name, ie = matching_ies[0]
-        if 'playlist' in ie_name: return (True, ie.ie_key())
-        for tc in ie.get_testcases():
-            if tc.get('playlist'):
-                return (True, ie.ie_key())
-    return (False, "")
+    # if matching_ies:
+    #     ie_name, ie = matching_ies[0]
+    #     if 'playlist' in ie_name: return (True, ie.ie_key())
+    #     for tc in ie.get_testcases():
+    #         if tc.get('playlist'):
+    #             return (True, ie.ie_key())
+    # return (False, "")
 
 def foldersize(folder):
     #devuelve en bytes size folder
@@ -275,7 +281,7 @@ def init_argparser():
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
     parser.add_argument("--winit", help="Number of init workers", default="0", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
-    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="best/bestvideo+bestaudio", type=str)
+    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
@@ -327,8 +333,10 @@ def init_ytdl(args):
     if args.ytdlopts: ytdl_opts.update(demjson.decode(args.ytdlopts))
     logger.debug(f"ytdl opts: \{ytdl_opts}")
     
-    ytdl = YoutubeDL(ytdl_opts, auto_init=False)
-    ytdl.add_default_info_extractors()
+    # ytdl = YoutubeDL(ytdl_opts, auto_init=False)
+    # ytdl.add_default_info_extractors()
+    
+    ytdl = YoutubeDL(ytdl_opts)
 
     std_headers["User-Agent"] = args.useragent
     std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"

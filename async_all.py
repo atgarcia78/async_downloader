@@ -34,7 +34,7 @@ from utils import (
 
 from concurrent.futures import (
     ThreadPoolExecutor,
-    wait
+    wait as wait_for_futures
 )
 
 import subprocess
@@ -43,7 +43,7 @@ from codetiming import Timer
 from datetime import datetime
 from operator import itemgetter
 from videodownloader import VideoDownloader 
-from collections import defaultdict 
+
 
 from threading import Lock
 
@@ -66,7 +66,7 @@ class AsyncDL():
         
         #youtube_dl
         self.ytdl = init_ytdl(self.args)   
-        self.ytdl.params['dict_videos_to_dl'] = {}     
+        #self.ytdl.params['dict_videos_to_dl'] = {}     
         
         
         #listas con videos y queues       
@@ -187,9 +187,10 @@ class AsyncDL():
                     
                     if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip')):
 
-                        _res = re.findall(r'^([^_]*)_(.*)', file.stem)
-                        if _res:
-                            (_id, _title) = _res[0]
+                        #_res = re.findall(r'^([^_]*)_(.*)', file.stem)
+                        _res = file.stem.split('_', 1)
+                        if len(_res) == 2:
+                            _id, _title = _res[0], _res[1]
                             _title = sanitize_filename(_title, restricted=True)
                             _title = _title.upper()
                             _name = f"{_id}_{_title}"
@@ -197,18 +198,22 @@ class AsyncDL():
                             _name = sanitize_filename(file.stem, restricted=True).upper()
 
                         if not (_videopath:=self.files_cached.get(_name)): 
-                            if not file.is_symlink(): self.files_cached.update({_name: str(file)})
+                            #if not file.is_symlink(): self.files_cached.update({_name: str(file)})
+                            self.files_cached.update({_name: str(file)})
+                            
                         else:
                             if _videopath != str(file):
-                                if not file.is_symlink(): _repeated.append({'title':_name, 'indict': _videopath, 'file': str(file)})
-                            
+                                #if not file.is_symlink(): _repeated.append({'title':_name, 'indict': _videopath, 'file': str(file)})
+                                _repeated.append({'title':_name, 'indict': _videopath, 'file': str(file)})
                 
         
             
             self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
             
             if _repeated:
-                self.logger.warning(f"Please check videos repeated: \n {_repeated}")
+                
+                self.logger.warning("Please check videos repeated in logs")
+                self.logger.debug(f"videos repeated: \n {_repeated}")
             
                         
             prev_res = Path(Path.home(),"Projects/common/logs/prev_files_cached.json")
@@ -258,16 +263,17 @@ class AsyncDL():
         
         url_pl_list = []
         for _url in url_list:
-            if (_info:=is_playlist(_url))[0]:
+            if (_info:=is_playlist(_url, self.ytdl))[0]:
                 url_pl_list.append(_url)
-                if (ie_key:=_info[1]):
-                    if not self.ytdl.params['dict_videos_to_dl'].get(ie_key):
-                        self.ytdl.params['dict_videos_to_dl'][ie_key] = []
-                    self.ytdl.params['dict_videos_to_dl'][ie_key].append(_url)
+                # if (ie_key:=_info[1]):
+                #     if not self.ytdl.params['dict_videos_to_dl'].get(ie_key):
+                #         self.ytdl.params['dict_videos_to_dl'][ie_key] = []
+                #     self.ytdl.params['dict_videos_to_dl'][ie_key].append(_url)
                 
                 
             else:
-                _iekey = get_extractor(_url)
+                
+                _iekey = get_extractor(_url, self.ytdl)
                 _info_video = {}
                 if 'NetDNA' in _iekey:
                     _info_video = NetDNAIE.get_video_info(_url)
@@ -277,7 +283,7 @@ class AsyncDL():
                 
 
 
-        self.logger.info(f"DICT EXTRACTORS TO USE SO FAR: {self.ytdl.params['dict_videos_to_dl']}")
+        #self.logger.info(f"DICT EXTRACTORS TO USE SO FAR: {self.ytdl.params['dict_videos_to_dl']}")
         
         if url_pl_list:
             
@@ -288,17 +294,19 @@ class AsyncDL():
             with ThreadPoolExecutor(max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
                     
                 fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
-                done, _ = wait(fut)
+                done, _ = wait_for_futures(fut)
                             
             _url_pl = []
             for d in done:
                 _url_pl += (d.result()).get('entries')
-                    
-                items = defaultdict(list)
-                for entry in _url_pl:
-                    items[entry['url']].append(entry)
-                            
-                self.list_videos += [_value[0] for _value in items.values()]
+      
+            self.logger.debug(f"[url_playlist_lists] entries \n{_url_pl}")
+            _items = {}
+            for entry in _url_pl:
+                _items[entry['url']] = entry
+            self.logger.debug(f"[url_playlist_lists] entries dict \n{_items}")            
+            self.list_videos += list(_items.values())
+            self.logger.debug(f"[url_playlist_lists] list videos \n{self.list_videos}") 
            
             
         if self.args.collection_files:
@@ -373,10 +381,21 @@ class AsyncDL():
                 self.list_videos = [self.list_videos[self.args.index]]
             else: raise IndexError(f"index video {self.args.index} out of range [0..{len(self.videos_to_dl)-1}]")
                 
-        elif self.args.first and self.args.last:
-            if self.args.first <= self.args.last < len(self.list_videos):
-                self.list_videos = self.list_videos[self.args.first-1:self.args.last] 
+        # elif self.args.first and self.args.last:
+        #     if self.args.first <= self.args.last < len(self.list_videos):
+        #         self.list_videos = self.list_videos[self.args.first-1:self.args.last] 
+        #     else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
+            
+        elif self.args.first:
+            if self.args.first <= len(self.list_videos):
+                if self.args.last:
+                    if self.args.last >= self.args.first:
+                        _last = self.args.last - 1
+                    else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
+                else: _last = len(self.list_videos)
+                self.list_videos = self.list_videos[self.args.first-1:_last]
             else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
+                 
             
         for video in self.list_videos:
             if (_id:=video.get('id')):
@@ -386,12 +405,12 @@ class AsyncDL():
             
         for vid in self.videos_to_dl:
             if not vid.get('filesize'): vid.update({'filesize' : 0})
-            if (ie_key:=(vid.get('ie_key'))):
-                if not self.ytdl.params['dict_videos_to_dl'].get(ie_key):
-                    self.ytdl.params['dict_videos_to_dl'][ie_key] = []
-                self.ytdl.params['dict_videos_to_dl'][ie_key].append(vid['url'])
+        #     if (ie_key:=(vid.get('ie_key'))):
+        #         if not self.ytdl.params['dict_videos_to_dl'].get(ie_key):
+        #             self.ytdl.params['dict_videos_to_dl'][ie_key] = []
+        #         self.ytdl.params['dict_videos_to_dl'][ie_key].append(vid['url'])
         
-        self.logger.info(f"DICT EXTRACTORS TO USE SO FAR AFTER CHECKING ALREADY DL BEFORE WORKER INITS: \n {self.ytdl.params['dict_videos_to_dl']}")
+        #self.logger.info(f"DICT EXTRACTORS TO USE SO FAR AFTER CHECKING ALREADY DL BEFORE WORKER INITS: \n {self.ytdl.params['dict_videos_to_dl']}")
         
             
         if self.args.byfilesize:
@@ -474,8 +493,9 @@ class AsyncDL():
                                 info = self.ytdl.extract_info(vid['url'], download=False) 
                             
                             except Exception as e:
+                                lines = traceback.format_exception(*sys.exc_info())
                                 self.list_initnok.append((vid, f"{str(e)}"))
-                                self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid} - {str(e)}")
+                                self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid} - {str(e)}\n{'!!'.join(lines)}")
                                 if 'unsupported url' in str(e).lower():
                                     
                                     self.list_unsup_urls.append(vid)
@@ -822,7 +842,7 @@ class AsyncDL():
         self.logger.info(f"Not Valid URLS: \n{_videos_url_notvalid}")
         self.logger.info(f"To check URLS: \n{_videos_url_tocheck}")
         
-        self.logger.info(f"DICT EXTRACTORS DL: \n{self.ytdl.params['dict_videos_to_dl']}")
+        #self.logger.info(f"DICT EXTRACTORS DL: \n{self.ytdl.params['dict_videos_to_dl']}")
         
         return ({'videos_req': self.list_videos, 'videos_2_dl': _videos_2dl, 'videos_al_dl': _videos_aldl, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_initnok_str, 'videos_error_dl': videos_kodl_str})
 
@@ -876,6 +896,7 @@ def main():
     
     with ThreadPoolExecutor(max_workers=2) as ex:
         fut = [ex.submit(asyncDL.get_videos_cached), ex.submit(asyncDL.get_list_videos)]
+        wait_for_futures(fut)
 
     asyncDL.get_videos_to_dl()    
     
