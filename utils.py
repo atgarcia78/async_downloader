@@ -9,7 +9,6 @@ from pathlib import Path
 from h11 import DONE
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import std_headers
-from yt_dlp.extractor import gen_extractors
 import random
 import httpx
 from pathlib import Path
@@ -42,32 +41,26 @@ async def wait_time(n):
 
 def get_extractor(url, ytdl):
     
-    extractor = None
-    ies = ytdl._ies
+    ies = ytdl._ies   
     for ie_key, ie in ies.items():
-        if ie.suitable(url):
-            extractor = ie_key
-            break
-    return extractor
-
-def is_playlist(url, ytdl):    
-        
-    ies = ytdl._ies 
-    for ie_key, ie in ies.items():
-        if ie.suitable(url):
-            extractor = ie_key
-            name = getattr(ie, 'IE_NAME', '')
-            return ("playlist" in extractor.lower() or "playlist" in name.lower(), extractor)
-       
-    # matching_ies = [(_name, ie) for ie_key, ie in ies.items() if ie.suitable(url) and (_name:=(getattr(ie,'IE_NAME','') or ie_key).lower()) != 'generic']
+        if ie.suitable(url) and (ie_key != 'Generic'):
+            return (ie_key, ie)                
+    return('Generic', ies['Generic'])
     
-    # if matching_ies:
-    #     ie_name, ie = matching_ies[0]
-    #     if 'playlist' in ie_name: return (True, ie.ie_key())
-    #     for tc in ie.get_testcases():
-    #         if tc.get('playlist'):
-    #             return (True, ie.ie_key())
-    # return (False, "")
+
+def is_playlist_extractor(url, ytdl):    
+        
+    ie_key, ie = get_extractor(url, ytdl)
+    
+    _iename = ie.IE_NAME
+        
+    ie_name = _iename.lower() if type(_iename) is str else ""
+    
+    _is_pl = any("playlist" in _ for _ in [ie_key.lower(), ie_name])
+    
+    return(_is_pl, (ie_key, ie))
+
+
 
 def foldersize(folder):
     #devuelve en bytes size folder
@@ -337,9 +330,12 @@ def init_ytdl(args):
     # ytdl.add_default_info_extractors()
     
     ytdl = YoutubeDL(ytdl_opts)
+   
 
     std_headers["User-Agent"] = args.useragent
     std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+    
+    
    
     std_headers["Connection"] = "keep-alive"
     std_headers["Accept-Language"] = "en-US;q=0.7,en;q=0.3"
@@ -348,7 +344,7 @@ def init_ytdl(args):
         std_headers.update(demjson.decode(args.headers))
        
         
-    logger.debug(f"std-headers: {std_headers}")
+    logger.info(f"std-headers: {std_headers}")
     return ytdl
 
 def init_tk():

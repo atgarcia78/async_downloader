@@ -25,7 +25,7 @@ from utils import (
     patch_http_connection_pool,
     patch_https_connection_pool,
     naturalsize,
-    is_playlist,
+    is_playlist_extractor,
     get_extractor,
     wait_time,
     kill_processes,
@@ -39,6 +39,8 @@ from concurrent.futures import (
 
 import subprocess
 from yt_dlp.utils import sanitize_filename
+
+from yt_dlp.extractor.netdna import NetDNAIE
 from codetiming import Timer
 from datetime import datetime
 from operator import itemgetter
@@ -47,7 +49,7 @@ from videodownloader import VideoDownloader
 
 from threading import Lock
 
-from yt_dlp.extractor.netdna import NetDNAIE
+
 class AsyncDL():
 
     
@@ -229,109 +231,119 @@ class AsyncDL():
         return self.files_cached
                
 
+    
+    
     def get_list_videos(self):
         
+        try:
         
-        fileres = Path(Path.home(), "Projects/common/logs/list_videos.json")
-        filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
-        
-        if self.args.lastres:                
-                
-            if fileres.exists():
-                try:
-                    with open(fileres, "r") as file:
-                        self.list_videos += (json.load(file)).get('entries')
-                except Exception as e:
+            fileres = Path(Path.home(), "Projects/common/logs/list_videos.json")
+            filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
+            
+            if self.args.lastres:                
+                    
+                if fileres.exists():
+                    try:
+                        with open(fileres, "r") as file:
+                            self.list_videos += (json.load(file)).get('entries')
+                    except Exception as e:
+                        self.logger.error("Couldnt get info form last result")
+                        
+                else:
                     self.logger.error("Couldnt get info form last result")
+            
+            url_list = []
+            
+            if self.args.caplinks:
+                
+                with open(filecaplinks, "r") as file:
+                    _content = file.read()            
                     
-            else:
-                self.logger.error("Couldnt get info form last result")
-        
-        url_list = []
-        
-        if self.args.caplinks:
+                url_list += list(set([_line for _line in _content.splitlines() if _line]))
+                
+                self.logger.info(f"video list caplinks \n{url_list}")
+                
+            if self.args.collection:
+                
+                url_list += list(set(self.args.collection))    
             
-            with open(filecaplinks, "r") as file:
-                _content = file.read()            
                 
-            url_list += list(set([_line for _line in _content.splitlines() if _line]))
             
-        if self.args.collection:
+            url_pl_list = []
             
-            url_list += list(set(self.args.collection))    
-       
-        
-        url_pl_list = []
-        for _url in url_list:
-            if (_info:=is_playlist(_url, self.ytdl))[0]:
-                url_pl_list.append(_url)
-                # if (ie_key:=_info[1]):
-                #     if not self.ytdl.params['dict_videos_to_dl'].get(ie_key):
-                #         self.ytdl.params['dict_videos_to_dl'][ie_key] = []
-                #     self.ytdl.params['dict_videos_to_dl'][ie_key].append(_url)
-                
-                
-            else:
-                
-                _iekey = get_extractor(_url, self.ytdl)
-                _info_video = {}
-                if 'NetDNA' in _iekey:
-                    _info_video = NetDNAIE.get_video_info(_url)
-                
-                                        
-                self.list_videos.append({'_type': 'url', 'url': _url, 'ie_key': _iekey, 'id': _info_video.get('id', '').replace('_', ''), 'title': _info_video.get('title', ''), 'filesize': _info_video.get('filesize', '')})
-                
+            for _url in url_list:
+                res = is_playlist_extractor(_url, self.ytdl)
+                if res[0]: 
+                    url_pl_list.append(_url)
+                    
+                else:
+                    
+                    _ie_key, _ie = get_extractor(_url, self.ytdl)
+                    
+                    _info_video = {}
+                    
+                    if 'NetDNA' in _ie_key:
+                        _info_video = NetDNAIE.get_video_info(_url)
+                    
+                                            
+                    self.list_videos.append({'_type': 'url', 'url': _url, 'ie_key': _ie_key, 'id': _info_video.get('id', '').replace('_', ''), 'title': _info_video.get('title', ''), 'filesize': _info_video.get('filesize', '')})
+                    
 
 
-        #self.logger.info(f"DICT EXTRACTORS TO USE SO FAR: {self.ytdl.params['dict_videos_to_dl']}")
-        
-        if url_pl_list:
+            #self.logger.info(f"DICT EXTRACTORS TO USE SO FAR: {self.ytdl.params['dict_videos_to_dl']}")
             
-            self.logger.info(f"[url_playlist_list] {url_pl_list}")
-        
-            
-            
-            with ThreadPoolExecutor(max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
-                    
-                fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
-                done, _ = wait_for_futures(fut)
-                            
-            _url_pl = []
-            for d in done:
-                _url_pl += (d.result()).get('entries')
-      
-            self.logger.debug(f"[url_playlist_lists] entries \n{_url_pl}")
-            _items = {}
-            for entry in _url_pl:
-                _items[entry['url']] = entry
-            self.logger.debug(f"[url_playlist_lists] entries dict \n{_items}")            
-            self.list_videos += list(_items.values())
-            self.logger.debug(f"[url_playlist_lists] list videos \n{self.list_videos}") 
-           
-            
-        if self.args.collection_files:
-            
-            def get_info_json(file):
-                try:
-                    with open(file, "r") as f:
-                        return json.loads(f.read())
-                except Exception as e:
-                    lines = traceback.format_exception(*sys.exc_info())
-                    self.logger.error(f"[get_list_videos] Error:{repr(e)} \n{'!!'.join(lines)}")
-                    return {}
-                    
-            
-            for file in self.args.collection_files:
-                self.list_videos += get_info_json(file).get('entries')
-        
+            if url_pl_list:
                 
-        with open(fileres,"w") as f:
-            json.dump({'entries': self.list_videos},f)
-        
+                self.logger.info(f"[url_playlist_list] {url_pl_list}")
+            
                 
-        self.logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
+                
+                with ThreadPoolExecutor(max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
+                        
+                    fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
+                    done, _ = wait_for_futures(fut)
+                                
+                _url_pl = []
+                for d in done:
+                    _url_pl += (d.result()).get('entries')
         
-        return self.list_videos
+                self.logger.debug(f"[url_playlist_lists] entries \n{_url_pl}")
+                _items = {}
+                for entry in _url_pl:
+                    _items[entry['url']] = entry
+                self.logger.debug(f"[url_playlist_lists] entries dict \n{_items}")            
+                self.list_videos += list(_items.values())
+                self.logger.debug(f"[url_playlist_lists] list videos \n{self.list_videos}") 
+            
+                
+            if self.args.collection_files:
+                
+                def get_info_json(file):
+                    try:
+                        with open(file, "r") as f:
+                            return json.loads(f.read())
+                    except Exception as e:
+                        lines = traceback.format_exception(*sys.exc_info())
+                        self.logger.error(f"[get_list_videos] Error:{repr(e)} \n{'!!'.join(lines)}")
+                        return {}
+                        
+                
+                for file in self.args.collection_files:
+                    self.list_videos += get_info_json(file).get('entries')
+            
+                    
+            with open(fileres,"w") as f:
+                json.dump({'entries': self.list_videos},f)
+            
+                    
+            self.logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
+            
+            return self.list_videos
+        
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())
+            self.logger.error(f"[get_videos]: Error {repr(e)}\n{'!!'.join(lines)}")
+            
         
         
     def _check_to_dl(self, info_dict):  
