@@ -189,7 +189,7 @@ class AsyncDL():
                     
                     if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip')):
 
-                        #_res = re.findall(r'^([^_]*)_(.*)', file.stem)
+                        
                         _res = file.stem.split('_', 1)
                         if len(_res) == 2:
                             _id, _title = _res[0], _res[1]
@@ -200,13 +200,13 @@ class AsyncDL():
                             _name = sanitize_filename(file.stem, restricted=True).upper()
 
                         if not (_videopath:=self.files_cached.get(_name)): 
-                            #if not file.is_symlink(): self.files_cached.update({_name: str(file)})
+                            
                             self.files_cached.update({_name: str(file)})
                             
                         else:
-                            if _videopath != str(file):
-                                #if not file.is_symlink(): _repeated.append({'title':_name, 'indict': _videopath, 'file': str(file)})
-                                _repeated.append({'title':_name, 'indict': _videopath, 'file': str(file)})
+                            if _videopath != str(file): #only if both are hard files we have to do something, so lets report it in repeated files
+                                if not file.is_symlink() and not Path(_videopath).is_symlink(): _repeated.append({'title':_name, 'indict': _videopath, 'file': str(file)})
+                                
                 
         
             
@@ -290,8 +290,7 @@ class AsyncDL():
                     
 
 
-            #self.logger.info(f"DICT EXTRACTORS TO USE SO FAR: {self.ytdl.params['dict_videos_to_dl']}")
-            
+                        
             if url_pl_list:
                 
                 self.logger.info(f"[url_playlist_list] {url_pl_list}")
@@ -393,10 +392,6 @@ class AsyncDL():
                 self.list_videos = [self.list_videos[self.args.index]]
             else: raise IndexError(f"index video {self.args.index} out of range [0..{len(self.videos_to_dl)-1}]")
                 
-        # elif self.args.first and self.args.last:
-        #     if self.args.first <= self.args.last < len(self.list_videos):
-        #         self.list_videos = self.list_videos[self.args.first-1:self.args.last] 
-        #     else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
             
         elif self.args.first:
             if self.args.first <= len(self.list_videos):
@@ -417,13 +412,7 @@ class AsyncDL():
             
         for vid in self.videos_to_dl:
             if not vid.get('filesize'): vid.update({'filesize' : 0})
-        #     if (ie_key:=(vid.get('ie_key'))):
-        #         if not self.ytdl.params['dict_videos_to_dl'].get(ie_key):
-        #             self.ytdl.params['dict_videos_to_dl'][ie_key] = []
-        #         self.ytdl.params['dict_videos_to_dl'][ie_key].append(vid['url'])
-        
-        #self.logger.info(f"DICT EXTRACTORS TO USE SO FAR AFTER CHECKING ALREADY DL BEFORE WORKER INITS: \n {self.ytdl.params['dict_videos_to_dl']}")
-        
+
             
         if self.args.byfilesize:
             self.videos_to_dl = sorted(self.videos_to_dl, key=itemgetter('filesize'), reverse=True)
@@ -523,8 +512,6 @@ class AsyncDL():
                                 
                             if info:
                                 
-                                
-                                
                                 if info.get('_type') == 'playlist':
                                     info = info['entries'][0]
                                     info['aldl_checked'] = False
@@ -546,7 +533,7 @@ class AsyncDL():
                                         
                                         self.logger.info(f"worker_init[{i}]: [{info.get('id','')}][{info.get('title','')}] already DL")
                                         self.videos_to_dl.remove(vid)
-                                        #as we have already used extractor, the video would have been removed from self.ytdl.params['dict_videos_to_dl'
+                                        
                                         if (_filesize:=vid.get('filesize',0)):
                                             self.totalbytes2dl -= _filesize
                                         
@@ -854,7 +841,6 @@ class AsyncDL():
         self.logger.info(f"Not Valid URLS: \n{_videos_url_notvalid}")
         self.logger.info(f"To check URLS: \n{_videos_url_tocheck}")
         
-        #self.logger.info(f"DICT EXTRACTORS DL: \n{self.ytdl.params['dict_videos_to_dl']}")
         
         return ({'videos_req': self.list_videos, 'videos_2_dl': _videos_2dl, 'videos_al_dl': _videos_aldl, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_initnok_str, 'videos_error_dl': videos_kodl_str})
 
