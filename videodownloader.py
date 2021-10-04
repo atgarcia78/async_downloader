@@ -25,15 +25,20 @@ from utils import (
 from concurrent.futures import (
     ThreadPoolExecutor  
 )
-from yt_dlp.utils import sanitize_filename, determine_protocol
+from yt_dlp.utils import sanitize_filename, determine_protocol, dfxp2srt
 from datetime import datetime
-import hashlib
 from shutil import rmtree, move
 import functools
 import httpx
-from pycaption import detect_format, SRTWriter
+from pycaption import detect_format, DFXPReader, WebVTTReader, SAMIReader, SRTReader, SCCReader
 import subprocess
 import copy
+
+SUPPORTED_EXT = {
+    DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
+    
+}
+
 
 class VideoDownloader():
     
@@ -152,12 +157,25 @@ class VideoDownloader():
             try:
                 res = httpx.get(value['url'])
                 reader = detect_format(res.text)
-                _srt = SRTWriter().write(reader().read(res.text))
-                _file_subs = Path(self.info_dl['filename'].parent, f"{self.info_dl['filename'].stem}.{key}.srt")
-                value['file'] = _file_subs
-                with open(_file_subs, "w") as f:
-                    f.write(_srt)
                 
+                _ext = SUPPORTED_EXT[reader]
+                _subs_file_stem = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}"
+                
+                with open(f'{_subs_file_stem}.{_ext}', "wb") as f:
+                    f.write(res.content)
+                    
+                
+                    
+                if reader is DFXPReader:    
+                #_srt = SRTWriter().write(reader().read(res.text))
+                    _srt = dfxp2srt(res.content)
+                    _ext = 'srt'                  
+                    with open(f'{_subs_file_stem}.{_ext}', "w") as f:
+                        f.write(_srt)
+                        
+                
+                value['file'] = f'{_subs_file_stem}.{_ext}'   
+                    
                 self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloaded and converted to srt format")
                     
             except Exception as e:

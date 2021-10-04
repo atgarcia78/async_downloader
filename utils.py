@@ -58,7 +58,7 @@ def is_playlist_extractor(url, ytdl):
     
     _is_pl = any("playlist" in _ for _ in [ie_key.lower(), ie_name])
     
-    return(_is_pl, (ie_key, ie))
+    return({'is_pl': _is_pl, 'ie_key': ie_key})
 
 
 
