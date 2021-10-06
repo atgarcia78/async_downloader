@@ -4,7 +4,7 @@ import sys
 import traceback
 import asyncio
 from pathlib import Path
-from aiopath import AsyncPath
+
 import shutil
 from asynchttpdownloader import (
     AsyncHTTPDownloader
@@ -45,7 +45,7 @@ class VideoDownloader():
     def __init__(self, video_dict, ytdl, n_workers, dlpath=None, aria2c=None):
         
         self.logger = logging.getLogger("video_DL")
-        #self.alogger = AsyncLogger(self.logger)
+        
         
         # self.proxies = "http://atgarcia:ID4KrSc6mo6aiy8@proxy.torguard.org:6060"
         # #self.proxies = "http://192.168.1.133:5555"
@@ -54,10 +54,7 @@ class VideoDownloader():
                 
         try:
         
-            self.info_dict = copy.deepcopy(video_dict)
-        
-            #_video_id = str(self.info_dict['id'])
-            #self.info_dict.update({'id': _video_id[:10] if len(_video_id) > 10 else _video_id})
+            self.info_dict = copy.deepcopy(video_dict) 
             
             _date_file = datetime.now().strftime("%Y%m%d")
             _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not dlpath else Path(dlpath, self.info_dict['id'])
@@ -75,9 +72,6 @@ class VideoDownloader():
                 'download_path': _download_path,
                 'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
             } 
-            
-        
-            
                 
             self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
             
@@ -109,7 +103,7 @@ class VideoDownloader():
             self.logger.error(f"{str(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
             raise 
         
-        #print(self.info_dl)
+   
 
     def _get_dl(self, info):
         
@@ -120,9 +114,7 @@ class VideoDownloader():
         elif protocol in ('m3u8', 'm3u8_native'):
             dl = AsyncHLSDownloader(info, self)            
         elif protocol in ('http_dash_segments', 'dash'):
-            dl = AsyncDASHDownloader(info, self)             
-            #raise NotImplementedError("dl dash not supported")           
-            
+            dl = AsyncDASHDownloader(info, self)
         else:
             self.logger.error(f"[{info['id']}][{info['title']}]: protocol not supported")
             raise NotImplementedError("protocol not supported")
@@ -151,6 +143,7 @@ class VideoDownloader():
             
         self.info_dl['status'] = "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "error"
         
+    
     def _get_subs_files(self):
      
         for key, value in self.info_dl['requested_subtitles'].items():
@@ -164,19 +157,17 @@ class VideoDownloader():
                 with open(f'{_subs_file_stem}.{_ext}', "wb") as f:
                     f.write(res.content)
                     
-                
-                    
-                if reader is DFXPReader:    
-                #_srt = SRTWriter().write(reader().read(res.text))
+                if reader is DFXPReader: #create a copy of the sbts with srt format
+              
                     _srt = dfxp2srt(res.content)
                     _ext = 'srt'                  
                     with open(f'{_subs_file_stem}.{_ext}', "w") as f:
                         f.write(_srt)
                         
                 
-                value['file'] = f'{_subs_file_stem}.{_ext}'   
+                value['file'] = f'{_subs_file_stem}.{_ext}' #the srt format will be embed to the video file
                     
-                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloaded and converted to srt format")
+                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloadeded and converted to srt format")
                     
             except Exception as e:
                 lines = traceback.format_exception(*sys.exc_info())                
@@ -266,7 +257,7 @@ class VideoDownloader():
                     
                     if "ts" in self.info_dl['downloaders'][0].filename.suffix: #usamos ffmpeg para cambiar contenedor ts del DL de HLS de un sólo stream a mp4
                     
-                        cmd = f"ffmpeg -y -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -c copy file:{str(self.info_dl['filename'])}"
+                        cmd = f"ffmpeg -y -probesize max -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:{str(self.info_dl['filename'])}"
                         
                         res = await asyncio.to_thread(self._syncpostffmpeg, cmd)
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
@@ -288,9 +279,9 @@ class VideoDownloader():
                     if rc == 0 and (await asyncio.to_thread(self.info_dl['filename'].exists)):
                     
                         
-                        if (_file_subs_en:=self.info_dl.get('requested_subtitles', {}).get('en', {}).get('file')):
+                        # if (_file_subs_en:=self.info_dl.get('requested_subtitles', {}).get('en', {}).get('file')):
                             
-                            rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], self.logger, f"[{self.info_dict['id']}][{self.info_dict['title']}]")
+                        #     rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], self.logger, f"[{self.info_dict['id']}][{self.info_dict['title']}]")
                                                                  
                         self.info_dl['status'] = "done"
                         
@@ -310,9 +301,9 @@ class VideoDownloader():
                     
                     if rc == 0 and (await asyncio.to_thread(self.info_dl['filename'].exists)):
                         
-                        if (_file_subs_en:=self.info_dl['requested_subtitles'].get('en', {}).get('file')):
+                        # if (_file_subs_en:=self.info_dl['requested_subtitles'].get('en', {}).get('file')):
                             
-                            rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], self.logger,f"[{self.info_dict['id']}][{self.info_dict['title']}]")
+                        #     rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], self.logger,f"[{self.info_dict['id']}][{self.info_dict['title']}]")
                                                 
                         self.info_dl['status'] = "done"          
                         for dl in self.info_dl['downloaders']:

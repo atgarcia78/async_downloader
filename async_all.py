@@ -26,9 +26,10 @@ from utils import (
     patch_https_connection_pool,
     naturalsize,
     is_playlist_extractor,
-    get_extractor,
     wait_time,
     kill_processes,
+    
+    
     
 )
 
@@ -384,11 +385,11 @@ class AsyncDL():
                     
                
         if (info_dict.get('_type') == "url_transparent"): 
-            info_dict['aldl_checked'] = False
+            
             return True
         
         if not (_id := info_dict.get('id') ) or not ( _title := info_dict.get('title')):
-            info_dict['aldl_checked'] = False
+            
             return True
         
         _title = sanitize_filename(_title, restricted=True).upper()
@@ -396,13 +397,13 @@ class AsyncDL():
 
         if not (vid_path:=self.files_cached.get(vid_name)):
             
-            info_dict['aldl_checked'] = True
+            
             return True
         
         
         else: #video en local
             
-            info_dict['aldl_checked'] = True
+            
             
             self.logger.debug(f"[{vid_name}]: already DL: {vid_path}")
                 
@@ -532,7 +533,7 @@ class AsyncDL():
                             except Exception as e:
                                 lines = traceback.format_exception(*sys.exc_info())
                                 self.list_initnok.append((vid, f"{str(e)}"))
-                                self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid} - {str(e)}\n{'!!'.join(lines)}")
+                                self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid['url']} - {str(e)}\n{'!!'.join(lines)}")
                                 if 'unsupported url' in str(e).lower():
                                     
                                     self.list_unsup_urls.append(vid)
@@ -556,11 +557,6 @@ class AsyncDL():
                                 
                                 if info.get('_type') == 'playlist':
                                     info = info['entries'][0]
-                                    info['aldl_checked'] = False
-                                
-                                else:
-                            
-                                    info['aldl_checked'] = vid.get('aldl_checked')
                             
                                 
                                 if (_id:=info.get('id')):
@@ -569,18 +565,18 @@ class AsyncDL():
                                     
                                 self.logger.debug(f"worker_init[{i}] {vid} \n{info}")
                                 
-                                if not info['aldl_checked']: 
                                 
-                                    if not self._check_to_dl(info):
+                                
+                                if not self._check_to_dl(info):
+                                    
+                                    self.logger.info(f"worker_init[{i}]: [{info.get('id','')}][{info.get('title','')}] already DL")
+                                    self.videos_to_dl.remove(vid)
+                                    
+                                    if (_filesize:=vid.get('filesize',0)):
+                                        self.totalbytes2dl -= _filesize
                                         
-                                        self.logger.info(f"worker_init[{i}]: [{info.get('id','')}][{info.get('title','')}] already DL")
-                                        self.videos_to_dl.remove(vid)
-                                        
-                                        if (_filesize:=vid.get('filesize',0)):
-                                            self.totalbytes2dl -= _filesize
-                                            
-                                        self.info_videos[vid['url']].update({'status': 'done', 'video_info': info, 'aldl': True})                                        
-                                        continue
+                                    self.info_videos[vid['url']].update({'status': 'done', 'video_info': info, 'aldl': True})                                        
+                                    continue
                                     
                             else:                                        
                                 raise Exception("no info dict")
@@ -631,7 +627,7 @@ class AsyncDL():
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
                         self.list_initnok.append((vid, f"Error:{repr(e)}"))
-                        self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid} - Error:{repr(e)} \n{'!!'.join(lines)}")
+                        self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid['url']} - Error:{repr(e)} \n{'!!'.join(lines)}")
                         
                         if info: self.list_urls_to_check.append((info,str(e)))
                         else: self.list_urls_to_check.append((vid,str(e)))
@@ -893,15 +889,15 @@ class AsyncDL():
         self.logger.info(f"Videos OK INIT DL: {videos_initok}")
         self.logger.info(f"Videos DL: {videos_okdl}")
         
-        self.logger.info(f"Unsupported URLS: \n{_videos_url_notsupported}")
-        self.logger.info(f"Not Valid URLS: \n{_videos_url_notvalid}")
-        self.logger.info(f"To check URLS: \n{_videos_url_tocheck}")
+        self.logger.info(f"Unsupported URLS: \n{[vid['url'] for vid in _videos_url_notsupported]}")
+        self.logger.info(f"Not Valid URLS: \n{[vid['url'] for vid in _videos_url_notvalid]}")
+        self.logger.info(f"To check URLS: \n{[vid['url'] for vid in _videos_url_tocheck]}")
         self.logger.info(f"*****************************************************")
         self.logger.info(f"*****************************************************")
         self.logger.info(f"*****************************************************")
         self.logger.info(f"*****************************************************")
         
-        self.logger.debug(f'\n{self.info_videos}')
+        #self.logger.debug(f'\n{self.info_videos}')
         
         
         return ({'videos_req': self.list_videos, 'videos_2_dl': _videos_2dl, 'videos_al_dl': _videos_aldl, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_initnok_str, 'videos_error_dl': videos_kodl_str})

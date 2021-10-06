@@ -46,19 +46,13 @@ class AsyncARIA2CDownloader():
         
         #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
                 
-        self._type = "aria2c"
-        self.info_dict = video_dict
-        self.video_downloader = vid_dl
+
+        self.info_dict = copy.deepcopy(video_dict)
+        self.video_downloader = vid_dl                
         
+        self.aria2_client = aria2p.API(aria2p.Client())    
         
-        
-        self.aria2_client = aria2p.API(aria2p.Client())
-        
-        
-        
-        
-        self.webpage_url = video_dict.get('webpage_url')
-        
+        #self.webpage_url = video_dict.get('webpage_url')
 
         self.id = self.info_dict['id']
         

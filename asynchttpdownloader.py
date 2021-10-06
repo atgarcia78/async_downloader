@@ -22,6 +22,8 @@ from aiotools import TaskGroup
 from statistics import median
 import datetime
 
+import copy 
+
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -50,26 +52,16 @@ class AsyncHTTPDownloader():
     #_CHUNK_SIZE = 1048576 #1MB
     _MAX_RETRIES = 20
     
-    
-    
-    
     def __init__(self, video_dict, vid_dl):
 
-        self.logger = logging.getLogger("async_http_DL")
-        
-       
-        # self.proxies = "http://atgarcia:ID4KrSc6mo6aiy8@proxy.torguard.org:6060"
-        # #self.proxies = "http://192.168.1.133:5555"
-        
-        #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
-                
-        self._type = "http"
-        self.info_dict = video_dict
+        self.logger = logging.getLogger("async_http_DL")     
+
+        self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
         self.n_parts = self.video_downloader.info_dl['n_workers']
         self._NUM_WORKERS = self.n_parts 
         self.video_url = video_dict.get('url')
-        self.webpage_url = video_dict.get('webpage_url')
+        #self.webpage_url = video_dict.get('webpage_url')
         
 
         self.id = self.info_dict['id']
@@ -91,7 +83,6 @@ class AsyncHTTPDownloader():
             self.download_path.mkdir(parents=True, exist_ok=True) 
             self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
         else:
-            # self.download_path = self.base_download_path
             _filename = self.info_dict.get('filename')
             self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
             self.download_path.mkdir(parents=True, exist_ok=True)

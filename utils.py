@@ -22,6 +22,8 @@ import subprocess
 import asyncio
 
 
+
+
 def kill_processes(logger):
     res = subprocess.run(["ps","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
     mobj = re.findall(r'(\d+) ((?:aria2c|browsermob|geckodriver|java|/Applications/Firefox Nightly))', res)
@@ -52,11 +54,14 @@ def is_playlist_extractor(url, ytdl):
         
     ie_key, ie = get_extractor(url, ytdl)
     
-    _iename = ie.IE_NAME
+    if ie_key == 'Generic':
+        return({'is_pl': False, 'ie_key': 'Generic'})   
         
-    ie_name = _iename.lower() if type(_iename) is str else ""
+    ie_name = _iename.lower() if type(_iename:=getattr(ie, 'IE_NAME', '')) is str else ""
     
-    _is_pl = any("playlist" in _ for _ in [ie_key.lower(), ie_name])
+    ie_tests = str(getattr(ie, '_TESTS', ''))
+    
+    _is_pl = any("playlist" in _ for _ in [ie_key.lower(), ie_name, ie_tests])
     
     return({'is_pl': _is_pl, 'ie_key': ie_key})
 
@@ -274,7 +279,7 @@ def init_argparser():
     parser.add_argument("-w", help="Number of workers", default="10", type=int)
     parser.add_argument("--winit", help="Number of init workers", default="0", type=int)
     parser.add_argument("-p", help="Number of parts", default="16", type=int)
-    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bestvideo+bestaudio/best", type=str)
+    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
