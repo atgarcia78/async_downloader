@@ -226,7 +226,7 @@ class VideoDownloader():
             
             loop = asyncio.get_running_loop()
             ex = ThreadPoolExecutor(max_workers=len(self.info_dl['downloaders']))
-            blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (dl._type != 'aria2c' and dl.status == 'manipulating')]
+            blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
             if self.info_dl.get('requested_subtitles'):
                 blocking_tasks += [loop.run_in_executor(ex, self._get_subs_files)]
             await asyncio.sleep(0)

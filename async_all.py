@@ -42,13 +42,14 @@ import subprocess
 from yt_dlp.utils import sanitize_filename
 
 from yt_dlp.extractor.netdna import NetDNAIE
-from codetiming import Timer
+
 from datetime import datetime
 from operator import itemgetter
 from videodownloader import VideoDownloader 
-
-
 from threading import Lock
+
+
+from codetiming import Timer
 
 
 class AsyncDL():
@@ -909,29 +910,49 @@ class AsyncDL():
         list_videos2dl = self.videos_to_dl    
         
             
-        list_videos_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': (vid.get('url','')[:100])} for vid in list_videos]
-        list_videos2dl_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': (vid.get('url','')[:100])} for vid in list_videos2dl]
+        # list_videos_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': (vid.get('url',''))} for vid in list_videos]
+        # list_videos2dl_str = [{'id' : vid.get('id'), 'title': vid.get('title'), 'filesize' : naturalsize(vid.get('filesize',0)), 'url': (vid.get('url',''))} for vid in list_videos2dl]
         
-      
+        list_videos_str = [(vid.get('id'),vid.get('title'), naturalsize(vid.get('filesize',0)), vid.get('url','')) for vid in list_videos]
+        list_videos2dl_str = [(vid.get('id'),vid.get('title'), naturalsize(vid.get('filesize',0)), vid.get('url','')) for vid in list_videos2dl]
+        
+        list_videos_str_short = [(vid.get('id'),vid.get('title'), naturalsize(vid.get('filesize',0)), vid.get('url','')[:150]) for vid in list_videos]
+        list_videos2dl_str_short = [(vid.get('id'),vid.get('title'), naturalsize(vid.get('filesize',0)), vid.get('url','')[:150]) for vid in list_videos2dl]
+        
+        _columns = ['ID', 'Title', 'Size', 'URL']
                 
         self.logger.info(f"RESULT: Total videos [{(_tv:=len(list_videos))}] To DL [{(_tv2dl:=len(list_videos2dl))}] Already DL [{(_tval:=len(self.list_initaldl))}]")
         
         #pd.set_option("max_rows", _tv) 
         
-        df_tv = pd.DataFrame(list_videos_str)
-        tab_tv = tabulate(df_tv, showindex=True, headers=df_tv.columns)      
+        #df_tv = pd.DataFrame(list_videos_str)
+        
+        #tab_tv = tabulate(df_tv, showindex=True, headers=df_tv.columns)      
         #df_tv = pd.DataFrame(list_videos_str)
         
         
         #self.logger.info(f"Total videos: [{_tv}]\n\n\n{tab_tv}\n\n\n")
         
             
-        df_v2dl = pd.DataFrame(list_videos2dl_str)
-        tab_v2dl = tabulate(df_v2dl, showindex=True, headers=df_v2dl.columns)
+        #df_v2dl = pd.DataFrame(list_videos2dl_str)
+        #tab_v2dl = tabulate(df_v2dl, showindex=True, headers=df_v2dl.columns)
+        
+        tab_tv = tabulate(list_videos_str, showindex=True, headers=_columns, tablefmt="grid")
+        tab_v2dl = tabulate(list_videos2dl_str, showindex=True, headers=_columns, tablefmt="grid")
+        
+        tab_tv_short = tabulate(list_videos_str_short, showindex=True, headers=_columns, tablefmt="grid")
+        tab_v2dl_short = tabulate(list_videos2dl_str_short, showindex=True, headers=_columns, tablefmt="grid")
                 
-        self.logger.info(f"Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
+        self.logger.info(f"Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl_short}\n\n\n")
+        self.logger.debug(f"Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
+        
                 
         self.logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
+        
+        self.logger.info(f"\n\n{tab_tv_short}\n\n")
+        
+        self.logger.debug(f"\n\n{tab_tv}\n\n")
+        
         
 
 
