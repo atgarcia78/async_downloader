@@ -10,7 +10,6 @@ import tkinter as tk
 import asyncio
 import aiorun 
 from pathlib import Path
-import pandas as pd
 from tabulate import tabulate
 import re
 import time
