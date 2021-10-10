@@ -9,12 +9,6 @@ from shutil import rmtree
 
 from pathlib import Path
 
-from natsort import (
-    natsorted,
-    ns
-)
-
-
 from urllib.parse import urljoin
 import logging
 
