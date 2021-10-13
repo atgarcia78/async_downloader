@@ -24,14 +24,27 @@ import asyncio
 
 
 
-def kill_processes(logger):
-    res = subprocess.run(["ps","-o","pid","-o","comm"], encoding='utf-8', capture_output=True).stdout
-    mobj = re.findall(r'(\d+) ((?:aria2c|browsermob|geckodriver|java|/Applications/Firefox Nightly))', res)
+def kill_processes(logger=None):
+    
+        
+    #procesos lanzados por mi usuario 501 (antoniotorres), sin tener q estar corriendo en la misma shell, obtenemos pgid(proceso de grupo para los procesos parent childs coo los de firefox) y el comando para el filtrado
+    res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pgid,comm"], encoding='utf-8', capture_output=True).stdout
+    mobj = re.findall(r'(\d+) ((?:browsermob|geckodriver|aria2c|java|/Applications/Firefox Nightly))', res)
     if mobj:
-        for process in mobj:                    
-            res = subprocess.run(["kill","-9",process[0]], encoding='utf-8', capture_output=True)
-            if res.returncode != 0: logger.debug(f"cant kill {process[0]} : {process[1]} : {res.stderr}")
-            else: logger.debug(f"killed {process[0]} : {process[1]}")
+        proc_to_kill = list(set(mobj)) #nos quedamos con uno solo de todos los procesos de cada pgid                   
+        results = [subprocess.run(["kill","-9",f"-{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
+            
+        for proc, res in zip(proc_to_kill, results): 
+            logger.debug(f"{proc}:{res}") if logger else print(f"{proc}:{res}")
+            
+    
+    else: 
+        logger.debug("No processes found to kill") if logger else print("No processes found to kill")
+            
+    
+            
+    
+    
 
 async def wait_time(n):
     _timer = httpx._utils.Timer()

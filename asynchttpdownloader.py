@@ -97,7 +97,8 @@ class AsyncHTTPDownloader():
         self.timer.sync_start()
         self.n_parts_dl = 0        
         self.parts = []
-        self.status = "init"        
+        self.status = "init"
+        self.error_message = ""        
         self.prepare_parts()
         self.count = self._NUM_WORKERS #cuenta de los workers activos
         

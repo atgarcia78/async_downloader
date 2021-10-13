@@ -103,6 +103,7 @@ class AsyncDASHDownloader():
         self.down_size = 0
         self.down_temp = 0
         self.status = "init"
+        self.error_message = "" 
         self.prep_init()
         
         self.timer = httpx._utils.Timer()

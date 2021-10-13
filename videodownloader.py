@@ -95,7 +95,8 @@ class VideoDownloader():
                 'requested_subtitles': copy.deepcopy(_req_sub) if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
                 'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
                 'down_size': sum([dl.down_size for dl in downloaders]),
-                'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init"             
+                'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init",
+                'error_message': ""             
             })
             
         except Exception as e:
@@ -141,7 +142,12 @@ class VideoDownloader():
       
         res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
             
-        self.info_dl['status'] = "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "error"
+        if 'error' in res:
+            self.info_dl['status'] = 'error'
+            self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
+        
+        elif (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]):
+            self.info_dl['status'] = "init_manipulating"
         
     
     def _get_subs_files(self):

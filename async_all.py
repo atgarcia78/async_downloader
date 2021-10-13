@@ -264,11 +264,15 @@ class AsyncDL():
                     
                 _url_list_caplinks = list(set([_line for _line in _content.splitlines() if _line]))
                 
-                self.logger.info(f"video list caplinks \n{url_list}")
+                self.logger.info(f"video list caplinks \n{_url_list_caplinks}")
                 
                 for url in _url_list_caplinks:
-                    self.info_videos[url] = {}
-                    self.info_videos[url].update({'source' : 'caplinks', 'video_info': None, 'status': 'init', 'aldl': False, 'error': None})
+                   
+                    self.info_videos[url] = {'source' : 'caplinks', 
+                                             'video_info': {}, 
+                                             'status': 'init', 
+                                             'aldl': False, 
+                                             'error': []}
                     
                 
             if self.args.collection:
@@ -276,8 +280,12 @@ class AsyncDL():
                 _url_list_cli = list(set(self.args.collection))
                 
                 for url in _url_list_cli:
-                    self.info_videos[url] = {}
-                    self.info_videos[url].update({'source' : 'cli', 'video_info': None, 'status': 'init', 'aldl': False, 'error': None})    
+                    
+                    self.info_videos[url] = {'source' : 'cli', 
+                                             'video_info': {}, 
+                                             'status': 'init', 
+                                             'aldl': False, 
+                                             'error': []}    
             
                 
             
@@ -289,13 +297,16 @@ class AsyncDL():
                 
                 res = is_playlist_extractor(_url, self.ytdl)
                 
+                self.info_videos[_url]['ie_key'] = res['ie_key']
+                
                 if res['is_pl']: 
                     url_pl_list.append(_url)
-                    self.info_videos[_url].update({'type' : 'playlist', 'ie_key': res['ie_key']}) 
+                    self.info_videos[_url]['type'] = 'playlist'
+                    
                     
                 else:
                                         
-                    self.info_videos[_url].update({'ie_key': res['ie_key']})
+                    
                     
                     _info_video = {}
                     
@@ -304,9 +315,9 @@ class AsyncDL():
                         _info_video = NetDNAIE.get_video_info(_url)
                     
                                             
-                    self.list_videos.append(_entry:={'_type': 'url', 'url': _url, 'ie_key': res['ie_key'], 'id': _info_video.get('id', '').replace('_', ''), 'title': _info_video.get('title', ''), 'filesize': _info_video.get('filesize', '')})
+                    self.list_videos.append(_entry:={'_type': 'url', 'url': _url, 'ie_key': res['ie_key'], 'id': (_info_video.get('id', '')).replace('_', ''), 'title': _info_video.get('title', ''), 'filesize': _info_video.get('filesize', '')})
                     
-                    self.info_videos[_url].update({'video_info': _entry})
+                    self.info_videos[_url]['video_info'] = _entry
                     
    
                         
@@ -337,8 +348,12 @@ class AsyncDL():
                 
                 for _url, _video_info in _items.items():
                     if not self.info_videos.get(_url):
-                        self.info_videos[_url] = {}
-                        self.info_videos[_url].update({'source' : 'playlist', 'video_info': _video_info, 'status': 'init', 'aldl': False, 'error': None})
+                        
+                        self.info_videos[_url] = {'source' : 'playlist', 
+                                                  'video_info': _video_info, 
+                                                  'status': 'init', 
+                                                  'aldl': False, 
+                                                  'error': []}
                 
             if self.args.collection_files:
                 
@@ -358,8 +373,12 @@ class AsyncDL():
                 self.list_videos += _file_list_videos
                 for _video in _file_list_videos:
                     if not self.info_videos.get(_video['url']):
-                        self.info_videos[_video['url']] = {}
-                        self.info_videos[_video['url']].update({'source' : 'file_cli', 'video_info': _video, 'status': 'init', 'aldl': False, 'error': None})
+                        
+                        self.info_videos[_video['url']] = {'source' : 'file_cli', 
+                                                           'video_info': _video, 
+                                                           'status': 'init', 
+                                                           'aldl': False, 
+                                                           'error': []}
                 
                     
                     
@@ -433,10 +452,10 @@ class AsyncDL():
                 if self.args.last:
                     if self.args.last >= self.args.first:
                         _last = self.args.last - 1
-                    else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
+                    else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
                 else: _last = len(self.list_videos)
                 self.list_videos = self.list_videos[self.args.first-1:_last]
-            else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.videos_to_dl)-1}]")
+            else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
                  
             
         for video in self.list_videos:
@@ -511,7 +530,7 @@ class AsyncDL():
                         self.stop_tk = True
                         
                     #kill any zombie process from extractors - firefox, geckodriver, etc
-                    kill_processes(self.logger)   
+                    #kill_processes(self.logger)   
                     
                     break
                 
@@ -533,7 +552,7 @@ class AsyncDL():
                             except Exception as e:
                                 lines = traceback.format_exception(*sys.exc_info())
                                 self.list_initnok.append((vid, f"{str(e)}"))
-                                self.logger.error(f"worker_init[{i}]: DL constructor failed for {vid['url']} - {str(e)}\n{'!!'.join(lines)}")
+                                self.logger.debug(f"worker_init[{i}]: DL constructor failed for {vid['url']} - {str(e)}\n{'!!'.join(lines)}")
                                 if 'unsupported url' in str(e).lower():
                                     
                                     self.list_unsup_urls.append(vid)
@@ -548,7 +567,8 @@ class AsyncDL():
                                     self.list_urls_to_check.append((vid, str(e)))
                                     _error = str(e)
                                 
-                                self.info_videos[vid['url']].update({'status': 'nok', 'init': 'nok', 'error': _error})
+                                self.info_videos[vid['url']]['error'].append(_error)
+                                self.info_videos[vid['url']].update({'status': 'nok', 'init': 'nok'})
                                     
                                 continue
                             
@@ -632,7 +652,8 @@ class AsyncDL():
                         if info: self.list_urls_to_check.append((info,str(e)))
                         else: self.list_urls_to_check.append((vid,str(e)))
                         
-                        self.info_videos[_url].update({'status': 'initnok', 'error': f'DL constructor error:{repr(e)}'})
+                        self.info_videos[vid['url']]['error'].append(f'DL constructor error:{repr(e)}')
+                        self.info_videos[vid['url']]['status'] = 'initnok'
                         
                         continue       
         
@@ -691,10 +712,15 @@ class AsyncDL():
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())
                             self.logger.error(f"worker_run[{i}][{video_dl.info_dict['title']}]: Error with video DL:\n{'!!'.join(lines)}")
+                            self.info_videos[video_dl.info_dl['webpage_url']]['error'].append(f"{str(e)}")
+                           
                     
                     if video_dl.info_dl['status'] == "init_manipulating": self.queue_manip.put_nowait(video_dl)
                     else: 
                         self.logger.error(f"worker_run[{i}][{video_dl.info_dict['title']}]: error when dl video, can't go por manipulation")
+                        self.info_videos[video_dl.info_dl['webpage_url']]['error'].append(f"error when dl video: {video_dl.info_dl['error_message']}")
+                      
+                        
                         
                     await asyncio.sleep(0)
                                 
@@ -736,7 +762,11 @@ class AsyncDL():
                             d.result()
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())
-                            self.logger.error(f"worker_manip[{i}][{video_dl.info_dict['title']}]: Error with video DL:\n{'!!'.join(lines)}")
+                            self.logger.error(f"worker_manip[{i}][{video_dl.info_dict['title']}]: Error with video manipulation:\n{'!!'.join(lines)}")
+                            self.info_videos[video_dl.info_dl['webpage_url']]['error'].append(f"\n error with video manipulation {str(e)}")
+                            
+                           
+                            
          
                         
         except Exception as e:
@@ -795,6 +825,8 @@ class AsyncDL():
         #requests inicial de videos
         _videos_dl = self.list_dl
         
+        
+        
         #tras descartar los que ya están en local
         _videos_2dl = self.videos_to_dl
         
@@ -808,8 +840,10 @@ class AsyncDL():
         
         _videos_url_notvalid = self.list_notvalid_urls
         
-        _videos_url_tocheck = self.list_urls_to_check
+        _videos_url_tocheck = [f"{vid['url']}:{error}" for vid, error in self.list_urls_to_check]
           
+       
+        self.logger.debug(f'[get_result_info]\n{self.info_videos}')  
             
         videos_okdl = []
         videos_kodl = []
@@ -821,10 +855,11 @@ class AsyncDL():
                 if not _vid or not _vid.exists():
                     videos_kodl.append(f"[{_video.get('id')}][{_video.get('title')}][{_video.get('url')}]") 
                     videos_kodl_str.append(f"{_video['url']}")
-                    self.info_videos[_video.get('url')].update({'status': 'nok'})
+                    self.info_videos[_video['url']]['error'].append('video file not in local storage')
+                    self.info_videos[_video['url']]['status'] = 'nok'
                 else:
                     videos_okdl.append(f"[{_video['id']}][{_video['title']}]")
-                    self.info_videos[_video.get('url')].update({'status': 'ok'})
+                    self.info_videos[_video['url']].update({'status': 'ok'})
         
         videos_initnok = []
         videos_initnok_str = []        
@@ -874,30 +909,23 @@ class AsyncDL():
         self.logger.info(f"                         UNSUP URLS: [{len(_videos_url_notsupported)}]")
         self.logger.info(f"                         NOTVALID URLS: [{len(_videos_url_notvalid)}]")
         self.logger.info(f"                         TO CHECK URLS: [{len(_videos_url_tocheck)}]")
-        self.logger.info(f"")
-        self.logger.info(f"*****************************************************")
-        self.logger.info(f"*****************************************************")
-        self.logger.info(f"*****************************************************")
-        self.logger.info(f"*****************************************************")
-        
-                
-        
-        self.logger.info(f"******* VIDEO RESULT LISTS **************************")        
-        self.logger.info(f"Videos ERROR INIT DL: {videos_initnok} \n [-u {' -u '.join(videos_initnok_str)}]")
-        self.logger.info(f"Videos ERROR DL: {videos_kodl} \n[-u {' -u '.join(videos_kodl_str)}]")
-        self.logger.info(f"Videos ALREADY DL: {_videos_aldl}") 
-        self.logger.info(f"Videos OK INIT DL: {videos_initok}")
-        self.logger.info(f"Videos DL: {videos_okdl}")
-        
+        self.logger.info(f"") 
+        self.logger.info(f"*********** VIDEO RESULT LISTS **************************")    
+        self.logger.info(f"")    
+        self.logger.info(f"Videos ERROR INIT DL: \n{videos_initnok} \n[-u {' -u '.join(videos_initnok_str)}]")
+        self.logger.info(f"Videos ERROR DL:\n{videos_kodl} \n[-u {' -u '.join(videos_kodl_str)}]")
+        self.logger.info(f"Videos ALREADY DL: \n{_videos_aldl}") 
+        self.logger.info(f"Videos OK INIT DL: \n{videos_initok}")
+        self.logger.info(f"Videos DL: \n{videos_okdl}")        
         self.logger.info(f"Unsupported URLS: \n{[vid['url'] for vid in _videos_url_notsupported]}")
         self.logger.info(f"Not Valid URLS: \n{[vid['url'] for vid in _videos_url_notvalid]}")
-        self.logger.info(f"To check URLS: \n{[vid['url'] for vid in _videos_url_tocheck]}")
+        self.logger.info(f"To check URLS: \n{_videos_url_tocheck}")
         self.logger.info(f"*****************************************************")
         self.logger.info(f"*****************************************************")
         self.logger.info(f"*****************************************************")
         self.logger.info(f"*****************************************************")
         
-        #self.logger.debug(f'\n{self.info_videos}')
+        self.logger.debug(f'\n{self.info_videos}')
         
         
         return ({'videos_req': self.list_videos, 'videos_2_dl': _videos_2dl, 'videos_al_dl': _videos_aldl, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_initnok_str, 'videos_error_dl': videos_kodl_str})
@@ -922,19 +950,6 @@ class AsyncDL():
                 
         self.logger.info(f"RESULT: Total videos [{(_tv:=len(list_videos))}] To DL [{(_tv2dl:=len(list_videos2dl))}] Already DL [{(_tval:=len(self.list_initaldl))}]")
         
-        #pd.set_option("max_rows", _tv) 
-        
-        #df_tv = pd.DataFrame(list_videos_str)
-        
-        #tab_tv = tabulate(df_tv, showindex=True, headers=df_tv.columns)      
-        #df_tv = pd.DataFrame(list_videos_str)
-        
-        
-        #self.logger.info(f"Total videos: [{_tv}]\n\n\n{tab_tv}\n\n\n")
-        
-            
-        #df_v2dl = pd.DataFrame(list_videos2dl_str)
-        #tab_v2dl = tabulate(df_v2dl, showindex=True, headers=df_v2dl.columns)
         
         tab_tv = tabulate(list_videos_str, showindex=True, headers=_columns, tablefmt="grid")
         tab_v2dl = tabulate(list_videos2dl_str, showindex=True, headers=_columns, tablefmt="grid")
@@ -948,22 +963,27 @@ class AsyncDL():
                 
         self.logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
         
-        self.logger.info(f"\n\n{tab_tv_short}\n\n")
+        #self.logger.info(f"\n\n{tab_tv_short}\n\n")
         
         self.logger.debug(f"\n\n{tab_tv}\n\n")
         
         
 
 
-@Timer(name="decorator")
+
 def main():
     
     init_logging()
     logger = logging.getLogger("async_all")
     patch_http_connection_pool(maxsize=1000)
     patch_https_connection_pool(maxsize=1000)
+    t1 = Timer("execution", text="Time spent with data preparation: {:.2f}", logger=logger.info)
+    t2 = Timer("execution", text="Time spent with DL: {:.2f}", logger=logger.info)
     
     args = init_argparser()
+    
+    
+    t1.start()
     
     logger.info(f"Hi, lets dl!\n{args}")
     
@@ -978,6 +998,10 @@ def main():
     
     asyncDL.print_list_videos()      
        
+    t1.stop()
+    
+    t2.start()
+    
     if asyncDL.videos_to_dl:    
             
         try:
@@ -988,11 +1012,12 @@ def main():
                 
         except Exception as e:
             logger.error(str(e), exc_info=True)
-            
-        finally:
-            kill_processes(logger)            
+        
+        
+                   
 
 
+    t2.stop()
     
     res = asyncDL.get_results_info()     
  
@@ -1008,6 +1033,10 @@ def main():
 
 if __name__ == "__main__":
     
-    main()
+    try:
+        main()
+    finally:
+        kill_processes() 
+        
 
     

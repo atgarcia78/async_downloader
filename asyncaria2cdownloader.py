@@ -103,7 +103,8 @@ class AsyncARIA2CDownloader():
         self.progress = ""
         self.connections = 0
         
-        self.status = 'init'       
+        self.status = 'init'
+        self.error_message = ""        
               
               
 
@@ -128,7 +129,10 @@ class AsyncARIA2CDownloader():
         opts_dict = {'header': [f'{key} : {value}' for key,value in self.headers.items()],
                      'dir': str(self.download_path),
                      'out': self.filename.name,
-                     'check-certificate': self.verifycert }
+                     'check-certificate': self.verifycert,
+                     'connect-timeout': '10',
+                     'timeout': '10',
+                     'max-tries': '2'}
         
         
         opts = aria2p.Options(self.aria2_client, opts_dict)
@@ -141,16 +145,17 @@ class AsyncARIA2CDownloader():
             
             while True:
                 await asyncio.to_thread(self.dl_cont.update)
-                if self.dl_cont.total_length or (self.dl_cont.status not in ('active', 'waiting')):
+                if self.dl_cont.total_length or self.dl_cont.status in ('error', 'complete'):
                     break               
                 await asyncio.sleep(0)
             
             if self.dl_cont.total_length:
                 self.filesize = self.dl_cont.total_length 
-            if self.dl_cont.status in ('active', 'waiting'):        
+            
+            if self.dl_cont.status in ('active'):        
                 self.status = "downloading"  
                 
-                while self.dl_cont.status in ('active', 'waiting'):
+                while self.dl_cont.status in ('active'):
                     
                                     
                     _incsize = self.dl_cont.completed_length - self.down_size
@@ -163,7 +168,9 @@ class AsyncARIA2CDownloader():
                     await asyncio.to_thread(self.dl_cont.update)
             
             if self.dl_cont.status in ('complete'): self.status = "done"
-            else: self.status = 'error'
+            elif self.dl_cont.status in ('error'): 
+                self.status = 'error'
+                self.error_message = self.dl_cont.error_message
                 
             
                 
