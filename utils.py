@@ -27,12 +27,12 @@ import asyncio
 def kill_processes(logger=None):
     
         
-    #procesos lanzados por mi usuario 501 (antoniotorres), sin tener q estar corriendo en la misma shell, obtenemos pgid(proceso de grupo para los procesos parent childs coo los de firefox) y el comando para el filtrado
-    res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pgid,comm"], encoding='utf-8', capture_output=True).stdout
-    mobj = re.findall(r'(\d+) ((?:browsermob|geckodriver|aria2c|java|/Applications/Firefox Nightly))', res)
+    
+    res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,comm"], encoding='utf-8', capture_output=True).stdout
+    mobj = re.findall(r'(\d+) ((?:browsermob|geckodriver|aria2c|java|/Applications/Firefox Nightly.app/Contents/MacOS/firefox))', res)
     if mobj:
-        proc_to_kill = list(set(mobj)) #nos quedamos con uno solo de todos los procesos de cada pgid                   
-        results = [subprocess.run(["kill","-9",f"-{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
+        proc_to_kill = list(set(mobj))                    
+        results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
             
         for proc, res in zip(proc_to_kill, results): 
             logger.debug(f"{proc}:{res}") if logger else print(f"{proc}:{res}")
