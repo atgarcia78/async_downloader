@@ -42,7 +42,7 @@ SUPPORTED_EXT = {
 
 class VideoDownloader():
     
-    def __init__(self, video_dict, ytdl, n_workers, dlpath=None, aria2c=None):
+    def __init__(self, video_dict, ytdl, n_workers, rpcport, dlpath):
         
         self.logger = logging.getLogger("video_DL")
         
@@ -63,8 +63,8 @@ class VideoDownloader():
             self.info_dl = {
                 
                 'id': self.info_dict['id'],
-                'n_workers': n_workers,
-                'aria2c': aria2c,
+                'n_workers': n_workers,                
+                'rpcport': rpcport,
                 'webpage_url': self.info_dict.get('webpage_url'),
                 'title': self.info_dict.get('title'),
                 'ytdl': ytdl,
@@ -110,8 +110,8 @@ class VideoDownloader():
         
         protocol = determine_protocol(info)
         if protocol in ('http', 'https'):
-            if not self.info_dl['aria2c']: dl = AsyncHTTPDownloader(info, self)
-            else: dl = AsyncARIA2CDownloader(info, self)           
+            if not self.info_dl['rpcport']: dl = AsyncHTTPDownloader(info, self)
+            else: dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)           
         elif protocol in ('m3u8', 'm3u8_native'):
             dl = AsyncHLSDownloader(info, self)            
         elif protocol in ('http_dash_segments', 'dash'):

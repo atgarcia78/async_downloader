@@ -24,22 +24,25 @@ import asyncio
 
 
 
-def kill_processes(logger=None):
+def kill_processes(logger=None, rpcport=None):
     
         
-    
-    res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,comm"], encoding='utf-8', capture_output=True).stdout
-    mobj = re.findall(r'(\d+) ((?:browsermob|geckodriver|aria2c|java|/Applications/Firefox Nightly.app/Contents/MacOS/firefox))', res)
+    term = (subprocess.run(["tty"], encoding='utf-8', capture_output=True).stdout).splitlines()[0].replace("/dev/", "")
+    res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,tty,command"], encoding='utf-8', capture_output=True).stdout
+    if rpcport: _aria2cstr = f"aria2c.+--rpc-listen-port {rpcport}.+"
+    else: _aria2cstr = f"aria2cDUMMY"
+    mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox Nightly.app/Contents/MacOS/firefox.+))', res)
     if mobj:
         proc_to_kill = list(set(mobj))                    
         results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
             
-        for proc, res in zip(proc_to_kill, results): 
-            logger.debug(f"{proc}:{res}") if logger else print(f"{proc}:{res}")
+        _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
+            
+        logger.debug("[kill_processes]\n" + '\n'.join(_debugstr))
             
     
     else: 
-        logger.debug("No processes found to kill") if logger else print("No processes found to kill")
+        logger.debug("[kill_processes] No processes found to kill") if logger else print("[kill_processes] No processes found to kill")
             
     
             
@@ -309,11 +312,21 @@ def init_argparser():
     parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true")
     parser.add_argument("--path", default=None, type=str)    
     parser.add_argument("--caplinks", action="store_true")    
-    parser.add_argument("--aria2c", action="store_true")
+    #parser.add_argument("--aria2c", action="store_true")
+    #parser.add_argument("--rpcport", default=6800, type=int)
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true")
+    parser.add_argument("--aria2c", default=-1, nargs='?', type=int)
     
     
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.aria2c != -1:
+        args.rpcport = args.aria2c if args.aria2c else 6800
+        args.aria2c = True
+    else: 
+        args.rpcport = None
+        args.aria2c = False 
+    
+    return args
 
 
 def init_ytdl(args):

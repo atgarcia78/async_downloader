@@ -36,7 +36,7 @@ class AsyncARIA2CDownloader():
     
     
     
-    def __init__(self, video_dict, vid_dl):
+    def __init__(self, port, video_dict, vid_dl):
 
         self.logger = logging.getLogger("async_http_DL")
         
@@ -50,7 +50,7 @@ class AsyncARIA2CDownloader():
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl                
         
-        self.aria2_client = aria2p.API(aria2p.Client())    
+        self.aria2_client = aria2p.API(aria2p.Client(port=port))    
         
         #self.webpage_url = video_dict.get('webpage_url')
 

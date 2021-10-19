@@ -42,11 +42,13 @@ class AsyncDL():
 
     
     _INTERVAL_TK = 0.25
+   
     
     def __init__(self, args):
     
         
         self.logger = logging.getLogger("asyncDL")
+        
                
         #args
         self.args = args
@@ -594,7 +596,7 @@ class AsyncDL():
                         
                         self.info_videos[_url].update({'video_info': info})
                         
-                        dl = VideoDownloader(info, self.ytdl, self.parts, self.args.path, self.args.aria2c)
+                        dl = VideoDownloader(info, self.ytdl, self.parts, self.args.rpcport, self.args.path)
                                 
                         if dl and not dl.info_dl.get('status') == "error":
                             

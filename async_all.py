@@ -43,7 +43,7 @@ def main():
         
         args = init_argparser()
         
-        
+                
         t1.start()
         
         logger.info(f"Hi, lets dl!\n{args}")
@@ -67,7 +67,8 @@ def main():
                 
             try:
                 if args.aria2c:
-                    subprocess.run(["aria2c","--enable-rpc","--daemon"])
+                    subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
+                
                 args_tk = init_tk()        
                 aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True) 
                     
@@ -93,8 +94,9 @@ def main():
                     line = _video + "\n"
                     file.write(line) 
     
-    finally:
-        kill_processes(logger)  
+    finally:        
+        kill_processes(logger=logger, rpcport=args.rpcport)
+ 
 
 if __name__ == "__main__":
     
