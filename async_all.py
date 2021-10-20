@@ -4,6 +4,7 @@
 import logging
 import aiorun 
 import shutil
+import os
 
 
 from utils import ( 
@@ -38,6 +39,9 @@ def main():
         
         patch_http_connection_pool(maxsize=1000)
         patch_https_connection_pool(maxsize=1000)
+        os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
+        os.environ['MOZ_HEADLESS_HEIGHT'] = '1080'
+         
         t1 = Timer("execution", text="Time spent with data preparation: {:.2f}", logger=logger.info)
         t2 = Timer("execution", text="Time spent with DL: {:.2f}", logger=logger.info)
         
