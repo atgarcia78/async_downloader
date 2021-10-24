@@ -1,12 +1,9 @@
 #!/usr/bin/env python
 from concurrent.futures.thread import ThreadPoolExecutor
-from distutils.log import ERROR
 import logging
 import logging.config
 import json
-from multiprocessing.pool import INIT
 from pathlib import Path
-from h11 import DONE
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import std_headers
 import random
@@ -20,6 +17,7 @@ import demjson
 from queue import Queue
 import subprocess
 import asyncio
+import shutil
 
 
 
@@ -31,7 +29,8 @@ def kill_processes(logger=None, rpcport=None):
     res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,tty,command"], encoding='utf-8', capture_output=True).stdout
     if rpcport: _aria2cstr = f"aria2c.+--rpc-listen-port {rpcport}.+"
     else: _aria2cstr = f"aria2cDUMMY"
-    mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox Nightly.app/Contents/MacOS/firefox.+))', res)
+    mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox Nightly.app/Contents/MacOS/firefox-bin.+))', res)
+    mobj2 = re.findall(r'/Applications/Firefox Nightly.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ', res)
     if mobj:
         proc_to_kill = list(set(mobj))                    
         results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
@@ -43,6 +42,11 @@ def kill_processes(logger=None, rpcport=None):
     
     else: 
         logger.debug("[kill_processes] No processes found to kill") if logger else print("[kill_processes] No processes found to kill")
+        
+    if mobj2:
+        
+        for el in mobj2:
+            shutil.rmtree(el, ignore_errors=True)
             
     
             
@@ -285,10 +289,8 @@ def init_logging(file_path=None):
 
 def init_argparser():
     
-    # UA_LIST = ["Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:80.0) Gecko/20100101 Firefox/80.0", "Mozilla/5.0 (Android 11; Mobile; rv:88.0) Gecko/88.0 Firefox/88.0", "Mozilla/5.0 (iPad; CPU OS 10_15_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/24.1 Mobile/15E148 Safari/605.1.15", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0"]
-    #UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:85.0) Gecko/20100101 Firefox/85.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.12; rv:79.0) Gecko/20100101 Firefox/79.0", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:88.0) Gecko/20100101 Firefox/88.0"]
-    
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:94.0) Gecko/20100101 Firefox/94.0"]
+ 
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:95.0) Gecko/20100101 Firefox/95.0"]
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
@@ -312,8 +314,6 @@ def init_argparser():
     parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true")
     parser.add_argument("--path", default=None, type=str)    
     parser.add_argument("--caplinks", action="store_true")    
-    #parser.add_argument("--aria2c", action="store_true")
-    #parser.add_argument("--rpcport", default=6800, type=int)
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true")
     parser.add_argument("--aria2c", default=-1, nargs='?', type=int)
     
@@ -412,47 +412,7 @@ def init_tk():
     text2.insert(tk.END, "Waiting for info")
     
     res = [window, text0, text1, text2]
-    return(res) 
-
-def init_tk_afiles(n_files):
-    window = tk.Tk()
-    window.title("async_files")
-    
-    frame0 = tk.Frame(master=window, width=300, height=25*n_files, bg="white")
-  
-    frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True) 
-    
-    frame1 = tk.Frame(master=window, width=300, bg="white")
-  
-    frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
-    
-    frame2 = tk.Frame(master=window, width=300, bg="white")
-   
-    frame2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
-    label0 = tk.Label(master=frame0, text="WAITING TO ENTER IN POOL", bg="blue")
-    label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text0 = tk.Text(master=frame0, font=("Source Code Pro", 9))
-    text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
-    label1 = tk.Label(master=frame1, text="NOW RUNNING", bg="blue")
-    label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text1 = tk.Text(master=frame1, font=("Source Code Pro", 9))
-    text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
-    label2 = tk.Label(master=frame2, text="DONE/ERRORS", bg="blue")
-    label2.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text2 = tk.Text(master=frame2, font=("Source Code Pro", 9))
-    text2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)   
-    
-    text0.insert(tk.END, "Waiting for info") 
-    text1.insert(tk.END, "Waiting for info") 
-    text2.insert(tk.END, "Waiting for info") 
-    
-    
-           
-    return(window, text0, text1, text2)
-    
+    return(res)    
 
 
     
