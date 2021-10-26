@@ -38,7 +38,7 @@ class AsyncARIA2CDownloader():
     
     def __init__(self, port, video_dict, vid_dl):
 
-        self.logger = logging.getLogger("async_http_DL")
+        self.logger = logging.getLogger("async_ARIA2C_DL")
         
        
         # self.proxies = "http://atgarcia:ID4KrSc6mo6aiy8@proxy.torguard.org:6060"
@@ -64,21 +64,21 @@ class AsyncARIA2CDownloader():
             self.proxies = f"http://{self.proxies}"
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
         
-        self.video_url = video_dict.get('url')
+        self.video_url = self.info_dict.get('url')
         
-        try:
-            client = httpx.Client(headers=std_headers, verify=self.verifycert, proxies=self.proxies, timeout=60)
-            res = client.head(self.video_url)
-            _video_url = str(res.url)
-            if _video_url != self.video_url:
-                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] url video changed after checking\n{self.video_url}\n{_video_url}")
-                self.video_url = _video_url
+        # try:
+        #     client = httpx.Client(headers=std_headers, verify=self.verifycert, proxies=self.proxies, timeout=60)
+        #     res = client.head(self.video_url)
+        #     _video_url = str(res.url)
+        #     if _video_url != self.video_url:
+        #         self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] url video changed after checking\n{self.video_url}\n{_video_url}")
+        #         self.video_url = _video_url
                 
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
-        finally:
-            client.close()
+        # except Exception as e:
+        #     lines = traceback.format_exception(*sys.exc_info())                
+        #     self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
+        # finally:
+        #     client.close()
             
 
         
@@ -126,7 +126,7 @@ class AsyncARIA2CDownloader():
 
        
         
-        opts_dict = {'header': [f'{key} : {value}' for key,value in self.headers.items()],
+        opts_dict = {'header': [f'{key}: {value}' for key,value in self.headers.items() if not key in ['User-Agent','Accept-Charset']],
                      'dir': str(self.download_path),
                      'out': self.filename.name,
                      'check-certificate': self.verifycert,
@@ -134,8 +134,11 @@ class AsyncARIA2CDownloader():
                      'timeout': '10',
                      'max-tries': '2'}
         
+        gl_opts = self.aria2_client.get_global_options()
+        for key,value in opts_dict.items():
+            gl_opts.set(key, value)
+        opts = aria2p.Options(self.aria2_client, gl_opts.get_struct())
         
-        opts = aria2p.Options(self.aria2_client, opts_dict)
         
         
         try:

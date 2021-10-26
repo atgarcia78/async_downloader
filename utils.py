@@ -19,7 +19,18 @@ import subprocess
 import asyncio
 import shutil
 
-
+def get_chain_links(f):
+    _links = []
+    _links.append(f)
+    _f = f
+    while True:
+        if _f.is_symlink():
+            _link = _f.readlink()
+            _links.append(_link)
+            _f = _link
+        else:
+            break
+    return _links
 
 
 def kill_processes(logger=None, rpcport=None):

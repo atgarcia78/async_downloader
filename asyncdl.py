@@ -15,7 +15,8 @@ from utils import (
     init_ytdl,    
     naturalsize,
     is_playlist_extractor,
-    wait_time
+    wait_time,
+    get_chain_links
     
 )
 
@@ -157,67 +158,143 @@ class AsyncDL():
     
     def get_videos_cached(self):        
         
-        _repeated = []
         
-        last_res = Path(Path.home(),"Projects/common/logs/files_cached.json")
+        try:
         
-        if self.args.nodlcaching and last_res.exists():
             
-            with open(last_res,"r") as f:
-                self.files_cached = json.load(f)
+            
+            last_res = Path(Path.home(),"Projects/common/logs/files_cached.json")
+            
+            if self.args.nodlcaching and last_res.exists():
                 
-            self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
-        
-        else:  
-        
-            list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/WD/videos"), Path("/Volumes/WD5/videos")]
-             
-            for folder in list_folders:
-                
-                for file in folder.rglob('*'):
+                with open(last_res,"r") as f:
+                    self.files_cached = json.load(f)
                     
-                    if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip')):
-
-                        
-                        _res = file.stem.split('_', 1)
-                        if len(_res) == 2:
-                            _id, _title = _res[0], _res[1]
-                            _title = sanitize_filename(_title, restricted=True)
-                            _title = _title.upper()
-                            _name = f"{_id}_{_title}"
-                        else:
-                            _name = sanitize_filename(file.stem, restricted=True).upper()
-
-                        if not (_videopath:=self.files_cached.get(_name)): 
-                            
-                            self.files_cached.update({_name: str(file)})
-                            
-                        else:
-                            if _videopath != str(file): #only if both are hard files we have to do something, so lets report it in repeated files
-                                if not file.is_symlink() and not Path(_videopath).is_symlink(): _repeated.append({'title':_name, 'indict': _videopath, 'file': str(file)})
-                                
+                self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
+            
+            else:  
+            
+                list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/WD/videos"), Path("/Volumes/WD5/videos")]
                 
+                _repeated = []
+                _dont_exist = []
+                
+                for folder in list_folders:
+                    
+                    for file in folder.rglob('*'):
+                        
+                        if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip')):
+
+                            
+                            _res = file.stem.split('_', 1)
+                            if len(_res) == 2:
+                                _id, _title = _res[0], _res[1]
+                                _title = sanitize_filename(_title, restricted=True)
+                                _title = _title.upper()
+                                _name = f"{_id}_{_title}"
+                            else:
+                                _name = sanitize_filename(file.stem, restricted=True).upper()
+
+                            if not (_video_path_str:=self.files_cached.get(_name)): 
+                                
+                                self.files_cached.update({_name: str(file)})
+                                
+                            else:
+                                _video_path = Path(_video_path_str)
+                                if _video_path != file: 
+                                    
+                                    if not file.is_symlink() and not _video_path.is_symlink(): #only if both are hard files we have to do something, so lets report it in repeated files
+                                        _repeated.append({'title':_name, 'indict': _video_path_str, 'file': str(file)})
+                                    elif not file.is_symlink() and _video_path.is_symlink():
+                                        
+                                            _links = get_chain_links(_video_path) 
+                                            
+                                             
+                                            if (_links[-1] == file):
+                                                if len(_links) > 2:
+                                                    self.logger.debug(f'\nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
+                                                    for _link in _links[0:-1]:
+                                                        _link.unlink()
+                                                        _link.symlink_to(file)
+                                                        _link._accessor.utime(_link, (int(datetime.now().timestamp()), file.stat().st_mtime), follow_symlinks=False)
+                                                
+                                                self.files_cached.update({_name: str(file)})
+                                            else:
+                                                self.logger.warning(f'\n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
+                                                    
+                                    elif file.is_symlink() and not _video_path.is_symlink():
+                                        _links =  get_chain_links(file)
+                                        
+                                        
+                                        
+                                        if (_links[-1] == _video_path):
+                                            if len(_links) > 2:
+                                                self.logger.debug(f'\nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+                                                for _link in _links[0:-1]:
+                                                    _link.unlink()
+                                                    _link.symlink_to(_video_path)
+                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), _video_path.stat().st_mtime), follow_symlinks=False)
+                                                
+                                            self.files_cached.update({_name: str(_video_path)})
+                                            if not _video_path.exists(): _dont_exist.append({'title': _name, 'file_not_exist': str(_video_path), 'links': [str(_l) for _l in _links[0:-1]]})
+                                        else:
+                                            self.logger.warning(f'\n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+                                            
+                                        
+                                    else:
+                                       
+                                        _links_file = get_chain_links(file) 
+                                        _links_video_path = get_chain_links(_video_path)
+                                        if ((_file:=_links_file[-1]) == _links_video_path[-1]):
+                                            if len(_links_file) > 2:
+                                                self.logger.debug(f'\nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}')                                                
+                                                for _link in _links_file[0:-1]:
+                                                    _link.unlink()
+                                                    _link.symlink_to(_file)
+                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                            if len(_links_video_path) > 2:
+                                                self.logger.debug(f'\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}')
+                                                for _link in _links_video_path[0:-1]:
+                                                    _link.unlink()
+                                                    _link.symlink_to(_file)
+                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                            
+                                            self.files_cached.update({_name: str(_file)})
+                                            if not _file.exists():  _dont_exist.append({'title': _name, 'file_not_exist': str(_file), 'links': [str(_l) for _l in (_links_file[0:-1] + _links_video_path[0:-1])]})
+                                               
+                                        else:
+                                            self.logger.warning(f'\n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}') 
+
+                
+                self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
+                
+                if _repeated:
+                    
+                    self.logger.warning("Please check videos repeated in logs")
+                    self.logger.debug(f"videos repeated: \n {_repeated}")
+                    
+                if _dont_exist:
+                    self.logger.warning("Please check videos dont exist in logs")
+                    self.logger.debug(f"videos dont exist: \n {_dont_exist}")
+                    
+                
+                            
+                prev_res = Path(Path.home(),"Projects/common/logs/prev_files_cached.json")
+                
+                    
+                if last_res.exists():
+                    if prev_res.exists(): prev_res.unlink()
+                    last_res.rename(Path(last_res.parent,f"prev_files_cached.json"))
+                
+                with open(last_res,"w") as f:
+                    json.dump(self.files_cached,f)                
         
             
-            self.logger.info(f"Total cached videos: [{len(self.files_cached)}]")
             
-            if _repeated:
-                
-                self.logger.warning("Please check videos repeated in logs")
-                self.logger.debug(f"videos repeated: \n {_repeated}")
+                return self.files_cached
             
-                        
-            prev_res = Path(Path.home(),"Projects/common/logs/prev_files_cached.json")
-            
-                
-            if last_res.exists():
-                if prev_res.exists(): prev_res.unlink()
-                last_res.rename(Path(last_res.parent,f"prev_files_cached.json"))
-            
-            with open(last_res,"w") as f:
-                json.dump(self.files_cached,f)     
-            
-        return self.files_cached
+        except Exception as e:
+            self.logger.exception(repr(e))
                
 
     
@@ -279,6 +356,7 @@ class AsyncDL():
                 
             
             url_pl_list = []
+            netdna_list = []
             
             url_list = _url_list_caplinks + _url_list_cli
             
@@ -291,24 +369,38 @@ class AsyncDL():
                 if res['is_pl']: 
                     url_pl_list.append(_url)
                     self.info_videos[_url]['type'] = 'playlist'
-                    
-                    
+
                 else:
-                                        
-                    
-                    
-                    _info_video = {}
                     
                     if 'NetDNA' in res['ie_key']:
                         
-                        _info_video = NetDNAIE.get_video_info(_url)
+                        netdna_list.append(_url)
+                        #_entry = NetDNAIE.get_entry(_url, self.ytdl)
                     
+                    else: 
+                        _entry = {'_type': 'url', 'url': _url, 'ie_key': res['ie_key']}
                                             
-                    self.list_videos.append(_entry:={'_type': 'url', 'url': _url, 'ie_key': res['ie_key'], 'id': (_info_video.get('id', '')).replace('_', ''), 'title': _info_video.get('title', ''), 'filesize': _info_video.get('filesize', '')})
+                        self.list_videos.append(_entry)
                     
-                    self.info_videos[_url]['video_info'] = _entry
+                        self.info_videos[_url]['video_info'] = _entry
                     
-   
+            if netdna_list:
+                self.logger.info(f"[netdna_list] {netdna_list}")
+                
+                with ThreadPoolExecutor(max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
+                     
+                    fut = [ex.submit(NetDNAIE.get_entry, _url_netdna, self.ytdl) for _url_netdna in netdna_list]
+                    done, _ = wait_for_futures(fut)
+                    
+                for d in done:
+                    try:
+                        _entry_netdna = d.result()
+                        self.list_videos.append(_entry_netdna)
+                        self.info_videos[_entry_netdna['url']]['video_info'] = _entry_netdna
+                        
+                    except Exception:
+                        pass
+                
                         
             if url_pl_list:
                 
@@ -321,8 +413,7 @@ class AsyncDL():
                                 
                 _url_pl = []
                 for d in done:
-                    _url_pl += (_info:=(d.result())).get('entries')
-                    
+                    _url_pl += (_info:=(d.result())).get('entries')                 
                     
                     self.info_videos[_info['original_url']].update({'video_info': _info})           
                     
@@ -403,7 +494,7 @@ class AsyncDL():
         _title = sanitize_filename(_title, restricted=True).upper()
         vid_name = f"{_id}_{_title}"                    
 
-        if not (vid_path:=self.files_cached.get(vid_name)):
+        if not (vid_path_str:=self.files_cached.get(vid_name)):
             
             
             return True
@@ -412,18 +503,21 @@ class AsyncDL():
         else: #video en local
             
             
-            
+            vid_path=Path(vid_path_str)
             self.logger.debug(f"[{vid_name}]: already DL: {vid_path}")
                 
-            self.list_initaldl.append({'title': vid_name, 'path': vid_path})                        
+            self.list_initaldl.append({'title': vid_name, 'path': vid_path_str})                        
             if self.args.path:
-                _filepath = Path(self.args.path)
+                _folderpath = Path(self.args.path)
             else:
-                _filepath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
-            _filepath.mkdir(parents=True, exist_ok=True)
-            file_aldl = Path(_filepath, Path(vid_path).name)
-            if file_aldl not in _filepath.iterdir():
-                file_aldl.symlink_to(Path(vid_path))
+                _folderpath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
+            _folderpath.mkdir(parents=True, exist_ok=True)
+            file_aldl = Path(_folderpath, vid_path.name)
+            if file_aldl not in _folderpath.iterdir():
+                file_aldl.symlink_to(vid_path)
+                mtime = int(vid_path.stat().st_mtime)
+                file_aldl._accessor.utime(file_aldl, (int(datetime.now().timestamp()), mtime), follow_symlinks=False )
+                
                 
             return False
         
@@ -573,6 +667,11 @@ class AsyncDL():
                                     info['id'] = _id.replace('_', '')
                                     
                                 self.logger.debug(f"worker_init[{i}] {vid} \n{info}")
+                                
+                                if not info.get('release_timestamp') and (_mtime:=vid.get('release_timestamp')):
+                                    
+                                    info['release_timestamp'] = _mtime
+                                    info['release_date'] = vid.get('release_date')
                                 
                                 
                                 

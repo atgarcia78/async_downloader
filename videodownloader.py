@@ -39,6 +39,8 @@ SUPPORTED_EXT = {
     
 }
 
+import os
+
 
 class VideoDownloader():
     
@@ -325,6 +327,11 @@ class VideoDownloader():
                     
                 if self.info_dl['status'] == "done":
                     await asyncio.to_thread(functools.partial(rmtree, self.info_dl['download_path'], ignore_errors=True))
+                    if (mtime:=self.info_dict.get("release_timestamp")):
+                        await asyncio.to_thread(os.utime, self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
+                        
+                        
+                        
                     
             
             else: self.info_dl['status'] = "error"
