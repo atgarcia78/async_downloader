@@ -78,11 +78,6 @@ def main():
                     
             except Exception as e:
                 logger.error(str(e), exc_info=True)
-    
-       
-        
-                   
-
 
         t2.stop()
         

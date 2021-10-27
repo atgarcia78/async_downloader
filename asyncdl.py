@@ -160,8 +160,6 @@ class AsyncDL():
         
         
         try:
-        
-            
             
             last_res = Path(Path.home(),"Projects/common/logs/files_cached.json")
             
@@ -503,7 +501,7 @@ class AsyncDL():
         else: #video en local
             
             
-            vid_path=Path(vid_path_str)
+            vid_path = Path(vid_path_str)
             self.logger.debug(f"[{vid_name}]: already DL: {vid_path}")
                 
             self.list_initaldl.append({'title': vid_name, 'path': vid_path_str})                        
