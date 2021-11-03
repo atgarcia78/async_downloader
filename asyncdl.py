@@ -15,7 +15,6 @@ from utils import (
     init_ytdl,    
     naturalsize,
     is_playlist_extractor,
-    wait_time,
     get_chain_links
     
 )
@@ -35,14 +34,14 @@ from operator import itemgetter
 from videodownloader import VideoDownloader 
 from threading import Lock
 
-
+from httpx._utils import Timer
 
 
 
 class AsyncDL():
 
     
-    _INTERVAL_TK = 0.25
+    _INTERVAL_TK = 0.2
    
     
     def __init__(self, args):
@@ -77,6 +76,7 @@ class AsyncDL():
         
         #tk control      
         self.stop_tk = False
+        self.timer_tk = Timer()
         
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -86,7 +86,16 @@ class AsyncDL():
         self.time_now = datetime.now()
         
         self.lock = Lock()
-    
+        
+        
+    async def wait_time(self, n):
+   
+        _started = time.monotonic()
+        while True:
+            if (_t:=(time.monotonic() - _started)) >= n:
+                return _t
+            else:
+                await asyncio.sleep(0)
     
     async def run_tk(self, args_tk):
         '''
@@ -96,9 +105,10 @@ class AsyncDL():
        
         root, text0, text1, text2 = args_tk
         count = 0
+        
         while (not self.list_dl and not self.stop_tk):
             
-            await wait_time(self._INTERVAL_TK)
+            await self.wait_time(self._INTERVAL_TK)
             count += 1
             if count == 10:
                 count = 0
@@ -127,7 +137,7 @@ class AsyncDL():
                         list_downloading = []
                         list_manip = []    
                         for dl in self.list_dl:
-                            mens = dl.print_hookup()
+                            mens = await dl.print_hookup()
                             if dl.info_dl['status'] in ["init"]:
                                 text0.insert(tk.END, mens)
                             if dl.info_dl['status'] in ["init_manipulating", "manipulating"]:
@@ -146,7 +156,7 @@ class AsyncDL():
                             text1.insert(tk.END, ''.join(list_manip))
                                          
                         
-                await wait_time(self._INTERVAL_TK)
+                await self.wait_time(self._INTERVAL_TK)
        
                 
         except Exception as e:
@@ -384,10 +394,10 @@ class AsyncDL():
                     
             if netdna_list:
                 self.logger.info(f"[netdna_list] {netdna_list}")
-                
+                NetDNAIE._downloader = self.ytdl
                 with ThreadPoolExecutor(max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
                      
-                    fut = [ex.submit(NetDNAIE.get_entry, _url_netdna, self.ytdl) for _url_netdna in netdna_list]
+                    fut = [ex.submit(NetDNAIE.get_entry, _url_netdna) for _url_netdna in netdna_list]
                     done, _ = wait_for_futures(fut)
                     
                 for d in done:

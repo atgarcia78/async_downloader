@@ -6,7 +6,8 @@ from pathlib import Path
 import logging
 from utils import (
     naturalsize,
-    int_or_none
+    int_or_none,
+    EMA
 
 )
 
@@ -93,14 +94,16 @@ class AsyncHTTPDownloader():
         self.filesize = self.info_dict.get('filesize', None)        
         self.down_size = 0
         self.down_temp = 0
-        self.timer = httpx._utils.Timer()
-        self.timer.sync_start()
+        
         self.n_parts_dl = 0        
         self.parts = []
         self.status = "init"
         self.error_message = ""        
         self.prepare_parts()
-        self.count = self._NUM_WORKERS #cuenta de los workers activos
+        self.count = 0#cuenta de los workers activos
+        
+        self.ema_s = EMA(smoothing=0.0001)
+        self.ema_t = EMA(smoothing=0.0001)
         
         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[init] {self.parts}")        
 
@@ -337,12 +340,13 @@ class AsyncHTTPDownloader():
                 
     
     async def wait_time(self, n):
-        _timer = httpx._utils.Timer()
-        await _timer.async_start()
+   
+        _started = time.monotonic()
         while True:
-            _t = await _timer.async_elapsed()
-            if _t > n: break
-            else: await asyncio.sleep(0)
+            if (_t:=(time.monotonic() - _started)) >= n:
+                return _t
+            else:
+                await asyncio.sleep(0)
         
         
     async def fetch(self,i):
@@ -350,7 +354,7 @@ class AsyncHTTPDownloader():
                 
         try:
             
-            _timer = httpx._utils.Timer()
+            
         
             client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] launched")
@@ -398,17 +402,18 @@ class AsyncHTTPDownloader():
                                     
                                     num_bytes_downloaded = res.num_bytes_downloaded
                                                                         
-                                    await _timer.async_start()
+                                    _started = time.monotonic()
                                     
                                     async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE): 
                                     
-                                        _timechunk = await _timer.async_elapsed() 
+                                        _timechunk = time.monotonic() - _started 
                                         self.parts[part-1]['time2dlchunks'][nth_key].append(_timechunk)
                                         await f.write(chunk)                                        
                                            
-                                        async with self.video_downloader.lock:
-                                            self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded))                                        
-                                            self.video_downloader.info_dl['down_size'] += _iter_bytes 
+                                        async with self._LOCK:
+                                            self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded)) 
+                                            async with self.video_downloader.lock:                                       
+                                                self.video_downloader.info_dl['down_size'] += _iter_bytes
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                         self.parts[part-1]['nchunks_dl'][nth_key] += 1
                                         _median = median(self.parts[part-1]['time2dlchunks'][nth_key])
@@ -422,13 +427,13 @@ class AsyncHTTPDownloader():
                                                 raise AsyncHTTPDLErrorFatal(f"timechunk [{_time}] > [{_max}] for consecutives chunks in {nth_key} iteración, nchunks[{self.parts[part -1]['nchunks_dl'][nth_key]}]")
                                         
                                         await asyncio.sleep(0)
-                                        await _timer.async_start()
+                                        _started = time.monotonic()
                                                                         
                         _tempfile_size = (await asyncio.to_thread(tempfilename.stat)).st_size                        
                         if (self.parts[part-1]['headersize'] - 5 <=  _tempfile_size <= self.parts[part-1]['headersize'] + 5):
                             self.parts[part-1]['downloaded'] = True
                             self.parts[part-1]['size'] =  _tempfile_size
-                            async with self.video_downloader.lock:
+                            async with self._LOCK:
                                 self.n_parts_dl += 1
                             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}] OK DL: total {self.n_parts_dl}\n{self.parts[part-1]}")
                             break
@@ -472,7 +477,7 @@ class AsyncHTTPDownloader():
     
     async def fetch_async(self):
 
-            
+        self._LOCK = asyncio.Lock()    
         self.parts_queue = asyncio.Queue()
         
         for part in self.parts_to_dl:
@@ -488,7 +493,9 @@ class AsyncHTTPDownloader():
         
         
         try:
-                
+            self.count = self._NUM_WORKERS
+            self.down_temp = self.down_size
+            self.started = time.monotonic()    
             async with TaskGroup() as tg:
                 
                 self.tasks_fetch = [tg.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
@@ -553,18 +560,13 @@ class AsyncHTTPDownloader():
             self.sync_clean_when_error()                        
             raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling parts")
             
+    def format_frags(self):
+        import math        
+        return f'{(int(math.log(self.n_parts, 10)) + 1)}d'        
             
-            
-    def print_hookup(self):
+    async def print_hookup(self):
         
-        _time = self.timer.sync_elapsed()
-        _bytes = self.down_size - self.down_temp
-        _speed = _bytes / _time
-        if _speed != 0: 
-            _eta = datetime.timedelta(seconds=((self.filesize - self.down_size)/_speed))
-            _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")])
-        else: _eta_str = "--"
-        
+         
         
         if self.status == "done":
             return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")
@@ -572,8 +574,29 @@ class AsyncHTTPDownloader():
             return (f"[HTTP][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")            
         elif self.status == "error":
             return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
-        elif self.status == "downloading":           
-            return (f"[HTTP][{self.info_dict['format_id']}]: DL[{naturalsize(_speed)}s] WORKERS[{self.count}] PR[{naturalsize(self.down_size)}/{naturalsize(self.filesize)}]({(self.down_size/self.filesize)*100:.2f}%) ETA[{_eta_str}] PARTS[{self.n_parts_dl}/{self.n_parts}]\n")
+        elif self.status == "downloading": 
+            async with self._LOCK:
+                _new = time.monotonic()                                  
+                _speed = (self.down_size - self.down_temp) / (_new - self.started)
+                
+                _speed_ema = (_diff_size_ema:=self.ema_s(self.down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started)) 
+               
+                _speed_str = f'{naturalsize(_speed_ema,True)}ps'
+               
+                _progress_str = f'{(self.down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
+                        
+                if _speed_ema and self.filesize:
+                    
+                    if (_est_time:=((self.filesize - self.down_size)/_speed_ema)) < 3600:
+                        _eta = datetime.timedelta(seconds=_est_time)                    
+                        _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
+                    else: _eta_str = "--"
+                else: _eta_str = "--"
+                
+                self.down_temp = self.down_size
+                self.started = time.monotonic()                     
+            return (f"[HTTP][{self.info_dict['format_id']}]:(WK[{self.count:2d}]) DL[{_speed_str}] PARTS[{self.n_parts_dl:{self.format_parts()}}/{self.n_parts}] PR[{_progress_str}] ETA[{_eta_str}]\n")
+        
         elif self.status == "init_manipulating":                   
             return (f"[HTTP][{self.info_dict['format_id']}]: Waiting for Ensambling \n")
         elif self.status == "manipulating":  
@@ -581,5 +604,4 @@ class AsyncHTTPDownloader():
             else: _size = 0         
             return (f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")       
 
-        self.timer.sync_start()
-        self.down_temp = self.down_size
+        

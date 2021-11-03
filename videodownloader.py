@@ -367,11 +367,11 @@ class VideoDownloader():
     
 
     
-    def print_hookup(self):        
+    async def print_hookup(self):        
         
         msg = ""
         for dl in self.info_dl['downloaders']:
-            msg += f"\t{dl.print_hookup()}"
+            msg += f"  {await dl.print_hookup()}"
         msg += "\n" 
         if self.info_dl['status'] == "done":
             return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size)}]\n")

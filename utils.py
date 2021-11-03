@@ -5,7 +5,9 @@ import logging.config
 import json
 from pathlib import Path
 from yt_dlp import YoutubeDL
-from yt_dlp.utils import std_headers
+from yt_dlp.utils import (
+    std_headers, 
+    format_bytes)
 import random
 import httpx
 from pathlib import Path
@@ -18,6 +20,39 @@ from queue import Queue
 import subprocess
 import asyncio
 import shutil
+
+import time
+from tqdm import tqdm
+ 
+class EMA(object):
+    """
+    Exponential moving average: smoothing to give progressively lower
+    weights to older values.
+
+    Parameters
+    ----------
+    smoothing  : float, optional
+        Smoothing factor in range [0, 1], [default: 0.3].
+        Increase to give more weight to recent values.
+        Ranges from 0 (yields old value) to 1 (yields new value).
+    """
+    def __init__(self, smoothing=0.3):
+        self.alpha = smoothing
+        self.last = 0
+        self.calls = 0
+
+    def __call__(self, x=None):
+        """
+        Parameters
+        ----------
+        x  : float
+            New value to include in EMA.
+        """
+        beta = 1 - self.alpha
+        if x is not None:
+            self.last = self.alpha * x + beta * self.last
+            self.calls += 1
+        return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
 def get_chain_links(f):
     _links = []
@@ -60,17 +95,7 @@ def kill_processes(logger=None, rpcport=None):
             shutil.rmtree(el, ignore_errors=True)
             
     
-            
-    
-    
 
-async def wait_time(n):
-    _timer = httpx._utils.Timer()
-    await _timer.async_start()
-    while True:
-        _t = await _timer.async_elapsed()
-        if _t > n: break
-        else: await asyncio.sleep(0)
 
 def get_extractor(url, ytdl):
     
@@ -116,7 +141,7 @@ def int_or_none(res):
     return int(res) if res else None
     
 
-def naturalsize(value, binary=False, gnu=False, format="%.2f"):
+def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
     """Format a number of bytes like a human readable filesize (e.g. 10 kB).
 
     By default, decimal suffixes (kB, MB) are used.
@@ -151,7 +176,7 @@ def naturalsize(value, binary=False, gnu=False, format="%.2f"):
     
     SUFFIXES = {
         "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
-        "binary": ("KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB"),
+        "binary": ("KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
         "gnu": "KMGTPEZY",
     }
     
@@ -163,25 +188,25 @@ def naturalsize(value, binary=False, gnu=False, format="%.2f"):
         suffix = SUFFIXES["decimal"]
 
     base = 1024 if (gnu or binary) else 1000
-    bytes = float(value)
-    abs_bytes = abs(bytes)
+    _bytes = float(value)
+    abs_bytes = abs(_bytes)
 
     if abs_bytes == 1 and not gnu:
-        return "%d Byte" % bytes
+        return f"{abs_bytes:{format_}} KB"
     elif abs_bytes < base and not gnu:
-        return "%d Bytes" % bytes
+        return f"{abs_bytes:{format_}} KB"
     elif abs_bytes < base and gnu:
-        return "%dB" % bytes
+        return f"{abs_bytes:{format_}} B"
 
     for i, s in enumerate(suffix):
         unit = base ** (i + 2)
         if abs_bytes < unit and not gnu:
-            return (format + " %s") % ((base * bytes / unit), s)
+            return f"{(base*abs_bytes/unit):{format_}} {s}"
         elif abs_bytes < unit and gnu:
-            return (format + "%s") % ((base * bytes / unit), s)
+             return f"{(base * abs_bytes / unit):{format_}}{s}"
     if gnu:
-        return (format + "%s") % ((base * bytes / unit), s)
-    return (format + " %s") % ((base * bytes / unit), s)
+        return f"{(base * abs_bytes / unit):{format_}}{s}"
+    return f"{(base*abs_bytes/unit):{format_}} {s}"
 
 
 
@@ -301,7 +326,7 @@ def init_logging(file_path=None):
 def init_argparser():
     
  
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:95.0) Gecko/20100101 Firefox/95.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:96.0) Gecko/20100101 Firefox/96.0"]
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
@@ -375,12 +400,9 @@ def init_ytdl(args):
    
 
     std_headers["User-Agent"] = args.useragent
-    std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
-    
-    
-   
+    std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" 
     std_headers["Connection"] = "keep-alive"
-    std_headers["Accept-Language"] = "en-US;q=0.7,en;q=0.3"
+    std_headers["Accept-Language"] = "en,es-ES;q=0.5"
     std_headers["Accept-Encoding"] = "gzip, deflate"
     if args.headers:
         std_headers.update(demjson.decode(args.headers))
@@ -412,7 +434,7 @@ def init_tk():
     label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
     text1 = tk.Text(master=frame1, font=("Source Code Pro", 10))
     text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
+        
     label2 = tk.Label(master=frame2, text="DOWNLOADED/ERRROS", bg="blue")
     label2.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
     text2 = tk.Text(master=frame2, font=("Source Code Pro", 10))

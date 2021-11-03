@@ -12,6 +12,7 @@ import traceback
 
 import aria2p
 import copy
+import time
 
 class AsyncARIA2CDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -112,12 +113,13 @@ class AsyncARIA2CDownloader():
                    
     
     async def wait_time(self, n):
-        _timer = httpx._utils.Timer()
-        await _timer.async_start()
+   
+        _started = time.monotonic()
         while True:
-            _t = await _timer.async_elapsed()
-            if _t > n: break
-            else: await asyncio.sleep(0)
+            if (_t:=(time.monotonic() - _started)) >= n:
+                return _t
+            else:
+                await asyncio.sleep(0)
         
    
             
@@ -183,7 +185,7 @@ class AsyncARIA2CDownloader():
             self.status = "error"
             
             
-    def print_hookup(self):
+    async def print_hookup(self):
         
         if self.status == "done":
             return (f"[ARIA2C][{self.info_dict['format_id']}]: Completed\n")
@@ -199,7 +201,7 @@ class AsyncARIA2CDownloader():
             _connections = _temp.connections
             _eta_str = _temp.eta_string()
                        
-            return (f"[ARIA2C][{self.info_dict['format_id']}]: DL[{_speed_str}] Conn[{_connections}] PR[{_progress_str}] [{naturalsize(self.down_size)}/{naturalsize(self.filesize)}]({(self.down_size/self.filesize)*100:.2f}%) ETA[{_eta_str}]\n")
+            return (f"[ARIA2C][{self.info_dict['format_id']}]:(CONN[{_connections:2d}]) DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n")
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
