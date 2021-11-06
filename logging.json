@@ -10,10 +10,10 @@
     },
     "colored":{
         "()": "supportlogging.ColoredFormatter",
-        "patern": "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
+        "patern": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)s - %(message)s"
     },
     "file_format":{  
-        "format": "%(asctime)s - %(threadName)s - %(name)-8s - %(levelname)s - %(message)s"
+        "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)s - %(message)s"
     }
 
   },
@@ -21,11 +21,7 @@
     "filtermodules": {
         "()": "supportlogging.FilterModule",
         "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "seleniumwire.handler", "img2pdf", "hpack", "seleniumwire.mitmproxy", "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache"]
-    },
-    "filterytdl" : {
-        "()": "supportlogging.FilterModule",
-        "patterns": ["____youtube_dl____"]
-    }    
+    }      
   },
   "handlers": {
     "console": {

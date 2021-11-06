@@ -136,15 +136,11 @@ class AsyncARIA2CDownloader():
                      'timeout': '10',
                      'max-tries': '2'}
         
-        gl_opts = self.aria2_client.get_global_options()
+        opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
-            gl_opts.set(key, value)
-        opts = aria2p.Options(self.aria2_client, gl_opts.get_struct())
-        
-        
-        
-        try:
-         
+            opts.set(key, value)
+
+        try:         
             
             self.dl_cont = await asyncio.to_thread(self.aria2_client.add_uris,[self.video_url], opts)
             
@@ -190,9 +186,9 @@ class AsyncARIA2CDownloader():
         if self.status == "done":
             return (f"[ARIA2C][{self.info_dict['format_id']}]: Completed\n")
         elif self.status == "init":
-            return (f"[ARIA2C][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize) if self.filesize else 'NA'}]\n")            
+            return (f"[ARIA2C][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]\n")            
         elif self.status == "error":
-            return (f"[ARIA2C][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize) if self.filesize else 'NA'}]")
+            return (f"[ARIA2C][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size, format_='.2f')} [{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]")
         elif self.status == "downloading":
             _temp = copy.deepcopy(self.dl_cont)    #mientras calculamos strings progreso no puede haber update de dl_cont, así que deepcopy de la instancia      
             
@@ -205,4 +201,4 @@ class AsyncARIA2CDownloader():
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
-            return (f"[ARIA2C][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")       
+            return (f"[ARIA2C][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size, format_='.2f')} [{naturalsize(self.filesize, format_='.2f')}]\n")       

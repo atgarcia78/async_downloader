@@ -8,23 +8,18 @@ from utils import (
     naturalsize,
     int_or_none,
     EMA
-
 )
 
 from concurrent.futures import CancelledError, ThreadPoolExecutor, wait, ALL_COMPLETED
-
-
 
 from shutil import rmtree
 import time
 import aiofiles
 import traceback
-from aiotools import TaskGroup
 from statistics import median
 import datetime
 
 import copy 
-
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -33,7 +28,6 @@ class AsyncHTTPDLErrorFatal(Exception):
         super(AsyncHTTPDLErrorFatal, self).__init__(msg)
 
         self.exc_info = sys.exc_info()  # preserve original exception
-
 class AsyncHTTPDLError(Exception):
     """Error during info extraction."""
 
@@ -42,11 +36,7 @@ class AsyncHTTPDLError(Exception):
         super(AsyncHTTPDLError, self).__init__(msg)
 
         self.exc_info = sys.exc_info()  # preserve original exception
-
-
 class AsyncHTTPDownloader():
-    
-    
     
     _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
@@ -490,19 +480,25 @@ class AsyncHTTPDownloader():
         
         await asyncio.sleep(0)        
         
-        
-        
         try:
             self.count = self._NUM_WORKERS
             self.down_temp = self.down_size
             self.started = time.monotonic()    
-            async with TaskGroup() as tg:
-                
-                self.tasks_fetch = [tg.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
+           
+            self.tasks = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
+            
+            done, _ = await asyncio.wait(self.tasks)
+            
+            for d in done:
+                try:
+                    d.result()
+                except Exception as e:
+                    lines = traceback.format_exception(*sys.exc_info())                
+                    self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
                 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
-            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
+            self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
 
         if (_parts_not_dl:= await asyncio.to_thread(self.partsnotdl)):
             self.status = "error"
@@ -523,8 +519,6 @@ class AsyncHTTPDownloader():
                 if f['filepath'].exists():
                     f['filepath'].unlink()
                     
-                    
-   
     def ensamble_file(self):        
    
         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] start ensambling {self.filename}")
@@ -560,14 +554,12 @@ class AsyncHTTPDownloader():
             self.sync_clean_when_error()                        
             raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[ensamble_file] error when ensambling parts")
             
-    def format_frags(self):
+    def format_parts(self):
         import math        
         return f'{(int(math.log(self.n_parts, 10)) + 1)}d'        
             
     async def print_hookup(self):
-        
-         
-        
+                
         if self.status == "done":
             return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")
         elif self.status == "init":

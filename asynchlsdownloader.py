@@ -28,15 +28,9 @@ from utils import (
 
 import aiofiles
 import datetime
-
 from statistics import median
-
 import copy
-
 import time
-
-# also sets self.n = b * bsize
-
 
 
 class AsyncHLSDLErrorFatal(Exception):
@@ -360,7 +354,6 @@ class AsyncHLSDownloader():
 
         try:
 
-            #_timer = httpx._utils.Timer()
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
             
             while True:
@@ -571,6 +564,7 @@ class AsyncHLSDownloader():
         
         for _ in range(self.iworkers):
             self.frags_queue.put_nowait("KILL")
+            
         n_frags_dl = 0
                 
         while True:
@@ -591,7 +585,9 @@ class AsyncHLSDownloader():
                 self.status = "downloading"
                 self.down_temp = self.down_size
                 self.started = time.monotonic()
+                
                 self.tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.iworkers)]
+                
                 done, pending = await asyncio.wait(self.tasks, return_when=asyncio.FIRST_EXCEPTION)
 
                 if pending:

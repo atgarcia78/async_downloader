@@ -232,11 +232,12 @@ class VideoDownloader():
                     dl.status = 'manipulating'
                    
             
-            loop = asyncio.get_running_loop()
-            ex = ThreadPoolExecutor(max_workers=len(self.info_dl['downloaders']))
-            blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
+            #loop = asyncio.get_running_loop()
+            #ex = ThreadPoolExecutor(max_workers=len(self.info_dl['downloaders']))
+            #blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
+            blocking_tasks = [asyncio.to_thread(dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
             if self.info_dl.get('requested_subtitles'):
-                blocking_tasks += [loop.run_in_executor(ex, self._get_subs_files)]
+                blocking_tasks += [asyncio.to_thread(self._get_subs_files)]
             await asyncio.sleep(0)
             if blocking_tasks:
                 done, pending = await asyncio.wait(blocking_tasks, return_when=asyncio.ALL_COMPLETED)
@@ -252,12 +253,12 @@ class VideoDownloader():
             res = True
             for dl in self.info_dl['downloaders']:
                 res = res and (_exists:= await asyncio.to_thread(dl.filename.exists)) and dl.status == "done"
-                self.logger.info(f"{dl.filename} exists: [{_exists}] status: [{dl.status}]")
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] {dl.filename} exists: [{_exists}] status: [{dl.status}]")
                 if not res: break
                 
             
             if res:    
-                self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}] ensambled OK")            
+                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] ensambled OK")            
         
                 if len(self.info_dl['downloaders']) == 1:
                     
@@ -292,6 +293,7 @@ class VideoDownloader():
                         #     rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], self.logger, f"[{self.info_dict['id']}][{self.info_dict['title']}]")
                                                                  
                         self.info_dl['status'] = "done"
+                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
                         
                     else:
                         self.info_dl['status'] = "error"
@@ -319,6 +321,7 @@ class VideoDownloader():
                             await asyncio.to_thread(dl.filename.unlink)
                             
                         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Streams merged for: {self.info_dl['filename']}")
+                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
                     
                     else:
                         self.info_dl['status'] = "error"
@@ -374,18 +377,18 @@ class VideoDownloader():
             msg += f"  {await dl.print_hookup()}"
         msg += "\n" 
         if self.info_dl['status'] == "done":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size)}]\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}]\n")
         elif self.info_dl['status'] == "init":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to DL [{naturalsize(self.info_dl['filesize'])}]\n {msg}\n")  
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to DL [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")  
         elif self.info_dl['status'] == "init_manipulating":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to create file [{naturalsize(self.info_dl['filesize'])}]\n")           
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to create file [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n")           
         elif self.info_dl['status'] == "error":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.info_dl['down_size'])} [{naturalsize(self.info_dl['filesize'])}]\n {msg}\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "downloading":            
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Downloading {naturalsize(self.info_dl['down_size'])} [{naturalsize(self.info_dl['filesize'])}]\n {msg}\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Downloading [{naturalsize(self.info_dl['down_size'])}/{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "manipulating": 
             if self.info_dl['filename'].exists(): _size = self.info_dl['filename'].stat().st_size
             else: _size = 0
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]:  Ensambling/Merging {naturalsize(_size)} [{naturalsize(self.info_dl['filesize'])}]\n {msg}\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]:  Ensambling/Merging {naturalsize(_size, format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         
         

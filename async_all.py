@@ -55,9 +55,9 @@ def main():
         asyncDL = AsyncDL(args)    
         
         
-        with ThreadPoolExecutor(max_workers=2) as ex:
+        with ThreadPoolExecutor(thread_name_prefix="Init", max_workers=2) as ex:
             fut = [ex.submit(asyncDL.get_videos_cached), ex.submit(asyncDL.get_list_videos)]
-            wait_for_futures(fut)
+           
 
         asyncDL.get_videos_to_dl()    
         
