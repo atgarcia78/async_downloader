@@ -9,14 +9,12 @@ import m3u8
 import binascii
 from Crypto.Cipher import AES
 
-
 from pathlib import Path
 
 from urllib.parse import urlparse
 import logging
 
 import random
-
 
 from utils import (
     print_norm_time,
@@ -551,11 +549,7 @@ class AsyncHLSDownloader():
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
             self.count -= 1
     
-
-
-    
-    async def fetch_async(self):
-                
+    async def fetch_async(self):                
         
         self._LOCK = asyncio.Lock()
         self.frags_queue = asyncio.Queue()
@@ -725,8 +719,7 @@ class AsyncHLSDownloader():
         self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
         
         try:
-
-        
+                
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
             with open(self.filename, mode='wb') as dest:
                 _skipped = 0
@@ -800,13 +793,8 @@ class AsyncHLSDownloader():
             async with self._LOCK:
                 _new = time.monotonic()                                  
                 _speed = (self.down_size - self.down_temp) / (_new - self.started)
-                #if _speed == 0: _speed = None
                 _speed_ema = (_diff_size_ema:=self.ema_s(self.down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started)) 
-                #_speed_str = f'{_speed / 1000000:-04.1f} MB' if _speed else '00.0 MB'
                 _speed_str = f'{naturalsize(_speed_ema,True)}ps'
-                #self.logger.debug(f"[PRINT_HOOKUP] down_size[{self.down_size}]:down_temp[{self.down_temp}]:new_time[{_new}]:started[{self.started}]:diffsize[{self.down_size - self.down_temp}]:diffsizeema[{_diff_size_ema}]:difftime[{_new - self.started}:difftimeema[{_diff_time_ema}]:speed[{_speed}]:speed_str[{_speed_str}]")
-                #_rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
-                #_progress_str = f'PR[{_rel_size_str}](' + f'{(self.down_size/self.filesize)*100:.2f}%)' if self.filesize else '--)'
                 _progress_str = f'{(self.down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
                         
                 if _speed_ema and self.filesize:
