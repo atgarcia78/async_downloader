@@ -68,8 +68,7 @@ class AsyncHLSDownloader():
     def __init__(self, video_dict, vid_dl):
 
 
-        self.logger = logging.getLogger("async_HLS_DL")
-        
+        self.logger = logging.getLogger("async_HLS_DL")        
        
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
@@ -133,6 +132,8 @@ class AsyncHLSDownloader():
             
             self.cookies = client.cookies.jar.__dict__['_cookies']
             #self.m3u8_obj = m3u8.load(self.video_url, headers=self.headers, verify_ssl=self.verifycert)
+            
+            return self.m3u8_obj.segments
  
         except Exception as e:
             self.logger.warning(f"No hay descriptor: {e}", exc_info=True)
@@ -140,7 +141,7 @@ class AsyncHLSDownloader():
         finally:
             client.close()
         
-        return self.m3u8_obj.segments
+        
     
     def prep_init(self):
 
@@ -238,9 +239,9 @@ class AsyncHLSDownloader():
     
     def reset(self):         
 
-        count = 0
+        count = 0        
         
-        while (count < 5):    
+        while (count < 5):
         
             try:
             
@@ -248,11 +249,9 @@ class AsyncHLSDownloader():
                 
                 try:
                     
-                    
                     _info = self.ytdl.extract_info(self.webpage_url, download=False)
                     info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
-                    
+                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")                    
                     
                 except Exception as e:
                     raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:fails no descriptor {e}")
@@ -269,10 +268,13 @@ class AsyncHLSDownloader():
                 except Exception as e:
                     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
                     raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
+            
             except Exception as e:
+                raise
+            finally:
                 count += 1
-                if count == 5: raise AsyncHLSDLErrorFatal("Reset failed")    
-        
+                if count == 5: raise AsyncHLSDLErrorFatal("Reset failed")   
+                
         self.n_reset += 1
     
     def prep_reset(self, info_reset):       
@@ -283,8 +285,6 @@ class AsyncHLSDownloader():
         self.manifest_url = self.info_dict['manifest_url'] = info_reset.get('manifest_url')
 
         self.frags_to_dl = []
-
-        #self.timer.sync_start()
 
         part = 0
         uri_ant = ""
@@ -334,11 +334,8 @@ class AsyncHLSDownloader():
             self.status = "init_manipulating"
         else:
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
-            
- 
-    
-    
-     
+
+
     async def wait_time(self, n):
    
         _started = time.monotonic()
@@ -429,9 +426,7 @@ class AsyncHLSDownloader():
                                     else:
                                         _chunk_size = self._CHUNK_SIZE
                                     
-                                    num_bytes_downloaded = res.num_bytes_downloaded
-                                
-                                    
+                                    num_bytes_downloaded = res.num_bytes_downloaded                                    
                                     
                                     self.info_frag[q - 1]['time2dlchunks'] = []
                                     self.info_frag[q - 1]['sizechunks'] = []
@@ -547,7 +542,8 @@ class AsyncHLSDownloader():
 
         finally:    
             self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
-            self.count -= 1
+            async with self._LOCK:
+                self.count -= 1
     
     async def fetch_async(self):                
         

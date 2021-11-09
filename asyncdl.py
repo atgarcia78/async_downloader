@@ -1,5 +1,4 @@
 import functools
-from queue import Queue
 import logging
 import sys
 import traceback
@@ -35,7 +34,7 @@ from yt_dlp.extractor.netdna import NetDNAIE
 from datetime import datetime
 from operator import itemgetter
 from videodownloader import VideoDownloader 
-from threading import Lock
+
 
 from httpx._utils import Timer
 
@@ -418,8 +417,8 @@ class AsyncDL():
                         self.list_videos.append(_entry_netdna)
                         self.info_videos[_entry_netdna['url']]['video_info'] = _entry_netdna
                         
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        self.logger.exception(repr(e))
                 
                         
             if url_pl_list:
@@ -433,9 +432,12 @@ class AsyncDL():
                                 
                 _url_pl = []
                 for d in done:
-                    _url_pl += (_info:=(d.result())).get('entries')                 
+                    try:
+                        _url_pl += (_info:=(d.result())).get('entries')                 
                     
-                    self.info_videos[_info['original_url']].update({'video_info': _info})           
+                        self.info_videos[_info['original_url']].update({'video_info': _info})
+                    except Exception as e:
+                        self.logger.exception(repr(e))           
                     
         
                 self.logger.debug(f"[url_playlist_lists] entries \n{_url_pl}")
@@ -550,15 +552,19 @@ class AsyncDL():
             else: raise IndexError(f"index video {self.args.index} out of range [{len(self.list_videos)}]")
                 
             
-        elif self.args.first:
-            if self.args.first <= len(self.list_videos):
-                if self.args.last:
-                    if self.args.last >= self.args.first:
-                        _last = self.args.last - 1
-                    else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
-                else: _last = len(self.list_videos)
-                self.list_videos = self.list_videos[self.args.first-1:_last]
-            else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
+        elif self.args.first or self.args.last:
+            if self.args.first:
+                if self.args.first <= len(self.list_videos):
+                    if self.args.last:
+                        if self.args.last >= self.args.first:
+                            _last = self.args.last - 1
+                        else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
+                    else: _last = len(self.list_videos)
+                    self.list_videos = self.list_videos[self.args.first-1:_last]
+                else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
+            else:
+                if (_last:=self.args.last) > 0: self.list_videos = self.list_videos[:_last]
+            
                  
             
         for video in self.list_videos:
@@ -1092,4 +1098,6 @@ class AsyncDL():
         #self.logger.info(f"\n\n{tab_tv_short}\n\n")
         
         self.logger.debug(f"\n\n{tab_tv}\n\n")
-        
+       
+       
+

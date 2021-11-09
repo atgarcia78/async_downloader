@@ -67,22 +67,6 @@ class AsyncARIA2CDownloader():
         
         self.video_url = self.info_dict.get('url')
         
-        # try:
-        #     client = httpx.Client(headers=std_headers, verify=self.verifycert, proxies=self.proxies, timeout=60)
-        #     res = client.head(self.video_url)
-        #     _video_url = str(res.url)
-        #     if _video_url != self.video_url:
-        #         self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] url video changed after checking\n{self.video_url}\n{_video_url}")
-        #         self.video_url = _video_url
-                
-        # except Exception as e:
-        #     lines = traceback.format_exception(*sys.exc_info())                
-        #     self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
-        # finally:
-        #     client.close()
-            
-
-        
         self.headers = self.info_dict.get('http_headers')  
         
         self.download_path = self.info_dict['download_path']
@@ -105,11 +89,7 @@ class AsyncARIA2CDownloader():
         self.connections = 0
         
         self.status = 'init'
-        self.error_message = ""        
-              
-              
-
-
+        self.error_message = ""
                    
     
     async def wait_time(self, n):
@@ -121,13 +101,10 @@ class AsyncARIA2CDownloader():
             else:
                 await asyncio.sleep(0)
         
-   
-            
-    
+
     async def fetch_async(self):
 
-       
-        
+
         opts_dict = {'header': [f'{key}: {value}' for key,value in self.headers.items() if not key in ['User-Agent','Accept-Charset']],
                      'dir': str(self.download_path),
                      'out': self.filename.name,
@@ -164,7 +141,7 @@ class AsyncARIA2CDownloader():
                     async with self.video_downloader.lock: 
                         self.video_downloader.info_dl['down_size'] += _incsize 
                                                 
-                    #await self.wait_time(0.1)
+
                     await asyncio.sleep(0)
                     await asyncio.to_thread(self.dl_cont.update)
             
