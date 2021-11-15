@@ -353,6 +353,8 @@ def init_argparser():
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true")
     parser.add_argument("--aria2c", default=-1, nargs='?', type=int)
     parser.add_argument("--notaria2c", action="store_true")
+    parser.add_argument("--nosymlinks", action="store_true")
+    
     
     
     args = parser.parse_args()
@@ -365,6 +367,7 @@ def init_argparser():
         
     if args.notaria2c:
         args.aria2c = False 
+        args.rpcport = None
     
     return args
 

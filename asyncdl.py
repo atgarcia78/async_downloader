@@ -38,6 +38,8 @@ from videodownloader import VideoDownloader
 
 from httpx._utils import Timer
 
+import hashlib
+
 
 
 class AsyncDL():
@@ -343,11 +345,12 @@ class AsyncDL():
             
             
             if self.args.caplinks:
-                
+                _temp = set()
                 with open(filecaplinks, "r") as file:
-                    _content = file.read()            
+                    for url in file:
+                        _temp.add(url.strip())           
                     
-                _url_list_caplinks = list(set([_line for _line in _content.splitlines() if _line]))
+                _url_list_caplinks = list(_temp)
                 
                 self.logger.info(f"video list caplinks \n{_url_list_caplinks}")
                 
@@ -408,14 +411,14 @@ class AsyncDL():
                 NetDNAIE._downloader = self.ytdl
                 with ThreadPoolExecutor(thread_name_prefix="Get_netdna", max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
                      
-                    fut = [ex.submit(NetDNAIE.get_entry, _url_netdna) for _url_netdna in netdna_list]
-                    done, _ = wait_for_futures(fut)
+                    futures = [ex.submit(NetDNAIE.get_entry, _url_netdna) for _url_netdna in netdna_list]
                     
-                for d in done:
+                    
+                for fut,_url_netdna in zip(futures, netdna_list):
                     try:
-                        _entry_netdna = d.result()
+                        _entry_netdna = fut.result()
                         self.list_videos.append(_entry_netdna)
-                        self.info_videos[_entry_netdna['url']]['video_info'] = _entry_netdna
+                        self.info_videos[_url_netdna]['video_info'] = _entry_netdna
                         
                     except Exception as e:
                         self.logger.exception(repr(e))
@@ -427,22 +430,22 @@ class AsyncDL():
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
                         
-                    fut = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
-                    done, _ = wait_for_futures(fut)
-                                
-                _url_pl = []
-                for d in done:
-                    try:
-                        _url_pl += (_info:=(d.result())).get('entries')                 
+                    futures = [ex.submit(self.ytdl.extract_info, url_pl, download=False) for url_pl in url_pl_list]
                     
-                        self.info_videos[_info['original_url']].update({'video_info': _info})
+                                
+                _url_pl_entries = []
+                for fut,url_pl in zip(futures,url_pl_list):
+                    try:
+                        _url_pl_entries += (_info:=(fut.result())).get('entries')                 
+                    
+                        self.info_videos[url_pl].update({'video_info': _info})
                     except Exception as e:
                         self.logger.exception(repr(e))           
                     
         
-                self.logger.debug(f"[url_playlist_lists] entries \n{_url_pl}")
+                self.logger.debug(f"[url_playlist_lists] entries \n{_url_pl_entries}")
                 _items = {}
-                for entry in _url_pl:
+                for entry in _url_pl_entries:
                     _items[entry['url']] = entry
                 self.logger.debug(f"[url_playlist_lists] entries dict \n{_items}")            
                 self.list_videos += list(_items.values())
@@ -529,16 +532,17 @@ class AsyncDL():
             self.logger.debug(f"[{vid_name}]: already DL: {vid_path}")
                 
             self.list_initaldl.append({'title': vid_name, 'path': vid_path_str})                        
-            if self.args.path:
-                _folderpath = Path(self.args.path)
-            else:
-                _folderpath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
-            _folderpath.mkdir(parents=True, exist_ok=True)
-            file_aldl = Path(_folderpath, vid_path.name)
-            if file_aldl not in _folderpath.iterdir():
-                file_aldl.symlink_to(vid_path)
-                mtime = int(vid_path.stat().st_mtime)
-                file_aldl._accessor.utime(file_aldl, (int(datetime.now().timestamp()), mtime), follow_symlinks=False )
+            if not self.args.nosymlinks:
+                if self.args.path:
+                    _folderpath = Path(self.args.path)
+                else:
+                    _folderpath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
+                _folderpath.mkdir(parents=True, exist_ok=True)
+                file_aldl = Path(_folderpath, vid_path.name)
+                if file_aldl not in _folderpath.iterdir():
+                    file_aldl.symlink_to(vid_path)
+                    mtime = int(vid_path.stat().st_mtime)
+                    file_aldl._accessor.utime(file_aldl, (int(datetime.now().timestamp()), mtime), follow_symlinks=False)
                 
                 
             return False
@@ -570,7 +574,7 @@ class AsyncDL():
         for video in self.list_videos:
             
             if (_id:=video.get('id')):
-                video['id'] = _id.replace('_', '')                
+                video['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')                
             if not video.get('filesize'): video.update({'filesize' : 0})
             
             if self._check_to_dl(video): 
@@ -642,7 +646,7 @@ class AsyncDL():
                 
                 else: 
                     
-                    _strvid = f"[{vid['id']}][{vid['title']}]" if not vid.get('_type') else f"[{vid['url']}]"   
+                    _strvid = f"[{vid.get('id')}][{vid.get('title')}]" if not vid.get('_type') else f"[{vid.get('url')}]"   
                 
                     self.logger.info(f"[worker_init][{i}]: [{num}] {_strvid}")       
                     
@@ -652,17 +656,15 @@ class AsyncDL():
                         if "url" in vid.get('_type', ''):
                             
                             try:                                    
-                                info = None
-                                #info = self.ytdl.extract_info(vid['url'], download=False) 
                                 
-                                #info = await asyncio.to_thread(functools.partial(self.ytdl.extract_info, vid['url'], download=False))
-                                #info = await asyncio.to_thread(self.ytdl.extract_info, vid['url'], download=False)
-                                info = await self.ex_in_thread("wkinit_ytdl", self.ytdl.extract_info, vid['url'], download=False)
+                                info = await self.ex_in_thread(f"wkin[{i}]_ytdl", self.ytdl.extract_info, vid['url'], download=False)
+                                if not info: raise Exception("no info video")
                             
                             except Exception as e:
                                 lines = traceback.format_exception(*sys.exc_info())
                                 self.list_initnok.append((vid, f"{str(e)}"))
                                 self.logger.debug(f"[worker_init][{i}]: DL constructor failed for {vid['url']} - {str(e)}\n{'!!'.join(lines)}")
+                                
                                 if 'unsupported url' in str(e).lower():
                                     
                                     self.list_unsup_urls.append(vid)
@@ -679,69 +681,69 @@ class AsyncDL():
                                 
                                 self.info_videos[vid['url']]['error'].append(_error)
                                 self.info_videos[vid['url']].update({'status': 'nok', 'init': 'nok'})
+                                
+                                self.logger.info(f"[worker_init][{i}]: init NOK [{num}] [{vid['url']}]") 
                                     
                                 continue
-                            
-                                
-                            if info:
-                                
-                                if info.get('_type') == 'playlist':
-                                    info = info['entries'][0]
-                            
-                                
-                                if (_id:=info.get('id')):
-                                    
-                                    info['id'] = _id.replace('_', '')
-                                    
-                                self.logger.debug(f"[worker_init][{i}] {vid} \n{info}")
-                                
-                                if not info.get('release_timestamp') and (_mtime:=vid.get('release_timestamp')):
-                                    
-                                    info['release_timestamp'] = _mtime
-                                    info['release_date'] = vid.get('release_date')
-                                
-                                
-                                
-                                if not self._check_to_dl(info):
-                                    
-                                    self.logger.info(f"[worker_init][{i}]: [{info.get('id','')}][{info.get('title','')}] already DL")
-                                    self.videos_to_dl.remove(vid)
-                                    
-                                    if (_filesize:=vid.get('filesize',0)):
-                                        self.totalbytes2dl -= _filesize
-                                        
-                                    self.info_videos[vid['url']].update({'status': 'done', 'video_info': info, 'aldl': True})                                        
-                                    continue
-                                    
-                            else:                                        
-                                raise Exception("no info dict")
-                        
+
                         else: info = vid
-                                
-                        _url = vid['url']
                         
-                        self.info_videos[_url].update({'video_info': info})
+                        
+                                
+                        if info.get('_type') == 'playlist':
+                            info = info['entries'][0]
+                    
+                        
+                        if (_id:=info.get('id')):
+                            
+                            info['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
+                            
+                        else:
+                            info['id'] = str(int(hashlib.sha256(info['url'].encode('utf-8')).hexdigest(),16) % 10**8)
+                            
+                        
+                        
+                        if not info.get('release_timestamp') and (_mtime:=vid.get('release_timestamp')):
+                            
+                            info['release_timestamp'] = _mtime
+                            info['release_date'] = vid.get('release_date')
+                        
+                        self.logger.debug(f"[worker_init][{i}] {vid} \n{info}")
+                        
+                        if not self._check_to_dl(info):
+                            
+                            self.logger.info(f"[worker_init][{i}]: [{info.get('id','')}][{info.get('title','')}] already DL")
+                            self.videos_to_dl.remove(vid)
+                            
+                            if (_filesize:=vid.get('filesize',0)):
+                                self.totalbytes2dl -= _filesize
+                                
+                            self.info_videos[vid['url']].update({'status': 'done', 'video_info': info, 'aldl': True})                                        
+                            continue
+                       
+                        
+                        self.info_videos[vid['url']].update({'video_info': info})
                         
                         #dl = VideoDownloader(info, self.ytdl, self.parts, self.args.rpcport, self.args.path)
-                        dl = await asyncio.to_thread(VideoDownloader, info, self.ytdl, self.parts, self.args.rpcport, self.args.path)
+                        dl = await self.ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, info, self.ytdl, self.parts, self.args.rpcport, self.args.path)
                         #dl = await self.ex_in_thread("wkinit_vd", VideoDownloader, info, self.ytdl, self.parts, self.args.rpcport, self.args.path)
                                 
                         if dl and not dl.info_dl.get('status') == "error":
                             
                            
                             
-                            self.info_videos[_url].update({'status': 'initok'})
+                            self.info_videos[vid['url']].update({'status': 'initok'})
                             
                             _filesize = vid.get('filesize', 0)
                             
                             for video in self.videos_to_dl:
-                                if video['url'] == _url:                                    
+                                if video['url'] == vid['url']:                                    
                                     video.update({'filesize': dl.info_dl.get('filesize',0), 'id': dl.info_dl['id'], 'title': dl.info_dl['title'], 'filename': dl.info_dl['filename'], 'status': dl.info_dl['status']})
                                     if video['filesize']: self.totalbytes2dl = self.totalbytes2dl - _filesize + video['filesize']
                                     break
                             
                             for video in self.list_videos:
-                                if video['url'] == _url:
+                                if video['url'] == vid['url']:
                                     video.update({'filesize': dl.info_dl['filesize'], 'id': dl.info_dl['id'], 'title': dl.info_dl['title']})
                                     break
 

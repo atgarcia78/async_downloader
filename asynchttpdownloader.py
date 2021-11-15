@@ -106,7 +106,7 @@ class AsyncHTTPDownloader():
             while (cont > 0): 
             
                 try:             
-                    res = cl.head(self.video_url, allow_redirects=True, headers={'range': 'bytes=0-'})
+                    res = cl.head(self.video_url, follow_redirects=True, headers={'range': 'bytes=0-'})
                     if res.status_code > 400:
                         time.sleep(1)
                         cont -= 1
@@ -147,7 +147,7 @@ class AsyncHTTPDownloader():
                 
                 try:
                 
-                    res = cl.head(self.video_url, allow_redirects=True, headers=self.parts[i]['headers'][-1])
+                    res = cl.head(self.video_url, follow_redirects=True, headers=self.parts[i]['headers'][-1])
                 
                     self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {res} {res.request} {res.request.headers} {res.headers}")
                     if res.status_code > 400:
@@ -238,11 +238,11 @@ class AsyncHTTPDownloader():
             try:
                 size = None
                 cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-                res = cl.head(self.video_url, allow_redirects=True)
+                res = cl.head(self.video_url, follow_redirects=True)
                 #self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{res.headers}:{res.request.headers}")
                 if res.status_code > 400: #repeat request without header referer
                     h_ref = cl.headers.pop('referer', None)
-                    res = cl.head(self.video_url, allow_redirects=True)
+                    res = cl.head(self.video_url, follow_redirects=True)
 
                 if res.status_code < 400:
                     size = res.headers.get('content-length', None)

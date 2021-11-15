@@ -111,11 +111,15 @@ class AsyncARIA2CDownloader():
                      'check-certificate': self.verifycert,
                      'connect-timeout': '10',
                      'timeout': '10',
-                     'max-tries': '2'}
+                     'max-tries': '2',
+                     'user-agent': std_headers['User-Agent']}
         
         opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
-            opts.set(key, value)
+            rc = opts.set(key, value)
+            if not rc:
+                self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] options - couldnt set [{key}] to [{value}]")
+                
 
         try:         
             
@@ -128,7 +132,9 @@ class AsyncARIA2CDownloader():
                 await asyncio.sleep(0)
             
             if self.dl_cont.total_length:
-                self.filesize = self.dl_cont.total_length 
+                self.filesize = self.dl_cont.total_length
+                self.video_downloader.info_dl['filesize'] += self.filesize
+                 
             
             if self.dl_cont.status in ('active'):        
                 self.status = "downloading"  
