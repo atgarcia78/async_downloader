@@ -44,7 +44,7 @@ import os
 
 class VideoDownloader():
     
-    def __init__(self, video_dict, ytdl, n_workers, rpcport, dlpath):
+    def __init__(self, video_dict, ytdl, args): 
         
         self.logger = logging.getLogger("video_DL")
         
@@ -56,17 +56,18 @@ class VideoDownloader():
                 
         try:
         
+            self.args = args
             self.info_dict = copy.deepcopy(video_dict) 
             
             _date_file = datetime.now().strftime("%Y%m%d")
-            _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not dlpath else Path(dlpath, self.info_dict['id'])
+            _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not self.args.path else Path(self.args.path, self.info_dict['id'])
             
                 
             self.info_dl = {
                 
                 'id': self.info_dict['id'],
-                'n_workers': n_workers,                
-                'rpcport': rpcport,
+                'n_workers': self.args.parts,
+                'rpcport': self.args.rpcport, #será None si no hemos querido usar aria2c si es DL HTTP
                 'webpage_url': self.info_dict.get('webpage_url'),
                 'title': self.info_dict.get('title'),
                 'ytdl': ytdl,
@@ -232,20 +233,17 @@ class VideoDownloader():
                     dl.status = 'manipulating'
                    
             
-            #loop = asyncio.get_running_loop()
-            #ex = ThreadPoolExecutor(max_workers=len(self.info_dl['downloaders']))
-            #blocking_tasks = [loop.run_in_executor(ex, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
             blocking_tasks = [asyncio.to_thread(dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
             if self.info_dl.get('requested_subtitles'):
                 blocking_tasks += [asyncio.to_thread(self._get_subs_files)]
             await asyncio.sleep(0)
             if blocking_tasks:
-                done, pending = await asyncio.wait(blocking_tasks, return_when=asyncio.ALL_COMPLETED)
+                done, pending = await asyncio.wait(blocking_tasks)
             
-                for t in done:
+                for d in done:
                     
                     try:
-                        t.result()
+                        d.result()
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())                
                         self.logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: {repr(e)}\n{'!!'.join(lines)}")
@@ -333,10 +331,7 @@ class VideoDownloader():
                     if (mtime:=self.info_dict.get("release_timestamp")):
                         await asyncio.to_thread(os.utime, self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
                         
-                        
-                        
-                    
-            
+
             else: self.info_dl['status'] = "error"
                                
         except Exception as e:

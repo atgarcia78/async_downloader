@@ -19,8 +19,8 @@ from utils import (
 import subprocess
 
 from concurrent.futures import (
-    ThreadPoolExecutor,
-    wait as wait_for_futures
+    ThreadPoolExecutor
+    
 )
 
 
@@ -77,7 +77,7 @@ def main():
                 aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True) 
                     
             except Exception as e:
-                logger.error(str(e), exc_info=True)
+                logger.exception(repr(e))
 
         t2.stop()
         

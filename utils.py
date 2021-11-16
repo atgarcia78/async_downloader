@@ -330,16 +330,16 @@ def init_argparser():
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
-    parser.add_argument("-w", help="Number of workers", default="10", type=int)
+    parser.add_argument("-w", help="Number of DLs", default="10", type=int)
     parser.add_argument("--winit", help="Number of init workers", default="0", type=int)
-    parser.add_argument("-p", help="Number of parts", default="16", type=int)
+    parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
     parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
-    parser.add_argument("--ytdlopts", help="init dict de conf", type=str)
+    parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
     parser.add_argument("--proxy", default=None, type=str)
-    parser.add_argument("--useragent", default=random.choice(UA_LIST), type=str)
+    parser.add_argument("--useragent", default=UA_LIST[0], type=str)
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true")   
@@ -351,8 +351,8 @@ def init_argparser():
     parser.add_argument("--path", default=None, type=str)    
     parser.add_argument("--caplinks", action="store_true")    
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true")
-    parser.add_argument("--aria2c", default=-1, nargs='?', type=int)
-    parser.add_argument("--notaria2c", action="store_true")
+    parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
+    parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true")
     parser.add_argument("--nosymlinks", action="store_true")
     
     
