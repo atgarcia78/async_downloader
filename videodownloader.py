@@ -22,12 +22,10 @@ from asyncaria2cdownloader import (
 from utils import ( 
     naturalsize,
 )
-from concurrent.futures import (
-    ThreadPoolExecutor  
-)
+
 from yt_dlp.utils import sanitize_filename, determine_protocol, dfxp2srt
 from datetime import datetime
-from shutil import rmtree, move
+from shutil import rmtree
 import functools
 import httpx
 from pycaption import detect_format, DFXPReader, WebVTTReader, SAMIReader, SRTReader, SCCReader
@@ -152,9 +150,7 @@ class VideoDownloader():
         else: 
             self.info_dl['status'] = "init_manipulating"
         
-              
-        
-    
+
     def _get_subs_files(self):
      
         for key, value in self.info_dl['requested_subtitles'].items():

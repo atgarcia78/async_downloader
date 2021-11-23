@@ -23,8 +23,7 @@ from utils import (
 )
 
 from concurrent.futures import (
-    ThreadPoolExecutor,
-    wait as wait_for_futures
+    ThreadPoolExecutor
 )
 
 
@@ -42,8 +41,6 @@ from httpx._utils import Timer
 import hashlib
 
 from textwrap import fill
-
-import subprocess
 
 
 logger = logging.getLogger("asyncDL")
@@ -328,11 +325,7 @@ class AsyncDL():
     def get_list_videos(self):
         
         try:
-        
-            
-            
-            
-                        
+         
             url_list = []
             _url_list_caplinks = []
             _url_list_cli = []
@@ -465,8 +458,10 @@ class AsyncDL():
                                                   'status': 'init', 
                                                   'aldl': False, 
                                                   'error': []}
+                        
                         if not (_same_video:=self._check_if_same_video(_video_info)):
                             self.list_videos.append(_video_info)
+                        
                         else:
                             _same_video_url = _same_video.get('webpage_url') or _same_video.get('url')
                             self.info_videos[_url].update({'status': 'done', 'samevideo': _same_video_url})
@@ -510,8 +505,7 @@ class AsyncDL():
 
             logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
             
-                            
-            
+
             return self.list_videos
         
         except Exception as e:            
