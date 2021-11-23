@@ -30,6 +30,7 @@ from statistics import median
 import copy
 import time
 
+logger = logging.getLogger("async_HLS_DL")
 
 class AsyncHLSDLErrorFatal(Exception):
     
@@ -68,7 +69,7 @@ class AsyncHLSDownloader():
     def __init__(self, video_dict, vid_dl):
 
 
-        self.logger = logging.getLogger("async_HLS_DL")        
+                
        
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
@@ -136,7 +137,7 @@ class AsyncHLSDownloader():
             return self.m3u8_obj.segments
  
         except Exception as e:
-            self.logger.warning(f"No hay descriptor: {e}", exc_info=True)
+            logger.warning(f"No hay descriptor: {e}", exc_info=True)
             raise AsyncHLSDLErrorFatal("no hay descriptor")
         finally:
             client.close()
@@ -202,13 +203,13 @@ class AsyncHLSDownloader():
             if fragment.key is not None and fragment.key.method == 'AES-128':
                 if fragment.key.absolute_uri not in self.key_cache:
                     self.key_cache.update({fragment.key.absolute_uri : httpx.get(fragment.key.absolute_uri, headers=self.headers).content})
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.key_cache[fragment.key.absolute_uri]}")
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{fragment.key.iv}")
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.key_cache[fragment.key.absolute_uri]}")
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{fragment.key.iv}")
 
 
 
 
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
         
           
         self.n_total_fragments = len(self.info_dict['fragments'])
@@ -217,7 +218,7 @@ class AsyncHLSDownloader():
         
         if self.filesize == 0: _est_size = "NA"
         else: _est_size = naturalsize(self.filesize)
-        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
+        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
         
         if self.filename.exists() and self.filename.stat().st_size > 0:
             self.status = "done"
@@ -245,13 +246,13 @@ class AsyncHLSDownloader():
         
             try:
             
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{count}]:get video dict: {self.webpage_url}")
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{count}]:get video dict: {self.webpage_url}")
                 
                 try:
                     
                     _info = self.ytdl.extract_info(self.webpage_url, download=False)
                     info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")                    
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")                    
                     
                 except Exception as e:
                     raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:fails no descriptor {e}")
@@ -266,7 +267,7 @@ class AsyncHLSDownloader():
                     else: self.prep_reset(info_reset)
                     break
                 except Exception as e:
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
                     raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
             
             except Exception as e:
@@ -333,7 +334,7 @@ class AsyncHLSDownloader():
         if not self.frags_to_dl:
             self.status = "init_manipulating"
         else:
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
 
     async def wait_time(self, n):
@@ -349,13 +350,13 @@ class AsyncHLSDownloader():
 
         try:
 
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
             
             while True:
 
                 q = await self.frags_queue.get()
                 
-                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]")
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]")
                 
                 if q == "KILL":
                     break  
@@ -383,7 +384,7 @@ class AsyncHLSDownloader():
                             async with self.client.stream("GET", url, headers=headers, timeout=30) as res:
                                                  
                             
-                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: {res.status_code} {res.reason_phrase}")
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: {res.status_code} {res.reason_phrase}")
                                 if res.status_code == 403:                                                   
                                     raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} resp code:{str(res)}")
                                 elif res.status_code >= 400:
@@ -402,7 +403,7 @@ class AsyncHLSDownloader():
                                             _size = self.info_frag[q-1]['size'] = (await asyncio.to_thread(filename.stat)).st_size
                                             if _size and  (_hsize - 5 <= _size <= _hsize + 5):                            
                                     
-                                                self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
+                                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
                                                 break
                                             else:
                                                 await f.truncate()
@@ -414,7 +415,7 @@ class AsyncHLSDownloader():
                                                     async with self.video_downloader.lock:
                                                         self.video_downloader.info_dl['down_size'] -= _size                                                            
                                         else:
-                                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}:] frag with mark downloaded but file doesnt exists")
+                                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}:] frag with mark downloaded but file doesnt exists")
                                             self.info_frag[q-1]['downloaded'] = False
                                             async with self._LOCK:
                                                 self.n_dl_fragments -= 1
@@ -474,17 +475,17 @@ class AsyncHLSDownloader():
                             async with self._LOCK:
                                 self.n_dl_fragments += 1     
                                 
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:frag[{q}] OK DL: total[{self.n_dl_fragments}]\n{self.info_frag[q - 1]}")
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:frag[{q}] OK DL: total[{self.n_dl_fragments}]\n{self.info_frag[q - 1]}")
                             break
                         else: 
-                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:frag[{q}] end of streaming. fragment not completed\n{self.info_frag[q - 1]}")                                    
+                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:frag[{q}] end of streaming. fragment not completed\n{self.info_frag[q - 1]}")                                    
                             raise AsyncHLSDLError(f"fragment not completed frag[{q}]")     
           
                                                        
                     except AsyncHLSDLErrorFatal as e:
                         self.info_frag[q - 1]['error'].append(repr(e))
                         lines = traceback.format_exception(*sys.exc_info())
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: fatalError: \n{'!!'.join(lines)}")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: fatalError: \n{'!!'.join(lines)}")
                         if (await asyncio.to_thread(filename.exists)):
                             _size = (await asyncio.to_thread(filename.stat)).st_size                            
                             await asyncio.to_thread(filename.unlink)                        
@@ -498,7 +499,7 @@ class AsyncHLSDownloader():
                     except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError) as e:
                         self.info_frag[q - 1]['error'].append(repr(e))
                         lines = traceback.format_exception(*sys.exc_info())
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: CancelledError: \n{'!!'.join(lines)}")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: CancelledError: \n{'!!'.join(lines)}")
                         if (await asyncio.to_thread(filename.exists)):
                             _size = (await asyncio.to_thread(filename.stat)).st_size                            
                             await asyncio.to_thread(filename.unlink)
@@ -513,8 +514,8 @@ class AsyncHLSDownloader():
                         self.info_frag[q - 1]['error'].append(repr(e))
                         lines = traceback.format_exception(*sys.exc_info())
                         if not "httpx" in str(e.__class__) and not "AsyncHLSDLError" in str(e.__class__):
-                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {str(e.__class__)}")
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {repr(e)} \n{'!!'.join(lines)}")
+                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {str(e.__class__)}")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {repr(e)} \n{'!!'.join(lines)}")
                         self.info_frag[q - 1]['n_retries'] += 1
                         if (await asyncio.to_thread(filename.exists)):
                             _size = (await asyncio.to_thread(filename.stat)).st_size                            
@@ -535,13 +536,13 @@ class AsyncHLSDownloader():
                                 
                         else:
                             self.info_frag[q - 1]['error'].append("MaxLimitRetries")
-                            self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:frag[{q}]:MaxLimitRetries:skip")                           
+                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]:frag[{q}]:MaxLimitRetries:skip")                           
                             self.info_frag[q - 1]['skipped'] = True
                             break
                         
 
         finally:    
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
             async with self._LOCK:
                 self.count -= 1
     
@@ -559,7 +560,7 @@ class AsyncHLSDownloader():
                 
         while True:
 
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] TASKS INIT") 
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] TASKS INIT") 
             
             
         #await self.timer.async_start()
@@ -582,7 +583,7 @@ class AsyncHLSDownloader():
 
                 if pending:
  
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] PENDING {pending}") 
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] PENDING {pending}") 
                     for t in pending: t.cancel()
                     await asyncio.gather(*pending,return_exceptions=True)
                     await asyncio.sleep(0)
@@ -598,7 +599,7 @@ class AsyncHLSDownloader():
                         except Exception as e:
                             _res.append(repr(e))                            
                     
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] DONE [{len(done)}] with exceptions {_res}")
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] DONE [{len(done)}] with exceptions {_res}")
                     for e in _res:
                         if (("AsyncHLSDLErrorFatal" in e) or ("CancelledError" in e)): raise AsyncHLSDLReset(e)
 
@@ -609,11 +610,11 @@ class AsyncHLSDownloader():
                 
                 if "AsyncHLSDLReset" in  str(e.__class__):
                 
-                    self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:RESET:{repr(e)}\n{'!!'.join(lines)}")
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:RESET:{repr(e)}\n{'!!'.join(lines)}")
 
                     if self.n_reset < self._MAX_RESETS:
 
-                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}] {e}")
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}] {e}")
                         await asyncio.sleep(0)
                         
                         try:
@@ -624,12 +625,12 @@ class AsyncHLSDownloader():
                             self.frags_queue = asyncio.Queue()
                             for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                             for _ in range(self.iworkers): self.frags_queue.put_nowait("KILL")
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
                             continue 
                             
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
                             self.status = "error"
                             await self.clean_when_error()
                             await asyncio.sleep(0)
@@ -637,7 +638,7 @@ class AsyncHLSDownloader():
                     
                     else:
                         
-                        self.logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
                         self.status = "error"
                         await self.clean_when_error()
                         await asyncio.sleep(0)
@@ -645,7 +646,7 @@ class AsyncHLSDownloader():
                 
                 else:
 
-                    self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception {repr(e)} \n{'!!'.join(lines)}")
+                    logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception {repr(e)} \n{'!!'.join(lines)}")
 
                 
             else:
@@ -657,7 +658,7 @@ class AsyncHLSDownloader():
                     #raise AsyncHLSDLErrorFatal("reset") 
                     if (inc_frags_dl > 0):
                         
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                         try:
                             await asyncio.to_thread(self.reset)
                             #await self.timer.async_start()
@@ -665,20 +666,20 @@ class AsyncHLSDownloader():
                             self.frags_queue = asyncio.Queue()
                             for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                             for _ in range(self.iworkers): self.frags_queue.put_nowait("KILL")
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
                             self.n_reset -= 1
                             continue 
                             
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())
-                            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
                             self.status = "error"
                             await self.clean_when_error()
                             await asyncio.sleep(0)
                             raise AsyncHLSDLErrorFatal("ERROR reset couldnt progress")
                         
                     else:
-                        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
                         
                         raise AsyncHLSDLError("no changes in number of dl frags in once cycle")
             finally:
@@ -687,7 +688,7 @@ class AsyncHLSDownloader():
 
 
     
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
 
 
         self.status = "init_manipulating"
@@ -712,11 +713,11 @@ class AsyncHLSDownloader():
     def ensamble_file(self):        
        
         self.status = "manipulating"
-        self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
         
         try:
                 
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
             with open(self.filename, mode='wb') as dest:
                 _skipped = 0
                 for f in self.info_frag: 
@@ -739,7 +740,7 @@ class AsyncHLSDownloader():
             if self.filename.exists():
                 self.filename.unlink()
             lines = traceback.format_exception(*sys.exc_info())
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred: \n{'!!'.join(lines)}")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Exception ocurred: \n{'!!'.join(lines)}")
             self.status = "error"
             self.sync_clean_when_error() 
             raise
@@ -747,9 +748,9 @@ class AsyncHLSDownloader():
         if self.filename.exists():
             rmtree(str(self.download_path),ignore_errors=True)
             self.status = "done" 
-            self.logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")
             if _skipped:
-                self.logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] skipped frags [{_skipped}]")             
+                logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] skipped frags [{_skipped}]")             
         else:
             self.status = "error"  
             self.sync_clean_when_error()                        

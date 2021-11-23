@@ -70,8 +70,7 @@ def main():
         if asyncDL.videos_to_dl:    
                 
             try:
-                if args.aria2c:
-                    subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
+                
                 
                 args_tk = init_tk()        
                 aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True) 
@@ -95,6 +94,7 @@ def main():
     
     finally:        
         kill_processes(logger=logger, rpcport=args.rpcport)
+        
  
 
 if __name__ == "__main__":

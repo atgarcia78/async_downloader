@@ -10,10 +10,11 @@
     },
     "colored":{
         "()": "supportlogging.ColoredFormatter",
-        "patern": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)s - %(message)s"
+        "pattern": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s"
     },
     "file_format":{  
-        "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)s - %(message)s"
+        "()": "supportlogging.FileFormatter",
+        "pattern": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)s - %(message)s"
     }
 
   },
@@ -21,7 +22,7 @@
     "filtermodules": {
         "()": "supportlogging.FilterModule",
         "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "seleniumwire.handler", "img2pdf", "hpack", "seleniumwire.mitmproxy", "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache"]
-    }      
+    } 
   },
   "handlers": {
     "console": {

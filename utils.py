@@ -7,7 +7,7 @@ from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import (
     std_headers, 
-    format_bytes)
+    )
 import random
 import httpx
 from pathlib import Path
@@ -23,6 +23,7 @@ import shutil
 
 import time
 from tqdm import tqdm
+import aria2p
  
 class EMA(object):
     """
@@ -336,24 +337,24 @@ def init_argparser():
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
-    parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true")
+    parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true", default=False)
     parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
     parser.add_argument("--proxy", default=None, type=str)
     parser.add_argument("--useragent", default=UA_LIST[0], type=str)
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
-    parser.add_argument("--nodl", help="not download", action="store_true")   
+    parser.add_argument("--nodl", help="not download", action="store_true", default=False)   
     parser.add_argument("--headers", default="", type=str)  
     parser.add_argument("-u", action="append", dest="collection", default=[])
     parser.add_argument("--byfilesize", help="order list of videos to dl by filesize", action="store_true")  
-    parser.add_argument("--lastres", help="use last result for get videos list", action="store_true")
-    parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true")
+    parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true", default=False)
     parser.add_argument("--path", default=None, type=str)    
-    parser.add_argument("--caplinks", action="store_true")    
-    parser.add_argument("-v", "--verbose", help="verbose", action="store_true")
+    parser.add_argument("--caplinks", action="store_true", default=False)    
+    parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
+    parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
     parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
-    parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true")
-    parser.add_argument("--nosymlinks", action="store_true")
+    parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
+    parser.add_argument("--nosymlinks", action="store_true", default=False)
     
     
     
@@ -368,23 +369,50 @@ def init_argparser():
     if args.notaria2c:
         args.aria2c = False 
         args.rpcport = None
+        
+    if args.path and len(args.path.split("/")) == 1:
+        _path = Path(Path.home(),"testing", args.path)
+        args.path = str(_path)
+    
     
     return args
 
+def init_aria2c(args):
+    
+    logger = logging.getLogger("asyncDL")
+    subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
+    cl = aria2p.API(aria2p.Client(port=args.rpcport))
+    opts = cl.get_global_options()
+    opts_dict = {
+                'check-certificate': not args.nocheckcert,
+                'connect-timeout': '10',
+                'timeout': '10',
+                'max-tries': '2',
+                'user-agent': std_headers['User-Agent']}
+    for key,value in opts_dict.items():
+            opts.set(key, value)
+    
+    dict_opts = opts._struct
+    del dict_opts['dir']
+    logger.info(f"aria2c options:\n{dict_opts}")
+    del cl
+    
+    
 
 def init_ytdl(args):
 
 
-    logger = logging.getLogger("youtube_dl")
+    logger = logging.getLogger("asyncDL")
 
     ytdl_opts = {        
-        "continue_dl": True,
+        "continuedl": True,
         "updatetime": False,
         "ignoreerrors": False,
         "verbose": args.verbose,
-        "quiet": False,
+        "quiet": args.quiet,
         "extract_flat": "in_playlist",        
         "format" : args.format,
+        "no_color" : True,
         "usenetrc": True,
         "skip_download": True,        
         "logger" : logger,        
@@ -396,14 +424,28 @@ def init_ytdl(args):
           
     }
 
-    if args.proxy: ytdl_opts['proxy'] = args.proxy
+    if args.proxy:
+        proxy = None
+        sch = args.proxy.split("://")
+        if len(sch) == 2:
+            if sch[0] != 'http':
+                logger.error("Proxy is not valid, should be http")
+            else: proxy = args.proxy
+        else:
+            proxy = f"http://{args.proxy}"
+        
+        if proxy:
+            ytdl_opts['proxy'] = proxy
+
     if args.ytdlopts: ytdl_opts.update(demjson.decode(args.ytdlopts))
-    logger.debug(f"ytdl opts: \{ytdl_opts}")
+    
     
     # ytdl = YoutubeDL(ytdl_opts, auto_init=False)
     # ytdl.add_default_info_extractors()
     
     ytdl = YoutubeDL(ytdl_opts)
+    
+    logger.info(f"ytdl opts:\n{ytdl.params}")
    
 
     std_headers["User-Agent"] = args.useragent
@@ -415,7 +457,7 @@ def init_ytdl(args):
         std_headers.update(demjson.decode(args.headers))
        
         
-    logger.info(f"std-headers: {std_headers}")
+    logger.debug(f"std-headers:\n{std_headers}")
     return ytdl
 
 def init_tk():

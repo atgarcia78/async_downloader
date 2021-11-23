@@ -13,6 +13,8 @@ import atexit
 
 from copy import copy
 
+from textwrap import fill
+
 
     
 
@@ -27,10 +29,19 @@ MAPPING = {
 PREFIX = '\033['
 SUFFIX = '\033[0m'
 
+class FileFormatter(logging.Formatter):
+
+    def __init__(self, pattern):
+        logging.Formatter.__init__(self, pattern)
+
+    def format(self, record):
+        file_record = copy(record)
+        if file_record.msg.startswith("%no%"): file_record.msg = file_record.msg[4:]
+        return logging.Formatter.format(self, file_record)
 class ColoredFormatter(logging.Formatter):
 
-    def __init__(self, patern):
-        logging.Formatter.__init__(self, patern, "%H:%M:%S")
+    def __init__(self, pattern):
+        logging.Formatter.__init__(self, pattern, "%H:%M:%S")
 
     def format(self, record):
         colored_record = copy(record)
@@ -39,6 +50,7 @@ class ColoredFormatter(logging.Formatter):
         colored_levelname = ('{0}{1}m{2}{3}') \
             .format(PREFIX, seq, levelname, SUFFIX)
         colored_record.levelname = colored_levelname
+        colored_record.msg = fill(colored_record.msg.replace("\n", "\n" + ' '*58), 200, subsequent_indent=' '*58, replace_whitespace=False) if not colored_record.msg.startswith("%no%") else colored_record.msg[4:]
         return logging.Formatter.format(self, colored_record)
 
 class FilterModule(logging.Filter):
@@ -51,6 +63,16 @@ class FilterModule(logging.Filter):
         for pattern in self._patterns:
             if pattern in record.name: return False
         else: return True
+        
+class Debug2Info(logging.Filter):
+
+        
+    def filter(self, record):
+        if record.name == "youtube_dl" and record.levelno ==  logging.DEBUG:
+            print("HIT")
+            record.levelno = logging.INFO
+            record.levelname = logging._levelToName[record.levelno]
+        return True
         
         
 def _resolve_handlers(l):
