@@ -59,8 +59,6 @@ class AsyncHLSDLReset(Exception):
 
 class AsyncHLSDownloader():
 
-    #_CHUNK_SIZE = 1048576
-    #_CHUNK_SIZE = 1024
     _CHUNK_SIZE = 102400
     _MAX_RETRIES = 5
     _MAX_RESETS = 10
@@ -137,7 +135,6 @@ class AsyncHLSDownloader():
         finally:
             client.close()
         
-
     def prep_init(self):
 
         self.info_frag = []
@@ -220,8 +217,6 @@ class AsyncHLSDownloader():
         elif not self.frags_to_dl:
             self.status = "init_manipulating"
        
-
-                                         
     def calculate_duration(self):
         self.totalduration = 0
         for fragment in self.info_dict['fragments']:
@@ -231,7 +226,6 @@ class AsyncHLSDownloader():
         _bitrate = self.tbr or self.abr                
         self.filesize = int(self.totalduration * 1000 * _bitrate / 8)
         
-    
     def reset(self):         
 
         count = 0
@@ -328,7 +322,6 @@ class AsyncHLSDownloader():
             self.status = "init_manipulating"
         else:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
-
 
     async def wait_time(self, n):
 
@@ -679,7 +672,6 @@ class AsyncHLSDownloader():
 
         self.status = "init_manipulating"
 
-    
     async def clean_when_error(self):
         
         for f in self.info_frag:
@@ -695,7 +687,6 @@ class AsyncHLSDownloader():
                 if f['file'].exists():
                     f['file'].unlink()
                     
-    
     def ensamble_file(self):        
        
         self.status = "manipulating"
@@ -741,8 +732,6 @@ class AsyncHLSDownloader():
             self.sync_clean_when_error()                        
             raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
 
-        
-     
     def fragsnotdl(self):
         res = []
         for frag in self.info_frag:
