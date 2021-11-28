@@ -47,13 +47,10 @@ logger = logging.getLogger("asyncDL")
 
 class AsyncDL():
 
-    
     _INTERVAL_TK = 0.2
    
-    
     def __init__(self, args):
     
-               
         #args
         self.args = args
         self.parts = self.args.parts
@@ -65,9 +62,9 @@ class AsyncDL():
         
         if self.args.aria2c: init_aria2c(self.args)
     
-              
-        #listas con videos y queues       
+        #listas, dicts con videos      
         self.info_videos = {}
+        self.files_cached = {}
         
         self.list_videos = []
         self.list_initnok = []
@@ -76,26 +73,19 @@ class AsyncDL():
         self.list_urls_to_check = []
         self.list_initaldl = []
         self.list_dl = []
-        self.files_cached = {}
         self.videos_to_dl = []        
-        
-        #self.queue_vid = Queue()        
-        
+
         #tk control      
-        self.stop_tk = False
-        self.timer_tk = Timer()
-        
+        self.stop_tk = False        
+
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
         self.count_run = 0        
         self.count_manip = 0 
         
         self.time_now = datetime.now()
-        
-        #self.lock = Lock()
-        
-        
-    async def wait_time(self, n):
+
+    async def _wait_time(self, n):
    
         _started = time.monotonic()
         while True:
@@ -104,7 +94,7 @@ class AsyncDL():
             else:
                 await asyncio.sleep(0)
                 
-    async def ex_in_thread(self, prefix, func, /, *args, **kwargs):
+    async def _ex_in_thread(self, prefix, func, /, *args, **kwargs):
         
         loop = asyncio.get_running_loop()
         ctx = contextvars.copy_context()
@@ -112,19 +102,17 @@ class AsyncDL():
         ex = ThreadPoolExecutor(thread_name_prefix=prefix, max_workers=1)    
         return await loop.run_in_executor(ex, func_call)
 
-    
     async def run_tk(self, args_tk):
         '''
         Run a tkinter app in an asyncio event loop.
         '''
-        
-       
+
         root, text0, text1, text2 = args_tk
         count = 0
         
         while (not self.list_dl and not self.stop_tk):
             
-            await self.wait_time(self._INTERVAL_TK)
+            await self._wait_time(self._INTERVAL_TK)
             count += 1
             if count == 10:
                 count = 0
@@ -172,7 +160,7 @@ class AsyncDL():
                             text1.insert(tk.END, ''.join(list_manip))
                                          
                         
-                await self.wait_time(self._INTERVAL_TK)
+                await self._wait_time(self._INTERVAL_TK)
        
                 
         except Exception as e:
@@ -180,7 +168,6 @@ class AsyncDL():
             logger.error(f"[run_tk]: error\n{'!!'.join(lines)}")
         
         logger.debug("[RUN_TK] BYE") 
-    
     
     def get_videos_cached(self):        
         
@@ -319,9 +306,6 @@ class AsyncDL():
         except Exception as e:
             logger.exception(repr(e))
                
-
-    
-    
     def get_list_videos(self):
         
         try:
@@ -329,6 +313,8 @@ class AsyncDL():
             url_list = []
             _url_list_caplinks = []
             _url_list_cli = []
+            url_pl_list = set()
+            netdna_list = set()
             
             filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
             if self.args.caplinks and filecaplinks.exists():
@@ -343,13 +329,32 @@ class AsyncDL():
                 
                 for url in _url_list_caplinks:
                    
+                    is_pl, ie_key = is_playlist_extractor(url, self.ytdl)
                     
-                    self.info_videos[url] = {'source' : 'caplinks', 
-                                             'video_info': {}, 
-                                             'status': 'init', 
-                                             'aldl': False, 
-                                             'error': []}
+                    if not is_pl:
+                        
+                        if ie_key == 'NetDNA':
+                            netdna_list.add(url)
+                            _entry = {}
+                            
+                        else:
+                            _entry = {'_type': 'url', 'url': url, 'ie_key': ie_key}
+                            
                     
+                        self.info_videos[url] = {'source' : 'caplinks', 
+                                                'video_info': _entry, 
+                                                'status': 'init', 
+                                                'aldl': False,
+                                                'ie_key': ie_key, 
+                                                'error': []}
+                        
+                        self.list_videos.append(_entry)
+                        
+                    else:
+                        url_pl_list.add(url)
+                        
+                        
+                        
                 
             if self.args.collection:
                 
@@ -357,45 +362,37 @@ class AsyncDL():
                 
                 for url in _url_list_cli:
                     
-                    if not self.info_videos.get(url):
+                    is_pl, ie_key = is_playlist_extractor(url, self.ytdl)
                     
-                        self.info_videos[url] = {'source' : 'cli', 
-                                                 'video_info': {}, 
-                                                 'status': 'init', 
-                                                 'aldl': False, 
-                                                 'error': []}
-                    else: _url_list_cli.remove(url)   
+                    if not is_pl:
+                        
+                        if ie_key == 'NetDNA':
+                            netdna_list.add(url)
+                            _entry = {}
+                            
+                        else:
+                            _entry = {'_type': 'url', 'url': url, 'ie_key': ie_key}
+                    
+                            if not self.info_videos.get(url):
+                        
+                                self.info_videos[url] = {'source' : 'cli', 
+                                                        'video_info': _entry, 
+                                                        'status': 'init', 
+                                                        'aldl': False,
+                                                        'ie_key': ie_key, 
+                                                        'error': []}
+                                self.list_videos.append(_entry)
+                                
+                    else:
+                        url_pl_list.add(url)   
             
                 
             
-            url_pl_list = []
-            netdna_list = []
+
             
-            url_list = _url_list_caplinks + _url_list_cli
+            url_list = list(self.info_videos.keys())
             
             logger.info(f"[url_list]: {url_list}")
-            
-            for _url in url_list:
-                
-                res = is_playlist_extractor(_url, self.ytdl)
-                
-                self.info_videos[_url]['ie_key'] = res['ie_key']
-                
-                if res['is_pl']: 
-                    url_pl_list.append(_url)
-                    self.info_videos[_url]['type'] = 'playlist'
-
-                else:
-                    
-                    if 'NetDNA' in res['ie_key']:
-                        
-                        netdna_list.append(_url)
-                        #_entry = NetDNAIE.get_entry(_url, self.ytdl)
-                    
-                    else: 
-                        _entry = {'_type': 'url', 'url': _url, 'ie_key': res['ie_key']}
-                        self.info_videos[_url]['video_info'] = _entry
-                        self.list_videos.append(_entry)
                     
             if netdna_list:
                 logger.info(f"[netdna_list]: {netdna_list}")
@@ -403,7 +400,6 @@ class AsyncDL():
                 with ThreadPoolExecutor(thread_name_prefix="Get_netdna", max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
                      
                     futures = [ex.submit(NetDNAIE.get_entry, _url_netdna, self.ytdl) for _url_netdna in netdna_list]
-                    
                     
                 for fut,_url_netdna in zip(futures, netdna_list):
                     try:
@@ -428,56 +424,45 @@ class AsyncDL():
                     
                                 
                 _url_pl_entries = []
-                for fut,url_pl in zip(futures,url_pl_list):
+                
+                for fut, url_pl in zip(futures,url_pl_list):
                     try:
-                        _info = fut.result()
-                        self.info_videos[url_pl].update({'video_info': _info})
-                        if not _info.get('_type'):
-                            self.info_videos[url_pl]['type'] = "video"
+                        _info = fut.result()                        
+                        if not _info.get('_type'):                           
                             _url_pl_entries += [_info]
                         else:
                             _url_pl_entries += _info.get('entries')
 
                     except Exception as e:
-                        logger.error(repr(e))           
+                        logger.error(f"[url_playlist_lists][{url_pl}] {repr(e)}")           
                     
         
                 logger.debug(f"[url_playlist_lists] entries \n{_url_pl_entries}")
                 
                 for entry in _url_pl_entries:
-                    
-                    if entry.get('_type'): 
                         
-                        _url = entry.get('url')
-                        if not self.info_videos.get(_url): #es decir, los nuevos videos 
+                    _url = entry.get('url') or entry.get('webpage_url')
+                    if not self.info_videos.get(_url): #es decir, los nuevos videos 
                         
-                            self.info_videos[_url] = {'source' : 'playlist', 
-                                                        'video_info': entry, 
-                                                        'status': 'init', 
-                                                        'aldl': False, 
-                                                        'error': []}
-                                
+                        if not entry.get('_type'):
+                            entry['webpage_url'] = entry['url']
                         
-                            if not (_same_video:=self._check_if_same_video(entry)):
-                            
-                                self.list_videos.append(entry)
+                        _same_video = self._check_if_same_video(entry)
                         
-                            else:
-                                _same_video_url = _same_video.get('webpage_url') or _same_video.get('url')
-                                self.info_videos[_url].update({'status': 'done', 'samevideo': _same_video_url})
-                                logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url} ")
-                    else:
+                        self.info_videos[_url] = {'source' : 'playlist', 
+                                                    'video_info': entry, 
+                                                    'status': 'init', 
+                                                    'aldl': False,
+                                                    'ie_key': entry.get('ie_key'),
+                                                    'error': []}
                         
-                        _url = entry.get('webpage_url')
-                        if not (_same_video:=self._check_if_same_video(entry)):
-                            
-                            self.list_videos.append(entry)
-                            
-                        else:
-                                _same_video_url = _same_video.get('webpage_url') or _same_video.get('url')
-                                self.info_videos[_url].update({'status': 'done', 'samevideo': _same_video_url})
-                                logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url} ")
-                            
+                        if _same_video: 
+                            _same_video_url = _same_video.get('url') or _same_video.get('webpage_url')
+                            self.info_videos[_url].update({'samevideo': _same_video_url})
+                            logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
+                        
+                        self.list_videos.append(entry)
+
 
                 logger.debug(f"[url_playlist_lists] list videos \n{self.list_videos}") 
                 
@@ -497,8 +482,10 @@ class AsyncDL():
                 
                 
                 for _video in _file_list_videos:
-                    _url = _video.get('webpage_url') or _video.get('url')
+                    _url = _video.get('url') or _video.get('webpage_url')
                     if not self.info_videos.get(_url):
+                        
+                        _same_video = self._check_if_same_video(_video)
                         
                         self.info_videos[_url] = {'source' : 'file_cli', 
                                                            'video_info': _video, 
@@ -506,12 +493,12 @@ class AsyncDL():
                                                            'aldl': False, 
                                                            'error': []}
                         
-                        if not (_same_video:=self._check_if_same_video(_video)):
-                            self.list_videos.append(_video)
-                        else:
-                            _same_video_url = _same_video.get('webpage_url') or _same_video.get('url')
-                            self.info_videos[_url].update({'status': 'done', 'samevideo': _same_video_url})
-                            logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url} ")
+                        if _same_video: 
+                            _same_video_url = _same_video.get('url') or _same_video.get('webpage_url')
+                            self.info_videos[_url].update({'samevideo': _same_video_url})
+                            logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
+                        
+                        self.list_videos.append(_video)
                        
             
 
@@ -523,8 +510,6 @@ class AsyncDL():
         except Exception as e:            
             logger.exception(f"[get_videos]: Error {repr(e)}")
             
-        
-        
     def _check_if_aldl(self, info_dict):  
                     
                
@@ -571,71 +556,65 @@ class AsyncDL():
         
         if not info.get('_type') and (_id:=info.get('id')) and (_title:=info.get('title')):            
             
-            for video in self.list_videos:
-                if not video.get('_type') and (video.get('id', "") == _id) and (video.get('title', "")) == _title:
-                    return(video)
+            for (url, video) in  self.info_videos.items():
+                if url != (info.get('webpage_url') or info.get('url')):
+                    if not video['video_info'].get('_type') and (video['video_info'].get('id', "") == _id) and (video['video_info'].get('title', "")) == _title:
+                        return(video['video_info'])
                 
-            
-     
     def get_videos_to_dl(self): 
         
+        initial_videos = [(url, video) for url, video in self.info_videos.items() if not video.get('samevideo')]
+        
         if self.args.index: 
-            if self.args.index < len(self.list_videos):
-                self.list_videos = [self.list_videos[self.args.index - 1]]
-            else: raise IndexError(f"index video {self.args.index} out of range [{len(self.list_videos)}]")
+            if self.args.index < len(initial_videos):
+                initial_videos = initial_videos[self.args.index - 1:self.args.index]
+                #self.info_videos[initial_videos[self.args.index - 1][0]].update({'todl': True})
+            else: raise IndexError(f"index video {self.args.index} out of range [{len(initial_videos)}]")
                 
             
         elif self.args.first or self.args.last:
             if self.args.first:
-                if self.args.first <= len(self.list_videos):
+                if self.args.first <= len(initial_videos):
                     if self.args.last:
                         if self.args.last >= self.args.first:
                             _last = self.args.last - 1
-                        else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
-                    else: _last = len(self.list_videos)
-                    self.list_videos = self.list_videos[self.args.first-1:_last]
+                        else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(initial_videos)-1}]")
+                    else: _last = len(initial_videos)
+                    initial_videos = initial_videos[self.args.first - 1: _last]
+                    
+                    #for (url, vid) in initial_videos[self.args.first-1:_last]: 
+                    #    self.info_videos[url].update({'todl': True})
+                       
                 else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(self.list_videos)-1}]")
             else:
-                if (_last:=self.args.last) > 0: self.list_videos = self.list_videos[:_last]
-            
-                 
-            
-        for video in self.list_videos:
-            
-            _url = video.get('webpage_url') or video.get('url')
-            if (_id:=video.get('id')):
-                video['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
-                self.info_videos[_url]['video_info']['id'] = video['id']
-            if not video.get('filesize'):
-                video.update({'filesize' : 0})                
-                                
-            if not self.args.nodl:
-                self.info_videos[_url].update({'todl': True})
-            
-            if not (_path:=self._check_if_aldl(video)): 
-                self.videos_to_dl.append(video)
+                if (_last:=self.args.last) > 0:
+                    initial_videos = initial_videos[: _last]
+                    #for (url, vid) in initial_videos[:_last]: 
+                    #    self.info_videos[url].update({'todl': True})
+                        
+        for (url, vid) in initial_videos:
+            if not self.args.nodl: self.info_videos[url].update({'todl': True})
+            if (_id:=self.info_videos[url]['video_info'].get('id')):
+                self.info_videos[url]['video_info']['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
+            if self.info_videos[url]['video_info'].get('filesize', None):
+                self.info_videos[url]['video_info']['filesize'] = 0
+            if not (_path:=self._check_if_aldl(vid)): 
+                self.videos_to_dl.append(vid['video_info'])
             else: 
-                self.info_videos[_url].update({'aldl' : _path, 'status': 'done'})
+                self.info_videos[url].update({'aldl' : _path, 'status': 'done'})
 
-            
-            if self.args.byfilesize:
-                self.videos_to_dl = sorted(self.videos_to_dl, key=itemgetter('filesize'), reverse=True)
+        if self.args.byfilesize:
+            self.videos_to_dl = sorted(self.videos_to_dl, key=itemgetter('filesize'), reverse=True)
             
         logger.debug(f"[get_videos_to_dl] videos to dl: \n{self.videos_to_dl}")
         
-                
 
-        
-        
-        self.totalbytes2dl = sum([vid.get('filesize') for vid in self.videos_to_dl])
+        self.totalbytes2dl = sum([vid.get('filesize', 0) for vid in self.videos_to_dl])
         logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}]")       
         
         
-        #logger.debug(f"Queue content for workers inits: \n {list(self.queue_vid.queue)}")
-        
         return self.videos_to_dl
     
-
     async def worker_init(self, i):
         #worker que lanza la creación de los objetos VideoDownloaders, uno por video
         
@@ -678,7 +657,8 @@ class AsyncDL():
                 
                 else: 
 
-                    logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('webpage_url') or vid.get('url')}] extracting info")       
+                    logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] extracting info")
+                    #logger.info(f"[worker_init][{i}]: [{num}] [{vid}] extracting info")       
                     
                     try: 
                         
@@ -686,7 +666,7 @@ class AsyncDL():
                             #al no tratarse de video final vid['url'] siepre existe
                             try:                                    
                                 
-                                info = await self.ex_in_thread(f"wkin[{i}]_ytdl", self.ytdl.extract_info, vid['url'])
+                                info = await self._ex_in_thread(f"wkin[{i}]_ytdl", self.ytdl.extract_info, vid['url'])
                                 if not info: raise Exception("no info video")
                             
                             except Exception as e:                                
@@ -725,7 +705,7 @@ class AsyncDL():
                             info['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
                             
                         else:
-                            info['id'] = str(int(hashlib.sha256(info['url'].encode('utf-8')).hexdigest(),16) % 10**8)
+                            info['id'] = str(int(hashlib.sha256(info['webpage_url'].encode('utf-8')).hexdigest(),16) % 10**8)
                             
                         
                         
@@ -734,30 +714,41 @@ class AsyncDL():
                             info['release_timestamp'] = _mtime
                             info['release_date'] = vid.get('release_date')
                         
-                        logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('webpage_url') or vid.get('url')}] info extracted")
-                        logger.debug(f"[worker_init][{i}]: [{num}] [{vid.get('webpage_url') or vid.get('url')}] info extracted\n{info}")
+                        logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] info extracted")
+                        logger.debug(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] info extracted\n{info}")
+                        
+                        self.info_videos[vid.get('url') or vid.get('webpage_url')].update({'video_info': info})
                         
                         if (_path:=self._check_if_aldl(info)):
                             
-                            logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('webpage_url') or vid.get('url')}] already DL")
+                            logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] already DL")
                             self.videos_to_dl.remove(vid)
                             
                             if (_filesize:=vid.get('filesize',0)):
                                 async with self.lock:
                                     self.totalbytes2dl -= _filesize
                                 
-                            self.info_videos[vid.get('webpage_url') or vid.get('url')].update({'status': 'done', 'video_info': info, 'aldl': _path})                                        
+                            self.info_videos[vid.get('url') or vid.get('webpage_url')].update({'status': 'done', 'aldl': _path})                                        
                             continue
-                       
                         
-                        self.info_videos[vid.get('webpage_url') or vid.get('url')].update({'video_info': info})                        
+                        if (_same_video:=self._check_if_same_video(info)):
+                            _same_video_url = _same_video.get('webpage_url') or _same_video.get('url')
+                                
+                            self.videos_to_dl.remove(vid)                            
+                            if (_filesize:=vid.get('filesize',0)):
+                                async with self.lock:
+                                    self.totalbytes2dl -= _filesize
+                            self.info_videos[vid.get('url') or vid.get('webpage_url')].update({'samevideo': _same_video_url})
+                            logger.warning(f"{vid.get('url') or vid.get('webpage_url')}: has not been added to video list because it gets same video than {_same_video_url}")
+                            continue
+                            
+                           
                         
-                        
-                        dl = await self.ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, info, self.ytdl, self.args)                       
+                        dl = await self._ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, info, self.ytdl, self.args)                       
                                 
                         if not dl.info_dl.get('status', "") == "error":
                             
-                            self.info_videos[vid.get('webpage_url') or vid.get('url')].update({'status': 'initok', 'filename': dl.info_dl.get('filename'), 'dl': dl})
+                            self.info_videos[vid.get('url') or vid.get('webpage_url')].update({'status': 'initok', 'filename': dl.info_dl.get('filename'), 'dl': dl})
                             
                             async with self.lock:
                                 self.totalbytes2dl = self.totalbytes2dl - vid.get('filesize', 0) + dl.info_dl.get('filesize', 0)
@@ -779,13 +770,13 @@ class AsyncDL():
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
                         self.list_initnok.append((vid, f"Error:{repr(e)}"))
-                        logger.error(f"[worker_init][{i}]: [{num}] DL constructor failed for {vid.get('webpage_url') or vid.get('url')} - Error:{repr(e)} \n{'!!'.join(lines)}")
+                        logger.error(f"[worker_init][{i}]: [{num}] DL constructor failed for {vid.get('url') or vid.get('webpage_url')} - Error:{repr(e)} \n{'!!'.join(lines)}")
                         
                         if info: self.list_urls_to_check.append((info,str(e)))
                         else: self.list_urls_to_check.append((vid,str(e)))
                         
-                        _upt_error = self.info_videos[vid.get('webpage_url') or vid.get('url')]['error'].append(f'DL constructor error:{repr(e)}')
-                        self.info_videos[vid.get('webpage_url') or vid.get('url')].update({'status': 'initnok', 'error': _upt_error})
+                        _upt_error = self.info_videos[vid.get('url') or vid.get('webpage_url')]['error'].append(f'DL constructor error:{repr(e)}')
+                        self.info_videos[vid.get('url') or vid.get('webpage_url')].update({'status': 'initnok', 'error': _upt_error})
                         
                         if (_filesize:=vid.get('filesize',0)):
                                 async with self.lock:
@@ -801,7 +792,6 @@ class AsyncDL():
             async with self.lock:
                 self.count_init += 1                
             logger.debug(f"[worker_init][{i}]: BYE")
-    
     
     async def worker_run(self, i):
         
@@ -872,7 +862,6 @@ class AsyncDL():
                 self.count_run += 1 
             logger.debug(f"[worker_run][{i}]: BYE")
         
-    
     async def worker_manip(self, i):
        
         logger.debug(f"[worker_manip][{i}]: launched")       
@@ -917,7 +906,6 @@ class AsyncDL():
                 self.count_manip += 1 
             logger.debug(f"[worker_manip][{i}]: BYE")       
 
- 
     async def async_ex(self, args_tk):
     
         self.queue_run = asyncio.Queue()
@@ -925,8 +913,7 @@ class AsyncDL():
         self.lock = asyncio.Lock()
         self.queue_vid = asyncio.Queue()
         
-        
-        
+
         #preparo queue de videos para workers init
         for i, video in enumerate(self.videos_to_dl):
             self.queue_vid.put_nowait((i, video))             
@@ -969,10 +956,8 @@ class AsyncDL():
     
         asyncio.get_running_loop().stop()      
         
-
     def get_results_info(self):
         
-                
         if self.args.byfilesize:
             self.videos_to_dl = sorted(self.videos_to_dl, key=itemgetter('filesize'), reverse=True)
         
@@ -980,15 +965,10 @@ class AsyncDL():
         _videos_2dl = self.videos_to_dl
         
         #will store videos already DL        
-        _videos_aldl = self.list_initaldl   
-
-        
+        _videos_aldl = self.list_initaldl 
         _videos_url_notsupported = [vid['url'] for vid in self.list_unsup_urls]
-        
         _videos_url_notvalid = [vid['url'] for vid in self.list_notvalid_urls]
-        
-        _videos_url_tocheck = [f"{vid['url']}:{error}" for vid, error in self.list_urls_to_check]
-          
+        _videos_url_tocheck = [f"{vid['url']}:{error}" for vid, error in self.list_urls_to_check]          
        
         logger.debug(f'[get_result_info]\n{self.info_videos}')  
             
@@ -998,7 +978,7 @@ class AsyncDL():
         
 
         for url, video in self.info_videos.items():
-            if not video.get('type', "") == "playlist" and not video.get('aldl') and video.get('todl'):
+            if not video.get('aldl') and not video.get('samevideo') and video.get('todl'):
                 if video['status'] == "done":
                     videos_okdl.append(url)
                 else:
@@ -1010,9 +990,8 @@ class AsyncDL():
         self.print_list_videos()
         
         list_videosaldl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 40), 
-                               fill(vid['video_info'].get('webpage_url', vid['video_info'].get('url', '')), 150),
-                               fill(vid['aldl'], 150)]
-                                for vid in list(self.info_videos.values()) if not vid.get('type') == "playlist" and vid['aldl'] and vid.get('todl')]
+                               fill(url, 150), fill(vid['aldl'], 150)]
+                                for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
         _columns = ['ID', 'Title', 'URL', 'Path']
         tab_valdl = tabulate(list_videosaldl_str, showindex=True, headers=_columns, tablefmt="grid")
         
@@ -1072,17 +1051,13 @@ class AsyncDL():
         def none_to_cero(item):
             return(item if item else 0)
              
-
-
-        list_videos_str = [[fill(vid['video_info'].get('webpage_url', vid['video_info'].get('url', '')), 250)]
-                            for vid in list(self.info_videos.values()) if not vid.get('type', "") == "playlist"]
+        list_videos_str = [[fill(url, 250)]
+                            for url, vid in self.info_videos.items()]
         
         list_videos2dl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 50), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
-                               fill(vid['video_info'].get('webpage_url', vid['video_info'].get('url', '')), 250)]
-                                for vid in list(self.info_videos.values()) if not vid.get('type') == "playlist" and not vid['aldl'] and vid.get('todl')]
+                               fill(url, 250)]
+                                for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
         
-        
-                
         logger.info(f"RESULT: Total videos [{(_tv:=len(self.list_videos))}] To DL [{(_tv2dl:=len(self.videos_to_dl))}] Already DL [{(_tval:=len(self.list_initaldl))}]")
         logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
         
@@ -1094,5 +1069,4 @@ class AsyncDL():
                 
         logger.debug(f"%no%\n\n{tab_tv}\n\n")
         logger.info(f"%no%Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
-                
         

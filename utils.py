@@ -112,7 +112,7 @@ def is_playlist_extractor(url, ytdl):
     ie_key, ie = get_extractor(url, ytdl)
     
     if ie_key == 'Generic':
-        return({'is_pl': False, 'ie_key': 'Generic'})   
+        return(False, 'Generic')   
         
     ie_name = _iename.lower() if type(_iename:=getattr(ie, 'IE_NAME', '')) is str else ""
     
@@ -120,7 +120,7 @@ def is_playlist_extractor(url, ytdl):
     
     _is_pl = any("playlist" in _ for _ in [ie_key.lower(), ie_name, ie_tests])
     
-    return({'is_pl': _is_pl, 'ie_key': ie_key})
+    return(_is_pl, ie_key)
 
 
 
@@ -295,7 +295,7 @@ def status_proxy():
     
     with ThreadPoolExecutor(max_workers=8) as ex: 
         for ipl in list_ok:
-            futures.append(ex.submit(_get_rtt, ipl, _port))
+            futures.append(ex.submit(_get_rtt, ipl, port))
         
     list_ord = list(queue_rtt.queue)
 
