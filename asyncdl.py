@@ -365,31 +365,27 @@ class AsyncDL():
                     is_pl, ie_key = is_playlist_extractor(url, self.ytdl)
                     
                     if not is_pl:
-                        
-                        if ie_key == 'NetDNA':
-                            netdna_list.add(url)
-                            _entry = {}
-                            
-                        else:
-                            _entry = {'_type': 'url', 'url': url, 'ie_key': ie_key}
                     
-                            if not self.info_videos.get(url):
+                        if not self.info_videos.get(url):
+                            
+                            _entry = {'_type': 'url', 'url': url, 'ie_key': ie_key}
                         
-                                self.info_videos[url] = {'source' : 'cli', 
+                            self.info_videos[url] = {'source' : 'cli', 
                                                         'video_info': _entry, 
                                                         'status': 'init', 
                                                         'aldl': False,
                                                         'ie_key': ie_key, 
                                                         'error': []}
-                                self.list_videos.append(_entry)
+                            self.list_videos.append(_entry)
+                            
+                            if ie_key == 'NetDNA':
+                                netdna_list.add(url)
+
                                 
                     else:
                         url_pl_list.add(url)   
             
-                
-            
 
-            
             url_list = list(self.info_videos.keys())
             
             logger.info(f"[url_list]: {url_list}")
@@ -405,9 +401,9 @@ class AsyncDL():
                     try:
                         _entry_netdna = fut.result()
                         
-                        if not self.info_videos.get(_url_netdna):
-                            self.info_videos[_url_netdna]['video_info'] = _entry_netdna
-                            self.list_videos.append(_entry_netdna)
+                        
+                        self.info_videos[_url_netdna]['video_info'] = _entry_netdna
+                        self.list_videos.append(_entry_netdna)
                        
                         
                     except Exception as e:
@@ -593,12 +589,14 @@ class AsyncDL():
                     #    self.info_videos[url].update({'todl': True})
                         
         for (url, vid) in initial_videos:
-            if not self.args.nodl: self.info_videos[url].update({'todl': True})
+            
+            #if not self.args.nodl: self.info_videos[url].update({'todl': True})
+            self.info_videos[url].update({'todl': True})
             if (_id:=self.info_videos[url]['video_info'].get('id')):
                 self.info_videos[url]['video_info']['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
             if self.info_videos[url]['video_info'].get('filesize', None):
                 self.info_videos[url]['video_info']['filesize'] = 0
-            if not (_path:=self._check_if_aldl(vid)): 
+            if not (_path:=self._check_if_aldl(vid['video_info'])): 
                 self.videos_to_dl.append(vid['video_info'])
             else: 
                 self.info_videos[url].update({'aldl' : _path, 'status': 'done'})
@@ -756,10 +754,10 @@ class AsyncDL():
                             
                             if dl.info_dl['status'] in ("init_manipulating", "done"):
                                 self.queue_manip.put_nowait(dl)
-                                logger.info(f"[worker_init][{i}]: [{num}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                logger.info(f"[worker_init][{i}]: [{num}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : progress [aldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
                             else:
                                 self.queue_run.put_nowait(dl)
-                                logger.info(f"[worker_init][{i}]: [{num}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : progress [initaldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                logger.info(f"[worker_init][{i}]: [{num}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : progress [aldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
                                         
                                         
                         else:                                         
@@ -958,14 +956,14 @@ class AsyncDL():
         
     def get_results_info(self):
         
-        if self.args.byfilesize:
-            self.videos_to_dl = sorted(self.videos_to_dl, key=itemgetter('filesize'), reverse=True)
+        #if self.args.byfilesize:
+        #    self.videos_to_dl = sorted(self.videos_to_dl, key=itemgetter('filesize'), reverse=True)
         
         #tras descartar los que ya están en local
-        _videos_2dl = self.videos_to_dl
+        #_videos_2dl = self.videos_to_dl
         
         #will store videos already DL        
-        _videos_aldl = self.list_initaldl 
+        #_videos_aldl = self.list_initaldl 
         _videos_url_notsupported = [vid['url'] for vid in self.list_unsup_urls]
         _videos_url_notvalid = [vid['url'] for vid in self.list_notvalid_urls]
         _videos_url_tocheck = [f"{vid['url']}:{error}" for vid, error in self.list_urls_to_check]          
@@ -987,13 +985,17 @@ class AsyncDL():
                         videos_koinit.append(url)
             
             
-        self.print_list_videos()
+        list_videos_str, list_videos2dl_str, list_videosaldl_str, list_videossamevideo_str = self.print_list_videos()
         
-        list_videosaldl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 40), 
-                               fill(url, 150), fill(vid['aldl'], 150)]
-                                for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
-        _columns = ['ID', 'Title', 'URL', 'Path']
-        tab_valdl = tabulate(list_videosaldl_str, showindex=True, headers=_columns, tablefmt="grid")
+        #list_videosaldl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 40), 
+        #                       fill(url, 150), fill(vid['aldl'], 150)]
+        #                        for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
+        _columnsaldl = ['ID', 'Title', 'URL', 'Path']
+        tab_valdl = tabulate(list_videosaldl_str, showindex=True, headers=_columnsaldl, tablefmt="grid")
+        _columnssamevideo = ['ID', 'Title', 'URL', 'Same URL']
+        tab_vsamevideo = tabulate(list_videossamevideo_str, showindex=True, headers=_columnssamevideo, tablefmt="grid")
+        
+        
         
         
         logger.info(f"******************************************************")
@@ -1002,10 +1004,11 @@ class AsyncDL():
         logger.info(f"******************************************************")
         logger.info(f"******************************************************")
         logger.info(f"")
-        logger.info(f"Request to DL: [{len(self.list_videos)}]")
+        logger.info(f"Request to DL: [{len(list_videos_str)}]")
         logger.info(f"") 
-        logger.info(f"         Already DL: [{len(_videos_aldl)}]")
-        logger.info(f"         Videos to DL: [{len(_videos_2dl)}]")
+        logger.info(f"         Already DL: [{len(list_videosaldl_str)}]")
+        logger.info(f"         Same requests: [{len(list_videossamevideo_str)}]")
+        logger.info(f"         Videos to DL: [{len(list_videos2dl_str)}]")
         logger.info(f"")                
         logger.info(f"                 OK DL: [{len(videos_okdl)}]")
         logger.info(f"                 ERROR DL: [{len(videos_kodl)}]")
@@ -1016,10 +1019,14 @@ class AsyncDL():
         logger.info(f"") 
         logger.info(f"*********** VIDEO RESULT LISTS **************************")    
         logger.info(f"") 
-        if _videos_aldl: 
+        if list_videosaldl_str: 
             logger.info(f"%no%Videos ALREADY DL: \n\n{tab_valdl}\n\n")
         else:
             logger.info(f"Videos ALREADY DL: []")
+        if list_videossamevideo_str: 
+            logger.info(f"%no%SAME requests: \n\n{tab_vsamevideo}\n\n")
+        else:
+            logger.info(f"SAME requests: []")
         if videos_okdl:    
             logger.info(f"Videos DL: \n{videos_okdl}")
         else:
@@ -1044,7 +1051,7 @@ class AsyncDL():
         logger.debug(f'\n{self.info_videos}')
         
         
-        return ({'videos_req': self.list_videos, 'videos_2_dl': _videos_2dl, 'videos_al_dl': _videos_aldl, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_koinit, 'videos_error_dl': videos_kodl})
+        return ({'videos_req': list_videos_str, 'videos_2_dl': list_videos2dl_str, 'videos_al_dl': list_videosaldl_str, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_koinit, 'videos_error_dl': videos_kodl})
 
     def print_list_videos(self):
         
@@ -1052,13 +1059,22 @@ class AsyncDL():
             return(item if item else 0)
              
         list_videos_str = [[fill(url, 250)]
-                            for url, vid in self.info_videos.items()]
+                            for url, vid in self.info_videos.items() if vid.get('todl')]
         
         list_videos2dl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 50), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
                                fill(url, 250)]
                                 for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
         
-        logger.info(f"RESULT: Total videos [{(_tv:=len(self.list_videos))}] To DL [{(_tv2dl:=len(self.videos_to_dl))}] Already DL [{(_tval:=len(self.list_initaldl))}]")
+        list_videosaldl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 50), 
+                               fill(url, 150), fill(vid['aldl'], 150)]
+                                for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
+        
+        list_videossamevideo_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 50), 
+                               fill(url, 150), fill(vid['samevideo'], 150)]
+                                for url, vid in self.info_videos.items() if vid.get('samevideo')]
+        
+        
+        logger.info(f"Total videos [{(_tv:=len(list_videos_str))}]\nTo DL [{(_tv2dl:=len(list_videos2dl_str))}]\nAlready DL [{(_tval:=len(list_videosaldl_str))}]\nSame requests [{(_tval:=len(list_videossamevideo_str))}]")
         logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
         
         _columns = ['URL']
@@ -1070,3 +1086,4 @@ class AsyncDL():
         logger.debug(f"%no%\n\n{tab_tv}\n\n")
         logger.info(f"%no%Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
         
+        return (list_videos_str, list_videos2dl_str, list_videosaldl_str, list_videossamevideo_str)
