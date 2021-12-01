@@ -71,7 +71,6 @@ def main():
                 
             try:
                 
-                
                 args_tk = init_tk()        
                 aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True) 
                     

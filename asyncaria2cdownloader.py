@@ -42,13 +42,7 @@ class AsyncARIA2CDownloader():
     
     def __init__(self, port, video_dict, vid_dl):
 
-        
-        
-       
-        # self.proxies = "http://atgarcia:ID4KrSc6mo6aiy8@proxy.torguard.org:6060"
-        # #self.proxies = "http://192.168.1.133:5555"
-        
-        #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
+
                 
 
         self.info_dict = copy.deepcopy(video_dict)
@@ -56,18 +50,17 @@ class AsyncARIA2CDownloader():
         
         self.aria2_client = aria2p.API(aria2p.Client(port=port))    
         
-        #self.webpage_url = video_dict.get('webpage_url')
 
         self.id = self.info_dict['id']
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
        
         
-        self.proxies = self.ytdl.params.get('proxy', None)
-        if self.proxies:
-            self.proxies = f"http://{self.proxies}"
-        self.verifycert = not self.ytdl.params.get('nocheckcertificate')
+        proxies = self.ytdl.params.get('proxy', None)
+        if proxies:
+            self.proxies = f"http://{proxies}"
         
+        self.verifycert = not self.ytdl.params.get('nocheckcertificate')        
         self.video_url = self.info_dict.get('url')
         
         self.headers = self.info_dict.get('http_headers')  
@@ -81,9 +74,7 @@ class AsyncARIA2CDownloader():
             # self.download_path = self.base_download_path
             _filename = self.info_dict.get('filename')            
             self.filename = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "aria2."  + self.info_dict['ext'])
-            
-        
-        
+
         self.filesize = none_to_cero((self.info_dict.get('filesize', 0)))
         
         self.down_size = 0
