@@ -18,7 +18,8 @@ from utils import (
     naturalsize,
     is_playlist_extractor,
     get_chain_links,
-    init_aria2c
+    init_aria2c,
+    none_to_cero
     
 )
 
@@ -81,7 +82,8 @@ class AsyncDL():
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
         self.count_run = 0        
-        self.count_manip = 0 
+        self.count_manip = 0
+        
         
         self.time_now = datetime.now()
 
@@ -194,7 +196,7 @@ class AsyncDL():
                     
                     for file in folder.rglob('*'):
                         
-                        if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.m3u8', '.zip')):
+                        if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip')):
 
                             
                             _res = file.stem.split('_', 1)
@@ -437,11 +439,11 @@ class AsyncDL():
                 
                 for entry in _url_pl_entries:
                         
-                    _url = entry.get('url') or entry.get('webpage_url')
+                    _url = entry.get('original_url') or entry.get('url')
                     if not self.info_videos.get(_url): #es decir, los nuevos videos 
                         
                         if not entry.get('_type'):
-                            entry['webpage_url'] = entry['url']
+                            entry['webpage_url'] = _url
                         
                         _same_video = self._check_if_same_video(entry)
                         
@@ -594,7 +596,7 @@ class AsyncDL():
             self.info_videos[url].update({'todl': True})
             if (_id:=self.info_videos[url]['video_info'].get('id')):
                 self.info_videos[url]['video_info']['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
-            if self.info_videos[url]['video_info'].get('filesize', None):
+            if not self.info_videos[url]['video_info'].get('filesize', None):
                 self.info_videos[url]['video_info']['filesize'] = 0
             if not (_path:=self._check_if_aldl(vid['video_info'])): 
                 self.videos_to_dl.append(vid['video_info'])
@@ -623,7 +625,9 @@ class AsyncDL():
             while True:
                 
                 #num, vid = self.queue_vid.get(block=True)    
-                num, vid = await self.queue_vid.get()
+                async with self.lock:
+                    vid = await self.queue_vid.get()
+                    _pending = self.queue_vid.qsize() - self.init_nworkers
                 
                 if vid == "KILL":
                     logger.debug(f"[worker_init][{i}]: finds KILL")
@@ -655,8 +659,8 @@ class AsyncDL():
                 
                 else: 
 
-                    logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] extracting info")
-                    #logger.info(f"[worker_init][{i}]: [{num}] [{vid}] extracting info")       
+                    logger.debug(f"[worker_init][{i}]: [{vid.get('url') or vid.get('webpage_url')}] extracting info")
+                    #logger.info(f"[worker_init][{i}]: [{vid}] extracting info")       
                     
                     try: 
                         
@@ -669,7 +673,7 @@ class AsyncDL():
                             
                             except Exception as e:                                
                                 
-                                logger.info(f"[worker_init][{i}]: [{num}] [{vid['url']}] error when extracting info {repr(e)}")
+                                
                                 
                                 if 'unsupported url' in str(e).lower():                                    
                                     self.list_unsup_urls.append(vid)
@@ -687,7 +691,8 @@ class AsyncDL():
                                 _upt_error = self.info_videos[vid['url']]['error'].append(_error)
                                 self.info_videos[vid['url']].update({'status': 'initnok', 'error': _upt_error})
                                 
-                                logger.error(f"[worker_init][{i}]: [{num}] [{vid['url']}] INIT NOK - ERROR - {_error}") 
+                                logger.error(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{vid['url']}] init nok - {_error}")
+                                
                                     
                                 continue
 
@@ -712,14 +717,15 @@ class AsyncDL():
                             info['release_timestamp'] = _mtime
                             info['release_date'] = vid.get('release_date')
                         
-                        logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] info extracted")
-                        logger.debug(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] info extracted\n{info}")
+                        logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{info.get('id')}][{info.get('title')}] info extracted")                        
+                        logger.debug(f"[worker_init][{i}]: [{vid.get('url') or vid.get('webpage_url')}] info extracted\n{info}")
                         
                         self.info_videos[vid.get('url') or vid.get('webpage_url')].update({'video_info': info})
                         
                         if (_path:=self._check_if_aldl(info)):
                             
-                            logger.info(f"[worker_init][{i}]: [{num}] [{vid.get('url') or vid.get('webpage_url')}] already DL")
+                            #logger.info(f"[worker_init][{i}]: [{vid.get('url') or vid.get('webpage_url')}] already DL")
+                            logger.info(f"[worker_init][{i}]: [{info.get('id')}][{info.get('title')}] already DL")
                             self.videos_to_dl.remove(vid)
                             
                             if (_filesize:=vid.get('filesize',0)):
@@ -746,18 +752,22 @@ class AsyncDL():
                                 
                         if not dl.info_dl.get('status', "") == "error":
                             
+                            if dl.info_dl.get('filesize'):
+                                self.info_videos[vid.get('url') or vid.get('webpage_url')]['video_info']['filesize'] = dl.info_dl.get('filesize')
+                                    
                             self.info_videos[vid.get('url') or vid.get('webpage_url')].update({'status': 'initok', 'filename': dl.info_dl.get('filename'), 'dl': dl})
                             
                             async with self.lock:
                                 self.totalbytes2dl = self.totalbytes2dl - vid.get('filesize', 0) + dl.info_dl.get('filesize', 0)
+                            
                             self.list_dl.append(dl)
                             
                             if dl.info_dl['status'] in ("init_manipulating", "done"):
                                 self.queue_manip.put_nowait(dl)
-                                logger.info(f"[worker_init][{i}]: [{num}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : video parts DL, lets create it [{num} out of {len(self.videos_to_dl)}] : progress [aldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
                             else:
                                 self.queue_run.put_nowait(dl)
-                                logger.info(f"[worker_init][{i}]: [{num}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init DL OK : [{num} out of {len(self.videos_to_dl)}] : progress [aldl:{len(self.list_initaldl)} dl:{len(self.list_dl)} initnok:{len(self.list_initnok)}]")
+                                logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL")
                                         
                                         
                         else:                                         
@@ -768,7 +778,7 @@ class AsyncDL():
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
                         self.list_initnok.append((vid, f"Error:{repr(e)}"))
-                        logger.error(f"[worker_init][{i}]: [{num}] DL constructor failed for {vid.get('url') or vid.get('webpage_url')} - Error:{repr(e)} \n{'!!'.join(lines)}")
+                        logger.error(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{vid.get('url') or vid.get('webpage_url')}] init nok - Error:{repr(e)} \n{'!!'.join(lines)}")
                         
                         if info: self.list_urls_to_check.append((info,str(e)))
                         else: self.list_urls_to_check.append((vid,str(e)))
@@ -811,7 +821,7 @@ class AsyncDL():
                 
                 elif video_dl == "KILLANDCLEAN":
                     logger.debug(f"[worker_run][{i}]: get KILLANDCLEAN, bye")  
-                    #nworkers = min(self.workers,len(self.videos_to_dl))
+                    
                     nworkers = self.workers
                     while (self.count_run < (nworkers - 1)):
                         await asyncio.sleep(1)
@@ -913,11 +923,15 @@ class AsyncDL():
         
 
         #preparo queue de videos para workers init
-        for i, video in enumerate(self.videos_to_dl):
-            self.queue_vid.put_nowait((i, video))             
+        for video in (self.videos_to_dl):
+            self.queue_vid.put_nowait(video)             
         for _ in range(self.init_nworkers-1):
-            self.queue_vid.put_nowait((-1, "KILL"))        
-        self.queue_vid.put_nowait((-1, "KILLANDCLEAN"))
+            self.queue_vid.put_nowait("KILL")        
+        self.queue_vid.put_nowait("KILLANDCLEAN")
+        
+        self.num_videos_to_check = len(self.videos_to_dl)
+        
+      
 
         
         logger.info(f"MAX WORKERS [{self.workers}]")
@@ -1055,8 +1069,7 @@ class AsyncDL():
 
     def print_list_videos(self):
         
-        def none_to_cero(item):
-            return(item if item else 0)
+        
              
         list_videos_str = [[fill(url, 250)]
                             for url, vid in self.info_videos.items() if vid.get('todl')]

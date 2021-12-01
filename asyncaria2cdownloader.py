@@ -1,12 +1,13 @@
 import asyncio
 
-import httpx
+from urllib.parse import unquote
 import sys
 from pathlib import Path
 import logging
 from utils import (
     naturalsize,
-    std_headers
+    std_headers,
+    none_to_cero
 )
 import traceback
 
@@ -83,7 +84,7 @@ class AsyncARIA2CDownloader():
             
         
         
-        self.filesize = self.info_dict.get('filesize')
+        self.filesize = none_to_cero((self.info_dict.get('filesize', 0)))
         
         self.down_size = 0
         self.speed = ""
@@ -93,31 +94,19 @@ class AsyncARIA2CDownloader():
         self.status = 'init'
         self.error_message = ""
         
+        self.init()
         
-                   
-    
-    async def wait_time(self, n):
-   
-        _started = time.monotonic()
-        while True:
-            if (_t:=(time.monotonic() - _started)) >= n:
-                return _t
-            else:
-                await asyncio.sleep(0)
-        
-
-    async def fetch_async(self):
-
-
+ 
+    def init(self):
         
         opts_dict = {'header': [f'{key}: {value}' for key,value in self.headers.items() if not key in ['User-Agent','Accept-Charset']],
-                     'dir': str(self.download_path),
-                     'out': self.filename.name,
-                     'check-certificate': self.verifycert,
-                     'connect-timeout': '10',
-                     'timeout': '10',
-                     'max-tries': '2',
-                     'user-agent': std_headers['User-Agent']}
+                'dir': str(self.download_path),
+                'out': self.filename.name,
+                'check-certificate': self.verifycert,
+                'connect-timeout': '10',
+                'timeout': '10',
+                'max-tries': '2',
+                'user-agent': std_headers['User-Agent']}
         
         opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
@@ -129,30 +118,68 @@ class AsyncARIA2CDownloader():
         try:         
             
                     
-            self.dl_cont = await asyncio.to_thread(self.aria2_client.add_uris,[self.video_url], opts)
+            self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
+            while True:
+                self.dl_cont.update()
+                if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
+                    break
+                if self.dl_cont.status in ('error'):
+                    raise AsyncARIA2CDLError(self.dl_cont.error_message)                
+                
+            if self.dl_cont.status in ('active'):
+                self.aria2_client.pause([self.dl_cont])
+                
+            elif self.dl_cont_status in ("complete"):
+                self.status = "done"
+                
+            if self.dl_cont.total_length:
+                self.filesize = self.dl_cont.total_length
+                           
+
+        
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
+            self.status = "error"
+            try:
+                self.error_message = self.dl_cont.error_message
+            except Exception:
+                self.error_message = repr(e)
+                
+            
+        
+        
+    async def wait_time(self, n):
+   
+        _started = time.monotonic()
+        while True:
+            if (_t:=(time.monotonic() - _started)) >= n:
+                return _t
+            else:
+                await asyncio.sleep(0)
+        
+
+    async def fetch_async(self):        
+
+        try: 
+            
+            await asyncio.to_thread(self.aria2_client.resume,[self.dl_cont])
             await asyncio.sleep(0)
             while True:
                 await asyncio.to_thread(self.dl_cont.update)
-                if self.dl_cont.total_length or self.dl_cont.status in ('error', 'complete'):
-                    break               
-                await asyncio.sleep(0)
-            
-            if self.dl_cont.total_length:
-                self.filesize = self.dl_cont.total_length
-                self.video_downloader.info_dl['filesize'] += self.filesize
-                 
+                if self.dl_cont.status in ('active', 'error'):
+                    break                    
+                    
             
             if self.dl_cont.status in ('active'):        
                 self.status = "downloading"  
                 
-                while self.dl_cont.status in ('active'):
-                    
+                while self.dl_cont.status in ('active'):                    
                                     
                     _incsize = self.dl_cont.completed_length - self.down_size
                     self.down_size = self.dl_cont.completed_length
                     async with self.video_downloader.lock: 
-                        self.video_downloader.info_dl['down_size'] += _incsize 
-                                                
+                        self.video_downloader.info_dl['down_size'] += _incsize                                                 
 
                     await asyncio.sleep(0)
                     await asyncio.to_thread(self.dl_cont.update)
@@ -166,8 +193,9 @@ class AsyncARIA2CDownloader():
                 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {type(e)}\n{'!!'.join(lines)}")
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
             self.status = "error"
+            self.error_message = repr(e)
             
             
     async def print_hookup(self):

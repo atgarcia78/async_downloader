@@ -7,6 +7,7 @@ import logging
 from utils import (
     naturalsize,
     int_or_none,
+    none_to_cero,
     EMA
 )
 
@@ -83,7 +84,7 @@ class AsyncHTTPDownloader():
             
         
         
-        self.filesize = self.info_dict.get('filesize', None)        
+        self.filesize = none_to_cero(self.info_dict.get('filesize', 0))
         self.down_size = 0
         self.down_temp = 0
         
@@ -348,9 +349,7 @@ class AsyncHTTPDownloader():
         
                 
         try:
-            
-            
-        
+
             client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] launched")
             

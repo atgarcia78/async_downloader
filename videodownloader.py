@@ -92,7 +92,7 @@ class VideoDownloader():
             self.info_dl.update({
                 'downloaders': downloaders,
                 'requested_subtitles': copy.deepcopy(_req_sub) if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
-                'filesize': sum([dl.filesize for dl in downloaders if dl.filesize and not 'aria2' in str(type(dl)).lower()]),
+                'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
                 'down_size': sum([dl.down_size for dl in downloaders]),
                 'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init",
                 'error_message': ""             

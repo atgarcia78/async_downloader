@@ -100,14 +100,18 @@ class AsyncHLSDownloader():
         self.key_cache = dict()
         
         self.n_reset = 0
-        self.down_size = 0
-        self.down_temp = 0
-        self.status = "init"
-        self.error_message = "" 
-        self.prep_init()
-        
+       
         self.ema_s = EMA(smoothing=0.0001)
         self.ema_t = EMA(smoothing=0.0001)
+        self.down_size = 0
+        self.down_temp = 0        
+        
+        self.status = "init"
+        self.error_message = "" 
+        
+        self.init()
+        
+        
 
     def get_info_fragments(self):
         
@@ -135,7 +139,7 @@ class AsyncHLSDownloader():
         finally:
             client.close()
         
-    def prep_init(self):
+    def init(self):
 
         self.info_frag = []
         self.frags_to_dl = []

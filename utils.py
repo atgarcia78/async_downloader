@@ -55,6 +55,9 @@ class EMA(object):
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
+def none_to_cero(item):
+    return(item if item else 0)
+
 def get_chain_links(f):
     _links = []
     _links.append(f)
