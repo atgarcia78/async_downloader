@@ -7,7 +7,7 @@ import traceback
 from shutil import rmtree
 import m3u8
 import binascii
-from Crypto.Cipher import AES
+from Cryptodome.Cipher import AES
 
 from pathlib import Path
 
