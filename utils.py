@@ -74,6 +74,8 @@ def get_chain_links(f):
 
 def kill_processes(logger=None, rpcport=None):
     
+    def _log(msg):
+        logger.debug(msg) if logger else print(msg)
         
     term = (subprocess.run(["tty"], encoding='utf-8', capture_output=True).stdout).splitlines()[0].replace("/dev/", "")
     res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,tty,command"], encoding='utf-8', capture_output=True).stdout
@@ -87,11 +89,11 @@ def kill_processes(logger=None, rpcport=None):
             
         _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
             
-        logger.debug("[kill_processes]\n" + '\n'.join(_debugstr))
+        _log("[kill_processes]\n" + '\n'.join(_debugstr))
             
     
     else: 
-        logger.debug("[kill_processes] No processes found to kill") if logger else print("[kill_processes] No processes found to kill")
+        _log("[kill_processes] No processes found to kill") 
         
     if mobj2:
         
@@ -388,6 +390,7 @@ def init_aria2c(args):
     
     logger = logging.getLogger("asyncDL")
     subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
+    logger.info(f"aria2c daemon running on port: {args.rpcport} ")
     cl = aria2p.API(aria2p.Client(port=args.rpcport))
     opts = cl.get_global_options()
     opts_dict = {
@@ -401,7 +404,7 @@ def init_aria2c(args):
     
     dict_opts = opts._struct
     del dict_opts['dir']
-    logger.info(f"aria2c options:\n{dict_opts}")
+    logger.debug(f"aria2c options:\n{dict_opts}")
     del cl
     
     

@@ -130,12 +130,14 @@ class AsyncHLSDownloader():
             
             self.cookies = client.cookies.jar.__dict__['_cookies']
             #self.m3u8_obj = m3u8.load(self.video_url, headers=self.headers, verify_ssl=self.verifycert)
-            
+            if self.m3u8_obj.keys:
+                for _key in self.m3u8_obj.keys:
+                    if _key.method != 'AES-128': logger.warning(f"key AES method: {_key.method}")
             return self.m3u8_obj.segments
  
         except Exception as e:
-            logger.warning(f"No hay descriptor: {e}", exc_info=True)
-            raise AsyncHLSDLErrorFatal("no hay descriptor")
+            logger.exception(f"no m3u8 info - {repr(e)}")
+            raise AsyncHLSDLErrorFatal("no m3u8 info")
         finally:
             client.close()
         

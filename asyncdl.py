@@ -395,9 +395,13 @@ class AsyncDL():
             if netdna_list:
                 logger.info(f"[netdna_list]: {netdna_list}")
                 #NetDNAIE._downloader = self.ytdl
+                _ies_netdna = self.ytdl.get_info_extractor('NetDNA')
+                 
                 with ThreadPoolExecutor(thread_name_prefix="Get_netdna", max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
                      
-                    futures = [ex.submit(NetDNAIE.get_entry, _url_netdna, self.ytdl) for _url_netdna in netdna_list]
+                    futures = [ex.submit(_ies_netdna.get_entry, _url_netdna) for _url_netdna in netdna_list]
+                    
+
                     
                 for fut,_url_netdna in zip(futures, netdna_list):
                     try:
@@ -1100,3 +1104,8 @@ class AsyncDL():
         logger.info(f"%no%Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
         
         return (list_videos_str, list_videos2dl_str, list_videosaldl_str, list_videossamevideo_str)
+    
+    def close(self):
+        ies = self.ytdl._ies_instances.get('NetDNA')
+        if ies:
+            ies.close()

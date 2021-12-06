@@ -92,6 +92,7 @@ def main():
                     file.write(line) 
     
     finally:        
+        asyncDL.close()
         kill_processes(logger=logger, rpcport=args.rpcport)
         
  
