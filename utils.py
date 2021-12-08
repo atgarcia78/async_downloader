@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import (
-    std_headers, 
-    )
+    std_headers,
+    js_to_json)
 import random
 import httpx
 from pathlib import Path
@@ -15,14 +15,10 @@ import re
 import argparse
 import tkinter as tk
 
-import demjson
 from queue import Queue
 import subprocess
-import asyncio
 import shutil
 
-import time
-from tqdm import tqdm
 import aria2p
  
 class EMA(object):
@@ -56,7 +52,7 @@ class EMA(object):
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
 def none_to_cero(item):
-    return(item if item else 0)
+    return(0 if not item else item)
 
 def get_chain_links(f):
     _links = []
@@ -140,8 +136,12 @@ def folderfiles(folder):
         
     return count
 
-def get_el_list(_list: list, _index: int):
-   return _list[_index] if _index < len(_list) else None 
+def get_value_list_or_none(_list, _index=None):
+   if _list == None: return None
+   elif len(_list) == 0: return None
+   elif len(_list) == 1: return _list[0]
+   elif _index == None: return _list[0]
+   else: return _list[_index] if _index < len(_list) else None 
 
 def int_or_none(res):
     return int(res) if res else None
@@ -354,8 +354,7 @@ def init_argparser():
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true", default=False)   
     parser.add_argument("--headers", default="", type=str)  
-    parser.add_argument("-u", action="append", dest="collection", default=[])
-    parser.add_argument("--byfilesize", help="order list of videos to dl by filesize", action="store_true")  
+    parser.add_argument("-u", action="append", dest="collection", default=[])   
     parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true", default=False)
     parser.add_argument("--path", default=None, type=str)    
     parser.add_argument("--caplinks", action="store_true", default=False)    
@@ -447,11 +446,8 @@ def init_ytdl(args):
         if proxy:
             ytdl_opts['proxy'] = proxy
 
-    if args.ytdlopts: ytdl_opts.update(demjson.decode(args.ytdlopts))
+    if args.ytdlopts: ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
     
-    
-    # ytdl = YoutubeDL(ytdl_opts, auto_init=False)
-    # ytdl.add_default_info_extractors()
     
     ytdl = YoutubeDL(ytdl_opts)
     
@@ -464,7 +460,7 @@ def init_ytdl(args):
     std_headers["Accept-Language"] = "en,es-ES;q=0.5"
     std_headers["Accept-Encoding"] = "gzip, deflate"
     if args.headers:
-        std_headers.update(demjson.decode(args.headers))
+        std_headers.update(json.loads(js_to_json(args.headers)))
        
         
     logger.debug(f"std-headers:\n{std_headers}")

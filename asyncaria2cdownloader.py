@@ -43,8 +43,6 @@ class AsyncARIA2CDownloader():
     def __init__(self, port, video_dict, vid_dl):
 
 
-                
-
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl                
         
@@ -97,6 +95,7 @@ class AsyncARIA2CDownloader():
                 'connect-timeout': '10',
                 'timeout': '10',
                 'max-tries': '2',
+                'split': '16',
                 'user-agent': std_headers['User-Agent']}
         
         opts = self.aria2_client.get_global_options()
@@ -112,6 +111,7 @@ class AsyncARIA2CDownloader():
             self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
             while True:
                 self.dl_cont.update()
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if self.dl_cont.status in ('error'):

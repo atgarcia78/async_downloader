@@ -13,21 +13,13 @@ from utils import (
     init_argparser,
     patch_http_connection_pool,
     patch_https_connection_pool,
-    kill_processes
-)
+    kill_processes)
 
-import subprocess
-
-from concurrent.futures import (
-    ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
     
-)
-
-
 from codetiming import Timer
 
 from asyncdl import AsyncDL
-
 
 
 def main():
@@ -52,11 +44,11 @@ def main():
         
         logger.info(f"Hi, lets dl!\n{args}")
                 
-        asyncDL = AsyncDL(args)    
-        
+        asyncDL = AsyncDL(args)        
         
         with ThreadPoolExecutor(thread_name_prefix="Init", max_workers=2) as ex:
-            fut = [ex.submit(asyncDL.get_videos_cached), ex.submit(asyncDL.get_list_videos)]
+            ex.submit(asyncDL.get_videos_cached)
+            ex.submit(asyncDL.get_list_videos)
            
 
         asyncDL.get_videos_to_dl()    
@@ -69,11 +61,9 @@ def main():
         
         if asyncDL.videos_to_dl:    
                 
-            try:
-                
+            try:                
                 args_tk = init_tk()        
-                aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True) 
-                    
+                aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True)                     
             except Exception as e:
                 logger.exception(repr(e))
 
@@ -92,10 +82,7 @@ def main():
                     file.write(line) 
     
     finally:        
-        asyncDL.close()
-        kill_processes(logger=logger, rpcport=args.rpcport)
-        
- 
+        asyncDL.exit()
 
 if __name__ == "__main__":
     

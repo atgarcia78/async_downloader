@@ -44,7 +44,7 @@ class AsyncHTTPDownloader():
     _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
     #_CHUNK_SIZE = 1048576 #1MB
-    _MAX_RETRIES = 20
+    _MAX_RETRIES = 50
     
     def __init__(self, video_dict, vid_dl):
 
@@ -66,7 +66,7 @@ class AsyncHTTPDownloader():
             self.proxies = f"http://{self.proxies}"
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
-        self.timeout = httpx.Timeout(10, connect=30)
+        self.timeout = httpx.Timeout(30, connect=30)
         
         self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
         self.headers = self.info_dict.get('http_headers')  
@@ -413,10 +413,10 @@ class AsyncHTTPDownloader():
                                         _median = median(self.parts[part-1]['time2dlchunks'][nth_key])
                                         self.parts[part-1]['statistics'][nth_key].append(_median)
                                                 
-                                        if self.parts[part-1]['nchunks_dl'][nth_key] > 10:
+                                        if self.parts[part-1]['nchunks_dl'][nth_key] > 40:
                                         
-                                            _time = self.parts[part -1]['time2dlchunks'][nth_key][-5:]
-                                            _max = [20*_el for _el in self.parts[part -1]['statistics'][nth_key][-5:]]
+                                            _time = self.parts[part -1]['time2dlchunks'][nth_key][-20:]
+                                            _max = [25*_el for _el in self.parts[part -1]['statistics'][nth_key][-20:]]
                                             if set([_el1>_el2 for _el1,_el2 in zip(_time, _max)]) == {True}:
                                                 raise AsyncHTTPDLErrorFatal(f"timechunk [{_time}] > [{_max}] for consecutives chunks in {nth_key} iteración, nchunks[{self.parts[part -1]['nchunks_dl'][nth_key]}]")
                                         

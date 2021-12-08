@@ -132,7 +132,7 @@ class AsyncHLSDownloader():
             #self.m3u8_obj = m3u8.load(self.video_url, headers=self.headers, verify_ssl=self.verifycert)
             if self.m3u8_obj.keys:
                 for _key in self.m3u8_obj.keys:
-                    if _key.method != 'AES-128': logger.warning(f"key AES method: {_key.method}")
+                    if _key and _key.method != 'AES-128': logger.warning(f"key AES method: {_key.method}")
             return self.m3u8_obj.segments
  
         except Exception as e:
