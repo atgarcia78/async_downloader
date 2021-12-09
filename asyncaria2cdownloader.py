@@ -93,11 +93,13 @@ class AsyncARIA2CDownloader():
  
     def init(self):
         
-        opts_dict = {'header': [f'{key}: {value}' for key,value in self.headers.items()],
-                'dir': str(self.download_path),
-                'out': self.filename.name,
-                'check-certificate': self.verifycert,              
-                'user-agent': std_headers['User-Agent']}
+        opts_dict = {
+            'split': '16',
+            'header': [f'{key}: {value}' for key,value in self.headers.items()],
+            'dir': str(self.download_path),
+            'out': self.filename.name,
+            'check-certificate': self.verifycert,              
+            'user-agent': std_headers['User-Agent']}
         
         opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
@@ -121,7 +123,7 @@ class AsyncARIA2CDownloader():
             if self.dl_cont.status in ('active'):
                 self.aria2_client.pause([self.dl_cont])
                 
-            elif self.dl_cont_status in ("complete"):
+            elif self.dl_cont.status in ('complete'):
                 self.status = "done"
                 
             if self.dl_cont.total_length:
