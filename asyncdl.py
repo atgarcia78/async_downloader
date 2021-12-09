@@ -611,7 +611,7 @@ class AsyncDL():
         for url, infodict in self.info_videos.items():
             if infodict.get('todl') and not infodict.get('aldl') and not infodict.get('samevideo'):
                 self.totalbytes2dl += none_to_cero(infodict.get('video_info', {}).get('filesize', 0))
-                self.videos_to_dl.append((url, infodict))
+                self.videos_to_dl.append(url)
                 
         logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}]") 
                 
@@ -645,17 +645,8 @@ class AsyncDL():
                     
                     self.queue_run.put_nowait(("", "KILLANDCLEAN"))
                     
-                    if self.list_dl:
-                        info_dl = {"entries": [dl.info_dict for dl in self.list_dl]}
-                        
-                        if info_dl:
-                            #logger.info(info_dl)                   
-                            _info_dl_str = json.dumps(js_to_json(info_dl))
-                            with open(Path(Path.home(), f"Projects/common/logs/lastsession.json"), "w") as f:                        
-                                f.write(_info_dl_str)
-                    else:
-                        self.stop_tk = True
-
+                    if not self.list_dl: self.stop_tk = True
+ 
                     break
                 
                 else: 
@@ -915,7 +906,7 @@ class AsyncDL():
         
 
         #preparo queue de videos para workers init
-        for url in self.videos_to_dl.keys():
+        for url in self.videos_to_dl:
             self.queue_vid.put_nowait(url)             
         for _ in range(self.init_nworkers-1):
             self.queue_vid.put_nowait("KILL")        

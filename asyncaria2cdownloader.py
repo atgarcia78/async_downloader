@@ -85,17 +85,18 @@ class AsyncARIA2CDownloader():
         
         self.init()
         
- 
-    def init(self):
-        
-        opts_dict = {'header': [f'{key}: {value}' for key,value in self.headers.items() if not key in ['User-Agent','Accept-Charset']],
-                'dir': str(self.download_path),
-                'out': self.filename.name,
-                'check-certificate': self.verifycert,
+        '''
                 'connect-timeout': '10',
                 'timeout': '10',
                 'max-tries': '2',
-                'split': '16',
+        '''
+ 
+    def init(self):
+        
+        opts_dict = {'header': [f'{key}: {value}' for key,value in self.headers.items()],
+                'dir': str(self.download_path),
+                'out': self.filename.name,
+                'check-certificate': self.verifycert,              
                 'user-agent': std_headers['User-Agent']}
         
         opts = self.aria2_client.get_global_options()

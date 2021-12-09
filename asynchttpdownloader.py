@@ -11,7 +11,7 @@ from utils import (
     EMA
 )
 
-from concurrent.futures import CancelledError, ThreadPoolExecutor, wait, ALL_COMPLETED
+from concurrent.futures import CancelledError, ThreadPoolExecutor
 
 from shutil import rmtree
 import time
@@ -20,7 +20,9 @@ import traceback
 from statistics import median
 import datetime
 
-import copy 
+import copy
+
+from user_agent import generate_user_agent 
 
 logger = logging.getLogger("async_http_DL")
 class AsyncHTTPDLErrorFatal(Exception):
@@ -61,12 +63,14 @@ class AsyncHTTPDownloader():
         self.id = self.info_dict['id']
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
-        self.proxies = self.ytdl.params.get('proxy', None)
-        if self.proxies:
-            self.proxies = f"http://{self.proxies}"
+        #self.proxies = self.ytdl.params.get('proxy', None)
+        #if self.proxies:
+        info_proxies = ["89.238.178.234", "192.145.124.174", "192.145.124.238", "192.145.124.234", "192.145.124.186", "192.145.124.242", "192.145.124.226", "89.238.178.206", "192.145.124.190"]
+        self.ua = [generate_user_agent(os='mac',navigator='firefox') for _ in range(len(info_proxies))]
+        self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339"} for ip in info_proxies]
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
-        self.timeout = httpx.Timeout(30, connect=30)
+        self.timeout = httpx.Timeout(60, connect=60)
         
         self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
         self.headers = self.info_dict.get('http_headers')  
@@ -107,32 +111,26 @@ class AsyncHTTPDownloader():
     def check_server(self):
         #checks if server can handle ranges
         cont = 5
-        try:
-            cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-            while (cont > 0): 
+        cl = httpx.Client(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
+
+        while (cont > 0): 
             
-                try:             
-                    res = cl.head(self.video_url, follow_redirects=True, headers={'range': 'bytes=0-'})
-                    if res.status_code > 400:
-                        time.sleep(1)
-                        cont -= 1
-                    else: 
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {res} {res.request.headers} {res.headers}") 
-                        break
-                except Exception as e:
-                    cont -= 1
-            
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)} \n{'!!'.join(lines)}")
-            cont = 0            
-        finally:
-            cl.close()
+            try:             
+                res = cl.head(self.video_url, headers={'range': 'bytes=0-'})
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {res} {res.request.headers} {res.headers}") 
+                res.raise_for_status()
+                break
+            except Exception as e:
+                lines = traceback.format_exception(*sys.exc_info())
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)} \n{'!!'.join(lines)}")
+                cont -= 1
+                time.sleep(1)
+        
+        cl.close()
             
         if cont == 0: _res = None
         else:
-            _res = res.headers.get('accept-ranges') or res.headers.get('content-range')
-        
+            _res = res.headers.get('accept-ranges') or res.headers.get('content-range')        
         
         return (_res)
         
@@ -142,7 +140,10 @@ class AsyncHTTPDownloader():
         
         try:
         
-            cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+            # _headers = self.headers
+            # _headers['User-Agent'] = self.ua[i]
+            # cl = httpx.Client(follow_redirects=True, limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies[i], headers=_headers)
+            cl = httpx.Client(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
             
            
             if offset:
@@ -153,27 +154,26 @@ class AsyncHTTPDownloader():
                 
                 try:
                 
-                    res = cl.head(self.video_url, follow_redirects=True, headers=self.parts[i]['headers'][-1])
-                
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {res} {res.request} {res.request.headers} {res.headers}")
-                    if res.status_code > 400:
-                        time.sleep(1)
-                        cont -= 1
-                    else: break
+                    res = cl.head(self.video_url, headers=self.parts[i]['headers'][-1])
+                    #with cl.stream("GET", self.video_url, headers=self.parts[i]['headers'][-1]) as res:
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {res} {res.request} {res.request.headers} {res.headers.get('content-length')}")
+                    res.raise_for_status()
+                    
+                    break
                     
                 except Exception as e:
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {repr(e)}")
-                    time.sleep(1)
+                    time.sleep(5)
                     cont -= 1
                     
             
-            if cont > 0: headers_size = res.headers.get('content-length')
-            else: headers_size = None
-            if headers_size:
-                headers_size = int(headers_size)
-                if not offset: self.parts[i].update({'headersize' : headers_size})
-                else: 
-                    self.parts[i].update({'hsizeoffset' : headers_size})
+            if cont == 0: raise Exception("no headers size")
+            headers_size = res.headers.get('content-length')
+            if not headers_size: raise Exception("no headers size")            
+            headers_size = int(headers_size)
+            if not offset: self.parts[i].update({'headersize' : headers_size})
+            else: 
+                self.parts[i].update({'hsizeoffset' : headers_size})
                     
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \n{self.parts[i]}")
         
@@ -220,9 +220,9 @@ class AsyncHTTPDownloader():
                     
                     start_range = end_range + 1
                     
-            with ThreadPoolExecutor(max_workers=16) as ex:
+            with ThreadPoolExecutor(max_workers=1) as ex:
                 fut = [ex.submit(self.upt_hsize, i) for i in range(self.n_parts)]
-                done, pending = wait(fut, return_when=ALL_COMPLETED)
+                #done, pending = wait(fut, return_when=ALL_COMPLETED)
                 
             _not_hsize = [_part for _part in self.parts if not _part['headersize']]
             if len(_not_hsize) > 0: logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] not headersize in [{len(_not_hsize)}/{self.n_parts}]")
@@ -350,7 +350,10 @@ class AsyncHTTPDownloader():
                 
         try:
 
-            client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+            # _headers = self.headers
+            # _headers['User-Agent'] = self.ua[i]
+            #client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies[i], headers=_headers)
+            client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] launched")
             
             while True:
@@ -372,7 +375,7 @@ class AsyncHTTPDownloader():
                         async with aiofiles.open(tempfilename, mode='ab') as f:
                         
                                                        
-                            async with client.stream("GET", self.video_url, headers= self.parts[part-1]['headers'][-1]) as res:
+                            async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers'][-1]) as res:
                             
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}]: [fetch] resp code {str(res.status_code)}: rep {self.parts[part-1]['n_retries']}\n{res.request.headers}")
                         
@@ -455,8 +458,11 @@ class AsyncHTTPDownloader():
                                 self.parts[part-1]['offset'] = _tempfile_size                               
                                 _hsizeoffset = self.upt_hsize(part - 1, offset=True) 
                                 await client.aclose()
-                                await self.wait_time(1)
-                                client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+                                #await self.wait_time(1)
+                                # _headers = self.headers
+                                # _headers['User-Agent'] = self.ua[i]
+                                # client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies[i], headers=self.headers)
+                                client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
                                 await asyncio.sleep(0)
                             else:
                                 raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
@@ -482,7 +488,9 @@ class AsyncHTTPDownloader():
             
         self.status = "downloading"  
         
-        await asyncio.sleep(0)        
+        await asyncio.sleep(0)
+        
+        #self.client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)        
         
         try:
             self.count = self._NUM_WORKERS
@@ -503,6 +511,9 @@ class AsyncHTTPDownloader():
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
+        finally:
+            #await self.client.aclose()
+            pass
 
         if (_parts_not_dl:= await asyncio.to_thread(self.partsnotdl)):
             self.status = "error"

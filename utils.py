@@ -262,7 +262,7 @@ def status_proxy():
     #dscacheutil -q host -a name proxy.torguard.org
     IPS_TORGUARD = ["88.202.177.231", "68.71.244.82", "88.202.177.233", "68.71.244.70", "68.71.244.102", "68.71.244.94", "37.120.153.242", "68.71.244.22", "88.202.177.230", "89.238.177.198", "37.120.244.230", "88.202.177.239", "68.71.244.30", "37.120.244.194", "46.23.78.25", "185.212.171.114", "68.71.244.50", "88.202.177.240", "68.71.244.18", "68.71.244.62", "37.120.244.198", "68.71.244.34", "68.71.244.78", "194.59.250.250", "68.71.244.42", "194.59.250.242", "194.59.250.226", "37.120.244.214", "37.120.244.202", "194.59.250.202", "88.202.177.243", "68.71.244.6", "88.202.177.235", "37.120.141.122", "89.238.177.194", "68.71.244.66", "88.202.177.237", "68.71.244.26", "185.212.171.118", "68.71.244.10", "68.71.244.98", "37.120.244.206", "88.202.177.238", "37.120.153.234", "68.71.244.90", "37.120.244.226", "68.71.244.54", "194.59.250.210", "185.156.172.198", "37.120.244.222", "68.71.244.46", "68.71.244.38", "37.120.141.114", "37.120.244.210", "185.156.172.154", "88.202.177.242", "37.120.244.218", "194.59.250.234", "89.238.177.202", "88.202.177.232", "88.202.177.241", "88.202.177.234", "68.71.244.58", "46.23.78.24", "194.59.250.218", "68.71.244.14", "194.59.250.194", "2.58.44.226"]
     
-    IPS_ES_SSL = ["192.145.124.186", "192.145.124.130", "192.145.124.234", "89.238.178.234", "192.145.124.242", "192.145.124.226", "192.145.124.238", "192.145.124.174", "89.238.178.206", "192.145.124.190"]
+    IPS_ES_SSL = ["192.145.124.186", "192.145.124.234", "89.238.178.234", "192.145.124.242", "192.145.124.226", "192.145.124.238", "192.145.124.174", "89.238.178.206", "192.145.124.190"]
     
    # IPS_TORGUARD = ["82.129.66.196"]
     
@@ -285,22 +285,24 @@ def status_proxy():
     
     list_res = list(queue_ok.queue)
     
-    list_ok = [res[0] for res in list_res]
+    list_ok = list(set([res[0] for res in list_res]))
+    
+    print(list_ok)
     
     queue_rtt = Queue() 
     
-    def _get_rtt(ip, port):
-        res = subprocess.run(["ping","-c","5","-q","-S","192.168.1.128", ip], encoding='utf-8', capture_output=True).stdout
+    def _get_rtt(ip):
+        res = subprocess.run(["ping","-c","10","-q","-S","192.168.1.128", ip], encoding='utf-8', capture_output=True).stdout
         mobj = re.findall(r'= [^\/]+\/([^\/]+)\/', res)
         if mobj: _tavg = float(mobj[0])
-        print(f"{ipl}:{_tavg}")
-        queue_rtt.put({'ip': f'{ip}:{port}', 'time': _tavg})
+        print(f"{ip}:{_tavg}")
+        queue_rtt.put({'ip': ip, 'time': _tavg})
          
     futures = []
     
     with ThreadPoolExecutor(max_workers=8) as ex: 
         for ipl in list_ok:
-            futures.append(ex.submit(_get_rtt, ipl, port))
+            futures.append(ex.submit(_get_rtt, ipl))
         
     list_ord = list(queue_rtt.queue)
 
@@ -312,7 +314,9 @@ def status_proxy():
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "w") as f:
         f.write(json.dumps(list_ord))
     
-    print(list_ord)
+    list_final = [el['ip'] for el in list_ord]
+    
+    print(json.dumps(list_final))
     return(list_ord)
 
  
@@ -336,7 +340,7 @@ def init_logging(file_path=None):
 def init_argparser():
     
  
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:96.0) Gecko/20100101 Firefox/96.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:97.0) Gecko/20100101 Firefox/97.0"]
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
@@ -392,49 +396,33 @@ def init_aria2c(args):
     logger.info(f"aria2c daemon running on port: {args.rpcport} ")
     cl = aria2p.API(aria2p.Client(port=args.rpcport))
     opts = cl.get_global_options()
-    opts_dict = {
-                'check-certificate': not args.nocheckcert,
-                'connect-timeout': '10',
-                'timeout': '10',
-                'max-tries': '2',
-                'user-agent': std_headers['User-Agent']}
-    for key,value in opts_dict.items():
-            opts.set(key, value)
-    
-    dict_opts = opts._struct
-    del dict_opts['dir']
-    logger.debug(f"aria2c options:\n{dict_opts}")
+    logger.debug(f"aria2c options:\n{opts._struct}")
+    del opts
     del cl
     
+
     
+class MyLogger(logging.LoggerAdapter):
+    #para ser compatible con el logging de yt_dlp: yt_dlp iusea debug para enviar los debig y
+    #los info. Los debug llevan '[debug] ' antes.
+    #se pasa un logger de logging al crear la instancia 
+    # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
+    
+    def debug(self, msg, /, *args, **kwargs):
+        if msg.startswith('[debug]'):
+            self.logger.debug(msg[8:], *args, **kwargs)
+        else: self.logger.info(msg, *args, **kwargs)
+    
+    
+     
 
 def init_ytdl(args):
 
 
-    logger = logging.getLogger("asyncDL")
-
-    ytdl_opts = {        
-        "continuedl": True,
-        "updatetime": False,
-        "ignoreerrors": False,
-        "verbose": args.verbose,
-        "quiet": args.quiet,
-        "extract_flat": "in_playlist",        
-        "format" : args.format,
-        "no_color" : True,
-        "usenetrc": True,
-        "skip_download": True,        
-        "logger" : logger,        
-        "nocheckcertificate" : args.nocheckcert,
-        "writesubtitles": True,
-        "subtitleslangs": ['en','es'],
-        "restrictfilenames": True,
-        "winit" : args.winit if args.winit > 0 else args.w,
-          
-    }
-
-    if args.proxy:
-        proxy = None
+    logger = logging.getLogger("yt_dlp")
+    
+    proxy = None
+    if args.proxy:        
         sch = args.proxy.split("://")
         if len(sch) == 2:
             if sch[0] != 'http':
@@ -442,26 +430,39 @@ def init_ytdl(args):
             else: proxy = args.proxy
         else:
             proxy = f"http://{args.proxy}"
-        
-        if proxy:
-            ytdl_opts['proxy'] = proxy
-
+                               
+    ytdl_opts = {
+        "proxy" : proxy,        
+        "logger" : MyLogger(logger,{}),
+        "verbose": args.verbose,
+        "quiet": args.quiet,
+        "format" : args.format,
+        "nocheckcertificate" : args.nocheckcert,
+        "subtitleslangs": ['en','es'],
+        "continuedl": True,
+        "updatetime": False,
+        "ignoreerrors": False,        
+        "extract_flat": "in_playlist",        
+        "no_color" : True,
+        "usenetrc": True,
+        "skip_download": True,        
+        "writesubtitles": True,        
+        "restrictfilenames": True,          
+    }
+    
     if args.ytdlopts: ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
-    
-    
+        
     ytdl = YoutubeDL(ytdl_opts)
     
     logger.info(f"ytdl opts:\n{ytdl.params}")
    
-
     std_headers["User-Agent"] = args.useragent
     std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" 
     std_headers["Connection"] = "keep-alive"
     std_headers["Accept-Language"] = "en,es-ES;q=0.5"
     std_headers["Accept-Encoding"] = "gzip, deflate"
     if args.headers:
-        std_headers.update(json.loads(js_to_json(args.headers)))
-       
+        std_headers.update(json.loads(js_to_json(args.headers)))       
         
     logger.debug(f"std-headers:\n{std_headers}")
     return ytdl
