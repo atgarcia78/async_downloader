@@ -17,6 +17,7 @@ import logging
 import random
 
 from utils import (
+    async_wait_time,
     print_norm_time,
     naturalsize,
     int_or_none,
@@ -329,14 +330,6 @@ class AsyncHLSDownloader():
         else:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
-    async def wait_time(self, n):
-
-        _started = time.monotonic()
-        while True:
-            if (_t:=(time.monotonic() - _started)) >= n:
-                return _t
-            else:
-                await asyncio.sleep(0)
                 
     async def fetch(self, nco):
 
@@ -520,7 +513,7 @@ class AsyncHLSDownloader():
                         if self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES:
                                                      
 
-                                await self.wait_time(random.choice([i for i in range(1,5)]))
+                                await async_wait_time(random.choice([i for i in range(1,5)]))
                                 await asyncio.sleep(0)
                                 
                                 

@@ -1,16 +1,13 @@
-import functools
 import logging
 import sys
 import traceback
 import json
-import json
+import shutil
 import tkinter as tk
 import asyncio
 from pathlib import Path
 from tabulate import tabulate
-import time
-import functools
-import contextvars
+
 
 
 from utils import (    
@@ -20,9 +17,9 @@ from utils import (
     get_chain_links,
     init_aria2c,
     none_to_cero,
-    js_to_json,
-    kill_processes
-    
+    kill_processes,
+    async_wait_time,
+    async_ex_in_thread    
 )
 
 from concurrent.futures import (
@@ -32,17 +29,11 @@ from concurrent.futures import (
 
 from yt_dlp.utils import sanitize_filename
 
-from yt_dlp.extractor.netdna import NetDNAIE
 
 from datetime import datetime
-from operator import itemgetter
 from videodownloader import VideoDownloader 
 
-
-from httpx._utils import Timer
-
 import hashlib
-
 from textwrap import fill
 
 
@@ -91,22 +82,9 @@ class AsyncDL():
         
         self.time_now = datetime.now()
 
-    async def _wait_time(self, n):
-   
-        _started = time.monotonic()
-        while True:
-            if (_t:=(time.monotonic() - _started)) >= n:
-                return _t
-            else:
-                await asyncio.sleep(0)
+    
                 
-    async def _ex_in_thread(self, prefix, func, /, *args, **kwargs):
-        
-        loop = asyncio.get_running_loop()
-        ctx = contextvars.copy_context()
-        func_call = functools.partial(ctx.run, func, *args, **kwargs)
-        ex = ThreadPoolExecutor(thread_name_prefix=prefix, max_workers=1)    
-        return await loop.run_in_executor(ex, func_call)
+    
 
     async def run_tk(self, args_tk):
         '''
@@ -118,7 +96,7 @@ class AsyncDL():
         
         while (not self.list_dl and not self.stop_tk):
             
-            await self._wait_time(self._INTERVAL_TK)
+            await async_wait_time(self._INTERVAL_TK)
             count += 1
             if count == 10:
                 count = 0
@@ -166,7 +144,7 @@ class AsyncDL():
                             text1.insert(tk.END, ''.join(list_manip))
                                          
                         
-                await self._wait_time(self._INTERVAL_TK)
+                await async_wait_time(self._INTERVAL_TK)
        
                 
         except Exception as e:
@@ -660,7 +638,7 @@ class AsyncDL():
                             #al no tratarse de video final vid['url'] siepre existe
                             try:                                    
                                 
-                                _res = await self._ex_in_thread(f"wkin[{i}]_ytdl", self.ytdl.extract_info, vid['url'])
+                                _res = await async_ex_in_thread(f"wkin[{i}]_ytdl", self.ytdl.extract_info, vid['url'])
                                 if not _res: raise Exception("no info video")
                                 info = self.ytdl.sanitize_info(_res)
                             
@@ -736,7 +714,7 @@ class AsyncDL():
                             
                            
                         
-                        dl = await self._ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, info, self.ytdl, self.args)                       
+                        dl = await async_ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, info, self.ytdl, self.args)                       
                                 
                         if not dl.info_dl.get('status', "") == "error":
                             
@@ -1036,7 +1014,7 @@ class AsyncDL():
 
     
     def print_list_videos(self):
-        import shutil
+        
         col = shutil.get_terminal_size().columns   
         list_videos_str = [[fill(url, col//2)]
                             for url, vid in self.info_videos.items() if vid.get('todl')]

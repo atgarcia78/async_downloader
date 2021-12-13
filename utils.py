@@ -20,6 +20,10 @@ import subprocess
 import shutil
 
 import aria2p
+import time
+import asyncio
+import contextvars
+import functools
  
 class EMA(object):
     """
@@ -50,6 +54,23 @@ class EMA(object):
             self.last = self.alpha * x + beta * self.last
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
+
+async def async_ex_in_thread(prefix, func, /, *args, **kwargs):
+        
+        loop = asyncio.get_running_loop()
+        ctx = contextvars.copy_context()
+        func_call = functools.partial(ctx.run, func, *args, **kwargs)
+        ex = ThreadPoolExecutor(thread_name_prefix=prefix, max_workers=1)    
+        return await loop.run_in_executor(ex, func_call)
+
+async def async_wait_time(n):
+   
+    _started = time.monotonic()
+    while True:
+        if (_t:=(time.monotonic() - _started)) >= n:
+            return _t
+        else:
+            await asyncio.sleep(0)
 
 def none_to_cero(item):
     return(0 if not item else item)
