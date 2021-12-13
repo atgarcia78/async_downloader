@@ -10,6 +10,7 @@ from logging.config import ConvertingList, ConvertingDict, valid_ident
 from logging.handlers import QueueHandler, QueueListener
 from queue import Queue
 import atexit
+import shutil
 
 from copy import copy
 
@@ -31,8 +32,7 @@ SUFFIX = '\033[0m'
 
 class FileFormatter(logging.Formatter):
 
-    def __init__(self, pattern):
-        logging.Formatter.__init__(self, pattern)
+    
 
     def format(self, record):
         file_record = copy(record)
@@ -40,17 +40,28 @@ class FileFormatter(logging.Formatter):
         return logging.Formatter.format(self, file_record)
 class ColoredFormatter(logging.Formatter):
 
-    def __init__(self, pattern):
-        logging.Formatter.__init__(self, pattern, "%H:%M:%S")
-
+   
+        
     def format(self, record):
+        
+        
         colored_record = copy(record)
         levelname = colored_record.levelname
         seq = MAPPING.get(levelname, 37) # default white
         colored_levelname = ('{0}{1}m{2}{3}') \
             .format(PREFIX, seq, levelname, SUFFIX)
         colored_record.levelname = colored_levelname
-        colored_record.msg = fill(colored_record.msg.replace("\n", "\n" + ' '*58), 200, subsequent_indent=' '*58, replace_whitespace=False) if not colored_record.msg.startswith("%no%") else colored_record.msg[4:]
+        if colored_record.msg.startswith("%no%"): 
+            colored_record.msg = colored_record.msg[4:]
+        else:
+            lines = colored_record.msg.splitlines()
+            colored_lines = []
+            col = shutil.get_terminal_size().columns
+            for line in lines:                
+                _lines = fill(line, (col-56-2), replace_whitespace=False)
+                colored_lines += _lines.splitlines()
+            _indent = "\n" + " "*56
+            colored_record.msg = f'{_indent}'.join(colored_lines)
         return logging.Formatter.format(self, colored_record)
 
 class FilterModule(logging.Filter):
@@ -64,15 +75,7 @@ class FilterModule(logging.Filter):
             if pattern in record.name: return False
         else: return True
         
-class Debug2Info(logging.Filter):
 
-        
-    def filter(self, record):
-        if record.name == "youtube_dl" and record.levelno ==  logging.DEBUG:
-            print("HIT")
-            record.levelno = logging.INFO
-            record.levelname = logging._levelToName[record.levelno]
-        return True
         
         
 def _resolve_handlers(l):

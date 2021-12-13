@@ -409,8 +409,9 @@ class MyLogger(logging.LoggerAdapter):
     # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
     
     def debug(self, msg, /, *args, **kwargs):
-        if msg.startswith('[debug]'):
-            self.logger.debug(msg[8:], *args, **kwargs)
+        mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
+        if mobj in ('[debug]', '[info]', '[download]'):
+            self.logger.debug(msg[len(mobj):].strip(), *args, **kwargs)
         else: self.logger.info(msg, *args, **kwargs)
     
     

@@ -1036,21 +1036,21 @@ class AsyncDL():
 
     
     def print_list_videos(self):
-        
-                 
-        list_videos_str = [[fill(url, 250)]
+        import shutil
+        col = shutil.get_terminal_size().columns   
+        list_videos_str = [[fill(url, col//2)]
                             for url, vid in self.info_videos.items() if vid.get('todl')]
         
-        list_videos2dl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 50), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
-                               fill(url, 250)]
+        list_videos2dl_str = [[fill(vid['video_info'].get('id'),col//5), fill(vid['video_info'].get('title', ''), col//5), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
+                               fill(url, col//3)]
                                 for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
         
-        list_videosaldl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 50), 
-                               fill(url, 150), fill(vid['aldl'], 150)]
+        list_videosaldl_str = [[fill(vid['video_info'].get('id'),col//5), fill(vid['video_info'].get('title', ''), col//5), 
+                               fill(url, col//3), fill(vid['aldl'], col//4)]
                                 for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
         
-        list_videossamevideo_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 50), 
-                               fill(url, 150), fill(vid['samevideo'], 150)]
+        list_videossamevideo_str = [[fill(vid['video_info'].get('id'),col//5), fill(vid['video_info'].get('title', ''), col//5), 
+                               fill(url, col//3), fill(vid['samevideo'], col//4)]
                                 for url, vid in self.info_videos.items() if vid.get('samevideo')]
         
         

@@ -10,11 +10,12 @@
     },
     "colored":{
         "()": "supportlogging.ColoredFormatter",
-        "pattern": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s"
+        "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-15s - %(message)s",
+        "datefmt": "%H:%M:%S"
     },
     "file_format":{  
         "()": "supportlogging.FileFormatter",
-        "pattern": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)s - %(message)s"
+        "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-15s - %(message)s"
     }
 
   },
