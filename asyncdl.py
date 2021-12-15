@@ -304,8 +304,8 @@ class AsyncDL():
             if self.args.caplinks and filecaplinks.exists():
                 _temp = set()
                 with open(filecaplinks, "r") as file:
-                    for url in file:
-                        _temp.add(url.strip())           
+                    for _url in file:
+                        if (_url:=_url.strip()): _temp.add(_url)           
                     
                 _url_list_caplinks = list(_temp)
                 
@@ -1019,15 +1019,15 @@ class AsyncDL():
         list_videos_str = [[fill(url, col//2)]
                             for url, vid in self.info_videos.items() if vid.get('todl')]
         
-        list_videos2dl_str = [[fill(vid['video_info'].get('id'),col//5), fill(vid['video_info'].get('title', ''), col//5), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
+        list_videos2dl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
                                fill(url, col//3)]
                                 for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
         
-        list_videosaldl_str = [[fill(vid['video_info'].get('id'),col//5), fill(vid['video_info'].get('title', ''), col//5), 
+        list_videosaldl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), 
                                fill(url, col//3), fill(vid['aldl'], col//4)]
                                 for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
         
-        list_videossamevideo_str = [[fill(vid['video_info'].get('id'),col//5), fill(vid['video_info'].get('title', ''), col//5), 
+        list_videossamevideo_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), 
                                fill(url, col//3), fill(vid['samevideo'], col//4)]
                                 for url, vid in self.info_videos.items() if vid.get('samevideo')]
         

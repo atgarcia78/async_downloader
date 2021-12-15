@@ -56,7 +56,7 @@ class AsyncHTTPDownloader():
         self.video_downloader = vid_dl
         self.n_parts = self.video_downloader.info_dl['n_workers']
         self._NUM_WORKERS = self.n_parts 
-        self.video_url = video_dict.get('url')
+        self.video_url = self.info_dict.get('url')
         #self.webpage_url = video_dict.get('webpage_url')
         
 
@@ -65,9 +65,10 @@ class AsyncHTTPDownloader():
         self.ytdl = self.video_downloader.info_dl['ytdl']
         #self.proxies = self.ytdl.params.get('proxy', None)
         #if self.proxies:
-        info_proxies = ["89.238.178.234", "192.145.124.174", "192.145.124.238", "192.145.124.234", "192.145.124.186", "192.145.124.242", "192.145.124.226", "89.238.178.206", "192.145.124.190"]
-        self.ua = [generate_user_agent(os='mac',navigator='firefox') for _ in range(len(info_proxies))]
-        self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339"} for ip in info_proxies]
+        #info_proxies = ["89.238.178.234", "192.145.124.174", "192.145.124.238", "192.145.124.234", "192.145.124.186", "192.145.124.242", "192.145.124.226", "89.238.178.206", "192.145.124.190"]
+        #self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339"} for ip in info_proxies]
+        #self.ua = [generate_user_agent(os='mac',navigator='firefox') for _ in range(len(info_proxies))]
+        
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
         self.timeout = httpx.Timeout(60, connect=60)
@@ -243,12 +244,13 @@ class AsyncHTTPDownloader():
             
             try:
                 size = None
-                cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-                res = cl.head(self.video_url, follow_redirects=True)
+                cl = httpx.Client(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
+                #cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+                res = cl.head(self.video_url)
                 #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{res.headers}:{res.request.headers}")
                 if res.status_code > 400: #repeat request without header referer
                     h_ref = cl.headers.pop('referer', None)
-                    res = cl.head(self.video_url, follow_redirects=True)
+                    res = cl.head(self.video_url)
 
                 if res.status_code < 400:
                     size = res.headers.get('content-length', None)

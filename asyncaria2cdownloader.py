@@ -46,14 +46,10 @@ class AsyncARIA2CDownloader():
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl                
         
-        self.aria2_client = aria2p.API(aria2p.Client(port=port))    
-        
-
-        self.id = self.info_dict['id']
+        self.aria2_client = aria2p.API(aria2p.Client(port=port))
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
-       
-        
+                
         proxies = self.ytdl.params.get('proxy', None)
         if proxies:
             self.proxies = f"http://{proxies}"
@@ -75,10 +71,7 @@ class AsyncARIA2CDownloader():
 
         self.filesize = none_to_cero((self.info_dict.get('filesize', 0)))
         
-        self.down_size = 0
-        self.speed = ""
-        self.progress = ""
-        self.connections = 0
+        self.down_size = 0               
         
         self.status = 'init'
         self.error_message = ""
@@ -94,7 +87,7 @@ class AsyncARIA2CDownloader():
     def init(self):
         
         opts_dict = {
-            'split': '16',
+            'split': self.video_downloader.info_dl['n_workers'],
             'header': [f'{key}: {value}' for key,value in self.headers.items()],
             'dir': str(self.download_path),
             'out': self.filename.name,
@@ -210,7 +203,7 @@ class AsyncARIA2CDownloader():
             _connections = _temp.connections
             _eta_str = _temp.eta_string()
                        
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]:(CONN[{_connections:2d}]) DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+            msg = f"[ARIA2C][{self.info_dict['format_id']}]:(CONN[{_connections:2d}/{self.video_downloader.info_dl['n_workers']:2d}]) DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
