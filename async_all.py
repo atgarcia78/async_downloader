@@ -69,17 +69,22 @@ def main():
 
         t2.stop()
         
-        res = asyncDL.get_results_info()     
-    
-        if args.caplinks:
+        res = asyncDL.get_results_info()
+        
+        videos_ko = list(set(res['videoskodl']['urls'] + res['videoskoinit']['urls']))
+                
+        if videos_ko:
             
-            shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
-            with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:
+            videos_ko_str = "\n".join(videos_ko)
             
-                session_errors = res['videos_error_dl'] + res['videos_error_init']
-                for _video in set(session_errors):
-                    line = _video + "\n"
-                    file.write(line) 
+            with open("/Users/antoniotorres/Projects/common/logs/error_links.txt", "w") as file:
+                file.write(videos_ko_str) 
+            
+            if args.caplinks:
+                
+                shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
+                with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:                
+                    file.write(videos_ko_str)
     
     finally:        
         asyncDL.exit()

@@ -928,7 +928,8 @@ class AsyncDL():
 
         _videos_url_notsupported = self.list_unsup_urls
         _videos_url_notvalid = self.list_notvalid_urls
-        _videos_url_tocheck = [f"{_url}:{_error}" for _url, _error in self.list_urls_to_check]          
+        _videos_url_tocheck = [_url for _url, _error in self.list_urls_to_check]
+        _videos_url_tocheck_str = [f"{_url}:{_error}" for _url, _error in self.list_urls_to_check]        
        
         logger.debug(f'[get_result_info]\n{self.info_videos}')  
             
@@ -947,15 +948,16 @@ class AsyncDL():
                         videos_koinit.append(url)
             
             
-        list_videos_str, list_videos2dl_str, list_videosaldl_str, list_videossamevideo_str = self.print_list_videos()
+        info_dict = self.print_list_videos()
         
-        #list_videosaldl_str = [[vid['video_info'].get('id'), fill(vid['video_info'].get('title', ''), 40), 
-        #                       fill(url, 150), fill(vid['aldl'], 150)]
-        #                        for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
+        info_dict.update({'videosokdl': {'urls': videos_okdl}, 'videoskodl': {'urls': videos_kodl}, 'videoskoinit': {'urls': videos_koinit}, 
+                          'videosnotsupported': {'urls': _videos_url_notsupported}, 'videosnotvalid': {'urls': _videos_url_notvalid},
+                          'videos2check': {'urls': _videos_url_tocheck, 'str': _videos_url_tocheck_str}})
+        
         _columnsaldl = ['ID', 'Title', 'URL', 'Path']
-        tab_valdl = tabulate(list_videosaldl_str, showindex=True, headers=_columnsaldl, tablefmt="grid")
+        tab_valdl = tabulate(info_dict['videosaldl']['str'], showindex=True, headers=_columnsaldl, tablefmt="grid")
         _columnssamevideo = ['ID', 'Title', 'URL', 'Same URL']
-        tab_vsamevideo = tabulate(list_videossamevideo_str, showindex=True, headers=_columnssamevideo, tablefmt="grid")
+        tab_vsamevideo = tabulate(info_dict['videossamevideo']['str'], showindex=True, headers=_columnssamevideo, tablefmt="grid")
         
         logger.info(f"******************************************************")
         logger.info(f"******************************************************")
@@ -963,11 +965,11 @@ class AsyncDL():
         logger.info(f"******************************************************")
         logger.info(f"******************************************************")
         logger.info(f"")
-        logger.info(f"Request to DL: [{len(list_videos_str)}]")
+        logger.info(f"Request to DL: [{len(info_dict['videos']['urls'])}]")
         logger.info(f"") 
-        logger.info(f"         Already DL: [{len(list_videosaldl_str)}]")
-        logger.info(f"         Same requests: [{len(list_videossamevideo_str)}]")
-        logger.info(f"         Videos to DL: [{len(list_videos2dl_str)}]")
+        logger.info(f"         Already DL: [{len(info_dict['videosaldl']['urls'])}]")
+        logger.info(f"         Same requests: [{len(info_dict['videossamevideo']['urls'])}]")
+        logger.info(f"         Videos to DL: [{len(info_dict['videos2dl']['urls'])}]")
         logger.info(f"")                
         logger.info(f"                 OK DL: [{len(videos_okdl)}]")
         logger.info(f"                 ERROR DL: [{len(videos_kodl)}]")
@@ -978,11 +980,11 @@ class AsyncDL():
         logger.info(f"") 
         logger.info(f"*********** VIDEO RESULT LISTS **************************")    
         logger.info(f"") 
-        if list_videosaldl_str: 
+        if tab_valdl: 
             logger.info(f"%no%Videos ALREADY DL: \n\n{tab_valdl}\n\n")
         else:
             logger.info(f"Videos ALREADY DL: []")
-        if list_videossamevideo_str: 
+        if tab_vsamevideo: 
             logger.info(f"%no%SAME requests: \n\n{tab_vsamevideo}\n\n")
         else:
             logger.info(f"SAME requests: []")
@@ -1010,29 +1012,34 @@ class AsyncDL():
         logger.debug(f'\n{self.info_videos}')
         
         
-        return ({'videos_req': list_videos_str, 'videos_2_dl': list_videos2dl_str, 'videos_al_dl': list_videosaldl_str, 'videos_ok_dl': videos_okdl, 'videos_error_init': videos_koinit, 'videos_error_dl': videos_kodl})
+        return info_dict
 
     
     def print_list_videos(self):
         
-        col = shutil.get_terminal_size().columns   
-        list_videos_str = [[fill(url, col//2)]
-                            for url, vid in self.info_videos.items() if vid.get('todl')]
+        col = shutil.get_terminal_size().columns
         
+        list_videos = [url for url, vid in self.info_videos.items() if vid.get('todl')]
+        list_videos_str = [[fill(url, col//2)]
+                            for url in list_videos]
+        
+        list_videos2dl = [url for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
         list_videos2dl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
                                fill(url, col//3)]
                                 for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
         
+        list_videosaldl = [url for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
         list_videosaldl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), 
                                fill(url, col//3), fill(vid['aldl'], col//4)]
                                 for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
         
+        list_videossamevideo = [url for url, vid in self.info_videos.items() if vid.get('samevideo')]
         list_videossamevideo_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), 
                                fill(url, col//3), fill(vid['samevideo'], col//4)]
                                 for url, vid in self.info_videos.items() if vid.get('samevideo')]
         
         
-        logger.info(f"Total videos [{(_tv:=len(list_videos_str))}]\nTo DL [{(_tv2dl:=len(list_videos2dl_str))}]\nAlready DL [{(_tval:=len(list_videosaldl_str))}]\nSame requests [{(_tval:=len(list_videossamevideo_str))}]")
+        logger.info(f"Total videos [{(_tv:=len(list_videos))}]\nTo DL [{(_tv2dl:=len(list_videos2dl))}]\nAlready DL [{(_tval:=len(list_videosaldl))}]\nSame requests [{(_tval:=len(list_videossamevideo))}]")
         logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
         
         _columns = ['URL']
@@ -1044,15 +1051,19 @@ class AsyncDL():
         logger.debug(f"%no%\n\n{tab_tv}\n\n")
         logger.info(f"%no%Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
         
-        return (list_videos_str, list_videos2dl_str, list_videosaldl_str, list_videossamevideo_str)
+        return {'videos': {'urls': list_videos, 'str': list_videos_str}, 'videos2dl': {'urls': list_videos2dl, 'str': list_videos2dl_str},
+                'videosaldl': {'urls': list_videosaldl, 'str': list_videosaldl_str}, 'videossamevideo': {'urls': list_videossamevideo, 'str': list_videossamevideo_str}}
     
     def exit(self):
-            
-        ies = self.ytdl._ies_instances.get('NetDNA')
-        if ies:
-            try:
-                ies.close()
-            except Exception:
-                pass
-            
+        
+        ies_to_close = ['NetDNA', 'GayBeeg', 'GayBeegPlaylist', 'GayBeegPlaylistPage']
+        ies = self.ytdl._ies_instances
+        for ie in ies_to_close:
+            if (_ie:=ies.get(ie)):
+                try:
+                    logger.info(f"Closing {ie}")
+                    _ie.close()
+                except Exception:
+                    pass
+                
         kill_processes(logger=logger, rpcport=self.args.rpcport) 
