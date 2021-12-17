@@ -498,8 +498,8 @@ class AsyncDL():
     def _check_if_aldl(self, info_dict):  
                     
                
-        if (info_dict.get('_type') == "url_transparent"):
-            return False
+        #if (info_dict.get('_type') == "url_transparent"):
+        #    return False
         
         if not (_id := info_dict.get('id') ) or not ( _title := info_dict.get('title')):
             return False

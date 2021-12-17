@@ -73,18 +73,17 @@ def main():
         
         videos_ko = list(set(res['videoskodl']['urls'] + res['videoskoinit']['urls']))
                 
-        if videos_ko:
+        if videos_ko: videos_ko_str = "\n".join(videos_ko)        
+        else: videos_ko_str = ""
             
-            videos_ko_str = "\n".join(videos_ko)
+        with open("/Users/antoniotorres/Projects/common/logs/error_links.txt", "w") as file:
+            file.write(videos_ko_str) 
+        
+        if args.caplinks:
             
-            with open("/Users/antoniotorres/Projects/common/logs/error_links.txt", "w") as file:
-                file.write(videos_ko_str) 
-            
-            if args.caplinks:
-                
-                shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
-                with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:                
-                    file.write(videos_ko_str)
+            shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
+            with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:                
+                file.write(videos_ko_str)
     
     finally:        
         asyncDL.exit()
