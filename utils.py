@@ -55,13 +55,14 @@ class EMA(object):
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
+
 async def async_ex_in_thread(prefix, func, /, *args, **kwargs):
         
-        loop = asyncio.get_running_loop()
-        ctx = contextvars.copy_context()
-        func_call = functools.partial(ctx.run, func, *args, **kwargs)
-        ex = ThreadPoolExecutor(thread_name_prefix=prefix, max_workers=1)    
-        return await loop.run_in_executor(ex, func_call)
+    loop = asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    func_call = functools.partial(ctx.run, func, *args, **kwargs)
+    ex = ThreadPoolExecutor(thread_name_prefix=prefix, max_workers=1)    
+    return await loop.run_in_executor(ex, func_call)
 
 async def async_wait_time(n):
    

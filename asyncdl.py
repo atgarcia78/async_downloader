@@ -422,19 +422,28 @@ class AsyncDL():
         
                 logger.debug(f"[url_playlist_lists] entries \n{_url_pl_entries}")
                 
-                for entry in _url_pl_entries:
+                for _url_entry in _url_pl_entries:
+                    
+                    _type = _url_entry.get('_type')
+                    if _type == 'playlist':
+                        logger.warning(f"PLAYLIST IN PLAYLIST: {_url_entry}")
+                        continue
+                    elif not _type:
                         
-                    _url = entry.get('original_url') or entry.get('url')
+                        _url = _url_entry.get('webpage_url')
+                        
+                    else:
+                        _url = _url_entry.get('url')
+                    
                     if not self.info_videos.get(_url): #es decir, los nuevos videos 
                         
-                        if not entry.get('_type'):
-                            entry['webpage_url'] = _url
+                        
                         
                         self.info_videos[_url] = {'source' : 'playlist', 
-                                                    'video_info': entry, 
+                                                    'video_info': _url_entry, 
                                                     'status': 'init', 
                                                     'aldl': False,
-                                                    'ie_key': entry.get('ie_key'),
+                                                    'ie_key': _url_entry.get('ie_key') or _url_entry.get('extractor_key'),
                                                     'error': []}
                         
                         _same_video_url = self._check_if_same_video(_url)
@@ -444,7 +453,7 @@ class AsyncDL():
                             self.info_videos[_url].update({'samevideo': _same_video_url})
                             logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
                         
-                        self.list_videos.append(entry)
+                        self.list_videos.append(_url_entry)
 
 
                 logger.debug(f"[url_playlist_lists] list videos \n{self.list_videos}") 
@@ -634,7 +643,7 @@ class AsyncDL():
                     
                     try: 
                         
-                        if "url" in vid.get('_type', ''):
+                        if vid.get('_type'):
                             #al no tratarse de video final vid['url'] siepre existe
                             try:                                    
                                 
@@ -714,7 +723,7 @@ class AsyncDL():
                             
                            
                         
-                        dl = await async_ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, info, self.ytdl, self.args)                       
+                        dl = await async_ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, self.info_videos[url_key]['video_info'], self.ytdl, self.args)                       
                                 
                         if not dl.info_dl.get('status', "") == "error":
                             
@@ -1056,7 +1065,7 @@ class AsyncDL():
     
     def exit(self):
         
-        ies_to_close = ['NetDNA', 'GayBeeg', 'GayBeegPlaylist', 'GayBeegPlaylistPage']
+        ies_to_close = ['NakedSwordScene', 'NetDNA', 'GayBeeg', 'GayBeegPlaylist', 'GayBeegPlaylistPage']
         ies = self.ytdl._ies_instances
         for ie in ies_to_close:
             if (_ie:=ies.get(ie)):

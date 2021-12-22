@@ -100,27 +100,33 @@ class VideoDownloader():
             
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"{str(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
+            logger.error(f"{repr(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
             raise 
         
    
 
     def _get_dl(self, info):
         
-        protocol = determine_protocol(info)
-        if protocol in ('http', 'https'):
-            if not self.info_dl['rpcport']: dl = AsyncHTTPDownloader(info, self)
-            else: dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)           
-        elif protocol in ('m3u8', 'm3u8_native'):
-            dl = AsyncHLSDownloader(info, self)            
-        elif protocol in ('http_dash_segments', 'dash'):
-            dl = AsyncDASHDownloader(info, self)
-        else:
-            logger.error(f"[{info['id']}][{info['title']}]: protocol not supported")
-            raise NotImplementedError("protocol not supported")
+        try:
+            protocol = determine_protocol(info)
+            if protocol in ('http', 'https'):
+                if not self.info_dl['rpcport']: dl = AsyncHTTPDownloader(info, self)
+                else: dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)           
+            elif protocol in ('m3u8', 'm3u8_native'):
+                dl = AsyncHLSDownloader(info, self)            
+            elif protocol in ('http_dash_segments', 'dash'):
+                dl = AsyncDASHDownloader(info, self)
+            else:
+                logger.error(f"[{info['id']}][{info['title']}]: protocol not supported")
+                raise NotImplementedError("protocol not supported")
+            
+            return dl
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())
+            logger.error(f"{repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
+            raise 
+            
         
-        return dl
-    
     async def run_dl(self):
         
         self.lock = asyncio.Lock()
