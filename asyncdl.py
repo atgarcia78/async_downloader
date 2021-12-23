@@ -411,7 +411,8 @@ class AsyncDL():
                 for fut, url_pl in zip(futures,url_pl_list):
                     try:
                         _info = self.ytdl.sanitize_info(fut.result())                        
-                        if not _info.get('_type'):                           
+                        if not _info.get('_type'):
+                            _info['original_url'] = url_pl                           
                             _url_pl_entries += [_info]
                         else:
                             _url_pl_entries += _info.get('entries')
@@ -428,9 +429,8 @@ class AsyncDL():
                     if _type == 'playlist':
                         logger.warning(f"PLAYLIST IN PLAYLIST: {_url_entry}")
                         continue
-                    elif not _type:
-                        
-                        _url = _url_entry.get('webpage_url')
+                    elif not _type:                        
+                        _url = _url_entry.get('original_url') or _url_entry.get('url')
                         
                     else:
                         _url = _url_entry.get('url')
