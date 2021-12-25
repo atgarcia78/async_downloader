@@ -396,7 +396,10 @@ class AsyncDL():
                        
                         
                     except Exception as e:
-                        logger.exception(repr(e))
+                        _upt_error = self.info_videos[_url_netdna]['error'].append(str(e))
+                        self.info_videos[_url_netdna].update({'status': 'prenok', 'error': _upt_error})                        
+                        
+                        logger.error(repr(e))
                 
                         
             if url_pl_list:
@@ -552,7 +555,7 @@ class AsyncDL():
                 
     def get_videos_to_dl(self): 
         
-        initial_videos = [(url, video) for url, video in self.info_videos.items() if not video.get('samevideo')]
+        initial_videos = [(url, video) for url, video in self.info_videos.items()]
         
         if self.args.index: 
             if self.args.index < len(initial_videos):
@@ -595,7 +598,7 @@ class AsyncDL():
                 
         
         for url, infodict in self.info_videos.items():
-            if infodict.get('todl') and not infodict.get('aldl') and not infodict.get('samevideo'):
+            if infodict.get('todl') and not infodict.get('aldl') and not infodict.get('samevideo') and infodict.get('status') != 'prenok':
                 self.totalbytes2dl += none_to_cero(infodict.get('video_info', {}).get('filesize', 0))
                 self.videos_to_dl.append(url)
                 
@@ -1007,10 +1010,13 @@ class AsyncDL():
             if not video.get('aldl') and not video.get('samevideo') and video.get('todl'):
                 if video['status'] == "done":
                     videos_okdl.append(url)
-                else:
-                    videos_kodl.append(url)
-                    if video['status'] == "initnok":
+                else:                    
+                    if video['status'] == "initnok" or video['status'] == "prenok":
+                        videos_kodl.append(url)
                         videos_koinit.append(url)
+                    elif video['status'] == "initok":
+                        if self.args.nodl: videos_okdl.append(url)
+                    else: videos_kodl.append(url)
             
             
         info_dict = self.print_list_videos()
@@ -1088,10 +1094,10 @@ class AsyncDL():
         list_videos_str = [[fill(url, col//2)]
                             for url in list_videos]
         
-        list_videos2dl = [url for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
+        list_videos2dl = [url for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl') and vid.get('status') != "prenok"]
         list_videos2dl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
                                fill(url, col//3)]
-                                for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl')]
+                                for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl') and vid.get('status') != "prenok"]
         
         list_videosaldl = [url for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
         list_videosaldl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), 

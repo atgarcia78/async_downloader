@@ -105,6 +105,7 @@ class AsyncHLSDownloader():
        
         self.ema_s = EMA(smoothing=0.0001)
         self.ema_t = EMA(smoothing=0.0001)
+        
         self.down_size = 0
         self.down_temp = 0        
         
@@ -361,7 +362,7 @@ class AsyncHLSDownloader():
 
                 await asyncio.sleep(0)        
                 
-                while (self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES and not self.reset_event.is_set()):
+                while ((self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES) and not self.reset_event.is_set()):
     
                     try: 
                         
@@ -423,7 +424,7 @@ class AsyncHLSDownloader():
                                     
                                     _started = time.monotonic()
                                     async for chunk in res.aiter_bytes(chunk_size=_chunk_size): 
-                                        if self.reset_event.is_set(): raise CancelledError("reset event")
+                                        #if self.reset_event.is_set(): raise CancelledError("reset event")
                                         _timechunk = time.monotonic() - _started
                                         self.info_frag[q - 1]['time2dlchunks'].append(_timechunk)                             
                                         #await asyncio.sleep(0)
@@ -572,16 +573,10 @@ class AsyncHLSDownloader():
                 self.down_temp = self.down_size
                 self.started = time.monotonic()
                 self.reset_event.clear() 
+
+                tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.n_workers)]
                 
-                
-                
-                # self.tasks = [asyncio.create_task(waiter(self.reset_event))] + [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.iworkers)]
-                
-                # done, pending = await asyncio.wait(self.tasks, return_when=asyncio.FIRST_EXCEPTION)
-                
-                self.tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.n_workers)]
-                
-                done, pending = await asyncio.wait(self.tasks, return_when=asyncio.ALL_COMPLETED)
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
 
                 if pending:
 
@@ -599,104 +594,91 @@ class AsyncHLSDownloader():
                             _res.append(repr(e))                            
                     if _res:
                         logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] DONE [{len(done)}] with exceptions {_res}")
-                    #for e in _res:
-                    #    if (("AsyncHLSDLErrorFatal" in e) or ("CancelledError" in e)) and self.count > 0: raise AsyncHLSDLReset(e)
                         
+                
                 inc_frags_dl = (_nfragsdl:=len(self.fragsdl())) - n_frags_dl
                 n_frags_dl = _nfragsdl
                 
-                if self.reset_event.is_set(): raise AsyncHLSDLReset("event reset")
-                
-            except AsyncHLSDLReset as e:
-                
-                lines = traceback.format_exception(*sys.exc_info())
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:RESET:{repr(e)}\n{'!!'.join(lines)}")
-
-                if self.n_reset < self._MAX_RESETS:
-
-                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}] {e}")
-                    
-                    
-                    try:
-                        
-                        await asyncio.to_thread(self.reset)
-                        
-                        self.frags_queue = asyncio.Queue()
-                        for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
-                        if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
-                            self.n_workers -= self.n_workers // 4
-                        _tstart = _t
-                        for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
-                        #await asyncio.sleep(0)
-                        #continue 
-                        
-                    except Exception as e:
-                        lines = traceback.format_exception(*sys.exc_info())
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
-                        self.status = "error"
-                        await self.clean_when_error()
-                        #await asyncio.sleep(0)
-                        raise AsyncHLSDLErrorFatal("ERROR reset couldnt progress")
+                if not self.fragsnotdl(): 
+                    #todos los fragmentos en local: DL OK
+                    break
                 
                 else:
                     
-                    logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
-                    self.status = "error"
-                    await self.clean_when_error()
-                    await asyncio.sleep(0)
-                    raise AsyncHLSDLErrorFatal("ERROR max resets")     
-
+                    if self.reset_event.is_set():
                         
-            except Exception as e:
-                
-                lines = traceback.format_exception(*sys.exc_info())
-                logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception {repr(e)} \n{'!!'.join(lines)}")
-                
+                        if self.n_reset < self._MAX_RESETS:
 
-            else:
-                
-                if not self.fragsnotdl(): 
-                    #todos los fragmentos en local
-                    break
-                else:                    
-                    #raise AsyncHLSDLErrorFatal("reset") 
-                    if (inc_frags_dl > 0):
-                        
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
-                        try:
-                            await asyncio.to_thread(self.reset)
-                          
-                            self.frags_queue = asyncio.Queue()
-                            for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
-                            for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
-                            self.n_reset -= 1
-                            continue 
+                            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
                             
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                            
+                            try:
+                                
+                                await asyncio.to_thread(self.reset)
+                                
+                                self.frags_queue = asyncio.Queue()
+                                for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
+                                if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
+                                    self.n_workers -= self.n_workers // 4
+                                _tstart = _t
+                                for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
+                                #await asyncio.sleep(0)
+                                #continue 
+                                
+                            except Exception as e:
+                                lines = traceback.format_exception(*sys.exc_info())
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                                self.status = "error"
+                                await self.clean_when_error()
+                                #await asyncio.sleep(0)
+                                raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
+                        
+                        else:
+                            
+                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
                             self.status = "error"
                             await self.clean_when_error()
                             await asyncio.sleep(0)
-                            raise AsyncHLSDLErrorFatal("ERROR reset couldnt progress")
+                            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR max resets")     
+
+                    else:                
+
+                        if (inc_frags_dl > 0):
+                            
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
+                            try:
+                                await asyncio.to_thread(self.reset)
+                            
+                                self.frags_queue = asyncio.Queue()
+                                for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
+                                for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
+                                self.n_reset -= 1
+                                continue 
+                                
+                            except Exception as e:
+                                lines = traceback.format_exception(*sys.exc_info())
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                                self.status = "error"
+                                await self.clean_when_error()
+                                await asyncio.sleep(0)
+                                raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
+                            
+                        else:
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
+                            
+                            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: no changes in number of dl frags in one cycle")
                         
-                    else:
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
-                        
-                        raise AsyncHLSDLError("no changes in number of dl frags in once cycle")
+            except AsyncHLSDLErrorFatal as e:
+                raise
 
             finally:
                 await self.client.aclose()
-                #del self.client
                 await asyncio.sleep(0)
 
 
-    
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
-
-
         self.status = "init_manipulating"
 
     async def clean_when_error(self):
