@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import (
-    std_headers,
     js_to_json)
 import random
 import httpx
@@ -366,8 +365,8 @@ def init_argparser():
 
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
-    parser.add_argument("-w", help="Number of DLs", default="10", type=int)
-    parser.add_argument("--winit", help="Number of init workers", default="0", type=int)
+    parser.add_argument("-w", help="Number of DL workers", default="10", type=int)
+    parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="0", type=int)
     parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
@@ -393,6 +392,8 @@ def init_argparser():
     
     
     args = parser.parse_args()
+    if args.winit == 0:
+        args.winit = args.w
     if args.aria2c != -1:
         args.rpcport = args.aria2c if args.aria2c else 6800
         args.aria2c = True
@@ -470,7 +471,10 @@ def init_ytdl(args):
         "usenetrc": True,
         "skip_download": True,        
         "writesubtitles": True,        
-        "restrictfilenames": True,          
+        "restrictfilenames": True,
+        "user_agent": args.useragent,
+        "winit": args.winit
+                  
     }
     
     if args.ytdlopts: ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
@@ -479,15 +483,7 @@ def init_ytdl(args):
     
     logger.info(f"ytdl opts:\n{ytdl.params}")
    
-    std_headers["User-Agent"] = args.useragent
-    std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" 
-    std_headers["Connection"] = "keep-alive"
-    std_headers["Accept-Language"] = "en,es-ES;q=0.5"
-    std_headers["Accept-Encoding"] = "gzip, deflate"
-    if args.headers:
-        std_headers.update(json.loads(js_to_json(args.headers)))       
-        
-    logger.debug(f"std-headers:\n{std_headers}")
+    
     return ytdl
 
 def init_tk():

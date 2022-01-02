@@ -7,6 +7,7 @@ import tkinter as tk
 import asyncio
 from pathlib import Path
 from tabulate import tabulate
+import time
 
 
 
@@ -27,7 +28,11 @@ from concurrent.futures import (
 )
 
 
-from yt_dlp.utils import sanitize_filename
+from yt_dlp.utils import (
+    sanitize_filename,
+    std_headers,
+    js_to_json
+)
 
 
 from datetime import datetime
@@ -53,6 +58,15 @@ class AsyncDL():
         
         #youtube_dl
         self.ytdl = init_ytdl(self.args)
+        std_headers["User-Agent"] = args.useragent
+        std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" 
+        std_headers["Connection"] = "keep-alive"
+        std_headers["Accept-Language"] = "en,es-ES;q=0.5"
+        std_headers["Accept-Encoding"] = "gzip, deflate"
+        if args.headers:
+            std_headers.update(json.loads(js_to_json(args.headers)))       
+        
+        logger.debug(f"std-headers:\n{std_headers}")
         
         #aria2c
         if self.args.aria2c: init_aria2c(self.args)
@@ -71,7 +85,9 @@ class AsyncDL():
         self.videos_to_dl = []        
 
         #tk control      
-        self.stop_tk = False        
+        self.stop_tk = False
+        
+        self.stop_in_out = False        
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -288,7 +304,7 @@ class AsyncDL():
                 return self.files_cached
             
         except Exception as e:
-            logger.exception(repr(e))
+            logger.exception(f"[files_cached] {repr(e)}")
                
     def get_list_videos(self):
         
@@ -636,7 +652,9 @@ class AsyncDL():
                     
                     self.queue_run.put_nowait(("", "KILLANDCLEAN"))
                     
-                    if not self.list_dl: self.stop_tk = True
+                    if not self.list_dl: 
+                        self.stop_tk = True
+                        self.stop_in_out = True
  
                     break
                 
@@ -697,7 +715,7 @@ class AsyncDL():
                                     _infdict['release_timestamp'] = _mtime
                                     _infdict['release_date'] = _video.get('release_date')
                                 
-                            logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{_infdict.get('id')}][{_infdict.get('title')}] info extracted")                        
+                            logger.debug(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{_infdict.get('id')}][{_infdict.get('title')}] info extracted")                        
                             logger.debug(f"[worker_init][{i}]: [{_urlkey}] info extracted\n{_infdict}")
                             
                             self.info_videos[_urlkey].update({'video_info': _infdict})
@@ -860,7 +878,7 @@ class AsyncDL():
                     for _ in range(nworkers):
                         self.queue_manip.put_nowait(("", "KILL")) 
                     await asyncio.sleep(0)
-                    
+                    self.stop_in_out = True
                     break
                 
                 else:
@@ -943,8 +961,91 @@ class AsyncDL():
                 self.count_manip += 1 
             logger.debug(f"[worker_manip][{i}]: BYE")       
 
+    async def wait_for_stop(self):
+        while True:
+            if self.stop_in_out:
+                break
+            else: 
+                await asyncio.sleep(0)
+        return
+    
+    async def get_line(self, _reader):
+        res = (await _reader.readline()).strip()                
+        return res
+    
+    async def in_out(self):
+        
+        
+                
+        try:
+            loop = asyncio.get_running_loop()
+            reader = asyncio.StreamReader()
+            protocol = asyncio.StreamReaderProtocol(reader)
+            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+            # w_transport, w_protocol = await loop.connect_write_pipe(asyncio.streams.FlowControlMixin, sys.stdout)
+            # writer = asyncio.StreamWriter(w_transport, w_protocol, reader, loop)
+        
+
+            if not self.stop_in_out: logger.info(f"[in_out]: INIT")
+            while True:
+                logger.info(f"[in_out]: waiting for input")
+                
+                tasks = [asyncio.create_task(self.get_line(reader)), asyncio.create_task(self.wait_for_stop())]                
+                don, pen = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+                if pen:
+                    logger.info(f"[in_out] pending {pen}")
+                    for p in pen: p.cancel()
+                    try:
+                        await asyncio.gather(*pen, return_exceptions=True)
+                    except Exception as e:
+                        logger.error(str(e))
+                
+                
+                               
+                if don:
+                    logger.info(f"[in_out] done {don}")
+                    for d in don: 
+                        try:
+                            res = d.result()
+                        except Exception as e:
+                            logger.error(str(e))
+                
+                if self.stop_in_out: break
+                
+                logger.info(f"[in_out]: {res}")                    
+                
+                res2 = list(bytearray(res))
+                
+                if res == b'exit':
+                    break
+                if len(res2) > 1:
+                    if res2[0] == 207 and res2[1] == 128:# b'\xcf\x80':
+                        logger.info("Evento pause")
+                        if len(res2) == 2:
+                            if self.list_dl:
+                                for dl in self.list_dl:                            
+                                    dl.pause()
+                        else:
+                            _index = res2[2] - 48 - 1
+                            self.list_dl[_index].pause()
+                            
+                    elif res2[0] == 194 and res2[1] == 174: #res == b'\xc2\xae':
+                        logger.info("Evento resume")
+                        if self.list_dl:
+                            for dl in self.list_dl:                            
+                                dl.resume()
+                
+            
+            logger.info(f"[in_out]: BYE")
+        except Exception as e:
+            logger.exception(f"[in_out] {repr(e)}")
+        #finally:
+            #writer.close()
+    
     async def async_ex(self, args_tk):
     
+        await self.print_list_videos() 
+        
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
         self.lock = asyncio.Lock()
@@ -967,6 +1068,7 @@ class AsyncDL():
             tasks_run = []
             task_tk = []
             tasks_manip = []
+            task_in_out = []
 
             tasks_init = [asyncio.create_task(self.worker_init(i)) for i in range(self.init_nworkers)]
                             
@@ -975,8 +1077,9 @@ class AsyncDL():
                 task_tk = [asyncio.create_task(self.run_tk(args_tk))] 
                 tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
                 tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(self.workers)]
+                #task_in_out = [asyncio.create_task(self.in_out())]
                 
-            done, _ = await asyncio.wait(tasks_init + task_tk + tasks_run + tasks_manip)
+            done, _ = await asyncio.wait(tasks_init + task_tk + tasks_run + tasks_manip + task_in_out)
             
             for d in done:
                 try:
@@ -984,20 +1087,23 @@ class AsyncDL():
                 except Exception as e:
                     lines = traceback.format_exception(*sys.exc_info())                
                     logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
+            
+            res = await self.get_results_info()
 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
     
-        asyncio.get_running_loop().stop()      
+        asyncio.get_running_loop().stop()
+        return res      
         
-    def get_results_info(self):       
+    async def get_results_info(self):       
        
 
         _videos_url_notsupported = self.list_unsup_urls
         _videos_url_notvalid = self.list_notvalid_urls
-        _videos_url_tocheck = [_url for _url, _error in self.list_urls_to_check]
-        _videos_url_tocheck_str = [f"{_url}:{_error}" for _url, _error in self.list_urls_to_check]        
+        _videos_url_tocheck = [_url for _url, _ in self.list_urls_to_check] if self.list_urls_to_check else []
+        _videos_url_tocheck_str = [f"{_url}:{_error}" for _url, _error in self.list_urls_to_check] if self.list_urls_to_check else []       
        
         logger.debug(f'[get_result_info]\n{self.info_videos}')  
             
@@ -1019,66 +1125,79 @@ class AsyncDL():
                     else: videos_kodl.append(url)
             
             
-        info_dict = self.print_list_videos()
+        info_dict = await self.print_list_videos()
         
         info_dict.update({'videosokdl': {'urls': videos_okdl}, 'videoskodl': {'urls': videos_kodl}, 'videoskoinit': {'urls': videos_koinit}, 
                           'videosnotsupported': {'urls': _videos_url_notsupported}, 'videosnotvalid': {'urls': _videos_url_notvalid},
                           'videos2check': {'urls': _videos_url_tocheck, 'str': _videos_url_tocheck_str}})
         
         _columnsaldl = ['ID', 'Title', 'URL', 'Path']
-        tab_valdl = tabulate(info_dict['videosaldl']['str'], showindex=True, headers=_columnsaldl, tablefmt="grid")
+        tab_valdl = tabulate(info_dict['videosaldl']['str'], showindex=True, headers=_columnsaldl, tablefmt="simple") if info_dict['videosaldl']['str'] else None
         _columnssamevideo = ['ID', 'Title', 'URL', 'Same URL']
-        tab_vsamevideo = tabulate(info_dict['videossamevideo']['str'], showindex=True, headers=_columnssamevideo, tablefmt="grid")
+        tab_vsamevideo = tabulate(info_dict['videossamevideo']['str'], showindex=True, headers=_columnssamevideo, tablefmt="simple") if info_dict['videossamevideo']['str'] else None
         
-        logger.info(f"******************************************************")
-        logger.info(f"******************************************************")
-        logger.info(f"*********** FINAL SUMMARY ****************************")
-        logger.info(f"******************************************************")
-        logger.info(f"******************************************************")
-        logger.info(f"")
-        logger.info(f"Request to DL: [{len(info_dict['videos']['urls'])}]")
-        logger.info(f"") 
-        logger.info(f"         Already DL: [{len(info_dict['videosaldl']['urls'])}]")
-        logger.info(f"         Same requests: [{len(info_dict['videossamevideo']['urls'])}]")
-        logger.info(f"         Videos to DL: [{len(info_dict['videos2dl']['urls'])}]")
-        logger.info(f"")                
-        logger.info(f"                 OK DL: [{len(videos_okdl)}]")
-        logger.info(f"                 ERROR DL: [{len(videos_kodl)}]")
-        logger.info(f"                     ERROR init DL: [{len(videos_koinit)}]")
-        logger.info(f"                         UNSUP URLS: [{len(_videos_url_notsupported)}]")
-        logger.info(f"                         NOTVALID URLS: [{len(_videos_url_notvalid)}]")
-        logger.info(f"                         TO CHECK URLS: [{len(_videos_url_tocheck)}]")
-        logger.info(f"") 
-        logger.info(f"*********** VIDEO RESULT LISTS **************************")    
-        logger.info(f"") 
-        if tab_valdl: 
-            logger.info(f"%no%Videos ALREADY DL: \n\n{tab_valdl}\n\n")
-        else:
-            logger.info(f"Videos ALREADY DL: []")
-        if tab_vsamevideo: 
-            logger.info(f"%no%SAME requests: \n\n{tab_vsamevideo}\n\n")
-        else:
-            logger.info(f"SAME requests: []")
-        if videos_okdl:    
-            logger.info(f"Videos DL: \n{videos_okdl}")
-        else:
-            logger.info(f"Videos DL: []")            
-        if videos_kodl:  
-            logger.info(f"%no%Videos TOTAL ERROR DL:\n\n{videos_kodl} \n[-u {' -u '.join(videos_kodl)}]")
-        else:
-            logger.info(f"Videos TOTAL ERROR DL: []")
-        if videos_koinit:            
-            logger.info(f"%no%Videos ERROR INIT DL:\n\n{videos_koinit} \n[-u {' -u '.join(videos_koinit)}]")
-        if _videos_url_notsupported:
-            logger.info(f"%no%Unsupported URLS:\n\n{_videos_url_notsupported}")
-        if _videos_url_notvalid:
-            logger.info(f"%no%Not Valid URLS:\n\n{_videos_url_notvalid}")
-        if _videos_url_tocheck:
-            logger.info(f"%no%To check URLS:\n\n{_videos_url_tocheck}")
-        logger.info(f"*****************************************************")
-        logger.info(f"*****************************************************")
-        logger.info(f"*****************************************************")
-        logger.info(f"*****************************************************")
+        try:
+            
+            logger.info("******************************************************")
+            logger.info("******************************************************")
+            logger.info("*********** FINAL SUMMARY ****************************")
+            logger.info("******************************************************")
+            logger.info("******************************************************")
+            logger.info("")
+            logger.info(f"Request to DL: [{len(info_dict['videos']['urls'])}]")
+            logger.info("") 
+            logger.info(f"         Already DL: [{len(info_dict['videosaldl']['urls'])}]")
+            logger.info(f"         Same requests: [{len(info_dict['videossamevideo']['urls'])}]")
+            logger.info(f"         Videos to DL: [{len(info_dict['videos2dl']['urls'])}]")
+            logger.info(f"")                
+            logger.info(f"                 OK DL: [{len(videos_okdl)}]")
+            logger.info(f"                 ERROR DL: [{len(videos_kodl)}]")
+            logger.info(f"                     ERROR init DL: [{len(videos_koinit)}]")
+            logger.info(f"                         UNSUP URLS: [{len(_videos_url_notsupported)}]")
+            logger.info(f"                         NOTVALID URLS: [{len(_videos_url_notvalid)}]")
+            logger.info(f"                         TO CHECK URLS: [{len(_videos_url_tocheck)}]")
+            logger.info("") 
+            logger.info("*********** VIDEO RESULT LISTS **************************")    
+            logger.info("") 
+            if tab_valdl: 
+                logger.info("Videos ALREADY DL:")
+                logger.info(f"%no%\n\n{tab_valdl}\n\n")
+               
+            else:
+                logger.info("Videos ALREADY DL: []")
+            if tab_vsamevideo: 
+                logger.info("SAME requests:")
+                logger.info(f"%no%\n\n{tab_vsamevideo}\n\n")
+                time.sleep(1)
+            else:
+                logger.info("SAME requests: []")
+            if videos_okdl:    
+                logger.info(f"Videos DL: \n{videos_okdl}")
+            else:
+                logger.info("Videos DL: []")            
+            if videos_kodl:  
+                logger.info("Videos TOTAL ERROR DL:")
+                logger.info(f"%no%\n\n{videos_kodl} \n[-u {' -u '.join(videos_kodl)}]")
+            else:
+                logger.info(f"Videos TOTAL ERROR DL: []")
+            if videos_koinit:            
+                logger.info(f"Videos ERROR INIT DL:")
+                logger.info(f"%no%\n\n{videos_koinit} \n[-u {' -u '.join(videos_koinit)}]")
+            if _videos_url_notsupported:
+                logger.info(f"Unsupported URLS:")
+                logger.info(f"%no%\n\n{_videos_url_notsupported}")
+            if _videos_url_notvalid:
+                logger.info(f"Not Valid URLS:")
+                logger.info(f"%no%\n\n{_videos_url_notvalid}")
+            if _videos_url_tocheck:
+                logger.info(f"To check URLS:")
+                logger.info(f"%no%\n\n{_videos_url_tocheck}")
+            logger.info(f"*****************************************************")
+            logger.info(f"*****************************************************")
+            logger.info(f"*****************************************************")
+            logger.info(f"*****************************************************")
+        except Exception as e:
+            logger.exception(f"[get_results] {repr(e)}")
         
         logger.debug(f'\n{self.info_videos}')
         
@@ -1086,41 +1205,44 @@ class AsyncDL():
         return info_dict
 
     
-    def print_list_videos(self):
+    async def print_list_videos(self):
         
         col = shutil.get_terminal_size().columns
         
         list_videos = [url for url, vid in self.info_videos.items() if vid.get('todl')]
-        list_videos_str = [[fill(url, col//2)]
-                            for url in list_videos]
+        
+        list_videos_str = [[fill(url, col//2)] for url in list_videos] if list_videos else []
         
         list_videos2dl = [url for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl') and vid.get('status') != "prenok"]
-        list_videos2dl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))),
-                               fill(url, col//3)]
-                                for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl') and vid.get('status') != "prenok"]
+        
+        list_videos2dl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), naturalsize(none_to_cero(vid['video_info'].get('filesize',0))), fill(url, col//3)] for url, vid in self.info_videos.items() if not vid.get('aldl') and not vid.get('samevideo') and vid.get('todl') and vid.get('status') != "prenok"] if list_videos2dl else []
         
         list_videosaldl = [url for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
-        list_videosaldl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), 
-                               fill(url, col//3), fill(vid['aldl'], col//4)]
-                                for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')]
+        list_videosaldl_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), fill(url, col//3), fill(vid['aldl'], col//3)] for url, vid in self.info_videos.items() if vid['aldl'] and vid.get('todl')] if list_videosaldl else []
         
         list_videossamevideo = [url for url, vid in self.info_videos.items() if vid.get('samevideo')]
-        list_videossamevideo_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), 
-                               fill(url, col//3), fill(vid['samevideo'], col//4)]
-                                for url, vid in self.info_videos.items() if vid.get('samevideo')]
+        list_videossamevideo_str = [[fill(vid['video_info'].get('id', ''),col//5), fill(vid['video_info'].get('title', ''), col//5), fill(url, col//3), fill(vid['samevideo'], col//3)] for url, vid in self.info_videos.items() if vid.get('samevideo')] if list_videossamevideo else []
         
         
         logger.info(f"Total videos [{(_tv:=len(list_videos))}]\nTo DL [{(_tv2dl:=len(list_videos2dl))}]\nAlready DL [{(_tval:=len(list_videosaldl))}]\nSame requests [{(_tval:=len(list_videossamevideo))}]")
         logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
         
         _columns = ['URL']
-        tab_tv = tabulate(list_videos_str, showindex=True, headers=_columns, tablefmt="grid")
+        tab_tv = tabulate(list_videos_str, showindex=True, headers=_columns, tablefmt="simple") if list_videos_str else None
         
         _columns = ['ID', 'Title', 'Size', 'URL']
-        tab_v2dl = tabulate(list_videos2dl_str, showindex=True, headers=_columns, tablefmt="grid")
+        tab_v2dl = tabulate(list_videos2dl_str, showindex=True, headers=_columns, tablefmt="simple") if list_videos2dl_str else None
                 
         logger.debug(f"%no%\n\n{tab_tv}\n\n")
-        logger.info(f"%no%Videos to DL: [{_tv2dl}]\n\n\n{tab_v2dl}\n\n\n")
+        try:
+            if tab_v2dl:
+                logger.info(f"Videos to DL: [{_tv2dl}]")
+                logger.info(f"%no%\n\n\n{tab_v2dl}\n\n\n")
+            else:
+                logger.info(f"Videos to DL: []")
+        
+        except Exception as e:
+            logger.exception(f"[print_videos] {repr(e)}")    
         
         return {'videos': {'urls': list_videos, 'str': list_videos_str}, 'videos2dl': {'urls': list_videos2dl, 'str': list_videos2dl_str},
                 'videosaldl': {'urls': list_videosaldl, 'str': list_videosaldl_str}, 'videossamevideo': {'urls': list_videossamevideo, 'str': list_videossamevideo_str}}
@@ -1139,5 +1261,7 @@ class AsyncDL():
                     logger.info(f"[{ie}] closed ok")
                 except Exception:
                     pass
-                
-        kill_processes(logger=logger, rpcport=self.args.rpcport) 
+        try:        
+            kill_processes(logger=logger, rpcport=self.args.rpcport) 
+        except Exception as e:
+            logger.exception(f"[exit] {repr(e)}")

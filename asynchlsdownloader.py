@@ -347,7 +347,14 @@ class AsyncHLSDownloader():
                 if q == "KILL":
                     break  
                 if self.reset_event.is_set(): 
-                    break         
+                    break
+                
+                if self.video_downloader.pause_event.is_set():
+                    await self.video_downloader.resume_event.wait()
+                    self.video_downloader.pause_event.clear()
+                    self.video_downloader.resume_event.clear()
+                    
+                          
                 url = self.info_frag[q - 1]['url']
                 filename = Path(self.info_frag[q - 1]['file'])
                 key = self.info_frag[q - 1]['key']
@@ -773,16 +780,22 @@ class AsyncHLSDownloader():
                 _new = time.monotonic()                                  
                 _speed = (self.down_size - self.down_temp) / (_new - self.started)
                 _speed_ema = (_diff_size_ema:=self.ema_s(self.down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started)) 
-                _speed_str = f'{naturalsize(_speed_ema,True)}ps'
+                if self.video_downloader.pause_event and self.video_downloader.pause_event.is_set():
+                    _speed_str = "--" 
+                    _eta_str = "--"
+                else:
+                    _speed_str = f'{naturalsize(_speed_ema,True)}ps'
+                    if _speed_ema and self.filesize:
+                    
+                        if (_est_time:=((self.filesize - self.down_size)/_speed_ema)) < 3600:
+                            _eta = datetime.timedelta(seconds=_est_time)                    
+                            _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
+                        else: _eta_str = "--"
+                    else: _eta_str = "--"
+                
                 _progress_str = f'{(self.down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
                         
-                if _speed_ema and self.filesize:
-                    
-                    if (_est_time:=((self.filesize - self.down_size)/_speed_ema)) < 3600:
-                        _eta = datetime.timedelta(seconds=_est_time)                    
-                        _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
-                    else: _eta_str = "--"
-                else: _eta_str = "--"
+                
                 
                 self.down_temp = self.down_size
                 self.started = time.monotonic()             

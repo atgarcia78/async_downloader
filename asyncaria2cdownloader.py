@@ -5,8 +5,7 @@ import sys
 from pathlib import Path
 import logging
 from utils import (
-    naturalsize,
-    std_headers,
+    naturalsize,    
     none_to_cero
 )
 import traceback
@@ -14,6 +13,7 @@ import traceback
 import aria2p
 import copy
 import time
+
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -92,7 +92,7 @@ class AsyncARIA2CDownloader():
             'dir': str(self.download_path),
             'out': self.filename.name,
             'check-certificate': self.verifycert,              
-            'user-agent': std_headers['User-Agent']}
+            'user-agent': self.video_downloader.args.useragent}
         
         opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
@@ -107,7 +107,7 @@ class AsyncARIA2CDownloader():
             self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
             while True:
                 self.dl_cont.update()
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]\n{self.dl_cont._struct}")
+                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if self.dl_cont.status in ('error'):

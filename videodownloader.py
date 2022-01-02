@@ -98,6 +98,10 @@ class VideoDownloader():
                 'error_message': ""             
             })
             
+            self.pause_event = None
+            self.resume_event = None
+            self.lock = None
+            
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
             logger.error(f"{repr(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
@@ -126,12 +130,21 @@ class VideoDownloader():
             logger.error(f"{repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
             raise 
             
+    def pause(self):
+        if self.pause_event:
+            self.pause_event.set()
+        
+    def resume(self):
+        if self.resume_event:
+            if self.pause_event.is_set(): 
+                self.resume_event.set()
         
     async def run_dl(self):
-        
-        self.lock = asyncio.Lock()
-        
+
         self.info_dl['status'] = "downloading"
+        self.pause_event = asyncio.Event()
+        self.resume_event = asyncio.Event()
+        self.lock = asyncio.Lock()
         tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
         done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
         
@@ -229,7 +242,8 @@ class VideoDownloader():
     async def run_manip(self):
         
         try:
-            self.lock = asyncio.Lock()
+            if not self.lock:
+                self.lock = asyncio.Lock()
             
             self.info_dl['status'] = "manipulating"
             for dl in self.info_dl['downloaders']: 
@@ -383,8 +397,10 @@ class VideoDownloader():
             return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to create file [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n")           
         elif self.info_dl['status'] == "error":
             return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
-        elif self.info_dl['status'] == "downloading":            
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Downloading [{naturalsize(self.info_dl['down_size'])}/{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+        elif self.info_dl['status'] == "downloading":
+            if self.pause_event and self.pause_event.is_set(): status = "PAUSED"
+            else: status ="Downloading"            
+            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: {status} [{naturalsize(self.info_dl['down_size'])}/{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "manipulating": 
             if self.info_dl['filename'].exists(): _size = self.info_dl['filename'].stat().st_size
             else: _size = 0
