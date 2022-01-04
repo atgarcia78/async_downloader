@@ -96,14 +96,9 @@ class AsyncDL():
         self.count_init = 0
         self.count_run = 0        
         self.count_manip = 0
-        
-        self.totalbytes2dl = 0
-        
-        self.time_now = datetime.now()
 
-    
-                
-    
+        self.totalbytes2dl = 0
+        self.time_now = datetime.now()
 
     async def gui_root(self):
         '''
@@ -504,10 +499,10 @@ class AsyncDL():
                         
                                                 
                         self.info_videos[_url] = {'source' : 'file_cli', 
-                                                           'video_info': _video, 
-                                                           'status': 'init', 
-                                                           'aldl': False, 
-                                                           'error': []}
+                                                    'video_info': _video, 
+                                                    'status': 'init', 
+                                                    'aldl': False, 
+                                                    'error': []}
                         
                         _same_video_url = self._check_if_same_video(_url)
                         
@@ -1065,7 +1060,7 @@ class AsyncDL():
                     lines = traceback.format_exception(*sys.exc_info())                
                     logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
             
-            self.get_results_info()
+            
 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
@@ -1242,11 +1237,11 @@ class AsyncDL():
     
     def exit(self):
         
-        #ies_to_close = ['NakedSwordScene', 'NetDNA', 'GayBeeg', 'GayBeegPlaylist', 'GayBeegPlaylistPage', 'BoyFriendTVEmbed', 'BoyFriendTV']
+        
         ies = self.ytdl._ies_instances
-        #for ie in ies_to_close:
+        
         for ie, ins in ies.items():
-            #if (_ie:=ies.get(ie)):
+            
             if (close:=getattr(ins, 'close', None)):
                 try:
                     close()

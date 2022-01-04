@@ -54,27 +54,23 @@ def main():
             
 
             asyncDL.get_videos_to_dl()    
-            
-                
-            
+
             t1.stop()
             
             t2.start()
             
             if asyncDL.videos_to_dl:    
-                    
-                
+
                 try:                
-                    
-                           
                     aiorun.run(asyncDL.async_ex(), use_uvloop=True)                     
                 except Exception as e:
-                    logger.exception(f"[aiorun] {repr(e)}")
+                    logger.exception(f"[aiorun] {repr(e)}")
 
             t2.stop()
         except Exception as e:
             logger.exception(f"[asyncdl results] {repr(e)}")
         finally:
+            asyncDL.get_results_info()
             asyncDL.exit()
     
     except Exception as e:
