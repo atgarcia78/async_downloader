@@ -3,17 +3,15 @@
 
 import logging
 import aiorun 
-import shutil
 import os
 
 
 from utils import ( 
-    init_logging,    
-    init_tk,
+    init_logging,
     init_argparser,
     patch_http_connection_pool,
     patch_https_connection_pool,
-    kill_processes)
+)
 
 from concurrent.futures import ThreadPoolExecutor
     
@@ -67,8 +65,9 @@ def main():
                     
                 
                 try:                
-                    args_tk = init_tk()        
-                    res = aiorun.run(asyncDL.async_ex(args_tk), use_uvloop=True)                     
+                    
+                           
+                    aiorun.run(asyncDL.async_ex(), use_uvloop=True)                     
                 except Exception as e:
                     logger.exception(f"[aiorun] {repr(e)}")
 
@@ -77,23 +76,6 @@ def main():
             logger.exception(f"[asyncdl results] {repr(e)}")
         finally:
             asyncDL.exit()
-            
-            
-        if res:
-        
-            videos_ko = list(set(res['videoskodl']['urls'] + res['videoskoinit']['urls']))
-                    
-            if videos_ko: videos_ko_str = "\n".join(videos_ko)        
-            else: videos_ko_str = ""
-                
-            with open("/Users/antoniotorres/Projects/common/logs/error_links.txt", "w") as file:
-                file.write(videos_ko_str) 
-            
-            if args.caplinks:
-                
-                shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
-                with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:                
-                    file.write(videos_ko_str)
     
     except Exception as e:
         logger.exception(f"[asyncdl bye] {repr(e)}")

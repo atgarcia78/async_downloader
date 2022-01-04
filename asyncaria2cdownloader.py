@@ -107,7 +107,7 @@ class AsyncARIA2CDownloader():
             self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
             while True:
                 self.dl_cont.update()
-                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]\n{self.dl_cont._struct}")
+                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if self.dl_cont.status in ('error'):
@@ -124,14 +124,15 @@ class AsyncARIA2CDownloader():
                            
 
         
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
+        except Exception as e:                         
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
             try:
                 self.error_message = self.dl_cont.error_message
             except Exception:
                 self.error_message = repr(e)
+            
+            raise AsyncARIA2CDLErrorFatal(self.error_message)
                 
             
         

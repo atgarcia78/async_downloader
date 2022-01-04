@@ -23,6 +23,8 @@ import time
 import asyncio
 import contextvars
 import functools
+import PySimpleGUI as sg
+import collections
  
 class EMA(object):
     """
@@ -157,12 +159,19 @@ def folderfiles(folder):
         
     return count
 
-def get_value_list_or_none(_list, _index=None):
-   if _list == None: return None
-   elif len(_list) == 0: return None
-   elif len(_list) == 1: return _list[0]
-   elif _index == None: return _list[0]
-   else: return _list[_index] if _index < len(_list) else None 
+
+def variadic(x, allowed_types=(str, bytes, dict)):
+    return x if isinstance(x, collections.abc.Iterable) and not isinstance(x, allowed_types) else (x,)
+
+def try_get(src, getter, expected_type=None):
+    for get in variadic(getter):
+        try:
+            v = get(src)
+        except (AttributeError, KeyError, TypeError, IndexError):
+            pass
+        else:
+            if expected_type is None or isinstance(v, expected_type):
+                return v 
 
 def int_or_none(res):
     return int(res) if res else None
@@ -267,7 +276,7 @@ def get_ip_proxy():
     
 def check_proxy(ip, port, queue_ok=None):
     try:
-        cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}",timeout=10)
+        cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}",timeout=10, follow_redirects=True)
         res = cl.get("https://torguard.net/whats-my-ip.php")            
         print(f"{ip}:{port}:{res}")
         if res.status_code == 200:
@@ -281,7 +290,7 @@ def check_proxy(ip, port, queue_ok=None):
 def status_proxy():
     
     #dscacheutil -q host -a name proxy.torguard.org
-    IPS_TORGUARD = ["88.202.177.231", "68.71.244.82", "88.202.177.233", "68.71.244.70", "68.71.244.102", "68.71.244.94", "37.120.153.242", "68.71.244.22", "88.202.177.230", "89.238.177.198", "37.120.244.230", "88.202.177.239", "68.71.244.30", "37.120.244.194", "46.23.78.25", "185.212.171.114", "68.71.244.50", "88.202.177.240", "68.71.244.18", "68.71.244.62", "37.120.244.198", "68.71.244.34", "68.71.244.78", "194.59.250.250", "68.71.244.42", "194.59.250.242", "194.59.250.226", "37.120.244.214", "37.120.244.202", "194.59.250.202", "88.202.177.243", "68.71.244.6", "88.202.177.235", "37.120.141.122", "89.238.177.194", "68.71.244.66", "88.202.177.237", "68.71.244.26", "185.212.171.118", "68.71.244.10", "68.71.244.98", "37.120.244.206", "88.202.177.238", "37.120.153.234", "68.71.244.90", "37.120.244.226", "68.71.244.54", "194.59.250.210", "185.156.172.198", "37.120.244.222", "68.71.244.46", "68.71.244.38", "37.120.141.114", "37.120.244.210", "185.156.172.154", "88.202.177.242", "37.120.244.218", "194.59.250.234", "89.238.177.202", "88.202.177.232", "88.202.177.241", "88.202.177.234", "68.71.244.58", "46.23.78.24", "194.59.250.218", "68.71.244.14", "194.59.250.194", "2.58.44.226"]
+
     
     IPS_ES_SSL = ["192.145.124.186", "192.145.124.234", "89.238.178.234", "192.145.124.242", "192.145.124.226", "192.145.124.238", "192.145.124.174", "89.238.178.206", "192.145.124.190"]
     
@@ -299,9 +308,9 @@ def status_proxy():
     
     
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for proxy in IPS_ES_SSL: 
-            for port in PORTS:            
-                futures.append(ex.submit(check_proxy, proxy, port, queue_ok))
+        for ip in IPS_ES_SSL: 
+            for port in PORTS_SSL:            
+                futures.append(ex.submit(check_proxy, ip, port, queue_ok))
         
     
     list_res = list(queue_ok.queue)
@@ -486,41 +495,48 @@ def init_ytdl(args):
     
     return ytdl
 
-def init_tk():
-    window = tk.Tk()
-    window.title("async_downloader")
-    
-    
-    frame0 = tk.Frame(master=window, width=25, height=50, bg="white")  
-    frame0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True) 
-    frame1 = tk.Frame(master=window, width=50, bg="white")
-    frame1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)  
-    frame2 = tk.Frame(master=window, width=25, bg="white")
-    frame2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-    
-        
-    label0 = tk.Label(master=frame0, text="WAITING TO DL", bg="blue")
-    label0.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text0 = tk.Text(master=frame0, font=("Source Code Pro", 10))
-    text0.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)    
+
+
+
+def init_gui():
    
+    sg.theme("SystemDefaultForReal")
     
-    label1 = tk.Label(master=frame1, text="NOW DOWNLOADING/CREATING FILE", bg="blue")
-    label1.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text1 = tk.Text(master=frame1, font=("Source Code Pro", 10))
-    text1.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)
-        
-    label2 = tk.Label(master=frame2, text="DOWNLOADED/ERRROS", bg="blue")
-    label2.pack(fill=tk.BOTH, side=tk.TOP, expand=False)
-    text2 = tk.Text(master=frame2, font=("Source Code Pro", 10))
-    text2.pack(fill=tk.BOTH, side=tk.LEFT, expand=True)   
+    col_0 = sg.Column([
+                        [sg.Text("WAITING TO DL", font='Any 14')], 
+                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', auto_refresh=True)]
+    ], element_justification='l', expand_x=True, expand_y=True)
     
-    text0.insert(tk.END, "Waiting for info")     
-    text1.insert(tk.END, "Waiting for info") 
-    text2.insert(tk.END, "Waiting for info")
+    col_1 = sg.Column([
+                        [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
+                        [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', auto_refresh=True)]
+    ], element_justification='c', expand_x=True, expand_y=True)
     
-    res = [window, text0, text1, text2]
-    return(res)    
+    col_2 = sg.Column([
+                        [sg.Text("DOWNLOADED/ERRORS", font='Any 14')], 
+                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', auto_refresh=True)]
+    ], element_justification='r', expand_x=True, expand_y=True)
+    
+    layout_root = [ [col_0, col_1, col_2] ]
+    
+    window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True, use_default_focus=False)
+    window_root.set_min_size(window_root.size)
+    
+    window_root['-ML0-'].expand(True, True, True)
+    window_root['-ML1-'].expand(True, True, True)
+    window_root['-ML2-'].expand(True, True, True)
+    
+    layout_pygui = [  [sg.Text('Select DL')],
+                [sg.Input(key='-IN-', focus=True)],
+                [sg.Multiline(size=(30, 8), write_only=True, key='-ML-', reroute_cprint=True)],
+                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Exit')] ]
+
+    window_pygui = sg.Window('Console', layout_pygui, location=(0, 350), finalize=True, use_default_focus=True)
+    
+    window_pygui.bring_to_front()
+    
+    return(window_root, window_pygui)
+
 
 
     

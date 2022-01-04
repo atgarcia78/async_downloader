@@ -3,11 +3,12 @@ import sys
 import traceback
 import json
 import shutil
-import tkinter as tk
 import asyncio
 from pathlib import Path
 from tabulate import tabulate
 import time
+
+
 
 
 
@@ -20,7 +21,9 @@ from utils import (
     none_to_cero,
     kill_processes,
     async_wait_time,
-    async_ex_in_thread    
+    async_ex_in_thread,
+    sg,
+    init_gui
 )
 
 from concurrent.futures import (
@@ -46,7 +49,7 @@ logger = logging.getLogger("asyncDL")
 
 class AsyncDL():
 
-    _INTERVAL_TK = 0.2
+    _INTERVAL_GUI = 0.2
    
     def __init__(self, args):
     
@@ -85,9 +88,9 @@ class AsyncDL():
         self.videos_to_dl = []        
 
         #tk control      
-        self.stop_tk = False
+        self.stop_root = False
         
-        self.stop_in_out = False        
+        self.stop_console = True        
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -102,28 +105,29 @@ class AsyncDL():
                 
     
 
-    async def run_tk(self, args_tk):
+    async def gui_root(self):
         '''
         Run a tkinter app in an asyncio event loop.
         '''
 
-        root, text0, text1, text2 = args_tk
-        count = 0
-        
-        while (not self.list_dl and not self.stop_tk):
+        while (not self.list_dl and not self.stop_root):
             
-            await async_wait_time(self._INTERVAL_TK)
-            count += 1
-            if count == 10:
-                count = 0
-                logger.debug("[RUN_TK] Waiting for dl")
+            await async_wait_time(self._INTERVAL_GUI)
+            
+        if not self.stop_root:
+            self.window_root, self.window_console = init_gui()
+            self.stop_console = False
         
-        logger.debug(f"[RUN_TK] End waiting. Signal stop_tk[{self.stop_tk}]")
+        logger.debug(f"[gui_root] End waiting. Signal stop_self.gui_root{self.stop_root}]")
         
         try:  
-            while not self.stop_tk:
+            while not self.stop_root:
                 
-                root.update()
+                
+                
+                text0 = self.window_root['-ML0-'].TKText
+                text1 = self.window_root['-ML1-'].TKText
+                text2 = self.window_root['-ML2-'].TKText
                 
                 
                 res = set([dl.info_dl['status'] for dl in self.list_dl])
@@ -135,39 +139,42 @@ class AsyncDL():
                             break
                     else:
                       
-                        text0.delete(1.0, tk.END)                        
-                        text1.delete(1.0, tk.END)
-                        text2.delete(1.0, tk.END)
+                        text0.delete(1.0, sg.tk.END)                        
+                        text1.delete(1.0, sg.tk.END)
+                        text2.delete(1.0, sg.tk.END)
                         list_downloading = []
                         list_manip = []    
-                        for dl in self.list_dl:
-                            mens = await dl.print_hookup()
+                        for i, dl in enumerate(self.list_dl):
+                            mens = f"[{i+1}]{await dl.print_hookup()}"
                             if dl.info_dl['status'] in ["init"]:
-                                text0.insert(tk.END, mens)
+                                text0.insert(sg.tk.END, mens)
                             if dl.info_dl['status'] in ["init_manipulating", "manipulating"]:
                                 list_manip.append(mens) 
                             if dl.info_dl['status'] in ["downloading"]:
                                 list_downloading.append(mens)  
                             if dl.info_dl['status'] in ["done", "error"]:
-                                text2.insert(tk.END,mens)
+                                text2.insert(sg.tk.END,mens)
                                          
                         if list_downloading:
-                            text1.insert(tk.END, "\n\n-------DOWNLOADING VIDEO------------\n\n")
-                            text1.insert(tk.END, ''.join(list_downloading))
+                            text1.insert(sg.tk.END, "\n\n-------DOWNLOADING VIDEO------------\n\n")
+                            text1.insert(sg.tk.END, ''.join(list_downloading))
                             
                         if list_manip:
-                            text1.insert(tk.END, "\n\n-------CREATING FILE------------\n\n")
-                            text1.insert(tk.END, ''.join(list_manip))
+                            text1.insert(sg.tk.END, "\n\n-------CREATING FILE------------\n\n")
+                            text1.insert(sg.tk.END, ''.join(list_manip))
                                          
                         
-                await async_wait_time(self._INTERVAL_TK)
+                await async_wait_time(self._INTERVAL_GUI)
        
                 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[run_tk]: error\n{'!!'.join(lines)}")
+            logger.error(f"[gui_root]: error: {repr(e)}\n{'!!'.join(lines)}")
         
-        logger.debug("[RUN_TK] BYE") 
+        
+        logger.debug("[gui_root] BYE") 
+    
+    
     
     def get_videos_cached(self):        
         
@@ -653,8 +660,9 @@ class AsyncDL():
                     self.queue_run.put_nowait(("", "KILLANDCLEAN"))
                     
                     if not self.list_dl: 
-                        self.stop_tk = True
-                        self.stop_in_out = True
+                        self.stop_root = True
+                        self.stop_console = False
+                        
  
                     break
                 
@@ -878,7 +886,8 @@ class AsyncDL():
                     for _ in range(nworkers):
                         self.queue_manip.put_nowait(("", "KILL")) 
                     await asyncio.sleep(0)
-                    self.stop_in_out = True
+                    
+                    self.stop_root = True
                     break
                 
                 else:
@@ -961,90 +970,59 @@ class AsyncDL():
                 self.count_manip += 1 
             logger.debug(f"[worker_manip][{i}]: BYE")       
 
-    async def wait_for_stop(self):
-        while True:
-            if self.stop_in_out:
-                break
-            else: 
-                await asyncio.sleep(0)
-        return
     
-    async def get_line(self, _reader):
-        res = (await _reader.readline()).strip()                
-        return res
-    
-    async def in_out(self):
-        
-        
-                
-        try:
-            loop = asyncio.get_running_loop()
-            reader = asyncio.StreamReader()
-            protocol = asyncio.StreamReaderProtocol(reader)
-            await loop.connect_read_pipe(lambda: protocol, sys.stdin)
-            # w_transport, w_protocol = await loop.connect_write_pipe(asyncio.streams.FlowControlMixin, sys.stdout)
-            # writer = asyncio.StreamWriter(w_transport, w_protocol, reader, loop)
-        
 
-            if not self.stop_in_out: logger.info(f"[in_out]: INIT")
-            while True:
-                logger.info(f"[in_out]: waiting for input")
+
+    async def gui_console(self):
+        
+        try:
+            
+            while self.stop_console:
+                await async_wait_time(self._INTERVAL_GUI)
+            
+            while not self.stop_root:             
                 
-                tasks = [asyncio.create_task(self.get_line(reader)), asyncio.create_task(self.wait_for_stop())]                
-                don, pen = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-                if pen:
-                    logger.info(f"[in_out] pending {pen}")
-                    for p in pen: p.cancel()
-                    try:
-                        await asyncio.gather(*pen, return_exceptions=True)
-                    except Exception as e:
-                        logger.error(str(e))
+                await async_wait_time(self._INTERVAL_GUI)
+                event, values = self.window_console.read(timeout=0)
+                if event == sg.TIMEOUT_KEY:
+                    continue            
                 
                 
-                               
-                if don:
-                    logger.info(f"[in_out] done {don}")
-                    for d in don: 
-                        try:
-                            res = d.result()
-                        except Exception as e:
-                            logger.error(str(e))
-                
-                if self.stop_in_out: break
-                
-                logger.info(f"[in_out]: {res}")                    
-                
-                res2 = list(bytearray(res))
-                
-                if res == b'exit':
+                sg.cprint(event, values)
+                if event in (sg.WIN_CLOSED, 'Exit'):
                     break
-                if len(res2) > 1:
-                    if res2[0] == 207 and res2[1] == 128:# b'\xcf\x80':
-                        logger.info("Evento pause")
-                        if len(res2) == 2:
-                            if self.list_dl:
-                                for dl in self.list_dl:                            
-                                    dl.pause()
-                        else:
-                            _index = res2[2] - 48 - 1
-                            self.list_dl[_index].pause()
-                            
-                    elif res2[0] == 194 and res2[1] == 174: #res == b'\xc2\xae':
-                        logger.info("Evento resume")
+                elif event == 'Pause':
+                    if not values['-IN-']:
                         if self.list_dl:
                             for dl in self.list_dl:                            
-                                dl.resume()
+                                dl.pause()
+                    else:
+                        if not values['-IN-'].isdecimal():
+                            sg.cprint('DL index not an integer')
+                        else:
+                            _index = int(values['-IN-'])
+                            if self.list_dl:
+                                if 0 < _index <= len(self.list_dl):                               
+                        
+                                    self.list_dl[_index-1].pause()
+                                else: sg.cprint('DL index doesnt exist')
+                            else: sg.cprint('DL list empty')
                 
-            
-            logger.info(f"[in_out]: BYE")
+                elif event == 'Resume':
+                    if self.list_dl:
+                        for dl in self.list_dl:                            
+                            dl.resume()
+                            
         except Exception as e:
-            logger.exception(f"[in_out] {repr(e)}")
-        #finally:
-            #writer.close()
+            lines = traceback.format_exception(*sys.exc_info())                
+            logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
+        
+        
+        logger.debug("[gui_console] BYE") 
     
-    async def async_ex(self, args_tk):
+    async def async_ex(self):
     
-        await self.print_list_videos() 
+        self.print_list_videos() 
         
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
@@ -1066,20 +1044,22 @@ class AsyncDL():
         try:
             
             tasks_run = []
-            task_tk = []
+            task_gui_root = []
             tasks_manip = []
-            task_in_out = []
+            task_gui_console = []
 
             tasks_init = [asyncio.create_task(self.worker_init(i)) for i in range(self.init_nworkers)]
                             
             if not self.args.nodl:
-            
-                task_tk = [asyncio.create_task(self.run_tk(args_tk))] 
+
+                
+
+                task_gui_root = [asyncio.create_task(self.gui_root())] 
                 tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
                 tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(self.workers)]
-                #task_in_out = [asyncio.create_task(self.in_out())]
+                task_gui_console = [asyncio.create_task(self.gui_console())]
                 
-            done, _ = await asyncio.wait(tasks_init + task_tk + tasks_run + tasks_manip + task_in_out)
+            done, _ = await asyncio.wait(tasks_init + task_gui_root + tasks_run + tasks_manip + task_gui_console)
             
             for d in done:
                 try:
@@ -1088,16 +1068,16 @@ class AsyncDL():
                     lines = traceback.format_exception(*sys.exc_info())                
                     logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
             
-            res = await self.get_results_info()
+            self.get_results_info()
 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
     
         asyncio.get_running_loop().stop()
-        return res      
+             
         
-    async def get_results_info(self):       
+    def get_results_info(self):       
        
 
         _videos_url_notsupported = self.list_unsup_urls
@@ -1125,7 +1105,7 @@ class AsyncDL():
                     else: videos_kodl.append(url)
             
             
-        info_dict = await self.print_list_videos()
+        info_dict = self.print_list_videos()
         
         info_dict.update({'videosokdl': {'urls': videos_okdl}, 'videoskodl': {'urls': videos_kodl}, 'videoskoinit': {'urls': videos_koinit}, 
                           'videosnotsupported': {'urls': _videos_url_notsupported}, 'videosnotvalid': {'urls': _videos_url_notvalid},
@@ -1202,10 +1182,25 @@ class AsyncDL():
         logger.debug(f'\n{self.info_videos}')
         
         
+        
+        videos_ko = list(set(info_dict['videoskodl']['urls'] + info_dict['videoskoinit']['urls']))
+                    
+        if videos_ko: videos_ko_str = "\n".join(videos_ko)        
+        else: videos_ko_str = ""
+            
+        with open("/Users/antoniotorres/Projects/common/logs/error_links.txt", "w") as file:
+            file.write(videos_ko_str) 
+        
+        if self.args.caplinks:
+            
+            shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
+            with open("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "w") as file:                
+                file.write(videos_ko_str)
+        
         return info_dict
 
     
-    async def print_list_videos(self):
+    def print_list_videos(self):
         
         col = shutil.get_terminal_size().columns
         

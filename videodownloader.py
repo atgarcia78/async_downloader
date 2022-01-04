@@ -82,7 +82,7 @@ class VideoDownloader():
             else:
                 for f in _requested_formats:
                     _new_info_dict = copy.deepcopy(f)                
-                    _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url']})
+                    _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
                     downloaders.append(self._get_dl(_new_info_dict))        
             
                 
@@ -114,30 +114,37 @@ class VideoDownloader():
         try:
             protocol = determine_protocol(info)
             if protocol in ('http', 'https'):
-                if not self.info_dl['rpcport']: dl = AsyncHTTPDownloader(info, self)
-                else: dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)           
+                if self.info_dl['rpcport']: 
+                    try:
+                        dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                    except Exception:
+                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}]: aria2c DL failed, swap to HTTP DL")
+                        dl = AsyncHTTPDownloader(info, self)
+                else: dl = AsyncHTTPDownloader(info, self)                    
             elif protocol in ('m3u8', 'm3u8_native'):
                 dl = AsyncHLSDownloader(info, self)            
             elif protocol in ('http_dash_segments', 'dash'):
                 dl = AsyncDASHDownloader(info, self)
             else:
-                logger.error(f"[{info['id']}][{info['title']}]: protocol not supported")
+                logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
                 raise NotImplementedError("protocol not supported")
             
             return dl
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"{repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
+            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
             raise 
             
     def pause(self):
         if self.pause_event:
             self.pause_event.set()
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event pause")
         
     def resume(self):
         if self.resume_event:
             if self.pause_event.is_set(): 
                 self.resume_event.set()
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event resume")
         
     async def run_dl(self):
 
@@ -390,20 +397,20 @@ class VideoDownloader():
             msg += f"  {await dl.print_hookup()}"
         msg += "\n" 
         if self.info_dl['status'] == "done":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}]\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}]\n")
         elif self.info_dl['status'] == "init":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to DL [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")  
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Waiting to DL [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")  
         elif self.info_dl['status'] == "init_manipulating":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: Waiting to create file [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n")           
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Waiting to create file [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n")           
         elif self.info_dl['status'] == "error":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: ERROR {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: ERROR {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "downloading":
             if self.pause_event and self.pause_event.is_set(): status = "PAUSED"
             else: status ="Downloading"            
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]: {status} [{naturalsize(self.info_dl['down_size'])}/{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: {status} [{naturalsize(self.info_dl['down_size'])}/{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "manipulating": 
             if self.info_dl['filename'].exists(): _size = self.info_dl['filename'].stat().st_size
             else: _size = 0
-            return (f"[{self.info_dict['id']}][{self.info_dict['title']}]:  Ensambling/Merging {naturalsize(_size, format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]:  Ensambling/Merging {naturalsize(_size, format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         
         

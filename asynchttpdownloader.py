@@ -8,7 +8,9 @@ from utils import (
     naturalsize,
     int_or_none,
     none_to_cero,
-    EMA
+    EMA,
+    try_get,
+    
 )
 
 from concurrent.futures import CancelledError, ThreadPoolExecutor
@@ -23,6 +25,12 @@ import datetime
 import copy
 
 from user_agent import generate_user_agent 
+
+from ratelimit import (
+    sleep_and_retry,
+    limits
+)
+from backoff import constant, on_exception
 
 logger = logging.getLogger("async_http_DL")
 class AsyncHTTPDLErrorFatal(Exception):
@@ -46,7 +54,8 @@ class AsyncHTTPDownloader():
     _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
     #_CHUNK_SIZE = 1048576 #1MB
-    _MAX_RETRIES = 50
+    _MAX_RETRIES = 10
+    _DICT_NPARTS = {'Dood': 2}
     
     def __init__(self, video_dict, vid_dl):
 
@@ -55,19 +64,21 @@ class AsyncHTTPDownloader():
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
         self.n_parts = self.video_downloader.info_dl['n_workers']
+        if (ie:=self.info_dict.get('extractor_key')):
+            if (nparts:=self._DICT_NPARTS.get(ie)):
+                
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ie[{ie}] change nparts [{self.n_parts} -> {nparts}]")
+                self.n_parts = nparts
+            
         self._NUM_WORKERS = self.n_parts 
         self.video_url = self.info_dict.get('url')
-        #self.webpage_url = video_dict.get('webpage_url')
-        
 
-        self.id = self.info_dict['id']
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
-        #self.proxies = self.ytdl.params.get('proxy', None)
-        #if self.proxies:
-        #info_proxies = ["89.238.178.234", "192.145.124.174", "192.145.124.238", "192.145.124.234", "192.145.124.186", "192.145.124.242", "192.145.124.226", "89.238.178.206", "192.145.124.190"]
-        #self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1339"} for ip in info_proxies]
-        #self.ua = [generate_user_agent(os='mac',navigator='firefox') for _ in range(len(info_proxies))]
+
+        #ip_proxies = ["192.145.124.234", "192.145.124.242", "89.238.178.234", "192.145.124.190", "192.145.124.186", "192.145.124.226", "192.145.124.174", "192.145.124.238", "89.238.178.206"]
+        #self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:6060", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1337"} for ip in ip_proxies]
+        self.proxies = None
         
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
@@ -99,97 +110,89 @@ class AsyncHTTPDownloader():
             self.status = "init_manipulating"
         else:
             self.status = "init"
+        
         self.error_message = ""        
-        self.prepare_parts()
+        
+        
         self.count = 0#cuenta de los workers activos
         
         self.ema_s = EMA(smoothing=0.0001)
         self.ema_t = EMA(smoothing=0.0001)
         
-        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[init] {self.parts}")        
+        
+        self.init()
+        
+        
 
-
+    @on_exception(constant, Exception, max_tries=3, interval=1)
+    @sleep_and_retry
+    @limits(calls=1, period=1)
     def check_server(self):
         #checks if server can handle ranges
-        cont = 5
-        cl = httpx.Client(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
 
-        while (cont > 0): 
-            
-            try:             
-                res = cl.head(self.video_url, headers={'range': 'bytes=0-'})
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {res} {res.request.headers} {res.headers}") 
-                res.raise_for_status()
-                break
-            except Exception as e:
-                lines = traceback.format_exception(*sys.exc_info())
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)} \n{'!!'.join(lines)}")
-                cont -= 1
-                time.sleep(1)
+
+        try:             
+            res = self.init_client.head(self.video_url, headers={'range': 'bytes=0-100'})
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {res} {res.request.headers} {res.headers}") 
+            res.raise_for_status()
+            return(res.headers.get('accept-ranges') or res.headers.get('content-range'))
+
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)} \n{'!!'.join(lines)}")
+            raise
         
-        cl.close()
+    @on_exception(constant, Exception, max_tries=3, interval=1)
+    @sleep_and_retry
+    @limits(calls=1, period=1)
+    def get_filesize(self):
+
+
+        try:             
+            res = self.init_client.head(self.video_url)
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[get_filesize] {res} {res.request.headers} {res.headers}") 
+            res.raise_for_status()
+            return(int_or_none(res.headers.get('content-length')))
+
+        except Exception as e:
             
-        if cont == 0: _res = None
-        else:
-            _res = res.headers.get('accept-ranges') or res.headers.get('content-range')        
-        
-        return (_res)
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[get_filesize] {repr(e)}")
+            raise
         
     
+
+        
+    @on_exception(constant, Exception, max_tries=3, interval=1)
+    @sleep_and_retry
+    @limits(calls=1, period=1)
     def upt_hsize(self, i, offset=None):
-            
-        
-        try:
-        
-            # _headers = self.headers
-            # _headers['User-Agent'] = self.ua[i]
-            # cl = httpx.Client(follow_redirects=True, limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies[i], headers=_headers)
-            cl = httpx.Client(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
-            
-           
+
+        try: 
+
+
             if offset:
-                    self.parts[i]['headers'].append({'range' : f"bytes={self.parts[i]['offset'] + self.parts[i]['start']}-{self.parts[i]['end']}"})
-            
-            cont = 5
-            while (cont > 0):
-                
-                try:
-                
-                    res = cl.head(self.video_url, headers=self.parts[i]['headers'][-1])
-                    #with cl.stream("GET", self.video_url, headers=self.parts[i]['headers'][-1]) as res:
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {res} {res.request} {res.request.headers} {res.headers.get('content-length')}")
-                    res.raise_for_status()
-                    
-                    break
-                    
-                except Exception as e:
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {repr(e)}")
-                    time.sleep(5)
-                    cont -= 1
-                    
-            
-            if cont == 0: raise Exception("no headers size")
-            headers_size = res.headers.get('content-length')
-            if not headers_size: raise Exception("no headers size")            
-            headers_size = int(headers_size)
+                self.parts[i]['headers'].append({'range' : f"bytes={self.parts[i]['offset'] + self.parts[i]['start']}-{self.parts[i]['end']}"})
+
+            res = self.init_client.head(self.video_url, headers=self.parts[i]['headers'][-1])
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {res} {res.request} {res.request.headers} {res.headers.get('content-length')}")
+            res.raise_for_status()
+            headers_size = int_or_none(res.headers.get('content-length'))
             if not offset: self.parts[i].update({'headersize' : headers_size})
             else: 
                 self.parts[i].update({'hsizeoffset' : headers_size})
+            
                     
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \n{self.parts[i]}")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] OK for part[{i}] \n{self.parts[i]}")
+            
+            return headers_size
         
         except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {repr(e)} \n{'!!'.join(lines)}")
-            headers_size = None            
-        finally:
-            cl.close()
-        
-        return headers_size         
-            
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] NOTOK for part[{i}] {repr(e)}")
+                        
+
+
   
-    def create_parts(self):
-       
+    def create_parts(self):       
        
         if not self.check_server(): #server can not handle ranges
             self._NUM_WORKERS = self.n_parts = 1
@@ -221,9 +224,11 @@ class AsyncHTTPDownloader():
                     
                     start_range = end_range + 1
                     
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                fut = [ex.submit(self.upt_hsize, i) for i in range(self.n_parts)]
-                #done, pending = wait(fut, return_when=ALL_COMPLETED)
+            if self.n_parts == 1: self.parts[0].update({'headersize' : self.filesize})
+            else:
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = [ex.submit(self.upt_hsize, i) for i in range(self.n_parts)]
+                    #done, pending = wait(fut, return_when=ALL_COMPLETED)
                 
             _not_hsize = [_part for _part in self.parts if not _part['headersize']]
             if len(_not_hsize) > 0: logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] not headersize in [{len(_not_hsize)}/{self.n_parts}]")
@@ -233,43 +238,27 @@ class AsyncHTTPDownloader():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] {repr(e)} \n{'!!'.join(lines)}")
 
         
-    def prepare_parts(self): 
+    def init(self): 
         
-        if self.filesize:
-            
-            self.create_parts() 
-            self.get_parts_to_dl()
+        self.init_client = httpx.Client(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
         
-        else:
-            
-            try:
-                size = None
-                cl = httpx.Client(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
-                #cl = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-                res = cl.head(self.video_url)
-                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{res.headers}:{res.request.headers}")
-                if res.status_code > 400: #repeat request without header referer
-                    h_ref = cl.headers.pop('referer', None)
-                    res = cl.head(self.video_url)
-
-                if res.status_code < 400:
-                    size = res.headers.get('content-length', None)
-                    if size:
-                        self.filesize = int(size)                      
+        try:
+        
+            if not self.filesize:
+                self.filesize = self.get_filesize()
                 
+            if self.filesize:
                 
-            except Exception as e:
-                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when trying to get filesize {e}")
-            finally:
-                cl.close()
-            
-            if size: 
-                self.create_parts()
+                self.create_parts() 
                 self.get_parts_to_dl()
-                
+            
             else:
-                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {res.status_code}: Can't get size of file")                
-                raise AsyncHTTPDLErrorFatal("Can't get filesize")          
+
+                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Can't get size of file")                
+                raise AsyncHTTPDLErrorFatal("Can't get filesize")
+        finally:
+            self.init_client.close()
+                      
            
 
     def get_parts_to_dl(self):
@@ -293,12 +282,12 @@ class AsyncHTTPDownloader():
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[feed queue] part[{part['part']}] exits with size {partsize}. Re-download from scratch")
                        
                 elif _headersize:
-                    if (partsize > _headersize + 5):
+                    if (partsize > _headersize + 100):
                         part['filepath'].unlink()
                         self.parts_to_dl.append(part['part'])
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[feed queue] part[{part['part']}] exits with size {partsize}. Re-download from scratch")
                         
-                    elif _headersize - 5 <= partsize <= _headersize + 5: #with a error margen of +-100bytes,file is fully downloaded
+                    elif _headersize - 100 <= partsize <= _headersize + 100: #with a error margen of +-100bytes,file is fully downloaded
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[feed queue] part[{part['part']}] exits with size {partsize} and full downloaded")
                         self.down_size += partsize                        
                         part['downloaded'] = True
@@ -346,16 +335,18 @@ class AsyncHTTPDownloader():
             else:
                 await asyncio.sleep(0)
         
-        
+      
+    async def rate_limit(self, n):
+        async with self._LOCK:
+            await self.wait_time(n)
+    
     async def fetch(self,i):
         
                 
         try:
 
-            # _headers = self.headers
-            # _headers['User-Agent'] = self.ua[i]
-            #client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies[i], headers=_headers)
-            client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
+
+            client = httpx.AsyncClient(proxies=try_get(self.proxies, lambda x: x[i]), limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] launched")
             
             while True:
@@ -376,6 +367,7 @@ class AsyncHTTPDownloader():
                     
                         async with aiofiles.open(tempfilename, mode='ab') as f:
                         
+                            await self.rate_limit(1)
                                                        
                             async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers'][-1]) as res:
                             
@@ -418,18 +410,18 @@ class AsyncHTTPDownloader():
                                         _median = median(self.parts[part-1]['time2dlchunks'][nth_key])
                                         self.parts[part-1]['statistics'][nth_key].append(_median)
                                                 
-                                        if self.parts[part-1]['nchunks_dl'][nth_key] > 40:
+                                        if self.parts[part-1]['nchunks_dl'][nth_key] > 50:
                                         
-                                            _time = self.parts[part -1]['time2dlchunks'][nth_key][-20:]
-                                            _max = [25*_el for _el in self.parts[part -1]['statistics'][nth_key][-20:]]
+                                            _time = self.parts[part -1]['time2dlchunks'][nth_key][-25:]
+                                            _max = [1000*_el for _el in self.parts[part -1]['statistics'][nth_key][-25:]]
                                             if set([_el1>_el2 for _el1,_el2 in zip(_time, _max)]) == {True}:
-                                                raise AsyncHTTPDLErrorFatal(f"timechunk [{_time}] > [{_max}] for consecutives chunks in {nth_key} iteración, nchunks[{self.parts[part -1]['nchunks_dl'][nth_key]}]")
+                                                raise AsyncHTTPDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] part[{part}] iter[{nth_key}] error max time for consecutives chunks [{_time}] > [{_max}]")
                                         
                                         await asyncio.sleep(0)
                                         _started = time.monotonic()
                                                                         
                         _tempfile_size = (await asyncio.to_thread(tempfilename.stat)).st_size                        
-                        if (self.parts[part-1]['headersize'] - 5 <=  _tempfile_size <= self.parts[part-1]['headersize'] + 5):
+                        if (self.parts[part-1]['headersize'] - 100 <=  _tempfile_size <= self.parts[part-1]['headersize'] + 100):
                             self.parts[part-1]['downloaded'] = True
                             self.parts[part-1]['size'] =  _tempfile_size
                             async with self._LOCK:
@@ -438,41 +430,35 @@ class AsyncHTTPDownloader():
                             break
                         
                         else:
-                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] part[{part}] end of stream not completed")
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] {self.parts[part-1]}")
-                           
-                            raise AsyncHTTPDLError(f"Part not completed in streaming: part[{part}]") 
+                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] part[{part}] end of stream not completed: {self.parts[part-1]['headersize'] - 100} <=  {_tempfile_size} <= {self.parts[part-1]['headersize'] + 100}")
+                            
+                            raise AsyncHTTPDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:[fetch-stream] part[{part}] end of stream not completed: {self.parts[part-1]['headersize'] - 100} <=  {_tempfile_size} <= {self.parts[part-1]['headersize'] + 100}") 
                         
-                    except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError) as e:
-                        lines = traceback.format_exception(*sys.exc_info())
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")
+                    except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError, AsyncHTTPDLErrorFatal) as e:
+                        
+                        logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error: {repr(e)}")
                         raise
                             
+                    except (AsyncHTTPDLError, httpx.HTTPError, httpx.StreamError) as e:                        
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error: {repr(e)}")                           
+                            
+                        if self.parts[part-1]['n_retries'] < self._MAX_RETRIES:
+                            self.parts[part-1]['n_retries'] += 1
+                            _tempfile_size = (await asyncio.to_thread(tempfilename.stat)).st_size                                
+                            self.parts[part-1]['offset'] = _tempfile_size                               
+                            if not self.upt_hsize(part - 1, offset=True):
+                                raise AsyncHTTPDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] Error to upt hsize part[{part}]")
+
+                            await asyncio.sleep(0)
+                        else:
+                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error: maxnumrepeats")                            
+                            raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())
-                        
-                        if "httpx" in str(e.__class__) or "AsyncHTTPDLError" in str(e.__class__): 
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch]-res] part[{part}] error {repr(e)}, will retry \n{'!!'.join(lines)}")                           
-                            
-                            if self.parts[part-1]['n_retries'] < self._MAX_RETRIES:
-                                self.parts[part-1]['n_retries'] += 1
-                                _tempfile_size = (await asyncio.to_thread(tempfilename.stat)).st_size                                
-                                self.parts[part-1]['offset'] = _tempfile_size                               
-                                _hsizeoffset = self.upt_hsize(part - 1, offset=True) 
-                                await client.aclose()
-                                #await self.wait_time(1)
-                                # _headers = self.headers
-                                # _headers['User-Agent'] = self.ua[i]
-                                # client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies[i], headers=self.headers)
-                                client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
-                                await asyncio.sleep(0)
-                            else:
-                                raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
-                        else:
-                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected {repr(e)}, will retry \n{'!!'.join(lines)}") 
+                        logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected: {repr(e)}\n{'!!'.join(lines)}") 
                 
         finally:
-            await client.aclose()
+            #await client.aclose()
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}] says bye")
             self.count -= 1
             
@@ -492,7 +478,7 @@ class AsyncHTTPDownloader():
         
         await asyncio.sleep(0)
         
-        #self.client = httpx.AsyncClient(limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)        
+    
         
         try:
             self.count = self._NUM_WORKERS
@@ -514,7 +500,7 @@ class AsyncHTTPDownloader():
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
         finally:
-            #await self.client.aclose()
+           
             pass
 
         if (_parts_not_dl:= await asyncio.to_thread(self.partsnotdl)):
@@ -546,7 +532,7 @@ class AsyncHTTPDownloader():
                 for p in self.parts:
                     if p['filepath'].exists():
                         p['size'] = p['filepath'].stat().st_size
-                        if (p['headersize'] - 5 <= p['size'] <= p['headersize'] + 5):
+                        if (p['headersize'] - 100 <= p['size'] <= p['headersize'] + 100):
                             
                             with open(p['filepath'], 'rb') as source:
                                 dest.write(source.read())
@@ -584,26 +570,26 @@ class AsyncHTTPDownloader():
         elif self.status == "error":
             return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
         elif self.status == "downloading": 
-            async with self._LOCK:
-                _new = time.monotonic()                                  
-                _speed = (self.down_size - self.down_temp) / (_new - self.started)
-                
-                _speed_ema = (_diff_size_ema:=self.ema_s(self.down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started)) 
-               
-                _speed_str = f'{naturalsize(_speed_ema,True)}ps'
-               
-                _progress_str = f'{(self.down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
-                        
-                if _speed_ema and self.filesize:
+            _down_size = self.down_size
+            _new = time.monotonic()                                  
+            _speed = (_down_size - self.down_temp) / (_new - self.started)
+            
+            _speed_ema = (_diff_size_ema:=self.ema_s(_down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started)) 
+            
+            _speed_str = f'{naturalsize(_speed_ema,True)}ps'
+            
+            _progress_str = f'{(_down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
                     
-                    if (_est_time:=((self.filesize - self.down_size)/_speed_ema)) < 3600:
-                        _eta = datetime.timedelta(seconds=_est_time)                    
-                        _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
-                    else: _eta_str = "--"
-                else: _eta_str = "--"
+            if _speed_ema and self.filesize:
                 
-                self.down_temp = self.down_size
-                self.started = time.monotonic()                     
+                if (_est_time:=((self.filesize - _down_size)/_speed_ema)) < 3600:
+                    _eta = datetime.timedelta(seconds=_est_time)                    
+                    _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
+                else: _eta_str = "--"
+            else: _eta_str = "--"
+            
+            self.down_temp = _down_size
+            self.started = time.monotonic()                     
             return (f"[HTTP][{self.info_dict['format_id']}]:(WK[{self.count:2d}]) DL[{_speed_str}] PARTS[{self.n_parts_dl:{self.format_parts()}}/{self.n_parts}] PR[{_progress_str}] ETA[{_eta_str}]\n")
         
         elif self.status == "init_manipulating":                   
