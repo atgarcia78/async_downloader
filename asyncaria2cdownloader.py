@@ -152,12 +152,12 @@ class AsyncARIA2CDownloader():
         try: 
             
             await asyncio.to_thread(self.aria2_client.resume,[self.dl_cont])
-            await asyncio.sleep(0)
+            
             while True:
                 await asyncio.to_thread(self.dl_cont.update)
                 if self.dl_cont.status in ('active', 'error'):
                     break                    
-                    
+                await asyncio.sleep(0)
             
             if self.dl_cont.status in ('active'):        
                 self.status = "downloading"  
@@ -167,10 +167,21 @@ class AsyncARIA2CDownloader():
                     _incsize = self.dl_cont.completed_length - self.down_size
                     self.down_size = self.dl_cont.completed_length
                     async with self.video_downloader.lock: 
-                        self.video_downloader.info_dl['down_size'] += _incsize                                                 
-
+                        self.video_downloader.info_dl['down_size'] += _incsize
+                    if self.video_downloader.pause_event.is_set():
+                        await asyncio.to_thread(self.aria2_client.pause,[self.dl_cont])                        
+                        await self.video_downloader.resume_event.wait()
+                        await asyncio.to_thread(self.aria2_client.resume,[self.dl_cont])                        
+                        self.video_downloader.pause_event.clear()
+                        self.video_downloader.resume_event.clear()
+                        while True:
+                            await asyncio.to_thread(self.dl_cont.update)
+                            if self.dl_cont.status in ('active', 'error', 'complete'):
+                                break                    
+                            await asyncio.sleep(0)
+                        
+                    else: await asyncio.to_thread(self.dl_cont.update)
                     await asyncio.sleep(0)
-                    await asyncio.to_thread(self.dl_cont.update)
             
             if self.dl_cont.status in ('complete'): self.status = "done"
             elif self.dl_cont.status in ('error'): 

@@ -983,19 +983,18 @@ class AsyncDL():
             while not self.stop_root:             
                 
                 await async_wait_time(self._INTERVAL_GUI)
-                event, values = self.window_console.read(timeout=0)
+                event, values = self.window_console.read(timeout=10)
                 if event == sg.TIMEOUT_KEY:
-                    continue            
-                
-                
+                    continue
                 sg.cprint(event, values)
                 if event in (sg.WIN_CLOSED, 'Exit'):
                     break
-                elif event == 'Pause':
+                elif event in ['Pause', 'Resume']:
                     if not values['-IN-']:
                         if self.list_dl:
                             for dl in self.list_dl:                            
-                                dl.pause()
+                                if event == 'Pause': dl.pause()
+                                elif event == 'Resume': dl.resume()
                     else:
                         if not values['-IN-'].isdecimal():
                             sg.cprint('DL index not an integer')
@@ -1004,14 +1003,12 @@ class AsyncDL():
                             if self.list_dl:
                                 if 0 < _index <= len(self.list_dl):                               
                         
-                                    self.list_dl[_index-1].pause()
+                                    if event == 'Pause': self.list_dl[_index-1].pause()
+                                    if event == 'Resume': self.list_dl[_index-1].resume()
                                 else: sg.cprint('DL index doesnt exist')
                             else: sg.cprint('DL list empty')
                 
-                elif event == 'Resume':
-                    if self.list_dl:
-                        for dl in self.list_dl:                            
-                            dl.resume()
+
                             
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
