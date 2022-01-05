@@ -8,10 +8,6 @@ from pathlib import Path
 from tabulate import tabulate
 import time
 
-
-
-
-
 from utils import (    
     init_ytdl,    
     naturalsize,
@@ -30,20 +26,17 @@ from concurrent.futures import (
     ThreadPoolExecutor
 )
 
-
 from yt_dlp.utils import (
     sanitize_filename,
     std_headers,
     js_to_json
 )
 
-
 from datetime import datetime
 from videodownloader import VideoDownloader 
 
 import hashlib
 from textwrap import fill
-
 
 logger = logging.getLogger("asyncDL")
 
@@ -168,8 +161,50 @@ class AsyncDL():
         
         
         logger.debug("[gui_root] BYE") 
-    
-    
+
+    async def gui_console(self):
+        
+        try:
+            
+            while self.stop_console:
+                await async_wait_time(self._INTERVAL_GUI)
+            
+            while not self.stop_root:             
+                
+                await async_wait_time(self._INTERVAL_GUI)
+                event, values = self.window_console.read(timeout=10)
+                if event == sg.TIMEOUT_KEY:
+                    continue
+                sg.cprint(event, values)
+                if event in (sg.WIN_CLOSED, 'Exit'):
+                    break
+                elif event in ['Pause', 'Resume']:
+                    if not values['-IN-']:
+                        if self.list_dl:
+                            for dl in self.list_dl:                            
+                                if event == 'Pause': dl.pause()
+                                elif event == 'Resume': dl.resume()
+                    else:
+                        if not values['-IN-'].isdecimal():
+                            sg.cprint('DL index not an integer')
+                        else:
+                            _index = int(values['-IN-'])
+                            if self.list_dl:
+                                if 0 < _index <= len(self.list_dl):                               
+                        
+                                    if event == 'Pause': self.list_dl[_index-1].pause()
+                                    if event == 'Resume': self.list_dl[_index-1].resume()
+                                else: sg.cprint('DL index doesnt exist')
+                            else: sg.cprint('DL list empty')
+                
+
+                            
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
+        
+        
+        logger.debug("[gui_console] BYE") 
     
     def get_videos_cached(self):        
         
@@ -523,7 +558,6 @@ class AsyncDL():
         except Exception as e:            
             logger.exception(f"[get_videos]: Error {repr(e)}")
             
-    
     def _check_if_aldl(self, info_dict):  
                     
                
@@ -622,9 +656,6 @@ class AsyncDL():
                 
         logger.info(f"Videos to DL not in local storage: [{len(self.videos_to_dl)}] Total size: [{naturalsize(self.totalbytes2dl)}]") 
                 
-
-    
-    
     async def worker_init(self, i):
         #worker que lanza la creación de los objetos VideoDownloaders, uno por video
         
@@ -748,31 +779,32 @@ class AsyncDL():
                                 logger.warning(f"[{_urlkey}]: has not been added to video list because it gets same video than {_same_video_url}")
                                 return                                
                             
-                            
-                            dl = await async_ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, self.info_videos[_urlkey]['video_info'], self.ytdl, self.args)                       
-                                    
-                            if not dl.info_dl.get('status', "") == "error":
+                            if not self.args.nodl:
                                 
-                                if dl.info_dl.get('filesize'):
-                                    self.info_videos[_urlkey]['video_info']['filesize'] = dl.info_dl.get('filesize')
-                                    async with self.lock:
-                                        self.totalbytes2dl = self.totalbytes2dl - _filesize + dl.info_dl.get('filesize', 0)
+                                dl = await async_ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, self.info_videos[_urlkey]['video_info'], self.ytdl, self.args)                       
                                         
-                                self.info_videos[_urlkey].update({'status': 'initok', 'filename': dl.info_dl.get('filename'), 'dl': dl})
+                                if not dl.info_dl.get('status', "") == "error":
+                                    
+                                    if dl.info_dl.get('filesize'):
+                                        self.info_videos[_urlkey]['video_info']['filesize'] = dl.info_dl.get('filesize')
+                                        async with self.lock:
+                                            self.totalbytes2dl = self.totalbytes2dl - _filesize + dl.info_dl.get('filesize', 0)
+                                            
+                                    self.info_videos[_urlkey].update({'status': 'initok', 'filename': dl.info_dl.get('filename'), 'dl': dl})
+                                    
+                                    
+                                    
+                                    self.list_dl.append(dl)
+                                    
+                                    if dl.info_dl['status'] in ("init_manipulating", "done"):
+                                        self.queue_manip.put_nowait((_urlkey, dl))
+                                        logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
+                                    else:
+                                        self.queue_run.put_nowait((_urlkey, dl))
+                                        logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL")
                                 
-                                
-                                
-                                self.list_dl.append(dl)
-                                
-                                if dl.info_dl['status'] in ("init_manipulating", "done"):
-                                    self.queue_manip.put_nowait((_urlkey, dl))
-                                    logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
                                 else:
-                                    self.queue_run.put_nowait((_urlkey, dl))
-                                    logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL")
-                            
-                            else:
-                                raise Exception("no DL init")
+                                    raise Exception("no DL init")
                     
                         
                         
@@ -965,53 +997,6 @@ class AsyncDL():
                 self.count_manip += 1 
             logger.debug(f"[worker_manip][{i}]: BYE")       
 
-    
-
-
-    async def gui_console(self):
-        
-        try:
-            
-            while self.stop_console:
-                await async_wait_time(self._INTERVAL_GUI)
-            
-            while not self.stop_root:             
-                
-                await async_wait_time(self._INTERVAL_GUI)
-                event, values = self.window_console.read(timeout=10)
-                if event == sg.TIMEOUT_KEY:
-                    continue
-                sg.cprint(event, values)
-                if event in (sg.WIN_CLOSED, 'Exit'):
-                    break
-                elif event in ['Pause', 'Resume']:
-                    if not values['-IN-']:
-                        if self.list_dl:
-                            for dl in self.list_dl:                            
-                                if event == 'Pause': dl.pause()
-                                elif event == 'Resume': dl.resume()
-                    else:
-                        if not values['-IN-'].isdecimal():
-                            sg.cprint('DL index not an integer')
-                        else:
-                            _index = int(values['-IN-'])
-                            if self.list_dl:
-                                if 0 < _index <= len(self.list_dl):                               
-                        
-                                    if event == 'Pause': self.list_dl[_index-1].pause()
-                                    if event == 'Resume': self.list_dl[_index-1].resume()
-                                else: sg.cprint('DL index doesnt exist')
-                            else: sg.cprint('DL list empty')
-                
-
-                            
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
-        
-        
-        logger.debug("[gui_console] BYE") 
-    
     async def async_ex(self):
     
         self.print_list_videos() 
@@ -1042,9 +1027,7 @@ class AsyncDL():
 
             tasks_init = [asyncio.create_task(self.worker_init(i)) for i in range(self.init_nworkers)]
                             
-            if not self.args.nodl:
-
-                
+            if not self.args.nodl:                
 
                 task_gui_root = [asyncio.create_task(self.gui_root())] 
                 tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
@@ -1067,8 +1050,7 @@ class AsyncDL():
             logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
     
         asyncio.get_running_loop().stop()
-             
-        
+              
     def get_results_info(self):       
        
 
@@ -1191,7 +1173,6 @@ class AsyncDL():
         
         return info_dict
 
-    
     def print_list_videos(self):
         
         col = shutil.get_terminal_size().columns
@@ -1234,9 +1215,7 @@ class AsyncDL():
         return {'videos': {'urls': list_videos, 'str': list_videos_str}, 'videos2dl': {'urls': list_videos2dl, 'str': list_videos2dl_str},
                 'videosaldl': {'urls': list_videosaldl, 'str': list_videosaldl_str}, 'videossamevideo': {'urls': list_videossamevideo, 'str': list_videossamevideo_str}}
     
-    
     def exit(self):
-        
         
         ies = self.ytdl._ies_instances
         

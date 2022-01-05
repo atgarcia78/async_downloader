@@ -44,12 +44,6 @@ class VideoDownloader():
     
     def __init__(self, video_dict, ytdl, args): 
         
-
-        # self.proxies = "http://atgarcia:ID4KrSc6mo6aiy8@proxy.torguard.org:6060"
-        # #self.proxies = "http://192.168.1.133:5555"
-        
-        #self.proxies = f"http://atgarcia:ID4KrSc6mo6aiy8@{get_ip_proxy()}:6060"
-                
         try:
         
             self.args = args
@@ -84,10 +78,7 @@ class VideoDownloader():
                     _new_info_dict = copy.deepcopy(f)                
                     _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
                     downloaders.append(self._get_dl(_new_info_dict))        
-            
-                
-            
-            
+
             res = sorted(list(set([dl.status for dl in downloaders])))    
             self.info_dl.update({
                 'downloaders': downloaders,
@@ -104,10 +95,8 @@ class VideoDownloader():
             
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"{repr(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
+            logger.error(f"{repr(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
             raise 
-        
-   
 
     def _get_dl(self, info):
         
@@ -127,8 +116,7 @@ class VideoDownloader():
                 dl = AsyncDASHDownloader(info, self)
             else:
                 logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
-                raise NotImplementedError("protocol not supported")
-            
+                raise NotImplementedError("protocol not supported")            
             return dl
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
@@ -166,9 +154,7 @@ class VideoDownloader():
                     
       
         res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
-        
-        
-            
+
         if 'error' in res:
             self.info_dl['status'] = 'error'
             self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
@@ -207,12 +193,6 @@ class VideoDownloader():
                 logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when downloading subs file\n{'!!'.join(lines)}")
            
    
-    @staticmethod
-    def _syncpostffmpeg(cmd):
-        
-        res = subprocess.run(cmd.split(' '), encoding='utf-8', capture_output=True)
-        return res
-    
     @staticmethod
     def embed_subs(_file_subs_en, _filename, _logger, _menslogger):
         
@@ -388,7 +368,12 @@ class VideoDownloader():
         
         return proc.returncode
     
-
+    @staticmethod
+    def _syncpostffmpeg(cmd):
+        
+        res = subprocess.run(cmd.split(' '), encoding='utf-8', capture_output=True)
+        return res
+    
     
     async def print_hookup(self):        
         

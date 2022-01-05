@@ -36,12 +36,9 @@ class AsyncARIA2CDLError(Exception):
         self.exc_info = sys.exc_info()  # preserve original exception
 
 
-
 class AsyncARIA2CDownloader():
     
-    
     def __init__(self, port, video_dict, vid_dl):
-
 
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl                
@@ -133,10 +130,7 @@ class AsyncARIA2CDownloader():
                 self.error_message = repr(e)
             
             raise AsyncARIA2CDLErrorFatal(self.error_message)
-                
-            
-        
-        
+
     async def wait_time(self, n):
    
         _started = time.monotonic()
