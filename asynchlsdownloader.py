@@ -279,6 +279,8 @@ class AsyncHLSDownloader():
         self.video_url = self.info_dict['url'] = info_reset.get('url')
         self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
         self.manifest_url = self.info_dict['manifest_url'] = info_reset.get('manifest_url')
+        self.ema_s = EMA(smoothing=0.0001)
+        self.ema_t = EMA(smoothing=0.0001)
 
         self.frags_to_dl = []
 
@@ -353,6 +355,8 @@ class AsyncHLSDownloader():
                     await self.video_downloader.resume_event.wait()
                     self.video_downloader.pause_event.clear()
                     self.video_downloader.resume_event.clear()
+                    self.ema_s = EMA(smoothing=0.0001)
+                    self.ema_t = EMA(smoothing=0.0001)
                     
                           
                 url = self.info_frag[q - 1]['url']
@@ -629,6 +633,7 @@ class AsyncHLSDownloader():
                                     self.n_workers -= self.n_workers // 4
                                 _tstart = _t
                                 for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                await self.client.aclose()
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
                                 #await asyncio.sleep(0)
                                 #continue 
@@ -662,6 +667,7 @@ class AsyncHLSDownloader():
                                 for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
                                 self.n_reset -= 1
+                                await self.client.aclose()
                                 continue 
                                 
                             except Exception as e:

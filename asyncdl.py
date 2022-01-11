@@ -172,7 +172,7 @@ class AsyncDL():
             while not self.stop_root:             
                 
                 await async_wait_time(self._INTERVAL_GUI)
-                event, values = self.window_console.read(timeout=10)
+                event, values = self.window_console.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
                 sg.cprint(event, values)
@@ -184,6 +184,7 @@ class AsyncDL():
                             for dl in self.list_dl:                            
                                 if event == 'Pause': dl.pause()
                                 elif event == 'Resume': dl.resume()
+                        else: sg.cprint('DL list empty')
                     else:
                         if not values['-IN-'].isdecimal():
                             sg.cprint('DL index not an integer')
@@ -196,8 +197,6 @@ class AsyncDL():
                                     if event == 'Resume': self.list_dl[_index-1].resume()
                                 else: sg.cprint('DL index doesnt exist')
                             else: sg.cprint('DL list empty')
-                
-
                             
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
@@ -206,8 +205,7 @@ class AsyncDL():
         
         logger.debug("[gui_console] BYE") 
     
-    def get_videos_cached(self):        
-        
+    def get_videos_cached(self):
         
         try:
             
@@ -222,7 +220,8 @@ class AsyncDL():
             
             else:  
             
-                list_folders = [Path(Path.home(), "testing"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/WD/videos"), Path("/Volumes/WD5/videos")]
+                #list_folders = [Path(Path.home(), "testing"), Path("/Volumes/WD5/videos"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/WD/videos")]
+                list_folders = [Path(Path.home(), "testing"), Path("/Volumes/WD5/videos"), Path("/Volumes/Pandaext4/videos")]
                 
                 _repeated = []
                 _dont_exist = []
@@ -1051,8 +1050,7 @@ class AsyncDL():
     
         asyncio.get_running_loop().stop()
               
-    def get_results_info(self):       
-       
+    def get_results_info(self):
 
         _videos_url_notsupported = self.list_unsup_urls
         _videos_url_notvalid = self.list_notvalid_urls
@@ -1215,7 +1213,7 @@ class AsyncDL():
         return {'videos': {'urls': list_videos, 'str': list_videos_str}, 'videos2dl': {'urls': list_videos2dl, 'str': list_videos2dl_str},
                 'videosaldl': {'urls': list_videosaldl, 'str': list_videosaldl_str}, 'videossamevideo': {'urls': list_videossamevideo, 'str': list_videossamevideo_str}}
     
-    def exit(self):
+    def close(self):
         
         ies = self.ytdl._ies_instances
         
@@ -1230,4 +1228,4 @@ class AsyncDL():
         try:        
             kill_processes(logger=logger, rpcport=self.args.rpcport) 
         except Exception as e:
-            logger.exception(f"[exit] {repr(e)}")
+            logger.exception(f"[close] {repr(e)}")

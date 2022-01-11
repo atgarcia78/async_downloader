@@ -71,7 +71,7 @@ def main():
             logger.exception(f"[asyncdl results] {repr(e)}")
         finally:
             asyncDL.get_results_info()
-            asyncDL.exit()
+            asyncDL.close()
     
     except Exception as e:
         logger.exception(f"[asyncdl bye] {repr(e)}")
