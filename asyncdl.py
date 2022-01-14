@@ -232,7 +232,6 @@ class AsyncDL():
                         
                         if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip')):
 
-                            
                             _res = file.stem.split('_', 1)
                             if len(_res) == 2:
                                 _id = _res[0]
@@ -252,10 +251,7 @@ class AsyncDL():
                                     if not file.is_symlink() and not _video_path.is_symlink(): #only if both are hard files we have to do something, so lets report it in repeated files
                                         _repeated.append({'title':_name, 'indict': _video_path_str, 'file': str(file)})
                                     elif not file.is_symlink() and _video_path.is_symlink():
-                                        
-                                            _links = get_chain_links(_video_path) 
-                                            
-                                             
+                                            _links = get_chain_links(_video_path)                                             
                                             if (_links[-1] == file):
                                                 if len(_links) > 2:
                                                     logger.debug(f'\nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
@@ -270,9 +266,6 @@ class AsyncDL():
                                                     
                                     elif file.is_symlink() and not _video_path.is_symlink():
                                         _links =  get_chain_links(file)
-                                        
-                                        
-                                        
                                         if (_links[-1] == _video_path):
                                             if len(_links) > 2:
                                                 logger.debug(f'\nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
@@ -285,10 +278,8 @@ class AsyncDL():
                                             if not _video_path.exists(): _dont_exist.append({'title': _name, 'file_not_exist': str(_video_path), 'links': [str(_l) for _l in _links[0:-1]]})
                                         else:
                                             logger.warning(f'\n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
-                                            
-                                        
+
                                     else:
-                                       
                                         _links_file = get_chain_links(file) 
                                         _links_video_path = get_chain_links(_video_path)
                                         if ((_file:=_links_file[-1]) == _links_video_path[-1]):
