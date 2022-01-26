@@ -337,18 +337,28 @@ def init_aria2c(args):
     del opts
     del cl
     
+    
+INFO = 20
+DEBUG = 10
 class MyLogger(logging.LoggerAdapter):
     #para ser compatible con el logging de yt_dlp: yt_dlp iusea debug para enviar los debig y
     #los info. Los debug llevan '[debug] ' antes.
     #se pasa un logger de logging al crear la instancia 
     # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
     
-    def debug(self, msg, /, *args, **kwargs):
-        mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
-        if mobj in ('[debug]', '[info]', '[download]'):
-            self.logger.debug(msg[len(mobj):].strip(), *args, **kwargs)
-        else: self.logger.info(msg, *args, **kwargs)
+    def __init__(self, logger, quiet=False):
+        super().__init__(logger, {})
+        self.quiet = quiet
     
+    def debug(self, msg, *args, **kwargs):
+        if self.quiet:
+            self.log(DEBUG, msg, *args, **kwargs)
+        else:    
+            mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
+            if mobj in ('[debug]', '[info]', '[download]'):
+                self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+            else: self.log(INFO, msg, *args, **kwargs)
+        
 def init_ytdl(args):
 
 
@@ -366,7 +376,7 @@ def init_ytdl(args):
                                
     ytdl_opts = {
         "proxy" : proxy,        
-        "logger" : MyLogger(logger,{}),
+        "logger" : MyLogger(logger, args.quiet),
         "verbose": args.verbose,
         "quiet": args.quiet,
         "format" : args.format,
