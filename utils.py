@@ -64,6 +64,7 @@ async def async_ex_in_thread(prefix, func, /, *args, **kwargs):
     func_call = functools.partial(ctx.run, func, *args, **kwargs)
     ex = ThreadPoolExecutor(thread_name_prefix=prefix, max_workers=1)    
     return await loop.run_in_executor(ex, func_call)
+    #return await asyncio.to_thread(func_call)
 
 async def async_wait_time(n):
    

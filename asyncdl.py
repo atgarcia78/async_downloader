@@ -693,7 +693,7 @@ class AsyncDL():
                             #al no tratarse de video final vid['url'] siepre existe
                             try:                                    
                                 
-                                _res = await async_ex_in_thread(f"wkin[{i}]_ytdl", self.ytdl.extract_info, vid['url'])
+                                _res = await async_ex_in_thread(f"ex_wkinit", self.ytdl.extract_info, vid['url'])
                                 if not _res: raise Exception("no info video")
                                 info = self.ytdl.sanitize_info(_res)
                             
@@ -771,7 +771,7 @@ class AsyncDL():
                             
                             if not self.args.nodl:
                                 
-                                dl = await async_ex_in_thread(f"wkin[{i}]_vdl", VideoDownloader, self.info_videos[_urlkey]['video_info'], self.ytdl, self.args)                       
+                                dl = await async_ex_in_thread(f"ex_wkinit", VideoDownloader, self.info_videos[_urlkey]['video_info'], self.ytdl, self.args)                       
                                         
                                 if not dl.info_dl.get('status', "") == "error":
                                     

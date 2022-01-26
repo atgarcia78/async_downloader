@@ -62,7 +62,7 @@ def main():
             if asyncDL.videos_to_dl:    
 
                 try:                
-                    aiorun.run(asyncDL.async_ex(), use_uvloop=True)                     
+                    aiorun.run(asyncDL.async_ex(), executor=ThreadPoolExecutor(thread_name_prefix='ex_async'), use_uvloop=True)                     
                 except Exception as e:
                     logger.exception(f"[aiorun] {repr(e)}")
 
