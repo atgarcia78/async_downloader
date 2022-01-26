@@ -62,7 +62,7 @@ async def async_ex_in_thread(prefix, func, /, *args, **kwargs):
     loop = asyncio.get_running_loop()
     ctx = contextvars.copy_context()
     func_call = functools.partial(ctx.run, func, *args, **kwargs)
-    ex = ThreadPoolExecutor(thread_name_prefix=prefix, max_workers=1)    
+    ex = ThreadPoolExecutor(thread_name_prefix=prefix)    
     return await loop.run_in_executor(ex, func_call)
     #return await asyncio.to_thread(func_call)
 
@@ -90,7 +90,6 @@ def get_chain_links(f):
         else:
             break
     return _links
-
 
 def kill_processes(logger=None, rpcport=None):
     
@@ -120,9 +119,6 @@ def kill_processes(logger=None, rpcport=None):
         for el in mobj2:
             shutil.rmtree(el, ignore_errors=True)
             
-    
-
-
 def get_extractor(url, ytdl):
     
     ies = ytdl._ies   
@@ -131,7 +127,6 @@ def get_extractor(url, ytdl):
             return (ie_key, ie)                
     return('Generic', ies['Generic'])
     
-
 def is_playlist_extractor(url, ytdl):    
         
     ie_key, ie = get_extractor(url, ytdl)
@@ -147,8 +142,6 @@ def is_playlist_extractor(url, ytdl):
     
     return(_is_pl, ie_key)
 
-
-
 def foldersize(folder):
     #devuelve en bytes size folder
     return sum(file.stat().st_size for file in Path(folder).rglob('*') if file.is_file())
@@ -159,7 +152,6 @@ def folderfiles(folder):
         if file.is_file(): count += 1
         
     return count
-
 
 def variadic(x, allowed_types=(str, bytes, dict)):
     return x if isinstance(x, collections.abc.Iterable) and not isinstance(x, allowed_types) else (x,)
@@ -176,7 +168,6 @@ def try_get(src, getter, expected_type=None):
 
 def int_or_none(res):
     return int(res) if res else None
-    
 
 def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
     """Format a number of bytes like a human readable filesize (e.g. 10 kB).
@@ -245,8 +236,6 @@ def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
         return f"{(base * abs_bytes / unit):{format_}}{s}"
     return f"{(base*abs_bytes/unit):{format_}} {s}"
 
-
-
 def print_norm_time(time):
     """ Time in secs """
     
@@ -269,8 +258,216 @@ def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
         
     return not_found
 
+def init_logging(file_path=None):
+
+    if not file_path:
+        config_file = Path(Path.home(), "Projects/common/logging.json")
+    else:
+        config_file = Path(file_path)
+    
+    with open(config_file) as f:
+        config = json.loads(f.read())
+    
+    config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(home = str(Path.home()))
+    
+    logging.config.dictConfig(config)   
+
+def init_argparser():
+    
+ 
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:98.0) Gecko/20100101 Firefox/98.0"]
 
 
+    parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
+    parser.add_argument("-w", help="Number of DL workers", default="10", type=int)
+    parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="0", type=int)
+    parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
+    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
+    parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
+    parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
+    parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true", default=False)
+    parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
+    parser.add_argument("--proxy", default=None, type=str)
+    parser.add_argument("--useragent", default=UA_LIST[0], type=str)
+    parser.add_argument("--first", default=None, type=int)
+    parser.add_argument("--last", default=None, type=int)
+    parser.add_argument("--nodl", help="not download", action="store_true", default=False)   
+    parser.add_argument("--headers", default="", type=str)  
+    parser.add_argument("-u", action="append", dest="collection", default=[])   
+    parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true", default=False)
+    parser.add_argument("--path", default=None, type=str)    
+    parser.add_argument("--caplinks", action="store_true", default=False)    
+    parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
+    parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
+    parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
+    parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
+    parser.add_argument("--nosymlinks", action="store_true", default=False)
+    
+    
+    
+    args = parser.parse_args()
+    if args.winit == 0:
+        args.winit = args.w
+    if args.aria2c != -1:
+        args.rpcport = args.aria2c if args.aria2c else 6800
+        args.aria2c = True
+    else: 
+        args.rpcport = None
+        args.aria2c = False
+        
+    if args.notaria2c:
+        args.aria2c = False 
+        args.rpcport = None
+        
+    if args.path and len(args.path.split("/")) == 1:
+        _path = Path(Path.home(),"testing", args.path)
+        args.path = str(_path)
+    
+    
+    return args
+
+def init_aria2c(args):
+    
+    logger = logging.getLogger("asyncDL")
+    subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
+    logger.info(f"aria2c daemon running on port: {args.rpcport} ")
+    cl = aria2p.API(aria2p.Client(port=args.rpcport))
+    opts = cl.get_global_options()
+    logger.debug(f"aria2c options:\n{opts._struct}")
+    del opts
+    del cl
+    
+class MyLogger(logging.LoggerAdapter):
+    #para ser compatible con el logging de yt_dlp: yt_dlp iusea debug para enviar los debig y
+    #los info. Los debug llevan '[debug] ' antes.
+    #se pasa un logger de logging al crear la instancia 
+    # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
+    
+    def debug(self, msg, /, *args, **kwargs):
+        mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
+        if mobj in ('[debug]', '[info]', '[download]'):
+            self.logger.debug(msg[len(mobj):].strip(), *args, **kwargs)
+        else: self.logger.info(msg, *args, **kwargs)
+    
+def init_ytdl(args):
+
+
+    logger = logging.getLogger("yt_dlp")
+    
+    proxy = None
+    if args.proxy:        
+        sch = args.proxy.split("://")
+        if len(sch) == 2:
+            if sch[0] != 'http':
+                logger.error("Proxy is not valid, should be http")
+            else: proxy = args.proxy
+        else:
+            proxy = f"http://{args.proxy}"
+                               
+    ytdl_opts = {
+        "proxy" : proxy,        
+        "logger" : MyLogger(logger,{}),
+        "verbose": args.verbose,
+        "quiet": args.quiet,
+        "format" : args.format,
+        "nocheckcertificate" : args.nocheckcert,
+        "subtitleslangs": ['en','es'],
+        "continuedl": True,
+        "updatetime": False,
+        "ignoreerrors": False,        
+        "extract_flat": "in_playlist",        
+        "no_color" : True,
+        "usenetrc": True,
+        "skip_download": True,        
+        "writesubtitles": True,        
+        "restrictfilenames": True,
+        "user_agent": args.useragent,
+        "winit": args.winit
+                  
+    }
+    
+    if args.ytdlopts: ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
+        
+    ytdl = YoutubeDL(ytdl_opts)
+    
+    logger.info(f"ytdl opts:\n{ytdl.params}")   
+    
+    return ytdl
+
+def init_gui():
+   
+    sg.theme("SystemDefaultForReal")
+    
+    col_0 = sg.Column([
+                        [sg.Text("WAITING TO DL", font='Any 14')], 
+                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', auto_refresh=True)]
+    ], element_justification='l', expand_x=True, expand_y=True)
+    
+    col_1 = sg.Column([
+                        [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
+                        [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', auto_refresh=True)]
+    ], element_justification='c', expand_x=True, expand_y=True)
+    
+    col_2 = sg.Column([
+                        [sg.Text("DOWNLOADED/ERRORS", font='Any 14')], 
+                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', auto_refresh=True)]
+    ], element_justification='r', expand_x=True, expand_y=True)
+    
+    layout_root = [ [col_0, col_1, col_2] ]
+    
+    window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True, use_default_focus=False)
+    window_root.set_min_size(window_root.size)
+    
+    window_root['-ML0-'].expand(True, True, True)
+    window_root['-ML1-'].expand(True, True, True)
+    window_root['-ML2-'].expand(True, True, True)
+    
+    layout_pygui = [  [sg.Text('Select DL')],
+                [sg.Input(key='-IN-', focus=True)],
+                [sg.Multiline(size=(30, 8), write_only=True, key='-ML-', reroute_cprint=True)],
+                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Exit')] ]
+
+    window_pygui = sg.Window('Console', layout_pygui, location=(0, 350), finalize=True, use_default_focus=True)
+    
+    window_pygui.bring_to_front()
+    
+    return(window_root, window_pygui)
+
+
+def patch_http_connection_pool(**constructor_kwargs):
+    """
+    This allows to override the default parameters of the 
+    HTTPConnectionPool constructor.
+    For example, to increase the poolsize to fix problems 
+    with "HttpConnectionPool is full, discarding connection"
+    call this function with maxsize=16 (or whatever size 
+    you want to give to the connection pool)
+    """
+    from urllib3 import connectionpool, poolmanager
+
+    class MyHTTPConnectionPool(connectionpool.HTTPConnectionPool):
+        def __init__(self, *args,**kwargs):
+            kwargs.update(constructor_kwargs)
+            super(MyHTTPConnectionPool, self).__init__(*args,**kwargs)
+    poolmanager.pool_classes_by_scheme['http'] = MyHTTPConnectionPool
+    
+def patch_https_connection_pool(**constructor_kwargs):
+    """
+    This allows to override the default parameters of the
+    HTTPConnectionPool constructor.
+    For example, to increase the poolsize to fix problems
+    with "HttpSConnectionPool is full, discarding connection"
+    call this function with maxsize=16 (or whatever size
+    you want to give to the connection pool)
+    """
+    from urllib3 import connectionpool, poolmanager
+
+    class MyHTTPSConnectionPool(connectionpool.HTTPSConnectionPool):
+        def __init__(self, *args,**kwargs):
+            kwargs.update(constructor_kwargs)
+            super(MyHTTPSConnectionPool, self).__init__(*args,**kwargs)
+    poolmanager.pool_classes_by_scheme['https'] = MyHTTPSConnectionPool
+    
 def get_ip_proxy():
     with open(Path(Path.home(),"Projects/common/ipproxies.json"), "r") as f:
         return(random.choice(json.load(f)))
@@ -351,227 +548,3 @@ def status_proxy():
     return(list_ord)
 
  
-    
-def init_logging(file_path=None):
-
-    if not file_path:
-        config_file = Path(Path.home(), "Projects/common/logging.json")
-    else:
-        config_file = Path(file_path)
-    
-    with open(config_file) as f:
-        config = json.loads(f.read())
-    
-    config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(home = str(Path.home()))
-    
-    logging.config.dictConfig(config)   
-    
-    
-
-def init_argparser():
-    
- 
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:98.0) Gecko/20100101 Firefox/98.0"]
-
-
-    parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
-    parser.add_argument("-w", help="Number of DL workers", default="10", type=int)
-    parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="0", type=int)
-    parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
-    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
-    parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
-    parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
-    parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true", default=False)
-    parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
-    parser.add_argument("--proxy", default=None, type=str)
-    parser.add_argument("--useragent", default=UA_LIST[0], type=str)
-    parser.add_argument("--first", default=None, type=int)
-    parser.add_argument("--last", default=None, type=int)
-    parser.add_argument("--nodl", help="not download", action="store_true", default=False)   
-    parser.add_argument("--headers", default="", type=str)  
-    parser.add_argument("-u", action="append", dest="collection", default=[])   
-    parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true", default=False)
-    parser.add_argument("--path", default=None, type=str)    
-    parser.add_argument("--caplinks", action="store_true", default=False)    
-    parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
-    parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
-    parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
-    parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
-    parser.add_argument("--nosymlinks", action="store_true", default=False)
-    
-    
-    
-    args = parser.parse_args()
-    if args.winit == 0:
-        args.winit = args.w
-    if args.aria2c != -1:
-        args.rpcport = args.aria2c if args.aria2c else 6800
-        args.aria2c = True
-    else: 
-        args.rpcport = None
-        args.aria2c = False
-        
-    if args.notaria2c:
-        args.aria2c = False 
-        args.rpcport = None
-        
-    if args.path and len(args.path.split("/")) == 1:
-        _path = Path(Path.home(),"testing", args.path)
-        args.path = str(_path)
-    
-    
-    return args
-
-def init_aria2c(args):
-    
-    logger = logging.getLogger("asyncDL")
-    subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
-    logger.info(f"aria2c daemon running on port: {args.rpcport} ")
-    cl = aria2p.API(aria2p.Client(port=args.rpcport))
-    opts = cl.get_global_options()
-    logger.debug(f"aria2c options:\n{opts._struct}")
-    del opts
-    del cl
-    
-
-    
-class MyLogger(logging.LoggerAdapter):
-    #para ser compatible con el logging de yt_dlp: yt_dlp iusea debug para enviar los debig y
-    #los info. Los debug llevan '[debug] ' antes.
-    #se pasa un logger de logging al crear la instancia 
-    # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
-    
-    def debug(self, msg, /, *args, **kwargs):
-        mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
-        if mobj in ('[debug]', '[info]', '[download]'):
-            self.logger.debug(msg[len(mobj):].strip(), *args, **kwargs)
-        else: self.logger.info(msg, *args, **kwargs)
-    
-    
-     
-
-def init_ytdl(args):
-
-
-    logger = logging.getLogger("yt_dlp")
-    
-    proxy = None
-    if args.proxy:        
-        sch = args.proxy.split("://")
-        if len(sch) == 2:
-            if sch[0] != 'http':
-                logger.error("Proxy is not valid, should be http")
-            else: proxy = args.proxy
-        else:
-            proxy = f"http://{args.proxy}"
-                               
-    ytdl_opts = {
-        "proxy" : proxy,        
-        "logger" : MyLogger(logger,{}),
-        "verbose": args.verbose,
-        "quiet": args.quiet,
-        "format" : args.format,
-        "nocheckcertificate" : args.nocheckcert,
-        "subtitleslangs": ['en','es'],
-        "continuedl": True,
-        "updatetime": False,
-        "ignoreerrors": False,        
-        "extract_flat": "in_playlist",        
-        "no_color" : True,
-        "usenetrc": True,
-        "skip_download": True,        
-        "writesubtitles": True,        
-        "restrictfilenames": True,
-        "user_agent": args.useragent,
-        "winit": args.winit
-                  
-    }
-    
-    if args.ytdlopts: ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
-        
-    ytdl = YoutubeDL(ytdl_opts)
-    
-    logger.info(f"ytdl opts:\n{ytdl.params}")
-   
-    
-    return ytdl
-
-
-
-
-def init_gui():
-   
-    sg.theme("SystemDefaultForReal")
-    
-    col_0 = sg.Column([
-                        [sg.Text("WAITING TO DL", font='Any 14')], 
-                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', auto_refresh=True)]
-    ], element_justification='l', expand_x=True, expand_y=True)
-    
-    col_1 = sg.Column([
-                        [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-                        [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', auto_refresh=True)]
-    ], element_justification='c', expand_x=True, expand_y=True)
-    
-    col_2 = sg.Column([
-                        [sg.Text("DOWNLOADED/ERRORS", font='Any 14')], 
-                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', auto_refresh=True)]
-    ], element_justification='r', expand_x=True, expand_y=True)
-    
-    layout_root = [ [col_0, col_1, col_2] ]
-    
-    window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True, use_default_focus=False)
-    window_root.set_min_size(window_root.size)
-    
-    window_root['-ML0-'].expand(True, True, True)
-    window_root['-ML1-'].expand(True, True, True)
-    window_root['-ML2-'].expand(True, True, True)
-    
-    layout_pygui = [  [sg.Text('Select DL')],
-                [sg.Input(key='-IN-', focus=True)],
-                [sg.Multiline(size=(30, 8), write_only=True, key='-ML-', reroute_cprint=True)],
-                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Exit')] ]
-
-    window_pygui = sg.Window('Console', layout_pygui, location=(0, 350), finalize=True, use_default_focus=True)
-    
-    window_pygui.bring_to_front()
-    
-    return(window_root, window_pygui)
-
-
-
-    
-def patch_http_connection_pool(**constructor_kwargs):
-    """
-    This allows to override the default parameters of the 
-    HTTPConnectionPool constructor.
-    For example, to increase the poolsize to fix problems 
-    with "HttpConnectionPool is full, discarding connection"
-    call this function with maxsize=16 (or whatever size 
-    you want to give to the connection pool)
-    """
-    from urllib3 import connectionpool, poolmanager
-
-    class MyHTTPConnectionPool(connectionpool.HTTPConnectionPool):
-        def __init__(self, *args,**kwargs):
-            kwargs.update(constructor_kwargs)
-            super(MyHTTPConnectionPool, self).__init__(*args,**kwargs)
-    poolmanager.pool_classes_by_scheme['http'] = MyHTTPConnectionPool
-    
-def patch_https_connection_pool(**constructor_kwargs):
-    """
-    This allows to override the default parameters of the
-    HTTPConnectionPool constructor.
-    For example, to increase the poolsize to fix problems
-    with "HttpSConnectionPool is full, discarding connection"
-    call this function with maxsize=16 (or whatever size
-    you want to give to the connection pool)
-    """
-    from urllib3 import connectionpool, poolmanager
-
-    class MyHTTPSConnectionPool(connectionpool.HTTPSConnectionPool):
-        def __init__(self, *args,**kwargs):
-            kwargs.update(constructor_kwargs)
-            super(MyHTTPSConnectionPool, self).__init__(*args,**kwargs)
-    poolmanager.pool_classes_by_scheme['https'] = MyHTTPSConnectionPool
-    
