@@ -102,64 +102,62 @@ class AsyncDL():
             
             await async_wait_time(self._INTERVAL_GUI)
             
+        logger.debug(f"[gui_root] End waiting. Signal stop_self.gui_root{self.stop_root}]")
+        
         if not self.stop_root:
             self.window_root, self.window_console = init_gui()
             self.stop_console = False
-        
-        logger.debug(f"[gui_root] End waiting. Signal stop_self.gui_root{self.stop_root}]")
-        
-        try:  
-            while not self.stop_root:
-                
-                
-                
-                text0 = self.window_root['-ML0-'].TKText
-                text1 = self.window_root['-ML1-'].TKText
-                text2 = self.window_root['-ML2-'].TKText
-                
-                
-                res = set([dl.info_dl['status'] for dl in self.list_dl])
-                
-                if res:
-                      
-                    _res = sorted(list(res))
-                    if (_res == ["done", "error"] or _res == ["error"] or _res == ["done"]) and (self.count_init == self.init_nworkers):                        
-                            break
-                    else:
-                      
-                        text0.delete(1.0, sg.tk.END)                        
-                        text1.delete(1.0, sg.tk.END)
-                        text2.delete(1.0, sg.tk.END)
-                        list_downloading = []
-                        list_manip = []    
-                        for i, dl in enumerate(self.list_dl):
-                            mens = f"[{i+1}]{await dl.print_hookup()}"
-                            if dl.info_dl['status'] in ["init"]:
-                                text0.insert(sg.tk.END, mens)
-                            if dl.info_dl['status'] in ["init_manipulating", "manipulating"]:
-                                list_manip.append(mens) 
-                            if dl.info_dl['status'] in ["downloading"]:
-                                list_downloading.append(mens)  
-                            if dl.info_dl['status'] in ["done", "error"]:
-                                text2.insert(sg.tk.END,mens)
-                                         
-                        if list_downloading:
-                            text1.insert(sg.tk.END, "\n\n-------DOWNLOADING VIDEO------------\n\n")
-                            text1.insert(sg.tk.END, ''.join(list_downloading))
-                            
-                        if list_manip:
-                            text1.insert(sg.tk.END, "\n\n-------CREATING FILE------------\n\n")
-                            text1.insert(sg.tk.END, ''.join(list_manip))
-                                         
+
+            try:  
+                while not self.stop_root:
+
+                    text0 = self.window_root['-ML0-'].TKText
+                    text1 = self.window_root['-ML1-'].TKText
+                    text2 = self.window_root['-ML2-'].TKText
+                    
+                    
+                    res = set([dl.info_dl['status'] for dl in self.list_dl])
+                    
+                    if res:
                         
-                await async_wait_time(self._INTERVAL_GUI)
-       
-                
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[gui_root]: error: {repr(e)}\n{'!!'.join(lines)}")
+                        _res = sorted(list(res))
+                        if (_res == ["done", "error"] or _res == ["error"] or _res == ["done"]) and (self.count_init == self.init_nworkers):                        
+                                break
+                        else:
+                        
+                            text0.delete(1.0, sg.tk.END)                        
+                            text1.delete(1.0, sg.tk.END)
+                            text2.delete(1.0, sg.tk.END)
+                            list_downloading = []
+                            list_manip = []    
+                            for i, dl in enumerate(self.list_dl):
+                                mens = f"[{i+1}]{await dl.print_hookup()}"
+                                if dl.info_dl['status'] in ["init"]:
+                                    text0.insert(sg.tk.END, mens)
+                                if dl.info_dl['status'] in ["init_manipulating", "manipulating"]:
+                                    list_manip.append(mens) 
+                                if dl.info_dl['status'] in ["downloading"]:
+                                    list_downloading.append(mens)  
+                                if dl.info_dl['status'] in ["done", "error"]:
+                                    text2.insert(sg.tk.END,mens)
+                                            
+                            if list_downloading:
+                                text1.insert(sg.tk.END, "\n\n-------DOWNLOADING VIDEO------------\n\n")
+                                text1.insert(sg.tk.END, ''.join(list_downloading))
+                                
+                            if list_manip:
+                                text1.insert(sg.tk.END, "\n\n-------CREATING FILE------------\n\n")
+                                text1.insert(sg.tk.END, ''.join(list_manip))
+                                            
+                            
+                    await async_wait_time(self._INTERVAL_GUI)
         
-        
+                    
+            except Exception as e:
+                lines = traceback.format_exception(*sys.exc_info())                
+                logger.error(f"[gui_root]: error: {repr(e)}\n{'!!'.join(lines)}")
+            
+            
         logger.debug("[gui_root] BYE") 
 
     async def gui_console(self):

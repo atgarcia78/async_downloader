@@ -60,10 +60,10 @@ class AsyncHTTPDownloader():
     def __init__(self, video_dict, vid_dl):
 
              
-
+        if not video_dict or not vid_dl: return
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
-        self.n_parts = self.video_downloader.info_dl['n_workers']
+        self.n_parts = self.video_downloader.get('info_dl', {}).get('n_workers', {})
         if (ie:=self.info_dict.get('extractor_key')):
             if (nparts:=self._DICT_NPARTS.get(ie)):
                 
@@ -74,20 +74,20 @@ class AsyncHTTPDownloader():
         self.video_url = self.info_dict.get('url')
 
         
-        self.ytdl = self.video_downloader.info_dl['ytdl']
+        self.ytdl = self.video_downloader.get('info_dl', {}).get('ytdl', {})
 
         #ip_proxies = ["192.145.124.234", "192.145.124.242", "89.238.178.234", "192.145.124.190", "192.145.124.186", "192.145.124.226", "192.145.124.174", "192.145.124.238", "89.238.178.206"]
         #self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:6060", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1337"} for ip in ip_proxies]
         self.proxies = None
         
-        self.verifycert = not self.ytdl.params.get('nocheckcertificate')
+        if self.ytdl: self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
         self.timeout = httpx.Timeout(60, connect=60)
         
         self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
         self.headers = self.info_dict.get('http_headers')  
         
-        self.base_download_path = self.info_dict['download_path']
+        self.base_download_path = self.info_dict.get('download_path')
         if (_filename:=self.info_dict.get('_filename')):
             self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
             self.download_path.mkdir(parents=True, exist_ok=True) 

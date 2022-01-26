@@ -93,6 +93,7 @@ class VideoDownloader():
             self.resume_event = None
             self.lock = None
             
+            
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
             logger.error(f"{repr(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
@@ -106,17 +107,26 @@ class VideoDownloader():
                 if self.info_dl['rpcport']: 
                     try:
                         dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                        logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                     except Exception:
                         logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}]: aria2c DL failed, swap to HTTP DL")
                         dl = AsyncHTTPDownloader(info, self)
-                else: dl = AsyncHTTPDownloader(info, self)                    
+                        logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                else: 
+                    dl = AsyncHTTPDownloader(info, self)
+                    logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")                   
             elif protocol in ('m3u8', 'm3u8_native'):
-                dl = AsyncHLSDownloader(info, self)            
+                dl = AsyncHLSDownloader(info, self)
+                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
+                            
             elif protocol in ('http_dash_segments', 'dash'):
                 dl = AsyncDASHDownloader(info, self)
+                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
             else:
                 logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
-                raise NotImplementedError("protocol not supported")            
+                raise NotImplementedError("protocol not supported")
+            
+                         
             return dl
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
