@@ -162,6 +162,11 @@ class AsyncARIA2CDownloader():
                     self.down_size = self.dl_cont.completed_length
                     async with self.video_downloader.lock: 
                         self.video_downloader.info_dl['down_size'] += _incsize
+                    if self.video_downloader.stop_event.is_set():
+                        await asyncio.to_thread(self.aria2_client.remove,[self.dl_cont], force=False, files=False, clean=False)
+                        self.status = 'stop'
+                        return
+                        
                     if self.video_downloader.pause_event.is_set():
                         await asyncio.to_thread(self.aria2_client.pause,[self.dl_cont])                        
                         await self.video_downloader.resume_event.wait()
@@ -201,6 +206,8 @@ class AsyncARIA2CDownloader():
             msg = f"[ARIA2C][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]\n"       
         elif self.status == "error":
             msg = f"[ARIA2C][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size, format_='.2f')} [{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]"
+        elif self.status == "stop":
+            msg = f"[ARIA2C][{self.info_dict['format_id']}]: STOPPED {naturalsize(self.down_size, format_='.2f')} [{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]"
         elif self.status == "downloading":
             _temp = copy.deepcopy(self.dl_cont)    #mientras calculamos strings progreso no puede haber update de dl_cont, así que deepcopy de la instancia      
             

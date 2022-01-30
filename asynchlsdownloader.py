@@ -63,7 +63,7 @@ class AsyncHLSDownloader():
     _CHUNK_SIZE = 102400
     _MAX_RETRIES = 5
     _MAX_RESETS = 10
-    _MIN_TIME_RESETS = 30
+    _MIN_TIME_RESETS = 15
        
     def __init__(self, video_dict, vid_dl):
 
@@ -348,15 +348,25 @@ class AsyncHLSDownloader():
                 
                 if q == "KILL":
                     break  
-                if self.reset_event.is_set(): 
-                    break
-                
+                                
+                if self.video_downloader.stop_event.is_set():
+                    return
                 if self.video_downloader.pause_event.is_set():
                     await self.video_downloader.resume_event.wait()
+                    if self.video_downloader.stop_event.is_set():
+                        async with self._LOCK:
+                            if not self.reset_event.is_set():
+                                self.reset_event.set()
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: reset event set")
+                        self.video_downloader.stop_event.clear()
+
                     self.video_downloader.pause_event.clear()
                     self.video_downloader.resume_event.clear()
                     self.ema_s = EMA(smoothing=0.0001)
                     self.ema_t = EMA(smoothing=0.0001)
+                    
+                if self.reset_event.is_set(): 
+                    return
                     
                           
                 url = self.info_frag[q - 1]['url']
@@ -400,9 +410,9 @@ class AsyncHLSDownloader():
                                         
                                         if (await asyncio.to_thread(filename.exists)):
                                             _size = self.info_frag[q-1]['size'] = (await asyncio.to_thread(filename.stat)).st_size
-                                            if _size and  (_hsize - 5 <= _size <= _hsize + 5):                            
+                                            if _size and  (_hsize - 100 <= _size <= _hsize + 100):                            
                                     
-                                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
+                                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 100 <=_size <= _hsize + 100}]")                                    
                                                 break
                                             else:
                                                 await f.truncate()
@@ -435,7 +445,8 @@ class AsyncHLSDownloader():
                                     
                                     _started = time.monotonic()
                                     async for chunk in res.aiter_bytes(chunk_size=_chunk_size): 
-                                        #if self.reset_event.is_set(): raise CancelledError("reset event")
+                                        if self.reset_event.is_set(): 
+                                            raise AsyncHLSDLErrorFatal("reset event")
                                         _timechunk = time.monotonic() - _started
                                         self.info_frag[q - 1]['time2dlchunks'].append(_timechunk)                             
                                         #await asyncio.sleep(0)
@@ -466,7 +477,7 @@ class AsyncHLSDownloader():
                                     
                         _size = (await asyncio.to_thread(filename.stat)).st_size
                         _hsize = self.info_frag[q-1]['headersize']
-                        if (_hsize - 5 <= _size <= _hsize + 5):
+                        if (_hsize - 100 <= _size <= _hsize + 100):
                             self.info_frag[q - 1]['downloaded'] = True 
                             self.info_frag[q - 1]['size'] = _size
                             async with self._LOCK:
@@ -606,6 +617,9 @@ class AsyncHLSDownloader():
                     if _res:
                         logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] DONE [{len(done)}] with exceptions {_res}")
                         
+                if self.video_downloader.stop_event.is_set():
+                    self.status = "stop"
+                    return
                 
                 inc_frags_dl = (_nfragsdl:=len(self.fragsdl())) - n_frags_dl
                 n_frags_dl = _nfragsdl
@@ -724,7 +738,7 @@ class AsyncHLSDownloader():
                         continue
                     if not f['size']:
                         if f['file'].exists(): f['size'] = f['file'].stat().st_size
-                        if f['size'] and (f['headersize'] - 5 <= f['size'] <= f['headersize'] + 5):                
+                        if f['size'] and (f['headersize'] - 100 <= f['size'] <= f['headersize'] + 100):                
               
                             with open(f['file'], 'rb') as source:
                                 dest.write(source.read())
@@ -781,6 +795,9 @@ class AsyncHLSDownloader():
         elif self.status == "error":
             _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
             msg = f"[HLS][{self.info_dict['format_id']}]: ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+        elif self.status == "stop":
+            _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
+            msg = f"[HLS][{self.info_dict['format_id']}]: STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
         elif self.status == "downloading":
             async with self._LOCK:
                 _new = time.monotonic()                                  

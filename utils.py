@@ -56,7 +56,12 @@ class EMA(object):
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
-
+async def async_ex_in_executor(executor, func, /, *args, **kwargs):
+    loop = asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    func_call = functools.partial(ctx.run, func, *args, **kwargs)        
+    return await loop.run_in_executor(executor, func_call)
+    
 async def async_ex_in_thread(prefix, func, /, *args, **kwargs):
         
     loop = asyncio.get_running_loop()
@@ -419,7 +424,7 @@ def init_gui():
     ], element_justification='c', expand_x=True, expand_y=True)
     
     col_2 = sg.Column([
-                        [sg.Text("DOWNLOADED/ERRORS", font='Any 14')], 
+                        [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
                         [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', auto_refresh=True)]
     ], element_justification='r', expand_x=True, expand_y=True)
     
@@ -435,7 +440,7 @@ def init_gui():
     layout_pygui = [  [sg.Text('Select DL')],
                 [sg.Input(key='-IN-', focus=True)],
                 [sg.Multiline(size=(30, 8), write_only=True, key='-ML-', reroute_cprint=True)],
-                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Exit')] ]
+                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Stop'), sg.Button('Exit')] ]
 
     window_pygui = sg.Window('Console', layout_pygui, location=(0, 350), finalize=True, use_default_focus=True)
     

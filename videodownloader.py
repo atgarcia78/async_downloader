@@ -91,6 +91,7 @@ class VideoDownloader():
             
             self.pause_event = None
             self.resume_event = None
+            self.stop_event = None
             self.lock = None
             
             
@@ -133,6 +134,12 @@ class VideoDownloader():
             logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
             raise 
             
+    def stop(self):
+        if self.stop_event:
+            self.stop_event.set()
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event stop")
+        
+    
     def pause(self):
         if self.pause_event:
             self.pause_event.set()
@@ -149,6 +156,7 @@ class VideoDownloader():
         self.info_dl['status'] = "downloading"
         self.pause_event = asyncio.Event()
         self.resume_event = asyncio.Event()
+        self.stop_event = asyncio.Event()
         self.lock = asyncio.Lock()
         tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
         done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
@@ -162,15 +170,19 @@ class VideoDownloader():
                     lines = traceback.format_exception(*sys.exc_info())                
                     logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
                     
-      
-        res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
-
-        if 'error' in res:
-            self.info_dl['status'] = 'error'
-            self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
+        if self.stop_event.is_set():
+            self.info_dl['status'] = "stop"
         
-        else: 
-            self.info_dl['status'] = "init_manipulating"
+        else:
+            
+            res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
+
+            if 'error' in res:
+                self.info_dl['status'] = 'error'
+                self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
+            
+            else: 
+                self.info_dl['status'] = "init_manipulating"
         
 
     def _get_subs_files(self):
@@ -399,6 +411,8 @@ class VideoDownloader():
             return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Waiting to create file [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n")           
         elif self.info_dl['status'] == "error":
             return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: ERROR {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+        elif self.info_dl['status'] == "stop":
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: STOPPED {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "downloading":
             if self.pause_event and self.pause_event.is_set(): status = "PAUSED"
             else: status ="Downloading"            
