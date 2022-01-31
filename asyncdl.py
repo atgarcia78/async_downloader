@@ -1,6 +1,5 @@
 import logging
 import sys
-from threading import Thread
 import traceback
 import json
 import shutil

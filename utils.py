@@ -12,7 +12,6 @@ import httpx
 from pathlib import Path
 import re
 import argparse
-import tkinter as tk
 
 from queue import Queue
 import subprocess
