@@ -465,7 +465,7 @@ class AsyncDL():
                 for fut, url_pl in zip(futures,url_pl_list):
                     try:
                         _info = self.ytdl.sanitize_info(fut.result())                        
-                        if not _info.get('_type'):
+                        if _info.get('_type', 'video') == 'video':
                             _info['original_url'] = url_pl                           
                             _url_pl_entries += [_info]
                         else:
@@ -595,11 +595,11 @@ class AsyncDL():
         
         info = self.info_videos[url_to_check]['video_info']
         
-        if not info.get('_type') and (_id:=info.get('id')) and (_title:=info.get('title')):            
+        if info.get('_type', 'video') == 'video' and (_id:=info.get('id')) and (_title:=info.get('title')):            
             
             for (urlkey, _vid) in  self.info_videos.items():
                 if urlkey != url_to_check:
-                    if not _vid['video_info'].get('_type') and (_vid['video_info'].get('id', "") == _id) and (_vid['video_info'].get('title', "")) == _title:
+                    if _vid['video_info'].get('_type', 'video') == 'video' and (_vid['video_info'].get('id', "") == _id) and (_vid['video_info'].get('title', "")) == _title:
                         return(urlkey)
                 
     def get_videos_to_dl(self): 
@@ -698,7 +698,7 @@ class AsyncDL():
                     
                     try: 
                         
-                        if vid.get('_type'):
+                        if not vid.get('_type', 'video') == 'video':
                             #al no tratarse de video final vid['url'] siempre existe
                             try:                                    
                                 
