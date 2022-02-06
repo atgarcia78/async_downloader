@@ -131,16 +131,6 @@ class AsyncARIA2CDownloader():
             
             raise AsyncARIA2CDLErrorFatal(self.error_message)
 
-    async def wait_time(self, n):
-   
-        _started = time.monotonic()
-        while True:
-            if (_t:=(time.monotonic() - _started)) >= n:
-                return _t
-            else:
-                await asyncio.sleep(0)
-        
-
     async def fetch_async(self):        
 
         try: 
