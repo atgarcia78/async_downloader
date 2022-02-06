@@ -271,8 +271,6 @@ class AsyncHLSDownloader():
                 count += 1
                 if count == 5: raise AsyncHLSDLErrorFatal("Reset failed")
 
-        
-    
     def prep_reset(self, info_reset):       
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
@@ -333,7 +331,6 @@ class AsyncHLSDownloader():
         else:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
-                
     async def fetch(self, nco):
 
         try:
@@ -353,12 +350,13 @@ class AsyncHLSDownloader():
                     return
                 if self.video_downloader.pause_event.is_set():
                     await self.video_downloader.resume_event.wait()
-                    if self.video_downloader.stop_event.is_set():
-                        async with self._LOCK:
+                    
+                    async with self._LOCK:
+                        if self.video_downloader.stop_event.is_set():
                             if not self.reset_event.is_set():
                                 self.reset_event.set()
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: reset event set")
-                        self.video_downloader.stop_event.clear()
+                            self.video_downloader.stop_event.clear()
 
                     self.video_downloader.pause_event.clear()
                     self.video_downloader.resume_event.clear()
@@ -447,6 +445,7 @@ class AsyncHLSDownloader():
                                     async for chunk in res.aiter_bytes(chunk_size=_chunk_size): 
                                         if self.reset_event.is_set(): 
                                             raise AsyncHLSDLErrorFatal("reset event")
+                                                                                    
                                         _timechunk = time.monotonic() - _started
                                         self.info_frag[q - 1]['time2dlchunks'].append(_timechunk)                             
                                         #await asyncio.sleep(0)
@@ -492,7 +491,7 @@ class AsyncHLSDownloader():
                                                        
                     except AsyncHLSDLErrorFatal as e:
                         async with self._LOCK:
-                            if not self.reset_event.is_set():
+                            if not self.reset_event.is_set() and not self.video_downloader.stop_event.is_set():
                                 self.reset_event.set()
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: reset event set")
                         self.info_frag[q - 1]['error'].append(repr(e))
@@ -561,7 +560,6 @@ class AsyncHLSDownloader():
             async with self._LOCK:
                 self.count -= 1
                 
-    
     async def fetch_async(self):
         
                 
