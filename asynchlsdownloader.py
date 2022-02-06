@@ -114,8 +114,6 @@ class AsyncHLSDownloader():
         
         self.init()
         
-        
-
     def get_info_fragments(self):
         
         try:
@@ -235,7 +233,7 @@ class AsyncHLSDownloader():
         _bitrate = self.tbr or self.abr                
         self.filesize = int(self.totalduration * 1000 * _bitrate / 8)
         
-    def reset(self):         
+    def reset(self):
 
         count = 0
         
@@ -271,7 +269,7 @@ class AsyncHLSDownloader():
                 count += 1
                 if count == 5: raise AsyncHLSDLErrorFatal("Reset failed")
 
-    def prep_reset(self, info_reset):       
+    def prep_reset(self, info_reset):
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
         self.video_url = self.info_dict['url'] = info_reset.get('url')
@@ -721,7 +719,7 @@ class AsyncHLSDownloader():
                 if f['file'].exists():
                     f['file'].unlink()
                     
-    def ensamble_file(self):        
+    def ensamble_file(self):
        
         self.status = "manipulating"
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
@@ -784,7 +782,7 @@ class AsyncHLSDownloader():
         import math        
         return f'{(int(math.log(self.n_total_fragments, 10)) + 1)}d'
     
-    async def print_hookup(self):         
+    async def print_hookup(self):
         
         if self.status == "done":
             msg = f"[HLS][{self.info_dict['format_id']}]: Completed \n"
