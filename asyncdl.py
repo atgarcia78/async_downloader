@@ -557,9 +557,7 @@ class AsyncDL():
             
     def _check_if_aldl(self, info_dict):  
                     
-               
-        #if (info_dict.get('_type') == "url_transparent"):
-        #    return False
+
         
         if not (_id := info_dict.get('id') ) or not ( _title := info_dict.get('title')):
             return False
@@ -736,7 +734,7 @@ class AsyncDL():
                         
 
                         async def go_for_dl(urlkey ,infdict, extradict=None):                   
-                        #sanitizamos 'id', y si no lo tiene lo forzamos a un valor basado en la url
+                            #sanitizamos 'id', y si no lo tiene lo forzamos a un valor basado en la url
                             if (_id:=infdict.get('id')):
                                 
                                 infdict['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
@@ -757,6 +755,8 @@ class AsyncDL():
                             self.info_videos[urlkey].update({'video_info': infdict})
                             
                             #_filesize = extradict.get('filesize',0) if extradict else infdict.get('filesize', 0)
+                            
+                            _filesize = none_to_cero(extradict.get('filesize', 0)) if extradict else none_to_cero(infdict.get('filesize', 0))
                             
                             if (_path:=self._check_if_aldl(infdict)):
                                 
@@ -789,7 +789,7 @@ class AsyncDL():
                                 
                                 dl = await async_ex_in_executor(self.ex_winit, VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args)
                                 #dl = await asyncio.to_thread(VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args)                       
-                                        
+                                _filesize = none_to_cero(extradict.get('filesize', 0)) if extradict else none_to_cero(infdict.get('filesize', 0))       
                                 if not dl.info_dl.get('status', "") == "error":
                                     
                                     if dl.info_dl.get('filesize'):
@@ -810,13 +810,13 @@ class AsyncDL():
                                 
                                 else:
                                     async with self.lock:
-                                            self.totalbytes2dl -= _filesize
+                                        self.totalbytes2dl -= _filesize
                                              
                                     raise Exception("no DL init")
                         
                         
                         if (_type:=info.get('_type', 'video')) == 'video': 
-                            _filesize = none_to_cero(vid.get('filesize', 0))
+                            #_filesize = none_to_cero(vid.get('filesize', 0))
                             await get_dl(url_key, infdict=info, extradict=vid)
                         
                         elif _type == 'playlist':
@@ -850,9 +850,10 @@ class AsyncDL():
                                                 logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
                                         
                                             else:
-                                                _filesize = none_to_cero(_entry.get('filesize', 0))
+                                                #_filesize = none_to_cero(_entry.get('filesize', 0))
                                                 async with self.lock:
-                                                    self.totalbytes2dl += _filesize
+                                                    #self.totalbytes2dl += _filesize
+                                                    self.totalbytes2dl += none_to_cero(_entry.get('filesize', 0))
                                                 await get_dl(_url, infdict=_entry)
                                 
                                 except Exception as e:
@@ -1233,9 +1234,9 @@ class AsyncDL():
             if (close:=getattr(ins, 'close', None)):
                 try:
                     close()
-                    logger.info(f"[{ie}] closed ok")
-                except Exception:
-                    pass
+                    logger.info(f"[close][{ie}] closed ok")
+                except Exception as e:
+                    logger.exception(f"[close][{ie}] {repr(e)}")
         try:        
             kill_processes(logger=logger, rpcport=self.args.rpcport) 
         except Exception as e:
