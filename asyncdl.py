@@ -178,10 +178,10 @@ class AsyncDL():
                 sg.cprint(event, values)
                 if event in (sg.WIN_CLOSED, 'Exit'):
                     break
-                elif event in ['Pause', 'Resume', 'Stop']:
+                elif event in ['Pause', 'Resume', 'Reset', 'Stop']:
                     if not values['-IN-']:
-                        if event == 'Stop':
-                            sg.cprint('Stop needs to select a DL')
+                        if event in ['Reset', 'Stop']:
+                            sg.cprint('Needs to select a DL')
                         else:
                             if self.list_dl:
                                 for dl in self.list_dl:                            
@@ -198,6 +198,7 @@ class AsyncDL():
                         
                                     if event == 'Pause': self.list_dl[_index-1].pause()
                                     if event == 'Resume': self.list_dl[_index-1].resume()
+                                    if event == 'Reset': self.list_dl[_index-1].reset()
                                     if event == 'Stop': self.list_dl[_index-1].stop()
                                 else: sg.cprint('DL index doesnt exist')
                             else: sg.cprint('DL list empty')

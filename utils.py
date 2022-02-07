@@ -359,7 +359,7 @@ class MyLogger(logging.LoggerAdapter):
             self.log(DEBUG, msg, *args, **kwargs)
         else:    
             mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
-            if mobj in ('[debug]', '[info]', '[download]'):
+            if mobj in ('[debug]', '[download]'):
                 self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else: self.log(INFO, msg, *args, **kwargs)
         
@@ -439,7 +439,7 @@ def init_gui():
     layout_pygui = [  [sg.Text('Select DL')],
                 [sg.Input(key='-IN-', focus=True)],
                 [sg.Multiline(size=(30, 8), write_only=True, key='-ML-', reroute_cprint=True)],
-                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Stop'), sg.Button('Exit')] ]
+                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')] ]
 
     window_pygui = sg.Window('Console', layout_pygui, location=(0, 350), finalize=True, use_default_focus=True)
     

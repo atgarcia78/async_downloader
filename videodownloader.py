@@ -134,6 +134,12 @@ class VideoDownloader():
             logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
             raise 
             
+    def reset(self):
+        for dl in self.info_dl['downloaders']:
+            if 'hls' in str(type(dl)).lower():
+                dl.reset_event.set()
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
+            
     def stop(self):
         if self.stop_event:
             self.stop_event.set()
@@ -157,6 +163,7 @@ class VideoDownloader():
         self.pause_event = asyncio.Event()
         self.resume_event = asyncio.Event()
         self.stop_event = asyncio.Event()
+        self.reset_event = asyncio.Event()
         self.lock = asyncio.Lock()
         tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
         done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
