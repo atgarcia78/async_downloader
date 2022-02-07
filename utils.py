@@ -350,16 +350,19 @@ class MyLogger(logging.LoggerAdapter):
     #se pasa un logger de logging al crear la instancia 
     # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
     
-    def __init__(self, logger, quiet=False):
+    def __init__(self, logger, quiet=False, verbose=False):
         super().__init__(logger, {})
         self.quiet = quiet
+        self.verbose = verbose
     
     def debug(self, msg, *args, **kwargs):
         if self.quiet:
             self.log(DEBUG, msg, *args, **kwargs)
+        elif self.verbose:
+            self.log(INFO, msg, *args, **kwargs)            
         else:    
             mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
-            if mobj in ('[debug]', '[download]'):
+            if mobj in ('[debug]', '[info]', '[download]'):
                 self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else: self.log(INFO, msg, *args, **kwargs)
         
@@ -380,7 +383,7 @@ def init_ytdl(args):
                                
     ytdl_opts = {
         "proxy" : proxy,        
-        "logger" : MyLogger(logger, args.quiet),
+        "logger" : MyLogger(logger, args.quiet, args.verbose),
         "verbose": args.verbose,
         "quiet": args.quiet,
         "format" : args.format,
