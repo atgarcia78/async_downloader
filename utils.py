@@ -306,10 +306,9 @@ def init_argparser():
     parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
     parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
-    
-    
-    
+
     args = parser.parse_args()
+    
     if args.winit == 0:
         args.winit = args.w
     if args.aria2c != -1:
@@ -317,17 +316,14 @@ def init_argparser():
         args.aria2c = True
     else: 
         args.rpcport = None
-        args.aria2c = False
-        
+        args.aria2c = False        
     if args.notaria2c:
         args.aria2c = False 
-        args.rpcport = None
-        
+        args.rpcport = None        
     if args.path and len(args.path.split("/")) == 1:
         _path = Path(Path.home(),"testing", args.path)
         args.path = str(_path)
-    
-    
+            
     return args
 
 def init_aria2c(args):
