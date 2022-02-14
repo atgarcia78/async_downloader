@@ -91,6 +91,9 @@ class AsyncARIA2CDownloader():
             'check-certificate': self.verifycert,              
             'user-agent': self.video_downloader.args.useragent}
         
+        if _referer:=self.headers.get('Referer'):
+            opts_dict.update({'referer': _referer})
+        
         opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
             rc = opts.set(key, value)

@@ -58,7 +58,7 @@ class AsyncHTTPDownloader():
     _CHUNK_SIZE = 102400 #100KB
     #_CHUNK_SIZE = 1048576 #1MB
     _MAX_RETRIES = 10
-    _DICT_NPARTS = {'Dood': 2}
+    _DICT_NPARTS = {'Dood': 2} #, 'Hulu123': 2}
     
     def __init__(self, video_dict, vid_dl):
 
