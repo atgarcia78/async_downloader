@@ -377,7 +377,16 @@ def init_ytdl(args):
         else:
             proxy = f"http://{args.proxy}"
                                
+    headers = {
+        "User-Agent": args.useragent, 
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Connection": "keep-alive",
+        "Accept-Language": "en,es-ES;q=0.5",
+        "Accept-Encoding": "gzip, deflate"
+    }
+    
     ytdl_opts = {
+        "http_headers": headers,
         "proxy" : proxy,        
         "logger" : MyLogger(logger, args.quiet, args.verbose),
         "verbose": args.verbose,

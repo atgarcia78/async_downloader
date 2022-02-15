@@ -54,15 +54,12 @@ class AsyncDL():
         
         #youtube_dl
         self.ytdl = init_ytdl(self.args)
-        std_headers["User-Agent"] = args.useragent
-        std_headers["Accept"] = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8" 
-        std_headers["Connection"] = "keep-alive"
-        std_headers["Accept-Language"] = "en,es-ES;q=0.5"
-        std_headers["Accept-Encoding"] = "gzip, deflate"
+        std_headers.update(self.ytdl.params.get('http_headers'))
+
         if args.headers:
             std_headers.update(json.loads(js_to_json(args.headers)))       
         
-        logger.debug(f"std-headers:\n{std_headers}")
+        logger.debug(f"std_headers:\n{std_headers}")
         
         #aria2c
         if self.args.aria2c: init_aria2c(self.args)
