@@ -53,6 +53,7 @@ class AsyncARIA2CDownloader():
         
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')        
         self.video_url = self.info_dict.get('url')
+        self._extra_urls = self.info_dict.get('_extra_urls')
         
         self.headers = self.info_dict.get('http_headers')  
         
@@ -75,11 +76,6 @@ class AsyncARIA2CDownloader():
         
         self.init()
         
-        '''
-                'connect-timeout': '10',
-                'timeout': '10',
-                'max-tries': '2',
-        '''
  
     def init(self):
         
@@ -103,11 +99,16 @@ class AsyncARIA2CDownloader():
 
         try:         
             
-                    
-            self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
+            uris = [unquote(self.video_url)]
+            if self._extra_urls:
+                for el in self._extra_urls: 
+                    uris.append(unquote(el))
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] uris {uris}")
+            #self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
+            self.dl_cont = self.aria2_client.add_uris(uris, opts)
             while True:
                 self.dl_cont.update()
-                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if self.dl_cont.status in ('error'):
@@ -142,6 +143,7 @@ class AsyncARIA2CDownloader():
             
             while True:
                 await asyncio.to_thread(self.dl_cont.update)
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_init]\n{self.dl_cont._struct}")
                 if self.dl_cont.status in ('active', 'error'):
                     break                    
                 await asyncio.sleep(0)
@@ -149,6 +151,7 @@ class AsyncARIA2CDownloader():
             if self.dl_cont.status in ('active'):        
                 self.status = "downloading"  
                 
+                timer0 = time.monotonic()
                 while self.dl_cont.status in ('active'):                    
                                     
                     _incsize = self.dl_cont.completed_length - self.down_size
@@ -172,9 +175,13 @@ class AsyncARIA2CDownloader():
                                 break                    
                             await asyncio.sleep(0)
                         
-                    else: await asyncio.to_thread(self.dl_cont.update)
+                    else: 
+                        await asyncio.to_thread(self.dl_cont.update)
+                        if ((timer1:=time.monotonic()) - timer0 > 1):
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_dl]\n{self.dl_cont._struct}")
+                            timer0 = timer1
                     await asyncio.sleep(0)
-            
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
             if self.dl_cont.status in ('complete'): self.status = "done"
             elif self.dl_cont.status in ('error'): 
                 self.status = 'error'

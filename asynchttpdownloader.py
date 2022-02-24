@@ -35,7 +35,7 @@ from backoff import constant, on_exception
 
 logger = logging.getLogger("async_http_DL")
 
-limiter = Limiter(RequestRate(1, Duration.SECOND))
+limiter = Limiter(RequestRate(5, Duration.SECOND))
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -58,7 +58,7 @@ class AsyncHTTPDownloader():
     _CHUNK_SIZE = 102400 #100KB
     #_CHUNK_SIZE = 1048576 #1MB
     _MAX_RETRIES = 10
-    _DICT_NPARTS = {'Dood': 2} #, 'Hulu123': 2}
+    _DICT_NPARTS = {'DoodStream': 2} #, 'Hulu123': 2}
     
     def __init__(self, video_dict, vid_dl):
 
@@ -75,6 +75,13 @@ class AsyncHTTPDownloader():
             
         self._NUM_WORKERS = self.n_parts 
         self.video_url = self.info_dict.get('url')
+        self._extra_urls = self.info_dict.get('_extra_urls')
+        self.uris = [self.video_url] 
+        if self._extra_urls: 
+            self.n_parts = 10
+            self.uris += self._extra_urls
+        
+        
 
         
         self.ytdl = getattr(self.video_downloader, 'info_dl', {}).get('ytdl', None)
@@ -144,7 +151,7 @@ class AsyncHTTPDownloader():
             raise
         
     @on_exception(constant, Exception, max_tries=3, interval=1)
-    @limiter.ratelimit("httpdl2", delay=True)
+    @limiter.ratelimit("httpdl1", delay=True)
     def get_filesize(self):
 
 
@@ -163,7 +170,7 @@ class AsyncHTTPDownloader():
 
         
     @on_exception(constant, Exception, max_tries=3, interval=1)
-    @limiter.ratelimit("httpdl3", delay=True)
+    @limiter.ratelimit("httpdl1", delay=True)
     def upt_hsize(self, i, offset=None):
 
         try: 
@@ -228,6 +235,11 @@ class AsyncHTTPDownloader():
                 
             _not_hsize = [_part for _part in self.parts if not _part['headersize']]
             if len(_not_hsize) > 0: logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] not headersize in [{len(_not_hsize)}/{self.n_parts}]")
+            
+            for i,part in enumerate(self.parts):
+                part.update({'url': self.uris[i % len(self.uris)]})
+                
+                
                 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
@@ -329,7 +341,7 @@ class AsyncHTTPDownloader():
             else:
                 await asyncio.sleep(0)
         
-    @limiter.ratelimit("httpdl4", delay=True)
+    @limiter.ratelimit("httpdl1", delay=True)
     async def rate_limit(self):
         await asyncio.sleep(0)
     
@@ -359,7 +371,8 @@ class AsyncHTTPDownloader():
                         
                             await self.rate_limit()
                                                        
-                            async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers'][-1]) as res:
+                            #async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers'][-1]) as res:
+                            async with client.stream("GET", self.parts[part-1]['url'], headers=self.parts[part-1]['headers'][-1]) as res:
                             
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}]: [fetch] resp code {str(res.status_code)}: rep {self.parts[part-1]['n_retries']}\n{res.request.headers}")
 
