@@ -44,7 +44,6 @@ def main():
                 
         asyncDL = AsyncDL(args)        
         
-        res = None
         
         try:
             

@@ -341,7 +341,7 @@ def init_aria2c(args):
 INFO = 20
 DEBUG = 10
 class MyLogger(logging.LoggerAdapter):
-    #para ser compatible con el logging de yt_dlp: yt_dlp iusea debug para enviar los debig y
+    #para ser compatible con el logging de yt_dlp: yt_dlp usa debug para enviar los debug y
     #los info. Los debug llevan '[debug] ' antes.
     #se pasa un logger de logging al crear la instancia 
     # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
@@ -350,6 +350,7 @@ class MyLogger(logging.LoggerAdapter):
         super().__init__(logger, {})
         self.quiet = quiet
         self.verbose = verbose
+
     
     def debug(self, msg, *args, **kwargs):
         if self.quiet:
