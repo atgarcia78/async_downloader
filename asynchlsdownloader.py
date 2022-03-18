@@ -25,6 +25,7 @@ from utils import (
 )
 
 import aiofiles
+import aiofiles.os
 import datetime
 from statistics import median
 import copy
@@ -367,6 +368,7 @@ class AsyncHLSDownloader():
                           
                 url = self.info_frag[q - 1]['url']
                 filename = Path(self.info_frag[q - 1]['file'])
+                filename_exists = await aiofiles.os.path.exists(filename)
                 key = self.info_frag[q - 1]['key']
                 cipher = None
                 if key is not None and key.method == 'AES-128':
@@ -404,14 +406,15 @@ class AsyncHLSDownloader():
                                     
                                     if self.info_frag[q-1]['downloaded']:                                    
                                         
-                                        if (await asyncio.to_thread(filename.exists)):
-                                            _size = self.info_frag[q-1]['size'] = (await asyncio.to_thread(filename.stat)).st_size
+                                        #if (await asyncio.to_thread(filename.exists)):
+                                        if filename_exists:
+                                            _size = self.info_frag[q-1]['size'] = (await aiofiles.os.stat(filename)).st_size #(await asyncio.to_thread(filename.stat)).st_size 
                                             if _size and  (_hsize - 100 <= _size <= _hsize + 100):                            
                                     
                                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 100 <=_size <= _hsize + 100}]")                                    
                                                 break
                                             else:
-                                                await f.truncate()
+                                                await f.truncate(0)
                                                 self.info_frag[q-1]['downloaded'] = False
                                                 async with self._LOCK:
                                                     self.n_dl_fragments -= 1
