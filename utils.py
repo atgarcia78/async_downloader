@@ -95,6 +95,10 @@ def get_chain_links(f):
             break
     return _links
 
+          
+    
+    
+
 def kill_processes(logger=None, rpcport=None):
     
     def _log(msg):
@@ -105,7 +109,8 @@ def kill_processes(logger=None, rpcport=None):
     if rpcport: _aria2cstr = f"aria2c.+--rpc-listen-port {rpcport}.+"
     else: _aria2cstr = f"aria2cDUMMY"
     mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox Nightly.app/Contents/MacOS/firefox-bin.+))', res)
-    mobj2 = re.findall(r'/Applications/Firefox Nightly.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ', res)
+    #mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+))', res)
+    mobj2 = re.findall(rf'\d+\s+(?:\?\?|{term})\s+/Applications/Firefox Nightly.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ', res)
     if mobj:
         proc_to_kill = list(set(mobj))                    
         results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
@@ -329,6 +334,13 @@ def init_argparser():
 def init_aria2c(args):
     
     logger = logging.getLogger("asyncDL")
+    res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,tty,command"], encoding='utf-8', capture_output=True).stdout
+    mobj = re.findall(r"aria2c.+--rpc-listen-port ([^ ]+).+", res)
+    if mobj:
+        if str(args.rpcport) in mobj:
+            mobj.sort()
+            args.rpcport = int(mobj[-1]) + 100
+            
     subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
     logger.info(f"aria2c daemon running on port: {args.rpcport} ")
     cl = aria2p.API(aria2p.Client(port=args.rpcport))
@@ -419,42 +431,55 @@ def init_ytdl(args):
 
 def init_gui():
    
-    sg.theme("SystemDefaultForReal")
-    
-    col_0 = sg.Column([
-                        [sg.Text("WAITING TO DL", font='Any 14')], 
-                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', auto_refresh=True)]
-    ], element_justification='l', expand_x=True, expand_y=True)
-    
-    col_1 = sg.Column([
-                        [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-                        [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', auto_refresh=True)]
-    ], element_justification='c', expand_x=True, expand_y=True)
-    
-    col_2 = sg.Column([
-                        [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
-                        [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', auto_refresh=True)]
-    ], element_justification='r', expand_x=True, expand_y=True)
-    
-    layout_root = [ [col_0, col_1, col_2] ]
-    
-    window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True, use_default_focus=False)
-    window_root.set_min_size(window_root.size)
-    
-    window_root['-ML0-'].expand(True, True, True)
-    window_root['-ML1-'].expand(True, True, True)
-    window_root['-ML2-'].expand(True, True, True)
-    
-    layout_pygui = [  [sg.Text('Select DL')],
-                [sg.Input(key='-IN-', focus=True)],
-                [sg.Multiline(size=(30, 8), write_only=True, key='-ML-', reroute_cprint=True)],
-                [sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')] ]
+    try:
+        
+        logger = logging.getLogger("asyncDL")
+        
+        sg.theme("SystemDefaultForReal")
+        
+        col_0 = sg.Column([
+                            [sg.Text("WAITING TO DL", font='Any 14')], 
+                            [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
+        ], element_justification='l', expand_x=True, expand_y=True)
+        
+        col_1 = sg.Column([
+                            [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
+                            [sg.Multiline(default_text = "Waiting for info", size=(80, 40), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
+        ], element_justification='c', expand_x=True, expand_y=True)
+        
+        col_2 = sg.Column([
+                            [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
+                            [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
+        ], element_justification='r', expand_x=True, expand_y=True)
+        
+        layout_root = [ [col_0, col_1, col_2] ]
+        
+        window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True, use_default_focus=False)
+        window_root.set_min_size(window_root.size)
+        
+        window_root['-ML0-'].expand(True, True, True)
+        window_root['-ML1-'].expand(True, True, True)
+        window_root['-ML2-'].expand(True, True, True)
+        
+        col_pygui = sg.Column([
+                                [sg.Text('Select DL', font='Any 14')],
+                                [sg.Input(key='-IN-', font='Any 10', focus=True)],
+                                [sg.Multiline(size=(50, 25), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, autoscroll=True)],
+                                [sg.Button('Info'), sg.Button('ToFile'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
+        ], element_justification='c', expand_x=True, expand_y=True)
+        
+        layout_pygui = [ [col_pygui] ]
 
-    window_pygui = sg.Window('Console', layout_pygui, location=(0, 350), finalize=True, use_default_focus=True)
+        window_pygui = sg.Window('Console', layout_pygui, location=(0, 500), finalize=True, resizable=True)
+        window_pygui.set_min_size(window_pygui.size)
+        window_pygui['-ML-'].expand(True, True, True)
+        
+        window_pygui.bring_to_front()
+        
+        return(window_root, window_pygui)
     
-    window_pygui.bring_to_front()
-    
-    return(window_root, window_pygui)
+    except Exception as e:
+        logger.exception(f'[init_gui] error {repr(e)}')
 
 
 def patch_http_connection_pool(**constructor_kwargs):

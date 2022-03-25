@@ -410,6 +410,7 @@ class VideoDownloader():
         for dl in self.info_dl['downloaders']:
             msg += f"  {await dl.print_hookup()}"
         msg += "\n" 
+        await asyncio.sleep(0)
         if self.info_dl['status'] == "done":
             return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}]\n")
         elif self.info_dl['status'] == "init":

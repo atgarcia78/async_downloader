@@ -483,14 +483,15 @@ class AsyncHTTPDownloader():
         for _ in range(self._NUM_WORKERS):
             self.parts_queue.put_nowait("KILL")
             
-        self.status = "downloading"  
+        
         
         await asyncio.sleep(0)
 
         try:
             self.count = self._NUM_WORKERS
             self.down_temp = self.down_size
-            self.started = time.monotonic()    
+            self.started = time.monotonic()
+            self.status = "downloading"      
            
             self.tasks = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
             
