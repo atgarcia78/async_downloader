@@ -822,7 +822,7 @@ class AsyncHLSDownloader():
         import math        
         return f'{(int(math.log(self.n_total_fragments, 10)) + 1)}d'
     
-    async def print_hookup(self):
+    def print_hookup(self):
         
         if self.status == "done":
             msg = f"[HLS][{self.info_dict['format_id']}]: Completed \n"
@@ -866,8 +866,7 @@ class AsyncHLSDownloader():
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0  
             _str = f'[{naturalsize(_size)}/{naturalsize(self.filesize)}]({(_size/self.filesize)*100:.2f}%)' if self.filesize else f'[{naturalsize(_size)}]'       
-            msg = f"[HLS][{self.info_dict['format_id']}]: Ensambling {_str} \n"
-        
+            msg = f"[HLS][{self.info_dict['format_id']}]: Ensambling {_str} \n"       
         
         
         return msg

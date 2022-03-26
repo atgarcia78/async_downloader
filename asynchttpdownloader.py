@@ -572,7 +572,7 @@ class AsyncHTTPDownloader():
         import math        
         return f'{(int(math.log(self.n_parts, 10)) + 1)}d'        
             
-    async def print_hookup(self):
+    def print_hookup(self):
                 
         if self.status == "done":
             return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")

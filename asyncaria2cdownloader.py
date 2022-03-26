@@ -196,7 +196,7 @@ class AsyncARIA2CDownloader():
             self.error_message = repr(e)
             
             
-    async def print_hookup(self):
+    def print_hookup(self):
         
         msg = ""
         
