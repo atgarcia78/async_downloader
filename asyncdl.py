@@ -17,6 +17,7 @@ from utils import (
     none_to_cero,
     kill_processes,
     async_wait_time,
+    wait_time,
     async_ex_in_executor,
     sg,
     init_gui
@@ -81,7 +82,12 @@ class AsyncDL():
         self.window_console = None
         self.window_root = None      
         self.stop_root = False        
-        self.stop_console = True        
+        self.stop_console = True
+        
+        self.wkinit_stop = False
+        self.pasres_repeat = False
+        self.console_dl_status = False
+                
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -147,7 +153,12 @@ class AsyncDL():
                             text1.delete('1.0', sg.tk.END) 
                             if list_downloading:
                                 text1.insert(sg.tk.END, "\n\n-------DOWNLOADING VIDEO------------\n\n")
-                                text1.insert(sg.tk.END, ''.join(list_downloading))                                
+                                text1.insert(sg.tk.END, ''.join(list_downloading))
+                                if self.console_dl_status:
+                                    sg.cprint('"\n\n-------STATUS DL----------------\n\n"')
+                                    sg.cprint(''.join(list_downloading))
+                                    sg.cprint('"\n\n-------END STATUS DL------------\n\n"')
+                                    self.console_dl_status = False                                
                             if list_manip:
                                 text1.insert(sg.tk.END, "\n\n-------CREATING FILE------------\n\n")
                                 text1.insert(sg.tk.END, ''.join(list_manip))
@@ -167,10 +178,32 @@ class AsyncDL():
             except Exception as e:
                 lines = traceback.format_exception(*sys.exc_info())                
                 logger.error(f"[gui_root]: error: {repr(e)}\n{'!!'.join(lines)}")
-            
-            
-        logger.debug("[gui_root] BYE") 
+            finally:           
+                logger.debug("[gui_root] BYE")
+                try:
+                    self.window_root.close()
+                except Exception as e:
+                    logger.exception(f"[gui_root]: error: {repr(e)}")
+                finally:
+                    del self.window_root
+                    
 
+    def pasres_periodic(self):
+        logger.info('[pasres_periodic] START')
+        while(self.pasres_repeat):
+            
+            # for dl in self.list_dl:                            
+            #     dl.pause()
+            self.window_console.write_event_value('Pause', {'-IN-': ''})
+            wait_time(10)
+            # for dl in self.list_dl:
+            #     dl.resume()
+            self.window_console.write_event_value('Resume', {'-IN-': ''})
+            if not self.pasres_repeat:
+                break
+            wait_time(20)
+        logger.info('[pasres_periodic] END')
+        
     async def gui_console(self):
         
         try:
@@ -189,6 +222,16 @@ class AsyncDL():
                 sg.cprint(event, values)
                 if event in (sg.WIN_CLOSED, 'Exit'):
                     break
+                elif event in ['-WKINIT-']:
+                    self.wkinit_stop = not self.wkinit_stop
+                    sg.cprint(f'Worker inits: BLOCKED') if self.wkinit_stop else sg.cprint(f'Worker inits: RUNNING')
+                elif event in ['-PASRES-']:
+                    self.pasres_repeat = not self.pasres_repeat
+                    if self.pasres_repeat:
+                        self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
+                elif event in ['-DL-STATUS']:
+                    if not self.console_dl_status:
+                        self.console_dl_status = True        
                 elif event in ['ToFile', 'Info', 'Pause', 'Resume', 'Reset', 'Stop']:
                     if not values['-IN-']:
                         if event in ['Reset', 'Stop']:
@@ -230,9 +273,17 @@ class AsyncDL():
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
+        finally:           
+            logger.debug("[gui_console] BYE")
+            try:
+                self.window_console.close()
+            except Exception as e:
+                logger.exception(f"[gui_root]: error: {repr(e)}")
+            finally:
+                del self.window_console
         
         
-        logger.debug("[gui_console] BYE") 
+       
     
     def get_videos_cached(self):
         
@@ -702,8 +753,9 @@ class AsyncDL():
             while True:
                 
                 #num, vid = self.queue_vid.get(block=True)    
+                
+                url_key = await self.queue_vid.get()
                 async with self.lock:
-                    url_key = await self.queue_vid.get()
                     _pending = self.queue_vid.qsize() - self.init_nworkers
                 
                 if url_key == "KILL":
@@ -736,11 +788,21 @@ class AsyncDL():
                     logger.debug(f"[worker_init][{i}]: [{url_key}] extracting info")
                     
                     try: 
+                        if self.wkinit_stop:
+                            logger.info(f"[worker_init][{i}]: BLOCKED")
+                            
+                            while self.wkinit_stop:
+                                await async_wait_time(5)
+                                logger.debug(f"[worker_init][{i}]: BLOCKED")
+                                
+                            logger.info(f"[worker_init][{i}]: UNBLOCKED")
                         
                         if not vid.get('_type', 'video') == 'video':
                             #al no tratarse de video final vid['url'] siempre existe
                             try:                                    
                                 
+                                
+                                    
                                 _res = await async_ex_in_executor(self.ex_winit, self.ytdl.extract_info, vid['url'])
                                 #_res = await asyncio.to_thread(self.ytdl.extract_info, vid['url'])
                                 if not _res: raise Exception("no info video")
@@ -858,6 +920,15 @@ class AsyncDL():
                         
                         if (_type:=info.get('_type', 'video')) == 'video': 
                             #_filesize = none_to_cero(vid.get('filesize', 0))
+                            if self.wkinit_stop:
+                                logger.info(f"[worker_init][{i}]: BLOCKED")
+                            
+                                while self.wkinit_stop:
+                                    await async_wait_time(5)
+                                    logger.debug(f"[worker_init][{i}]: BLOCKED")
+                                
+                                logger.info(f"[worker_init][{i}]: UNBLOCKED")
+                                
                             await get_dl(url_key, infdict=info, extradict=vid)
                             await asyncio.sleep(0)
                             continue
@@ -897,6 +968,14 @@ class AsyncDL():
                                                 async with self.lock:
                                                     #self.totalbytes2dl += _filesize
                                                     self.totalbytes2dl += none_to_cero(_entry.get('filesize', 0))
+                                                if self.wkinit_stop:
+                                                    logger.info(f"[worker_init][{i}]: BLOCKED")
+                            
+                                                    while self.wkinit_stop:
+                                                        await async_wait_time(5)
+                                                        logger.debug(f"[worker_init][{i}]: BLOCKED")
+                                
+                                                    logger.info(f"[worker_init][{i}]: UNBLOCKED")
                                                 await get_dl(_url, infdict=_entry)
                                 
                                 except Exception as e:
@@ -1287,6 +1366,10 @@ class AsyncDL():
     def close(self):
         try:        
             self.ies_close()
+        except Exception as e:
+            logger.exception(f"[close] {repr(e)}")
+        try:
             kill_processes(logger=logger, rpcport=self.args.rpcport) 
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
+        
