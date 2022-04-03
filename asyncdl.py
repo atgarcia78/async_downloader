@@ -215,7 +215,7 @@ class AsyncDL():
             
             while not self.stop_root:             
                 
-                await async_wait_time(self._INTERVAL_GUI)
+                await async_wait_time(self._INTERVAL_GUI/2)
                 event, values = self.window_console.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
@@ -228,6 +228,8 @@ class AsyncDL():
                 elif event in ['-PASRES-']:
                     self.pasres_repeat = not self.pasres_repeat
                     if self.pasres_repeat:
+                        #no espera, lanza en otro thread la llamada
+ 
                         self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
                 elif event in ['-DL-STATUS']:
                     if not self.console_dl_status:
@@ -778,7 +780,7 @@ class AsyncDL():
                         self.stop_root = True
                         self.stop_console = False
                     
-                    self.ies_close(client=False)     
+                    #self.ies_close(client=False)     
  
                     break
                 

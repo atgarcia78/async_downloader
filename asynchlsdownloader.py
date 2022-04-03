@@ -313,6 +313,9 @@ class AsyncHLSDownloader():
         byte_range = {}
         
         self.info_dict['fragments'] = self.get_info_fragments()
+        
+        #logger.info(f"info_frag\{self.info_frag}")
+        #logger.info(f"info_dict[fragments]\{self.info_dict['fragments']}")
 
         for i, fragment in enumerate(self.info_dict['fragments']):
                                 
@@ -352,6 +355,8 @@ class AsyncHLSDownloader():
                     if fragment.key.absolute_uri not in self.key_cache:
                         self.key_cache[fragment.key.absolute_uri] = httpx.get(fragment.key.absolute_uri, headers=self.headers).content
                         
+        #logger.info(f"frags_to_dl\{self.frags_to_dl}")
+        
         if not self.frags_to_dl:
             self.status = "init_manipulating"
         else:
@@ -685,8 +690,8 @@ class AsyncHLSDownloader():
                                 for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
                                 await self.client.aclose()
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
-                                #await asyncio.sleep(0)
-                                #continue 
+                                await asyncio.sleep(0)
+                                continue 
                                 
                             except Exception as e:
                                 lines = traceback.format_exception(*sys.exc_info())
