@@ -165,31 +165,42 @@ class VideoDownloader():
         self.stop_event = asyncio.Event()
         self.reset_event = asyncio.Event()
         self.lock = asyncio.Lock()
-        tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
-        done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
         
-    
-        if done:
-            for d in done:
-                try:                        
-                    d.result()  
-                except Exception as e:
-                    lines = traceback.format_exception(*sys.exc_info())                
-                    logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
-                    
-        if self.stop_event.is_set():
-            self.info_dl['status'] = "stop"
-        
-        else:
+        try:
             
-            res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
+            tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
+            done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
+            
+        
+            if done:
+                for d in done:
+                    try:                        
+                        d.result()  
+                    except Exception as e:
+                        lines = traceback.format_exception(*sys.exc_info())                
+                        logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
+                        
+            if self.stop_event.is_set():
+                self.info_dl['status'] = "stop"
+            
+            else:
+                
+                res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
 
-            if 'error' in res:
-                self.info_dl['status'] = 'error'
-                self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
-            
-            else: 
-                self.info_dl['status'] = "init_manipulating"
+                if 'error' in res:
+                    self.info_dl['status'] = 'error'
+                    self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
+                
+                else: 
+                    self.info_dl['status'] = "init_manipulating"
+        
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL\n{'!!'.join(lines)}")
+        finally:    
+            for t in tasks_run: t.cancel()
+            await asyncio.wait(tasks_run)
+             
         
 
     def _get_subs_files(self):
@@ -371,6 +382,9 @@ class VideoDownloader():
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
+            for t in blocking_tasks: t.cancel()
+            await asyncio.wait(blocking_tasks)
+            raise 
             
     async def _postffmpeg(self, cmd):        
         

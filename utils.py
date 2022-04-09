@@ -24,6 +24,21 @@ import contextvars
 import functools
 import PySimpleGUI as sg
 import collections
+import signal
+
+
+
+
+class SignalHandler:
+    
+    def __init__(self):
+        signal.signal(signal.SIGINT, self.exit_gracefully)
+        signal.signal(signal.SIGTERM, self.exit_gracefully)
+
+    def exit_gracefully(self, signum, frame):
+        print(signum)
+        print("Exiting gracefully")
+        self.KEEP_PROCESSING = False
  
 class EMA(object):
     """
@@ -418,7 +433,8 @@ def init_ytdl(args):
         "subtitleslangs": ['en','es'],
         "continuedl": True,
         "updatetime": False,
-        "ignoreerrors": False,        
+        "ignoreerrors": True, 
+        "no_abort_on_errors": False,        
         "extract_flat": "in_playlist",        
         "no_color" : True,
         "usenetrc": True,
@@ -463,7 +479,7 @@ def init_gui():
         
         layout_root = [ [col_0, col_1, col_2] ]
         
-        window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True, use_default_focus=False)
+        window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True)
         window_root.set_min_size(window_root.size)
         
         window_root['-ML0-'].expand(True, True, True)
@@ -473,7 +489,7 @@ def init_gui():
         col_pygui = sg.Column([
                                 [sg.Text('Select DL', font='Any 14')],
                                 [sg.Input(key='-IN-', font='Any 10', focus=True)],
-                                [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, autoscroll=True)],
+                                [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, auto_refresh=True, autoscroll=True)],
                                 [sg.Checkbox('PasRes', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
         ], element_justification='c', expand_x=True, expand_y=True)
         

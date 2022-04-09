@@ -87,6 +87,8 @@ class AsyncDL():
         self.wkinit_stop = False
         self.pasres_repeat = False
         self.console_dl_status = False
+        
+
                 
 
         #contadores sobre número de workers init, workers run y workers manip
@@ -97,6 +99,8 @@ class AsyncDL():
         self.totalbytes2dl = 0
         self.time_now = datetime.now()
         
+        self.loop = None
+        self.main_task = None
         self.ex_winit = ThreadPoolExecutor(thread_name_prefix="ex_wkinit")
 
     async def gui_root(self):
@@ -181,7 +185,8 @@ class AsyncDL():
             finally:           
                 logger.debug("[gui_root] BYE")
                 try:
-                    self.window_root.close()
+                    if self.window_root: 
+                        self.window_root.close()
                 except Exception as e:
                     logger.exception(f"[gui_root]: error: {repr(e)}")
                 finally:
@@ -204,6 +209,24 @@ class AsyncDL():
             wait_time(20)
         logger.info('[pasres_periodic] END')
         
+    def cancel_all_tasks(self):
+        if self.loop:
+            pending_tasks = asyncio.all_tasks(loop=self.loop)
+            logger.info(f"[cancell_all_tasks] {pending_tasks}")
+            if pending_tasks:
+                pending_tasks.remove(self.main_task)
+                pending_tasks.remove(self.console_task)
+                for task in pending_tasks:
+                    task.cancel()
+                # try:
+                #     self.loop.run_until_complete(asyncio.gather(*pending_tasks, loop=self.loop, return_exceptions=True))
+                #     logger.info(f"[async_ex] tasks after cancellation: {asyncio.all_tasks(loop=self.loop)}")
+                # except Exception as e:
+                #     logger.info(f"[cancel_all_tasks] {repr(e)}")
+            self.window_console.write_event_value('-EXIT-', {'-IN-': ''})
+           
+        
+        
     async def gui_console(self):
         
         try:
@@ -220,8 +243,16 @@ class AsyncDL():
                 if event == sg.TIMEOUT_KEY:
                     continue
                 sg.cprint(event, values)
-                if event in (sg.WIN_CLOSED, 'Exit'):
+                if event  == sg.WIN_CLOSED:
                     break
+                elif event in ['Exit']:
+                    self.window_console.perform_long_operation(self.cancel_all_tasks, end_key='-CANCELALLTASKS-')
+                elif event in ['-CANCELALLTASKS-']:
+                    logger.info(f'[windows_console] event cancelalltasks') 
+                    break
+                elif event in ['-EXIT-']:
+                    logger.info(f'[windows_console] event -exit-') 
+                    break      
                 elif event in ['-WKINIT-']:
                     self.wkinit_stop = not self.wkinit_stop
                     sg.cprint(f'Worker inits: BLOCKED') if self.wkinit_stop else sg.cprint(f'Worker inits: RUNNING')
@@ -276,11 +307,12 @@ class AsyncDL():
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
         finally:           
-            logger.debug("[gui_console] BYE")
-            try:
-                self.window_console.close()
+            logger.info("[gui_console] BYE")
+            try:                
+                if self.window_console:
+                    self.window_console.close()                    
             except Exception as e:
-                logger.exception(f"[gui_root]: error: {repr(e)}")
+                logger.exception(f"[gui_console]: error: {repr(e)}")
             finally:
                 del self.window_console
         
@@ -1172,7 +1204,9 @@ class AsyncDL():
                 task_gui_root = [asyncio.create_task(self.gui_root())] 
                 tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
                 tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(self.workers)]
-                task_gui_console = [asyncio.create_task(self.gui_console())]
+                self.console_task = asyncio.create_task(self.gui_console())
+                task_gui_console = [self.console_task]
+            
                 
             done, _ = await asyncio.wait(tasks_init + task_gui_root + tasks_run + tasks_manip + task_gui_console)
             
@@ -1188,8 +1222,9 @@ class AsyncDL():
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
-    
-        asyncio.get_running_loop().stop()
+            
+          
+       
               
     def get_results_info(self):
 

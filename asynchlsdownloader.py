@@ -738,10 +738,11 @@ class AsyncHLSDownloader():
                             
                             raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: no changes in number of dl frags in one cycle")
                         
-            except AsyncHLSDLErrorFatal as e:
-                raise
-
+            except Exception as e:
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
             finally:
+                for t in tasks: t.cancel()
+                await asyncio.wait(tasks)            
                 await self.client.aclose()
                 await asyncio.sleep(0)
 

@@ -2,8 +2,10 @@
 
 
 import logging
-import aiorun 
+from aiorun import run 
+import asyncio
 import os
+import uvloop
 
 
 from utils import ( 
@@ -19,11 +21,14 @@ from codetiming import Timer
 
 from asyncdl import AsyncDL
 
+init_logging()
+logger = logging.getLogger("async_all")
+
+def shutdown_handler(loop):
+    logger.info(f"[aiorun] Entering custom shutdown handler")
+    raise Exception("aiorun_custom")
 
 def main():
-    
-    init_logging()
-    logger = logging.getLogger("async_all")
     
     try:
         
@@ -60,10 +65,28 @@ def main():
             
             if asyncDL.videos_to_dl:    
 
-                try:                
-                    aiorun.run(asyncDL.async_ex(), executor=ThreadPoolExecutor(thread_name_prefix='ex_async'), use_uvloop=True)                     
-                except Exception as e:
-                    logger.exception(f"[aiorun] {repr(e)}")
+                try:
+                    uvloop.install()
+                    asyncDL.loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(asyncDL.loop)
+                    asyncDL.main_task = asyncDL.loop.create_task(asyncDL.async_ex())                  
+                    asyncDL.loop.run_until_complete(asyncDL.main_task)
+                except (KeyboardInterrupt, Exception) as e:
+                    logger.info(repr(e))
+                
+                    try:        
+                        pending_tasks = asyncio.all_tasks(loop=asyncDL.loop)
+                        if pending_tasks:
+                            logger.info(f"pending tasks: {pending_tasks}")
+                            for task in pending_tasks:
+                                task.cancel()
+                        
+                            asyncDL.loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
+                            logger.info(f"[async_ex] tasks after cancelletation{asyncio.all_tasks(loop=asyncDL.loop)}")
+                        else: logger.info(f"pending tasks: []")
+                    finally:
+                        asyncio.set_event_loop(None)
+                        asyncDL.close()
 
             t2.stop()
         except Exception as e:
