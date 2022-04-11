@@ -212,7 +212,7 @@ class AsyncDL():
     def cancel_all_tasks(self):
         if self.loop:
             pending_tasks = asyncio.all_tasks(loop=self.loop)
-            logger.info(f"[cancell_all_tasks] {pending_tasks}")
+            logger.debug(f"[cancell_all_tasks] {pending_tasks}")
             if pending_tasks:
                 pending_tasks.remove(self.main_task)
                 pending_tasks.remove(self.console_task)
@@ -1089,7 +1089,7 @@ class AsyncDL():
                             d.result()
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())
-                            logger.error(f"[worker_run][{i}][{url_key}]: Error with video DL: {repr(e)}\n{'!!'.join(lines)}")
+                            logger.debug(f"[worker_run][{i}][{url_key}]: Error with video DL: {repr(e)}\n{'!!'.join(lines)}")
                             self.info_videos[url_key]['error'].append(f"{str(e)}")
                             
                             
@@ -1118,7 +1118,7 @@ class AsyncDL():
                                 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"[worker_run][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
+            logger.debug(f"[worker_run][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
         
         finally:
             async with self.lock:
@@ -1154,7 +1154,7 @@ class AsyncDL():
                             d.result()
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())
-                            logger.error(f"[worker_manip][{i}][{video_dl.info_dict['title']}]: Error with video manipulation:\n{'!!'.join(lines)}")
+                            logger.debug(f"[worker_manip][{i}][{video_dl.info_dict['title']}]: Error with video manipulation:\n{'!!'.join(lines)}")
                             self.info_videos[url_key]['error'].append(f"\n error with video manipulation {str(e)}")
                             
                             
@@ -1163,7 +1163,7 @@ class AsyncDL():
                         
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"[worker_manip][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
+            logger.debug(f"[worker_manip][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
         finally:
             async with self.lock:
                 self.count_manip += 1 
