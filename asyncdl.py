@@ -122,7 +122,9 @@ class AsyncDL():
             text1 = self.window_root['-ML1-'].TKText
             text2 = self.window_root['-ML2-'].TKText
 
-            try:  
+            try:
+                list_init_old = []
+                list_done_old = []
                 while not self.stop_root:
                     
                     if self.list_dl: 
@@ -167,13 +169,18 @@ class AsyncDL():
                                 text1.insert(sg.tk.END, "\n\n-------CREATING FILE------------\n\n")
                                 text1.insert(sg.tk.END, ''.join(list_manip))
                                 
-                            text0.delete('1.0', sg.tk.END)
-                            if list_init:
+                            
+                            if (list_init != list_init_old):
+                                text0.delete('1.0', sg.tk.END)
                                 text0.insert(sg.tk.END, ''.join(list_init))
                                 
-                            text2.delete('1.0', sg.tk.END)
-                            if list_done:
+                            list_init_old = list_init
+                            
+                            if (list_done != list_done_old):
+                                text2.delete('1.0', sg.tk.END)
                                 text2.insert(sg.tk.END, '\n'.join(list_done))
+                                
+                            list_done_old = list_done
 
                             
                     await async_wait_time(self._INTERVAL_GUI)
@@ -200,7 +207,7 @@ class AsyncDL():
             # for dl in self.list_dl:                            
             #     dl.pause()
             self.window_console.write_event_value('Pause', {'-IN-': ''})
-            wait_time(10)
+            wait_time(5)
             # for dl in self.list_dl:
             #     dl.resume()
             self.window_console.write_event_value('Resume', {'-IN-': ''})

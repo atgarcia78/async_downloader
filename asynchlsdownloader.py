@@ -253,7 +253,7 @@ class AsyncHLSDownloader():
             self.totalduration += fragment.duration
             
     def calculate_filesize(self):
-        _bitrate = self.tbr or self.abr                
+        _bitrate = self.tbr or self.abr
         self.filesize = int(self.totalduration * 1000 * _bitrate / 8)
         
     def reset(self):
@@ -436,6 +436,11 @@ class AsyncHLSDownloader():
                                     _hsize = int_or_none(res.headers.get('content-length'))
                                     if _hsize:
                                         self.info_frag[q-1]['headersize'] = _hsize
+                                        async with self._LOCK:
+                                            if not self.filesize:
+                                                self.filesize = _hsize * len(self.info_dict['fragments'])
+                                                async with self.video_downloader.lock:
+                                                    self.video_downloader.info_dl['filesize'] += self.filesize
                                     else:
                                         raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} _hsize is None")                                    
                                     
@@ -490,9 +495,14 @@ class AsyncHLSDownloader():
                                         await f.write(data)
                                         
                                         async with self._LOCK:
-                                            self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded)) 
-                                            async with self.video_downloader.lock:                                       
-                                                self.video_downloader.info_dl['down_size'] += _iter_bytes 
+                                            self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded))
+                                            if (_dif:=self.down_size - self.filesize) > 0: 
+                                                    self.filesize += _dif                                            
+                                            async with self.video_downloader.lock:
+                                                if _dif > 0:    
+                                                    self.video_downloader.info_dl['filesize'] += _dif
+                                                self.video_downloader.info_dl['down_size'] += _iter_bytes
+                                                 
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                         self.info_frag[q - 1]['nchunks_dl'] += 1
                                         self.info_frag[q - 1]['sizechunks'].append(_iter_bytes)
