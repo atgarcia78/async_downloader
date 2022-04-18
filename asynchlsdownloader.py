@@ -840,10 +840,11 @@ class AsyncHLSDownloader():
     
     def print_hookup(self):
         
+        _filesize_str = naturalsize(self.filesize) if self.filesize else "--" 
         if self.status == "done":
             msg = f"[HLS][{self.info_dict['format_id']}]: Completed \n"
         elif self.status == "init":
-            msg = f"[HLS][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"           
+            msg = f"[HLS][{self.info_dict['format_id']}]: Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"           
         elif self.status == "error":
             _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
             msg = f"[HLS][{self.info_dict['format_id']}]: ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"

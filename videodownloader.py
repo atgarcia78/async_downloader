@@ -79,13 +79,20 @@ class VideoDownloader():
                     _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
                     downloaders.append(self._get_dl(_new_info_dict))        
 
-            res = sorted(list(set([dl.status for dl in downloaders])))    
+            res = sorted(list(set([dl.status for dl in downloaders])))
+            if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]):
+                _status = "init_manipulating"
+            elif "error" in res:
+                _status = "error"
+            else:
+                _status = "init"
+                
             self.info_dl.update({
                 'downloaders': downloaders,
                 'requested_subtitles': copy.deepcopy(_req_sub) if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
                 'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
                 'down_size': sum([dl.down_size for dl in downloaders]),
-                'status': "init_manipulating" if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]) else "init",
+                'status': _status,
                 'error_message': ""             
             })
             

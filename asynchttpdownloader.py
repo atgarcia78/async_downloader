@@ -573,15 +573,16 @@ class AsyncHTTPDownloader():
         return f'{(int(math.log(self.n_parts, 10)) + 1)}d'        
             
     def print_hookup(self):
-                
+        
+        _filesize_str = naturalsize(self.filesize) if self.filesize else "--"      
         if self.status == "done":
             return (f"[HTTP][{self.info_dict['format_id']}]: Completed\n")
         elif self.status == "init":
-            return (f"[HTTP][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]\n")            
+            return (f"[HTTP][{self.info_dict['format_id']}]: Waiting to DL [{_filesize_str}][{self.n_parts_dl} of {self.n_parts}]\n")            
         elif self.status == "error":
-            return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
+            return (f"[HTTP][{self.info_dict['format_id']}]: ERROR {naturalsize(self.down_size)} [{_filesize_str}][{self.n_parts_dl} of {self.n_parts}]")
         elif self.status == "stop":
-            return (f"[HTTP][{self.info_dict['format_id']}]: STOPPED {naturalsize(self.down_size)} [{naturalsize(self.filesize)}][{self.n_parts_dl} of {self.n_parts}]")
+            return (f"[HTTP][{self.info_dict['format_id']}]: STOPPED {naturalsize(self.down_size)} [{_filesize_str}][{self.n_parts_dl} of {self.n_parts}]")
         elif self.status == "downloading": 
             _down_size = self.down_size
             _new = time.monotonic()                                  
@@ -612,6 +613,6 @@ class AsyncHTTPDownloader():
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
-            return (f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{naturalsize(self.filesize)}]\n")       
+            return (f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{_filesize_str}]\n")       
 
         
