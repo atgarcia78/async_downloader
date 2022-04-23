@@ -454,6 +454,72 @@ def init_ytdl(args):
     
     return ytdl
 
+def init_gui_root():
+   
+    try:
+        
+        logger = logging.getLogger("asyncDL")
+        
+        sg.theme("SystemDefaultForReal")
+        
+        col_0 = sg.Column([
+                            [sg.Text("WAITING TO DL", font='Any 14')], 
+                            [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
+        ], element_justification='l', expand_x=True, expand_y=True)
+        
+        col_1 = sg.Column([
+                            [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
+                            [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
+        ], element_justification='c', expand_x=True, expand_y=True)
+        
+        col_2 = sg.Column([
+                            [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
+                            [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
+        ], element_justification='r', expand_x=True, expand_y=True)
+        
+        layout_root = [ [col_0, col_1, col_2] ]
+        
+        window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True)
+        window_root.set_min_size(window_root.size)
+        
+        window_root['-ML0-'].expand(True, True, True)
+        window_root['-ML1-'].expand(True, True, True)
+        window_root['-ML2-'].expand(True, True, True)
+        
+        return window_root
+        
+    except Exception as e:
+        logger.exception(f'[init_gui] error {repr(e)}')
+
+def init_gui_console():
+    
+    try:
+        
+        logger = logging.getLogger("asyncDL")
+        
+        sg.theme("SystemDefaultForReal")
+        
+        col_pygui = sg.Column([
+                                [sg.Text('Select DL', font='Any 14')],
+                                [sg.Input(key='-IN-', font='Any 10', focus=True)],
+                                [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, auto_refresh=True, autoscroll=True)],
+                                [sg.Checkbox('PasRes', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
+        ], element_justification='c', expand_x=True, expand_y=True)
+        
+        layout_pygui = [ [col_pygui] ]
+
+        window_console = sg.Window('Console', layout_pygui, location=(0, 500), finalize=True, resizable=True)
+        window_console.set_min_size(window_console.size)
+        window_console['-ML-'].expand(True, True, True)
+        
+        window_console.bring_to_front()
+        
+        return window_console
+    
+    except Exception as e:
+        logger.exception(f'[init_gui] error {repr(e)}')
+        
+        
 def init_gui():
    
     try:

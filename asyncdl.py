@@ -20,7 +20,9 @@ from utils import (
     wait_time,
     async_ex_in_executor,
     sg,
-    init_gui
+    init_gui,
+    init_gui_root,
+    init_gui_console
 )
 
 from concurrent.futures import (
@@ -115,8 +117,10 @@ class AsyncDL():
         logger.debug(f"[gui_root] End waiting. Signal stop_self.gui_root{self.stop_root}]")
         
         if not self.stop_root:
-            self.window_root, self.window_console = init_gui()
+            #self.window_root, self.window_console = init_gui()
+            self.window_root = init_gui_root()
             self.stop_console = False
+            await asyncio.sleep(0)
             
             text0 = self.window_root['-ML0-'].TKText
             text1 = self.window_root['-ML1-'].TKText
@@ -239,9 +243,12 @@ class AsyncDL():
         try:
             
             while self.stop_console:
-                await async_wait_time(self._INTERVAL_GUI)
+                #await async_wait_time(self._INTERVAL_GUI)
+                await asyncio.sleep(0)
             
-            logger.debug(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
+            logger.info(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
+            
+            self.window_console = init_gui_console()
             
             while not self.stop_root:             
                 
