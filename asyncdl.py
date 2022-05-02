@@ -211,7 +211,7 @@ class AsyncDL():
             # for dl in self.list_dl:                            
             #     dl.pause()
             self.window_console.write_event_value('Pause', {'-IN-': ''})
-            wait_time(5)
+            wait_time(2)
             # for dl in self.list_dl:
             #     dl.resume()
             self.window_console.write_event_value('Resume', {'-IN-': ''})
@@ -246,7 +246,7 @@ class AsyncDL():
                 #await async_wait_time(self._INTERVAL_GUI)
                 await asyncio.sleep(0)
             
-            logger.info(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
+            logger.debug(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
             
             self.window_console = init_gui_console()
             
@@ -278,11 +278,29 @@ class AsyncDL():
                         self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
                 elif event in ['-DL-STATUS']:
                     if not self.console_dl_status:
-                        self.console_dl_status = True        
+                        self.console_dl_status = True
+                elif event in ['NumVideoWorkers']:
+                    if not values['-IN-']:
+                        sg.cprint('Please enter number')
+                    else:
+                        if not values['-IN-'].isdecimal():
+                            sg.cprint('not an integer')
+                        else:
+                            _nvidworkers = int(values['-IN-'])
+                            if _nvidworkers == 0:
+                                sg.cprint('must be > 0')
+                                
+                            else:
+                                if self.list_dl:
+                                    for dl in self.list_dl:
+                                        dl.change_numvidworkers(_nvidworkers)
+                                else: sg.cprint('DL list empty')
+                                
+                               
                 elif event in ['ToFile', 'Info', 'Pause', 'Resume', 'Reset', 'Stop']:
                     if not values['-IN-']:
                         if event in ['Reset', 'Stop']:
-                            sg.cprint('Needs to select a DL')
+                            sg.cprint('Needs to select a DL')                                                   
                         else:
                             if self.list_dl:
                                 info = []
@@ -303,7 +321,7 @@ class AsyncDL():
                             else: sg.cprint('DL list empty')
                     else:
                         if not values['-IN-'].isdecimal():
-                            sg.cprint('DL index not an integer')
+                            sg.cprint('not an integer')
                         else:
                             _index = int(values['-IN-'])
                             if self.list_dl:

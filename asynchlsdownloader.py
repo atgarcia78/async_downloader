@@ -71,8 +71,8 @@ class AsyncHLSDownloader():
 
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
-        self.iworkers = vid_dl.info_dl['n_workers'] 
-        self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a iworkers
+        self.n_workers = vid_dl.info_dl['n_workers'] 
+        self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
         self.video_url = self.info_dict.get('url') #url del format
         self.webpage_url = self.info_dict.get('webpage_url') #url oioginal de la web
         self.manifest_url = self.info_dict.get('manifest_url') #url del manifiesto de donde salen todos los formatos
@@ -114,6 +114,8 @@ class AsyncHLSDownloader():
         self.error_message = "" 
         
         self.init()
+        
+        self.reset_event = None
         
     def get_info_fragments(self):
         
@@ -622,12 +624,12 @@ class AsyncHLSDownloader():
         for frag in self.frags_to_dl:
             self.frags_queue.put_nowait(frag)        
         
-        for _ in range(self.iworkers):
+        for _ in range(self.n_workers):
             self.frags_queue.put_nowait("KILL")
 
         n_frags_dl = 0
 
-        self.n_workers = self.iworkers
+        
         _tstart = time.monotonic() 
         
         while True:

@@ -117,9 +117,10 @@ class VideoDownloader():
                         dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
                         logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                     except Exception:
-                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}]: aria2c DL failed, swap to HTTP DL")
-                        dl = AsyncHTTPDownloader(info, self)
-                        logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}]: aria2c DL failed")
+                        #dl = AsyncHTTPDownloader(info, self)
+                        #logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                        raise
                 else: 
                     dl = AsyncHTTPDownloader(info, self)
                     logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")                   
@@ -144,9 +145,19 @@ class VideoDownloader():
     def reset(self):
         for dl in self.info_dl['downloaders']:
             if 'hls' in str(type(dl)).lower():
-                dl.reset_event.set()
+                if dl.status == "downloading":
+                    if dl.reset_event: dl.reset_event.set()
+                
                 logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
-            
+    
+    def change_numvidworkers(self, n):
+        for dl in self.info_dl['downloaders']:
+            if 'hls' in str(type(dl)).lower():
+                
+                dl.n_workers = n
+                if dl.status == "downloading":
+                    if dl.reset_event: dl.reset_event.set()
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     def stop(self):
         if self.stop_event:
             self.stop_event.set()
