@@ -1,35 +1,26 @@
 import asyncio
-from concurrent.futures import CancelledError
-
-import httpx
-import sys
-import traceback
-from shutil import rmtree
-import m3u8
 import binascii
-from Cryptodome.Cipher import AES
-
-from pathlib import Path
-
-from urllib.parse import urlparse
+import copy
+import datetime
 import logging
-
 import random
-
-from utils import (
-    async_wait_time,
-    print_norm_time,
-    naturalsize,
-    int_or_none,
-    EMA
-)
+import sys
+import time
+import traceback
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from pathlib import Path
+from shutil import rmtree
+from statistics import median
+from urllib.parse import urlparse
 
 import aiofiles
 import aiofiles.os
-import datetime
-from statistics import median
-import copy
-import time
+import httpx
+import m3u8
+from Cryptodome.Cipher import AES
+
+from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
+                   naturalsize, print_norm_time)
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -116,6 +107,8 @@ class AsyncHLSDownloader():
         self.init()
         
         self.reset_event = None
+        
+        self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
         
     def get_info_fragments(self):
         
@@ -674,7 +667,8 @@ class AsyncHLSDownloader():
                     self.status = "stop"
                     return
                 
-                inc_frags_dl = (_nfragsdl:=len(await asyncio.to_thread(self.fragsdl))) - n_frags_dl
+                #inc_frags_dl = (_nfragsdl:=len(await asyncio.to_thread(self.fragsdl))) - n_frags_dl
+                inc_frags_dl = (_nfragsdl:=len(await async_ex_in_executor(self.ex_hlsdl, self.fragsdl))) - n_frags_dl
                 n_frags_dl = _nfragsdl
                 
                 if n_frags_dl == len(self.info_dict['fragments']): 
@@ -692,8 +686,8 @@ class AsyncHLSDownloader():
                             
                             try:
                                 
-                                await asyncio.to_thread(self.reset)
-                                
+                                #await asyncio.to_thread(self.reset)
+                                await async_ex_in_executor(self.ex_hlsdl, self.reset)
                                 self.frags_queue = asyncio.Queue()
                                 for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                 if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
@@ -727,8 +721,8 @@ class AsyncHLSDownloader():
                             
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                             try:
-                                await asyncio.to_thread(self.reset)
-                            
+                                #await asyncio.to_thread(self.reset)
+                                await async_ex_in_executor(self.ex_hlsdl, self.reset)
                                 self.frags_queue = asyncio.Queue()
                                 for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                 for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")

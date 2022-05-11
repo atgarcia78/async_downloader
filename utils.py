@@ -1,32 +1,27 @@
 #!/usr/bin/env python
-from concurrent.futures.thread import ThreadPoolExecutor
-import logging
-import logging.config
-import json
-from pathlib import Path
-from yt_dlp import YoutubeDL
-from yt_dlp.utils import (
-    js_to_json)
-import random
-import httpx
-from pathlib import Path
-import re
 import argparse
-
-from queue import Queue
-import subprocess
-import shutil
-
-import aria2p
-import time
 import asyncio
+import collections
 import contextvars
 import functools
-import PySimpleGUI as sg
-import collections
+import json
+import logging
+import logging.config
+import random
+import re
+import shutil
 import signal
+import subprocess
+import time
+from concurrent.futures.thread import ThreadPoolExecutor
+from pathlib import Path
+from queue import Queue
 
-
+import aria2p
+import httpx
+import PySimpleGUI as sg
+from yt_dlp import YoutubeDL
+from yt_dlp.utils import js_to_json
 
 
 class SignalHandler:

@@ -1,45 +1,24 @@
-import logging
-import sys
-import traceback
-import json
-import shutil
 import asyncio
-from pathlib import Path
-from tabulate import tabulate
-import time
-
-from utils import (    
-    init_ytdl,    
-    naturalsize,
-    is_playlist_extractor,
-    get_chain_links,
-    init_aria2c,
-    none_to_cero,
-    kill_processes,
-    async_wait_time,
-    wait_time,
-    async_ex_in_executor,
-    sg,
-    init_gui,
-    init_gui_root,
-    init_gui_console
-)
-
-from concurrent.futures import (
-    ThreadPoolExecutor
-)
-
-from yt_dlp.utils import (
-    sanitize_filename,
-    std_headers,
-    js_to_json
-)
-
-from datetime import datetime
-from videodownloader import VideoDownloader 
-
 import hashlib
+import json
+import logging
+import shutil
+import sys
+import time
+import traceback
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
 from textwrap import fill
+
+from tabulate import tabulate
+from yt_dlp.utils import js_to_json, sanitize_filename, std_headers
+
+from utils import (async_ex_in_executor, async_wait_time, get_chain_links,
+                   init_aria2c, init_gui_console, init_gui_root,
+                   init_ytdl, is_playlist_extractor, kill_processes,
+                   naturalsize, none_to_cero, sg, wait_time)
+from videodownloader import VideoDownloader
 
 logger = logging.getLogger("asyncDL")
 
@@ -89,9 +68,6 @@ class AsyncDL():
         self.wkinit_stop = False
         self.pasres_repeat = False
         self.console_dl_status = False
-        
-
-                
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -236,8 +212,6 @@ class AsyncDL():
                 #     logger.info(f"[cancel_all_tasks] {repr(e)}")
             self.window_console.write_event_value('-EXIT-', {'-IN-': ''})
            
-        
-        
     async def gui_console(self):
         
         try:
@@ -273,8 +247,7 @@ class AsyncDL():
                 elif event in ['-PASRES-']:
                     self.pasres_repeat = not self.pasres_repeat
                     if self.pasres_repeat:
-                        #no espera, lanza en otro thread la llamada
- 
+                        #no espera, lanza en otro thread la llamada 
                         self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
                 elif event in ['-DL-STATUS']:
                     if not self.console_dl_status:
@@ -347,9 +320,6 @@ class AsyncDL():
                 logger.exception(f"[gui_console]: error: {repr(e)}")
             finally:
                 del self.window_console
-        
-        
-       
     
     def get_videos_cached(self):
         

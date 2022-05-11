@@ -1,36 +1,26 @@
 
+import asyncio
+import copy
+import functools
 import logging
+import shutil
+import subprocess
 import sys
 import traceback
-import asyncio
-from pathlib import Path
-
-import shutil
-from asynchttpdownloader import (
-    AsyncHTTPDownloader
-)
-from asynchlsdownloader import (
-    AsyncHLSDownloader
-)
-from asyncdashdownloader import (
-     AsyncDASHDownloader    
-)
-from asyncaria2cdownloader import (
-     AsyncARIA2CDownloader    
-)
-
-from utils import ( 
-    naturalsize,
-)
-
-from yt_dlp.utils import sanitize_filename, determine_protocol, dfxp2srt
 from datetime import datetime
+from pathlib import Path
 from shutil import rmtree
-import functools
+
 import httpx
-from pycaption import detect_format, DFXPReader, WebVTTReader, SAMIReader, SRTReader, SCCReader
-import subprocess
-import copy
+from pycaption import (DFXPReader, SAMIReader, SCCReader, SRTReader,
+                       WebVTTReader, detect_format)
+from yt_dlp.utils import determine_protocol, dfxp2srt, sanitize_filename
+
+from asyncaria2cdownloader import AsyncARIA2CDownloader
+from asyncdashdownloader import AsyncDASHDownloader
+from asynchlsdownloader import AsyncHLSDownloader
+from asynchttpdownloader import AsyncHTTPDownloader
+from utils import async_ex_in_executor, naturalsize
 
 SUPPORTED_EXT = {
     DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
@@ -38,6 +28,7 @@ SUPPORTED_EXT = {
 }
 
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("video_DL")
 class VideoDownloader():
@@ -100,6 +91,8 @@ class VideoDownloader():
             self.resume_event = None
             self.stop_event = None
             self.lock = None
+            
+            self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
             
             
         except Exception as e:
@@ -296,9 +289,9 @@ class VideoDownloader():
                     dl.status = 'manipulating'
                 
 
-            blocking_tasks = [asyncio.to_thread(dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
+            blocking_tasks = [async_ex_in_executor(self.ex_videodl, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not 'aria2' in str(type(dl)).lower() and dl.status == 'manipulating')]
             if self.info_dl.get('requested_subtitles'):
-                blocking_tasks += [asyncio.to_thread(self._get_subs_files)]
+                blocking_tasks += [async_ex_in_executor(self.ex_videodl, self._get_subs_files)]
             await asyncio.sleep(0)
             if blocking_tasks:
                 done, _ = await asyncio.wait(blocking_tasks)
@@ -313,7 +306,7 @@ class VideoDownloader():
             
             res = True
             for dl in self.info_dl['downloaders']:
-                res = res and (_exists:= await asyncio.to_thread(dl.filename.exists)) and dl.status == "done"
+                res = res and (_exists:= await async_ex_in_executor(self.ex_videodl, dl.filename.exists)) and dl.status == "done"
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] {dl.filename} exists: [{_exists}] status: [{dl.status}]")
                 
                 
@@ -329,7 +322,7 @@ class VideoDownloader():
                     
                         cmd = f"ffmpeg -y -probesize max -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:{str(self.info_dl['filename'])}"
                         
-                        res = await asyncio.to_thread(self._syncpostffmpeg, cmd)
+                        res = await async_ex_in_executor(self.ex_videodl, self._syncpostffmpeg, cmd)
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
                         rc = res.returncode
                         
@@ -338,7 +331,7 @@ class VideoDownloader():
                         rc = -1
                         try:
                             
-                            res = await asyncio.to_thread(shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename'])
+                            res = await async_ex_in_executor(self.ex_videodl, shutil.move, self.info_dl['downloaders'][0].filename, self.info_dl['filename'])
                             if (res == self.info_dl['filename']): rc = 0
                             
                             
@@ -346,7 +339,7 @@ class VideoDownloader():
                             lines = traceback.format_exception(*sys.exc_info())                
                             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
                             
-                    if rc == 0 and (await asyncio.to_thread(self.info_dl['filename'].exists)):
+                    if rc == 0 and (await async_ex_in_executor(self.ex_videodl, self.info_dl['filename'].exists)):
                     
                         
                         # if (_file_subs_en:=self.info_dl.get('requested_subtitles', {}).get('en', {}).get('file')):
@@ -366,11 +359,11 @@ class VideoDownloader():
                     
                     rc = -1
                     
-                    res = await asyncio.to_thread(self._syncpostffmpeg, cmd)
+                    res = await async_ex_in_executor(self.ex_videodl, self._syncpostffmpeg, cmd)
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: ffmpeg rc[{res.returncode}]\n{res.stdout}")
                     rc = res.returncode
                     
-                    if rc == 0 and (await asyncio.to_thread(self.info_dl['filename'].exists)):
+                    if rc == 0 and (await async_ex_in_executor(self.ex_videodl, self.info_dl['filename'].exists)):
                         
                         # if (_file_subs_en:=self.info_dl['requested_subtitles'].get('en', {}).get('file')):
                             
@@ -379,7 +372,7 @@ class VideoDownloader():
                         self.info_dl['status'] = "done"          
                         for dl in self.info_dl['downloaders']:
                             
-                            await asyncio.to_thread(dl.filename.unlink)
+                            await async_ex_in_executor(self.ex_videodl, dl.filename.unlink)
                             
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Streams merged for: {self.info_dl['filename']}")
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
@@ -390,9 +383,10 @@ class VideoDownloader():
                 
                     
                 if self.info_dl['status'] == "done":
-                    await asyncio.to_thread(functools.partial(rmtree, self.info_dl['download_path'], ignore_errors=True))
+                    #await asyncio.to_thread(functools.partial(rmtree, self.info_dl['download_path'], ignore_errors=True))
+                    await async_ex_in_executor(self.ex_videodl, rmtree, self.info_dl['download_path'], ignore_errors=True)
                     if (mtime:=self.info_dict.get("release_timestamp")):
-                        await asyncio.to_thread(os.utime, self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
+                        await async_ex_in_executor(self.ex_videodl, os.utime, self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
                         
 
             else: self.info_dl['status'] = "error"

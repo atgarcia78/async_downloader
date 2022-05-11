@@ -1,19 +1,16 @@
 import asyncio
-
-from urllib.parse import unquote
-import sys
-from pathlib import Path
+import copy
 import logging
-from utils import (
-    naturalsize,    
-    none_to_cero
-)
+import sys
+import time
 import traceback
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from urllib.parse import unquote
 
 import aria2p
-import copy
-import time
 
+from utils import async_ex_in_executor, naturalsize, none_to_cero
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -75,6 +72,8 @@ class AsyncARIA2CDownloader():
         self.error_message = ""
         
         self.init()
+        
+        self.ex_aria2dl = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
         
  
     def init(self):
@@ -139,10 +138,10 @@ class AsyncARIA2CDownloader():
 
         try: 
             
-            await asyncio.to_thread(self.aria2_client.resume,[self.dl_cont])
+            await async_ex_in_executor(self.ex_aria2dl, self.aria2_client.resume,[self.dl_cont])
             
             while True:
-                await asyncio.to_thread(self.dl_cont.update)
+                await async_ex_in_executor(self.ex_aria2dl, self.dl_cont.update)
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_init]\n{self.dl_cont._struct}")
                 if self.dl_cont.status in ('active', 'error'):
                     break                    
@@ -159,24 +158,24 @@ class AsyncARIA2CDownloader():
                     async with self.video_downloader.lock: 
                         self.video_downloader.info_dl['down_size'] += _incsize
                     if self.video_downloader.stop_event.is_set():
-                        await asyncio.to_thread(self.aria2_client.remove,[self.dl_cont], force=False, files=False, clean=False)
+                        await async_ex_in_executor(self.ex_aria2dl, self.aria2_client.remove,[self.dl_cont], force=False, files=False, clean=False)
                         self.status = 'stop'
                         return
                         
                     if self.video_downloader.pause_event.is_set():
-                        await asyncio.to_thread(self.aria2_client.pause,[self.dl_cont])                        
+                        await async_ex_in_executor(self.ex_aria2dl, self.aria2_client.pause,[self.dl_cont])                        
                         await self.video_downloader.resume_event.wait()
-                        await asyncio.to_thread(self.aria2_client.resume,[self.dl_cont])                        
+                        await async_ex_in_executor(self.ex_aria2dl, self.aria2_client.resume,[self.dl_cont])                        
                         self.video_downloader.pause_event.clear()
                         self.video_downloader.resume_event.clear()
                         while True:
-                            await asyncio.to_thread(self.dl_cont.update)
+                            await async_ex_in_executor(self.ex_aria2dl, self.dl_cont.update)
                             if self.dl_cont.status in ('active', 'error', 'complete'):
                                 break                    
                             await asyncio.sleep(0)
                         
                     else: 
-                        await asyncio.to_thread(self.dl_cont.update)
+                        await async_ex_in_executor(self.ex_aria2dl, self.dl_cont.update)
                         if ((timer1:=time.monotonic()) - timer0 > 1):
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_dl]\n{self.dl_cont._struct}")
                             timer0 = timer1

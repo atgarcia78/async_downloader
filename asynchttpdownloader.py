@@ -1,37 +1,22 @@
 import asyncio
-
-import httpx
-import sys
-from pathlib import Path
-import logging
-from utils import (
-    naturalsize,
-    int_or_none,
-    none_to_cero,
-    EMA,
-    try_get,
-    
-)
-
-from concurrent.futures import CancelledError, ThreadPoolExecutor
-
-from shutil import rmtree
-import time
-import aiofiles
-import traceback
-from statistics import median
-import datetime
-
 import copy
+import datetime
+import logging
+import sys
+import time
+import traceback
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from pathlib import Path
+from shutil import rmtree
+from statistics import median
 
-from user_agent import generate_user_agent 
-
-from pyrate_limiter import (
-    Limiter,
-    RequestRate,
-    Duration
-)
+import aiofiles
+import httpx
 from backoff import constant, on_exception
+from pyrate_limiter import Duration, Limiter, RequestRate
+from user_agent import generate_user_agent
+
+from utils import EMA, int_or_none, naturalsize, none_to_cero, try_get
 
 logger = logging.getLogger("async_http_DL")
 
