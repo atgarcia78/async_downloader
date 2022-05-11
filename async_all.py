@@ -1,34 +1,21 @@
 #!/usr/bin/env python
 
 
-import logging
-from aiorun import run 
 import asyncio
+import logging
 import os
-import uvloop
-
-
-from utils import ( 
-    init_logging,
-    init_argparser,
-    patch_http_connection_pool,
-    patch_https_connection_pool,
-)
-
 from concurrent.futures import ThreadPoolExecutor
-    
+
+import uvloop
 from codetiming import Timer
 
 from asyncdl import AsyncDL
-
-
+from utils import (init_argparser, init_logging, patch_http_connection_pool,
+                   patch_https_connection_pool)
 
 init_logging()
 logger = logging.getLogger("async_all")
 
-def shutdown_handler(loop):
-    logger.info(f"[aiorun] Entering custom shutdown handler")
-    raise Exception("aiorun_custom")
 
 def main():
     
