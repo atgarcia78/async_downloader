@@ -1,6 +1,4 @@
 #!/usr/bin/env python
-
-
 import asyncio
 import logging
 import os
@@ -89,8 +87,7 @@ def main():
 
     
 
-if __name__ == "__main__":
-    
+if __name__ == "__main__":    
     
     main()
     

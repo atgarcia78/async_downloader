@@ -32,18 +32,13 @@ SUFFIX = '\033[0m'
 
 class FileFormatter(logging.Formatter):
 
-    
-
     def format(self, record):
         file_record = copy(record)
         if file_record.msg.startswith("%no%"): file_record.msg = file_record.msg[4:]
         return logging.Formatter.format(self, file_record)
 class ColoredFormatter(logging.Formatter):
 
-   
-        
     def format(self, record):
-        
         
         colored_record = copy(record)
         levelname = colored_record.levelname
@@ -75,7 +70,6 @@ class FilterModule(logging.Filter):
             if pattern in record.name: return False
         else: return True
         
-
         
         
 def _resolve_handlers(l):
