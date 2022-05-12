@@ -12,7 +12,14 @@ import aria2p
 
 from utils import async_ex_in_executor, naturalsize, none_to_cero, wait_time
 
+from backoff import constant, on_exception
+
+from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15
+from yt_dlp.utils import try_get
+
 logger = logging.getLogger("async_ARIA2C_DL")
+
+
 
 class AsyncARIA2CDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -34,6 +41,9 @@ class AsyncARIA2CDLError(Exception):
 
 
 class AsyncARIA2CDownloader():
+    
+    _CONFIG = {'tubeload': {'ratelimit': limiter_15, 'maxsplits': 4},
+               'doodstream': {'ratelimit': limiter_10, 'maxsplits': 4}}
     
     def __init__(self, port, video_dict, vid_dl):
 
@@ -71,15 +81,30 @@ class AsyncARIA2CDownloader():
         self.status = 'init'
         self.error_message = ""
         
+        self.nworkers = self.video_downloader.info_dl['n_workers']
+        
         self.init()
         
         self.ex_aria2dl = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
         
- 
+
+    
+    
     def init(self):
         
+        
+        def transp(func):
+            return func
+        
+        _extractor = self.info_dict.get('extractor', '')
+        if _extractor:
+            _decor, _nsplits = try_get(self._CONFIG.get(_extractor), lambda x: (x['ratelimit'].ratelimit(_extractor, delay=True), x['maxsplits'])) or (transp, self.nworkers)
+        else: _decor = transp
+
+        self.nworkers = min(_nsplits, self.nworkers)
+    
         opts_dict = {
-            'split': self.video_downloader.info_dl['n_workers'],
+            'split': self.nworkers,
             'header': [f'{key}: {value}' for key,value in self.headers.items()],
             'dir': str(self.download_path),
             'out': self.filename.name,
@@ -102,11 +127,15 @@ class AsyncARIA2CDownloader():
             if self._extra_urls:
                 for el in self._extra_urls: 
                     uris.append(unquote(el))
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] uris {uris}")
-            #self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
-            self.dl_cont = self.aria2_client.add_uris(uris, opts)
+                    
+            @_decor
+            def _throttle_add_uris():
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{_extractor}] init uris {uris}")
+                return self.aria2_client.add_uris(uris, opts)
+                        
+            self.dl_cont = _throttle_add_uris()            
             
-            cont = 0
+            cont = 0            
             
             while True:
                 self.dl_cont.update()
@@ -118,12 +147,12 @@ class AsyncARIA2CDownloader():
                     if cont > 3: 
                         raise AsyncARIA2CDLErrorFatal("Max init repeat")
                     logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][error {cont}] {self.dl_cont.error_message}")
-                    self.aria2_client.remove([self.dl_cont], clean=True)
-                    wait_time(15)                    
-                    self.dl_cont = self.aria2_client.add_uris(uris, opts)
-                    
+                    self.aria2_client.remove([self.dl_cont], clean=True)                   
+                   
+                    wait_time(15)
                                     
-                
+                    self.dl_cont = _throttle_add_uris()
+
             if self.dl_cont.status in ('active'):
                 self.aria2_client.pause([self.dl_cont])
                 
@@ -139,7 +168,7 @@ class AsyncARIA2CDownloader():
             self.status = "error"
             raise        
         except Exception as e:                         
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
             try:
                 self.error_message = self.dl_cont.error_message
@@ -228,7 +257,7 @@ class AsyncARIA2CDownloader():
             _connections = _temp.connections
             _eta_str = _temp.eta_string()
                        
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]:(CONN[{_connections:2d}/{self.video_downloader.info_dl['n_workers']:2d}]) DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+            msg = f"[ARIA2C][{self.info_dict['format_id']}]:(CONN[{_connections:2d}/{self.nworkers:2d}]) DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
