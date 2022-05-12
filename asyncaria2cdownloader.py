@@ -10,7 +10,7 @@ from urllib.parse import unquote
 
 import aria2p
 
-from utils import async_ex_in_executor, naturalsize, none_to_cero
+from utils import async_ex_in_executor, naturalsize, none_to_cero, wait_time
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -105,13 +105,24 @@ class AsyncARIA2CDownloader():
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] uris {uris}")
             #self.dl_cont = self.aria2_client.add_uris([unquote(self.video_url)], opts)
             self.dl_cont = self.aria2_client.add_uris(uris, opts)
+            
+            cont = 0
+            
             while True:
                 self.dl_cont.update()
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if self.dl_cont.status in ('error'):
-                    raise AsyncARIA2CDLError(self.dl_cont.error_message)                
+                    cont += 1
+                    if cont > 3: 
+                        raise AsyncARIA2CDLErrorFatal("Max init repeat")
+                    logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][error {cont}] {self.dl_cont.error_message}")
+                    self.aria2_client.remove([self.dl_cont], clean=True)
+                    wait_time(15)                    
+                    self.dl_cont = self.aria2_client.add_uris(uris, opts)
+                    
+                                    
                 
             if self.dl_cont.status in ('active'):
                 self.aria2_client.pause([self.dl_cont])
@@ -123,15 +134,17 @@ class AsyncARIA2CDownloader():
                 self.filesize = self.dl_cont.total_length
                            
 
-        
+        except AsyncARIA2CDLErrorFatal as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
+            self.status = "error"
+            raise        
         except Exception as e:                         
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
             try:
                 self.error_message = self.dl_cont.error_message
             except Exception:
-                self.error_message = repr(e)
-            
+                self.error_message = repr(e)            
             raise AsyncARIA2CDLErrorFatal(self.error_message)
 
     async def fetch_async(self):        
