@@ -12,7 +12,7 @@ import aria2p
 
 from utils import async_ex_in_executor, naturalsize, none_to_cero, wait_time
 
-from backoff import constant, on_exception
+
 
 from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15
 from yt_dlp.utils import try_get
@@ -42,7 +42,7 @@ class AsyncARIA2CDLError(Exception):
 
 class AsyncARIA2CDownloader():
     
-    _CONFIG = {'tubeload': {'ratelimit': limiter_15, 'maxsplits': 4},
+    _CONFIG = {('tubeload', 'userload', 'evoload', 'highload', ): {'ratelimit': limiter_15, 'maxsplits': 4},
                'doodstream': {'ratelimit': limiter_10, 'maxsplits': 4}}
     
     def __init__(self, port, video_dict, vid_dl):
@@ -90,15 +90,22 @@ class AsyncARIA2CDownloader():
 
     
     
+    
     def init(self):
         
         
         def transp(func):
             return func
         
+        def getter(x):
+        
+            value = try_get([v for k,v in self._CONFIG.items() if x in k], lambda y: y[0]) 
+            if value:
+                return(value['ratelimit'].ratelimit(x, delay=True), value['maxsplits'])
+        
         _extractor = self.info_dict.get('extractor', '')
         if _extractor:
-            _decor, _nsplits = try_get(self._CONFIG.get(_extractor), lambda x: (x['ratelimit'].ratelimit(_extractor, delay=True), x['maxsplits'])) or (transp, self.nworkers)
+            _decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
         else: _decor = transp
 
         self.nworkers = min(_nsplits, self.nworkers)
