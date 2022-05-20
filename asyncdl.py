@@ -293,19 +293,21 @@ class AsyncDL():
                                         
                             else: sg.cprint('DL list empty')
                     else:
-                        if not values['-IN-'].isdecimal():
+                        if any(not el.isdecimal() for el in values['-IN-'].split(',')):
                             sg.cprint('not an integer')
                         else:
-                            _index = int(values['-IN-'])
+                            
                             if self.list_dl:
-                                if 0 < _index <= len(self.list_dl):                               
-                        
-                                    if event == 'Pause': self.list_dl[_index-1].pause()
-                                    if event == 'Resume': self.list_dl[_index-1].resume()
-                                    if event == 'Reset': self.list_dl[_index-1].reset()
-                                    if event == 'Stop': self.list_dl[_index-1].stop()
-                                    if event == 'Info': sg.cprint(self.list_dl[_index-1].info_dict)
-                                else: sg.cprint('DL index doesnt exist')
+                                for el in values['-IN-'].split(','):
+                                    _index = int(el)
+                                    if 0 < _index <= len(self.list_dl):                               
+                            
+                                        if event == 'Pause': self.list_dl[_index-1].pause()
+                                        if event == 'Resume': self.list_dl[_index-1].resume()
+                                        if event == 'Reset': self.list_dl[_index-1].reset()
+                                        if event == 'Stop': self.list_dl[_index-1].stop()
+                                        if event == 'Info': sg.cprint(self.list_dl[_index-1].info_dict)
+                                    else: sg.cprint('DL index doesnt exist')
                             else: sg.cprint('DL list empty')
                             
         except Exception as e:
