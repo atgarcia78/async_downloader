@@ -12,14 +12,10 @@ import aria2p
 
 from utils import async_ex_in_executor, naturalsize, none_to_cero, wait_time
 
-
-
 from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15
 from yt_dlp.utils import try_get
 
 logger = logging.getLogger("async_ARIA2C_DL")
-
-
 
 class AsyncARIA2CDLErrorFatal(Exception):
     """Error during info extraction."""
@@ -38,7 +34,6 @@ class AsyncARIA2CDLError(Exception):
         super(AsyncARIA2CDLError, self).__init__(msg)
 
         self.exc_info = sys.exc_info()  # preserve original exception
-
 
 class AsyncARIA2CDownloader():
     
@@ -89,9 +84,6 @@ class AsyncARIA2CDownloader():
         self.ex_aria2dl = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
         
 
-    
-    
-    
     def init(self):
         
         

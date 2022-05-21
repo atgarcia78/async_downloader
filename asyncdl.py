@@ -17,7 +17,7 @@ from yt_dlp.utils import js_to_json, sanitize_filename, std_headers
 from utils import (async_ex_in_executor, async_wait_time, get_chain_links,
                    init_aria2c, init_gui_console, init_gui_root,
                    init_ytdl, is_playlist_extractor, kill_processes,
-                   naturalsize, none_to_cero, sg, wait_time)
+                   naturalsize, none_to_cero, sg, wait_time, try_get)
 from videodownloader import VideoDownloader
 
 logger = logging.getLogger("asyncDL")
@@ -475,7 +475,7 @@ class AsyncDL():
             _url_list_cli = []
             url_pl_list = set()
             netdna_list = set()
-            
+            _url_list = {}
             
             filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
             if self.args.caplinks and filecaplinks.exists():
@@ -490,64 +490,43 @@ class AsyncDL():
                 shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
                 with open(filecaplinks, "w") as file:
                     file.write("")
-                
-                for url in _url_list_caplinks:
-                   
-                    is_pl, ie_key = is_playlist_extractor(url, self.ytdl)
                     
+                _url_list['caplinks'] = _url_list_caplinks
+            
+            if self.args.collection:                
+                _url_list_cli = list(set(self.args.collection)) 
+                logger.info(f"video list cli \n{_url_list_cli}")
+                
+                _url_list['cli'] = _url_list_cli   
+            
+                
+            for _source, _ulist in _url_list.items():
+                
+                for _elurl in _ulist:
+                
+                    is_pl, ie_key = is_playlist_extractor(_elurl, self.ytdl)
+                
                     if not is_pl:
                         
                         if ie_key == 'NetDNA':
-                            netdna_list.add(url)
-                            _entry = {}
-                            
-                        else:
-                            _entry = {'_type': 'url', 'url': url, 'ie_key': ie_key}
-                            
-                    
-                        self.info_videos[url] = {'source' : 'caplinks', 
-                                                'video_info': _entry, 
-                                                'status': 'init', 
-                                                'aldl': False,
-                                                'ie_key': ie_key, 
-                                                'error': []}
-                        
-                        self.list_videos.append(_entry)
-                        
-                    else:
-                        url_pl_list.add(url)
-                        
-                        
-                        
-                
-            if self.args.collection:
-                
-                _url_list_cli = list(set(self.args.collection))
-                
-                for url in _url_list_cli:
-                    
-                    is_pl, ie_key = is_playlist_extractor(url, self.ytdl)
-                    
-                    if not is_pl:
-                    
-                        if not self.info_videos.get(url):
-                            
-                            _entry = {'_type': 'url', 'url': url, 'ie_key': ie_key}
-                        
-                            self.info_videos[url] = {'source' : 'cli', 
-                                                        'video_info': _entry, 
-                                                        'status': 'init', 
-                                                        'aldl': False,
-                                                        'ie_key': ie_key, 
-                                                        'error': []}
-                            self.list_videos.append(_entry)
-                            
-                            if ie_key == 'NetDNA':
-                                netdna_list.add(url)
+                            netdna_list.add(_elurl)
 
+                        _entry = {'_type': 'url', 'url': _elurl, 'ie_key': ie_key}
+                        
+                        if not self.info_videos.get(_elurl):
                                 
+                            self.info_videos[_elurl] = {'source' : _source, 
+                                                    'video_info': _entry, 
+                                                    'status': 'init', 
+                                                    'aldl': False,
+                                                    'ie_key': ie_key, 
+                                                    'error': []}
+                    
+                            self.list_videos.append(_entry)
+                
                     else:
-                        url_pl_list.add(url)   
+                        url_pl_list.add(_elurl)
+
             
 
             url_list = list(self.info_videos.keys())
@@ -567,8 +546,7 @@ class AsyncDL():
                     
                 for fut,_url_netdna in zip(futures, netdna_list):
                     try:
-                        _entry_netdna = fut.result()
-                        
+                        _entry_netdna = fut.result()                        
                         
                         self.info_videos[_url_netdna]['video_info'] = _entry_netdna
                         self.list_videos.append(_entry_netdna)
@@ -585,28 +563,27 @@ class AsyncDL():
                 
                 logger.info(f"[url_playlist_list]: {url_pl_list}")
                 
+                self._url_pl_entries = []
+                
+                def custom_callback(fut):
+                    _info = self.ytdl.sanitize_info(fut.result())
+                    if _info:
+                        if _info.get('_type', 'video') == 'video':
+                            _info['original_url'] = futures[fut]
+                            self._url_pl_entries += [_info]
+                        else:
+                             self._url_pl_entries += _info.get('entries')
+                
+                
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
                         
-                    futures = [ex.submit(self.ytdl.extract_info, url_pl) for url_pl in url_pl_list]
-
-                _url_pl_entries = []
-                
-                for fut, url_pl in zip(futures,url_pl_list):
-                    try:
-                        _info = self.ytdl.sanitize_info(fut.result())                        
-                        if _info.get('_type', 'video') == 'video':
-                            _info['original_url'] = url_pl                           
-                            _url_pl_entries += [_info]
-                        else:
-                            _url_pl_entries += _info.get('entries')
-
-                    except Exception as e:
-                        logger.error(f"[url_playlist_lists][{url_pl}] {repr(e)}")           
-                    
+                    self.futures = {ex.submit(self.ytdl.extract_info, url): url for url in url_pl_list}
+                    for fut in self.futures: fut.add_done_callback(custom_callback)
+                              
         
-                logger.debug(f"[url_playlist_lists] entries \n{_url_pl_entries}")
+                logger.debug(f"[url_playlist_lists] entries \n{self._url_pl_entries}")
                 
-                for _url_entry in _url_pl_entries:
+                for _url_entry in self._url_pl_entries:
                     
                     _type = _url_entry.get('_type', 'video')
                     if _type == 'playlist':
@@ -616,7 +593,7 @@ class AsyncDL():
                         _url = _url_entry.get('original_url') or _url_entry.get('url')
                         
                     else: #url, url_transparent
-                        _url = _url_entry.get('url')
+                        _url = _url_entry.get('original_url') or _url_entry.get('url')
                     
                     if not self.info_videos.get(_url): #es decir, los nuevos videos 
                         
@@ -840,8 +817,8 @@ class AsyncDL():
                             try:                                    
                                 
                                 
-                                    
-                                _res = await async_ex_in_executor(self.ex_winit, self.ytdl.extract_info, vid['url'])
+                                _ext_info = try_get(vid.get('original_url'), lambda x: {'original_url': x} if x else {})
+                                _res = await async_ex_in_executor(self.ex_winit, self.ytdl.extract_info, vid['url'], extra_info=_ext_info)
                                 #_res = await asyncio.to_thread(self.ytdl.extract_info, vid['url'])
                                 if not _res: raise Exception("no info video")
                                 info = self.ytdl.sanitize_info(_res)
