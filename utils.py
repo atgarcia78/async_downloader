@@ -160,7 +160,7 @@ def is_playlist_extractor(url, ytdl):
     ie_key, ie = get_extractor(url, ytdl)
     
     if ie_key == 'Generic':
-        return(False, 'Generic')   
+        return(True, 'Generic')   
         
     ie_name = _iename.lower() if type(_iename:=getattr(ie, 'IE_NAME', '')) is str else ""
     
@@ -424,8 +424,10 @@ def init_ytdl(args):
         "verbose": args.verbose,
         "quiet": args.quiet,
         "format" : args.format,
+        "format_sort" : ['ext:mp4:mp4a'],
         "nocheckcertificate" : args.nocheckcert,
-        "subtitleslangs": ['en','es'],
+        "subtitleslangs": ['all'],
+        "convertsubtitles": 'srt',
         "continuedl": True,
         "updatetime": False,
         "ignoreerrors": True, 

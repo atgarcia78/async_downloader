@@ -13,14 +13,14 @@ from shutil import rmtree
 
 import httpx
 from pycaption import (DFXPReader, SAMIReader, SCCReader, SRTReader,
-                       WebVTTReader, detect_format)
-from yt_dlp.utils import determine_protocol, dfxp2srt, sanitize_filename
+                       WebVTTReader, SRTWriter, detect_format)
+from yt_dlp.utils import determine_protocol, sanitize_filename
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asyncdashdownloader import AsyncDASHDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import async_ex_in_executor, naturalsize
+from utils import async_ex_in_executor, naturalsize, none_to_cero
 
 SUPPORTED_EXT = {
     DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
@@ -216,32 +216,42 @@ class VideoDownloader():
 
     def _get_subs_files(self):
      
-        for key, value in self.info_dl['requested_subtitles'].items():
-            try:
-                res = httpx.get(value['url'])
-                reader = detect_format(res.text)
+        key = None
+        for _el in (_keys:=list(self.info_dl['requested_subtitles'].keys())):
+            if _el.startswith('es'): 
+                key = _el
+                break
+        if not key: 
+            if 'en' in _keys: key = 'en'
+            else: return            
+      
+        value = self.info_dl['requested_subtitles'][key]
+        try:
+            _srt = httpx.get(value['url']).text
+            reader = detect_format(_srt)
+            
+            _ext = SUPPORTED_EXT[reader]
+            _subs_file_stem = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}"
+            
+            # with open(f'{_subs_file_stem}.{_ext}', "wb") as f:
+            #     f.write(res.content)
                 
-                _ext = SUPPORTED_EXT[reader]
-                _subs_file_stem = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}"
+            if reader is not SRTReader: 
+            
+                _srt = SRTWriter().write(reader().read(_srt))
+                _ext = 'srt'                  
                 
-                with open(f'{_subs_file_stem}.{_ext}', "wb") as f:
-                    f.write(res.content)
+            with open(f'{_subs_file_stem}.{_ext}', "w") as f:
+                f.write(_srt)
                     
-                if reader is DFXPReader: #create a copy of the sbts with srt format
-              
-                    _srt = dfxp2srt(res.content)
-                    _ext = 'srt'                  
-                    with open(f'{_subs_file_stem}.{_ext}', "w") as f:
-                        f.write(_srt)
-                        
+            
+            #value['file'] = f'{_subs_file_stem}.{_ext}' #the srt format will be embed to the video file
                 
-                value['file'] = f'{_subs_file_stem}.{_ext}' #the srt format will be embed to the video file
-                    
-                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloadeded and converted to srt format")
-                    
-            except Exception as e:
-                lines = traceback.format_exception(*sys.exc_info())                
-                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when downloading subs file\n{'!!'.join(lines)}")
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloadeded and converted to srt format")
+                
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when downloading subs file\n{'!!'.join(lines)}")
            
    
     @staticmethod

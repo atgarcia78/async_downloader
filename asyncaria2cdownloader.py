@@ -99,7 +99,8 @@ class AsyncARIA2CDownloader():
         _extractor = self.info_dict.get('extractor', '')
         if _extractor:
             _decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
-        else: _decor = transp
+        else: 
+            _decor, _nsplits = transp, self.nworkers
 
         self.nworkers = min(_nsplits, self.nworkers)
     

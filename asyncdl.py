@@ -577,7 +577,7 @@ class AsyncDL():
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
                         
-                    self.futures = {ex.submit(self.ytdl.extract_info, url): url for url in url_pl_list}
+                    self.futures = {ex.submit(self.ytdl.extract_info, url, download=False): url for url in url_pl_list}
                     for fut in self.futures: fut.add_done_callback(custom_callback)
                               
         
@@ -818,7 +818,7 @@ class AsyncDL():
                                 
                                 
                                 _ext_info = try_get(vid.get('original_url'), lambda x: {'original_url': x} if x else {})
-                                _res = await async_ex_in_executor(self.ex_winit, self.ytdl.extract_info, vid['url'], extra_info=_ext_info)
+                                _res = await async_ex_in_executor(self.ex_winit, self.ytdl.extract_info, vid['url'], download=False, extra_info=_ext_info)
                                 #_res = await asyncio.to_thread(self.ytdl.extract_info, vid['url'])
                                 if not _res: raise Exception("no info video")
                                 info = self.ytdl.sanitize_info(_res)

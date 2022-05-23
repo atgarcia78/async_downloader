@@ -131,7 +131,7 @@ class AsyncHLSDownloader():
                     break
                 except Exception as e:
                     logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error num[{i+1}] when downloading m3u8 file, will retry")
-                    _info = self.ytdl.extract_info(self.webpage_url)
+                    _info = self.ytdl.extract_info(self.webpage_url, download=False)
                     _new_info = {}
                     if _info.get('requested_formats'):
                         for _info_format in _info['requested_formats']:
@@ -269,7 +269,7 @@ class AsyncHLSDownloader():
                     # if not ie._MASTER_INIT:
                     #     self.to_screen(f"[{ie}] Initialize")
                     #     ie._real_initialize()     
-                    _info = self.ytdl.extract_info(self.webpage_url)
+                    _info = self.ytdl.extract_info(self.webpage_url, download=False)
                     info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
                     
