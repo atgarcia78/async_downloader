@@ -568,11 +568,31 @@ class AsyncDL():
                 def custom_callback(fut):
                     _info = self.ytdl.sanitize_info(fut.result())
                     if _info:
-                        if _info.get('_type', 'video') == 'video':
-                            _info['original_url'] = futures[fut]
+                        if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
+                            
+                            _info['original_url'] = self.futures[fut]
                             self._url_pl_entries += [_info]
                         else:
-                             self._url_pl_entries += _info.get('entries')
+                            for _ent in _info.get('entries'):
+                                
+                                if _ent.get('_type', 'video') == 'video':
+                                    _ent['original_url'] = self.futures[fut]
+                                    self._url_pl_entries += [_ent]
+                                else:    
+                                    try:
+                                        is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
+                                        if not is_pl:
+                                            _ent['original_url'] = self.futures[fut]
+                                            
+                                            self._url_pl_entries.append(_ent)
+                                        else:
+                                            _res = self.ytdl.extract_info(_ent['url'], download=False)
+                                            for _ent2 in _res.get('entries'):
+                                                _ent2['original_url'] = _ent['url']
+                                                #_ent2['webpage_url'] = _ent['url']
+                                                self._url_pl_entries.append(_ent2)
+                                    except Exception as e:
+                                        logger.warning(f"[url_playlist_lists][{self.futures[fut]}]:{_ent['url']} no video entries - {repr(e)}")
                 
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
@@ -590,10 +610,10 @@ class AsyncDL():
                         logger.warning(f"PLAYLIST IN PLAYLIST: {_url_entry}")
                         continue
                     elif _type == 'video':                        
-                        _url = _url_entry.get('original_url') or _url_entry.get('url')
+                        _url = _url_entry.get('webpage_url') or _url_entry.get('url')
                         
                     else: #url, url_transparent
-                        _url = _url_entry.get('original_url') or _url_entry.get('url')
+                        _url = _url_entry.get('url')
                     
                     if not self.info_videos.get(_url): #es decir, los nuevos videos 
                         
@@ -800,7 +820,7 @@ class AsyncDL():
                 else: 
                     
                     vid = self.info_videos[url_key]['video_info']
-                    logger.debug(f"[worker_init][{i}]: [{url_key}] extracting info")
+                    logger.debug(f"[worker_init][{i}]: [{url_key}] extracting info\n{vid}")
                     
                     try: 
                         if self.wkinit_stop:
@@ -818,10 +838,12 @@ class AsyncDL():
                                 
                                 
                                 _ext_info = try_get(vid.get('original_url'), lambda x: {'original_url': x} if x else {})
+                                logger.debug(f"[worker_init][{i}]: [{url_key}] extra_info={_ext_info}")
                                 _res = await async_ex_in_executor(self.ex_winit, self.ytdl.extract_info, vid['url'], download=False, extra_info=_ext_info)
                                 #_res = await asyncio.to_thread(self.ytdl.extract_info, vid['url'])
                                 if not _res: raise Exception("no info video")
                                 info = self.ytdl.sanitize_info(_res)
+                                logger.debug(f"[worker_init][{i}]: [{url_key}] info extracted\n{info}")
                             
                             except Exception as e: 
                                 

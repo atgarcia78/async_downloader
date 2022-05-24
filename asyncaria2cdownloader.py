@@ -106,7 +106,7 @@ class AsyncARIA2CDownloader():
     
         opts_dict = {
             'split': self.nworkers,
-            'header': [f'{key}: {value}' for key,value in self.headers.items()],
+            'header': [f"{key}: {value}" for key,value in self.headers.items() if key.lower() not in ['user-agent', 'referer', 'accept-encoding']],
             'dir': str(self.download_path),
             'out': self.filename.name,
             'check-certificate': self.verifycert,              
