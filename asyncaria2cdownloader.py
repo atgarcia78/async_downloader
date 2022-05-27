@@ -37,9 +37,8 @@ class AsyncARIA2CDLError(Exception):
 
 class AsyncARIA2CDownloader():
     
-    _CONFIG = {('userload', 'evoload', 'highload'): {'ratelimit': limiter_15, 'maxsplits': 4},
-               'doodstream': {'ratelimit': limiter_10, 'maxsplits': 4},
-               'tubeload': {'ratelimit': limiter_15, 'maxsplits': 4} }
+    _CONFIG = {('userload', 'evoload', 'highload', 'tubeload'): {'ratelimit': limiter_15, 'maxsplits': 4},
+               'doodstream': {'ratelimit': limiter_10, 'maxsplits': 4}}
     
     def __init__(self, port, video_dict, vid_dl):
 

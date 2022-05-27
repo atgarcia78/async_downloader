@@ -85,6 +85,7 @@ class AsyncDL():
         '''
         Run a tkinter app in an asyncio event loop.
         '''
+        #self.window_root = init_gui_root()
 
         while (not self.list_dl and not self.stop_root):
             
@@ -93,7 +94,7 @@ class AsyncDL():
         logger.debug(f"[gui_root] End waiting. Signal stop_self.gui_root{self.stop_root}]")
         
         if not self.stop_root:
-            #self.window_root, self.window_console = init_gui()
+            
             self.window_root = init_gui_root()
             self.stop_console = False
             await asyncio.sleep(0)
@@ -215,6 +216,8 @@ class AsyncDL():
     async def gui_console(self):
         
         try:
+            
+            #self.window_console = init_gui_console()
             
             while self.stop_console:
                 #await async_wait_time(self._INTERVAL_GUI)
@@ -365,80 +368,78 @@ class AsyncDL():
                 _dont_exist = []
                 
                 for folder in list_folders:
-                    
-                    for file in folder.rglob('*'):
-                        
-                        if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip')):
+                    files = [file for file in folder.rglob('*') if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip'))]
+                    for file in files:                        
 
-                            _res = file.stem.split('_', 1)
-                            if len(_res) == 2:
-                                _id = _res[0]
-                                _title = sanitize_filename(_res[1], restricted=True).upper()                                
-                                _name = f"{_id}_{_title}"
-                            else:
-                                _name = sanitize_filename(file.stem, restricted=True).upper()
+                        _res = file.stem.split('_', 1)
+                        if len(_res) == 2:
+                            _id = _res[0]
+                            _title = sanitize_filename(_res[1], restricted=True).upper()                                
+                            _name = f"{_id}_{_title}"
+                        else:
+                            _name = sanitize_filename(file.stem, restricted=True).upper()
 
-                            if not (_video_path_str:=self.files_cached.get(_name)): 
+                        if not (_video_path_str:=self.files_cached.get(_name)): 
+                            
+                            self.files_cached.update({_name: str(file)})
+                            
+                        else:
+                            _video_path = Path(_video_path_str)
+                            if _video_path != file: 
                                 
-                                self.files_cached.update({_name: str(file)})
-                                
-                            else:
-                                _video_path = Path(_video_path_str)
-                                if _video_path != file: 
-                                    
-                                    if not file.is_symlink() and not _video_path.is_symlink(): #only if both are hard files we have to do something, so lets report it in repeated files
-                                        _repeated.append({'title':_name, 'indict': _video_path_str, 'file': str(file)})
-                                    elif not file.is_symlink() and _video_path.is_symlink():
-                                            _links = get_chain_links(_video_path)                                             
-                                            if (_links[-1] == file):
-                                                if len(_links) > 2:
-                                                    logger.debug(f'[videos_cached] \nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
-                                                    for _link in _links[0:-1]:
-                                                        _link.unlink()
-                                                        _link.symlink_to(file)
-                                                        _link._accessor.utime(_link, (int(datetime.now().timestamp()), file.stat().st_mtime), follow_symlinks=False)
-                                                
-                                                self.files_cached.update({_name: str(file)})
-                                            else:
-                                                logger.warning(f'[videos_cached] \n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
-                                                    
-                                    elif file.is_symlink() and not _video_path.is_symlink():
-                                        _links =  get_chain_links(file)
-                                        if (_links[-1] == _video_path):
+                                if not file.is_symlink() and not _video_path.is_symlink(): #only if both are hard files we have to do something, so lets report it in repeated files
+                                    _repeated.append({'title':_name, 'indict': _video_path_str, 'file': str(file)})
+                                elif not file.is_symlink() and _video_path.is_symlink():
+                                        _links = get_chain_links(_video_path)                                             
+                                        if (_links[-1] == file):
                                             if len(_links) > 2:
-                                                logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+                                                logger.debug(f'[videos_cached] \nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
                                                 for _link in _links[0:-1]:
                                                     _link.unlink()
-                                                    _link.symlink_to(_video_path)
-                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), _video_path.stat().st_mtime), follow_symlinks=False)
-                                                
-                                            self.files_cached.update({_name: str(_video_path)})
-                                            if not _video_path.exists(): _dont_exist.append({'title': _name, 'file_not_exist': str(_video_path), 'links': [str(_l) for _l in _links[0:-1]]})
-                                        else:
-                                            logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
-
-                                    else:
-                                        _links_file = get_chain_links(file) 
-                                        _links_video_path = get_chain_links(_video_path)
-                                        if ((_file:=_links_file[-1]) == _links_video_path[-1]):
-                                            if len(_links_file) > 2:
-                                                logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}')                                                
-                                                for _link in _links_file[0:-1]:
-                                                    _link.unlink()
-                                                    _link.symlink_to(_file)
-                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
-                                            if len(_links_video_path) > 2:
-                                                logger.debug(f'[videos_cached] \nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}')
-                                                for _link in _links_video_path[0:-1]:
-                                                    _link.unlink()
-                                                    _link.symlink_to(_file)
-                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                                    _link.symlink_to(file)
+                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), file.stat().st_mtime), follow_symlinks=False)
                                             
-                                            self.files_cached.update({_name: str(_file)})
-                                            if not _file.exists():  _dont_exist.append({'title': _name, 'file_not_exist': str(_file), 'links': [str(_l) for _l in (_links_file[0:-1] + _links_video_path[0:-1])]})
-                                               
+                                            self.files_cached.update({_name: str(file)})
                                         else:
-                                            logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}') 
+                                            logger.warning(f'[videos_cached] \n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
+                                                
+                                elif file.is_symlink() and not _video_path.is_symlink():
+                                    _links =  get_chain_links(file)
+                                    if (_links[-1] == _video_path):
+                                        if len(_links) > 2:
+                                            logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+                                            for _link in _links[0:-1]:
+                                                _link.unlink()
+                                                _link.symlink_to(_video_path)
+                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _video_path.stat().st_mtime), follow_symlinks=False)
+                                            
+                                        self.files_cached.update({_name: str(_video_path)})
+                                        if not _video_path.exists(): _dont_exist.append({'title': _name, 'file_not_exist': str(_video_path), 'links': [str(_l) for _l in _links[0:-1]]})
+                                    else:
+                                        logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+
+                                else:
+                                    _links_file = get_chain_links(file) 
+                                    _links_video_path = get_chain_links(_video_path)
+                                    if ((_file:=_links_file[-1]) == _links_video_path[-1]):
+                                        if len(_links_file) > 2:
+                                            logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}')                                                
+                                            for _link in _links_file[0:-1]:
+                                                _link.unlink()
+                                                _link.symlink_to(_file)
+                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                        if len(_links_video_path) > 2:
+                                            logger.debug(f'[videos_cached] \nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}')
+                                            for _link in _links_video_path[0:-1]:
+                                                _link.unlink()
+                                                _link.symlink_to(_file)
+                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                        
+                                        self.files_cached.update({_name: str(_file)})
+                                        if not _file.exists():  _dont_exist.append({'title': _name, 'file_not_exist': str(_file), 'links': [str(_l) for _l in (_links_file[0:-1] + _links_video_path[0:-1])]})
+                                            
+                                    else:
+                                        logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}') 
 
                 
                 logger.info(f"[videos_cached] Total cached videos: [{len(self.files_cached)}]")
