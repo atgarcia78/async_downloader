@@ -255,6 +255,10 @@ class AsyncDL():
                 elif event in ['-DL-STATUS']:
                     if not self.console_dl_status:
                         self.console_dl_status = True
+                elif event  in  ['IncWorkerRun']:
+                    n  =  len(self.tasks_run)
+                    self.tasks_run.append(self.loop.create_task(self.worker_run(n)))
+                    sg.cprint(f'Run Workers: {n} to {len(self.tasks_run)}')
                 elif event in ['NumVideoWorkers']:
                     if not values['-IN-']:
                         sg.cprint('Please enter number')
@@ -567,7 +571,10 @@ class AsyncDL():
                 self._url_pl_entries = []
                 
                 def custom_callback(fut):
-                    _info = self.ytdl.sanitize_info(fut.result())
+                    try:
+                        _info = self.ytdl.sanitize_info(fut.result())
+                    except Exception as e:
+                        _info = None
                     if _info:
                         if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
                             
@@ -588,6 +595,7 @@ class AsyncDL():
                                             self._url_pl_entries.append(_ent)
                                         else:
                                             _res = self.ytdl.extract_info(_ent['url'], download=False)
+                                            
                                             for _ent2 in _res.get('entries'):
                                                 _ent2['original_url'] = _ent['url']
                                                 #_ent2['webpage_url'] = _ent['url']
@@ -1069,11 +1077,28 @@ class AsyncDL():
                 elif video_dl == "KILLANDCLEAN":
                     logger.debug(f"[worker_run][{i}]: get KILLANDCLEAN, bye")  
                     
-                    nworkers = self.workers
+                    async with self.lock:
+                        nworkers  =  self.workers
+                        if  (_inc:=(len(self.tasks_run)  - nworkers)) > 0:
+                            logger.info(f"[worker_run][{i}] nworkers[{nworkers}] inc[{_inc}]")
+                            for  _  in  range(_inc):
+                                self.queue_run.put_nowait(("", "KILL"))
+                            nworkers  +=  _inc
+                        
+                    logger.debug(f"[worker_run][{i}]: countrun[{self.count_run}] nworkers[{nworkers}]")  
                     while (self.count_run < (nworkers - 1)):
                         await asyncio.sleep(1)
-                    
-                    for _ in range(nworkers):
+                        async with self.lock:
+                        
+                            if  (_inc:=(len(self.tasks_run)  - nworkers)) > 0:
+                                logger.info(f"[worker_run][{i}] nworkers[{nworkers}] inc[{_inc}]")
+                                for  _  in  range(_inc):
+                                    self.queue_run.put_nowait(("", "KILL"))
+                                nworkers  +=  _inc
+                        logger.debug(f"[worker_run][{i}]: countrun[{self.count_run}] nworkers[{nworkers}]")
+                        
+                      
+                    for _ in range(self.workers):
                         self.queue_manip.put_nowait(("", "KILL")) 
                     await asyncio.sleep(0)
                     
@@ -1195,8 +1220,8 @@ class AsyncDL():
         logger.info(f"MAX WORKERS [{self.workers}]")
         
         try:
-            
-            tasks_run = []
+            self.loop  =  asyncio.get_running_loop()
+            self.tasks_run = []
             task_gui_root = []
             tasks_manip = []
             task_gui_console = []
@@ -1206,13 +1231,13 @@ class AsyncDL():
             if not self.args.nodl:                
 
                 task_gui_root = [asyncio.create_task(self.gui_root())] 
-                tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
+                self.tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
                 tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(self.workers)]
                 self.console_task = asyncio.create_task(self.gui_console())
                 task_gui_console = [self.console_task]
             
                 
-            done, _ = await asyncio.wait(tasks_init + task_gui_root + tasks_run + tasks_manip + task_gui_console)
+            done, _ = await asyncio.wait(tasks_init + task_gui_root + self.tasks_run + tasks_manip + task_gui_console)
             
             for d in done:
                 try:

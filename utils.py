@@ -303,7 +303,7 @@ def init_logging(file_path=None):
 def init_argparser():
     
  
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:102.0) Gecko/20100101 Firefox/102.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:103.0) Gecko/20100101 Firefox/103.0"]
     #UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
@@ -430,7 +430,7 @@ def init_ytdl(args):
         "convertsubtitles": 'srt',
         "continuedl": True,
         "updatetime": False,
-        "ignoreerrors": True, 
+        "ignoreerrors": False, 
         "no_abort_on_errors": False,        
         "extract_flat": "in_playlist",        
         "no_color" : True,
@@ -439,7 +439,8 @@ def init_ytdl(args):
         "writesubtitles": True,        
         "restrictfilenames": True,
         "user_agent": args.useragent,
-        "winit": args.winit
+        "winit": args.winit,
+        "hls_split_discontinuity": True
                   
     }
     
@@ -500,7 +501,7 @@ def init_gui_console():
                                 [sg.Text('Select DL', font='Any 14')],
                                 [sg.Input(key='-IN-', font='Any 10', focus=True)],
                                 [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, auto_refresh=True, autoscroll=True)],
-                                [sg.Checkbox('PasRes', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('#vidwk', key='NumVideoWorkers'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
+                                [sg.Checkbox('PasRes', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('+runwk', key='IncWorkerRun'), sg.Button('#vidwk', key='NumVideoWorkers'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
         ], element_justification='c', expand_x=True, expand_y=True)
         
         layout_pygui = [ [col_pygui] ]
