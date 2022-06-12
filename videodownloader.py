@@ -49,6 +49,7 @@ class VideoDownloader():
                 'id': self.info_dict['id'],
                 'n_workers': self.args.parts,
                 'rpcport': self.args.rpcport, #será None si no hemos querido usar aria2c si es DL HTTP
+                'auto_pasres': False,
                 'webpage_url': self.info_dict.get('webpage_url'),
                 'title': self.info_dict.get('title'),
                 'ytdl': ytdl,
@@ -109,6 +110,7 @@ class VideoDownloader():
                     try:
                         dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
                         logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                     except Exception:
                         logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}]: aria2c DL failed")
                         #dl = AsyncHTTPDownloader(info, self)

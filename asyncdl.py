@@ -66,8 +66,11 @@ class AsyncDL():
         self.stop_console = True
         
         self.wkinit_stop = False
-        self.pasres_repeat = False
+        self.pasres_repeat = True
         self.console_dl_status = False
+        
+        self.list_pasres = set()
+        self.pasres_time_from_resume_to_pause = 15
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -183,18 +186,29 @@ class AsyncDL():
 
     def pasres_periodic(self):
         logger.info('[pasres_periodic] START')
-        while(self.pasres_repeat):
+        while(not self.stop_console):
             
             # for dl in self.list_dl:                            
             #     dl.pause()
-            self.window_console.write_event_value('Pause', {'-IN-': ''})
-            wait_time(2)
+            #self.window_console.write_event_value('Pause', {'-IN-': ''})
+            
+            if self.pasres_repeat and (_list:= list(self.list_pasres)):
+                for _index in _list:
+                    self.list_dl[_index-1].pause()
+                wait_time(2)
             # for dl in self.list_dl:
             #     dl.resume()
-            self.window_console.write_event_value('Resume', {'-IN-': ''})
-            if not self.pasres_repeat:
-                break
-            wait_time(20)
+            #self.window_console.write_event_value('Resume', {'-IN-': ''})
+                for _index in _list:
+                    self.list_dl[_index-1].resume()
+            
+                wait_time(self.pasres_time_from_resume_to_pause)
+               
+            else:
+                wait_time(self._INTERVAL_GUI) 
+            # if not self.pasres_repeat:
+            #     break
+           
         logger.info('[pasres_periodic] END')
         
     def cancel_all_tasks(self):
@@ -225,7 +239,14 @@ class AsyncDL():
             
             logger.debug(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
             
-            self.window_console = init_gui_console()
+            _console = init_gui_console()
+            
+            await async_wait_time(self._INTERVAL_GUI)
+            
+            self.window_console = _console
+            
+            sg.cprint(f"[pause-resume autom] {self.list_pasres}")
+            self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
             
             while not self.stop_root:             
                 
@@ -246,9 +267,9 @@ class AsyncDL():
                     break      
                 elif event in ['-WKINIT-']:
                     self.wkinit_stop = not self.wkinit_stop
-                    sg.cprint(f'Worker inits: BLOCKED') if self.wkinit_stop else sg.cprint(f'Worker inits: RUNNING')
+                    sg.cprint(f'Worker inits: BLOCKED') if self.wkinit_stop else sg.cprint(f'Worker inits: RUNNING')                    
                 elif event in ['-PASRES-']:
-                    self.pasres_repeat = not self.pasres_repeat
+                    if not values['-PASRES-']: self.pasres_repeat = False
                     if self.pasres_repeat:
                         #no espera, lanza en otro thread la llamada 
                         self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
@@ -259,6 +280,20 @@ class AsyncDL():
                     n  =  len(self.tasks_run)
                     self.tasks_run.append(self.loop.create_task(self.worker_run(n)))
                     sg.cprint(f'Run Workers: {n} to {len(self.tasks_run)}')
+                elif event in ['TimePasRes']:
+                    if not values['-IN-']:
+                        sg.cprint('Please enter number')
+                    else:
+                        if not values['-IN-'].isdecimal():
+                            sg.cprint('not an integer ')
+                        else:
+                            _time = int(values['-IN-'])
+                            if _time <= 0:
+                                sg.cprint('must be > 0')
+                                
+                            else:
+                                self.pasres_time_from_resume_to_pause = _time
+                                sg.cprint(f'[pasres time to resume] {self.pasres_time_from_resume_to_pause}')
                 elif event in ['NumVideoWorkers']:
                     if not values['-IN-']:
                         sg.cprint('Please enter number')
@@ -277,9 +312,9 @@ class AsyncDL():
                                 else: sg.cprint('DL list empty')
                                 
                                
-                elif event in ['ToFile', 'Info', 'Pause', 'Resume', 'Reset', 'Stop']:
+                elif event in ['ToFile', 'Info', 'Pause', 'Resume', 'Reset', 'Stop','+PasRes', '-PasRes']:
                     if not values['-IN-']:
-                        if event in ['Reset', 'Stop']:
+                        if event in ['Reset', 'Stop', '+PasRes', '-PasRes']:
                             sg.cprint('Needs to select a DL')                                                   
                         else:
                             if self.list_dl:
@@ -308,7 +343,13 @@ class AsyncDL():
                                 for el in values['-IN-'].split(','):
                                     _index = int(el)
                                     if 0 < _index <= len(self.list_dl):                               
-                            
+                                        
+                                        if event == '+PasRes': 
+                                            self.list_pasres.add(_index)
+                                            sg.cprint(f"[pause-resume autom] {self.list_pasres}")
+                                        if event == '-PasRes': 
+                                            self.list_pasres.discard(_index)
+                                            sg.cprint(f"[pause-resume autom] {self.list_pasres}")
                                         if event == 'Pause': self.list_dl[_index-1].pause()
                                         if event == 'Resume': self.list_dl[_index-1].resume()
                                         if event == 'Reset': self.list_dl[_index-1].reset()
@@ -322,6 +363,7 @@ class AsyncDL():
             logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
         finally:           
             logger.info("[gui_console] BYE")
+            self.stop_console = True
             try:                
                 if self.window_console:
                     self.window_console.close()                    
@@ -570,44 +612,54 @@ class AsyncDL():
                 
                 self._url_pl_entries = []
                 
-                def custom_callback(fut):
-                    try:
-                        _info = self.ytdl.sanitize_info(fut.result())
-                    except Exception as e:
-                        _info = None
-                    if _info:
-                        if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
-                            
-                            _info['original_url'] = self.futures[fut]
-                            self._url_pl_entries += [_info]
-                        else:
-                            for _ent in _info.get('entries'):
-                                
-                                if _ent.get('_type', 'video') == 'video':
-                                    _ent['original_url'] = self.futures[fut]
-                                    self._url_pl_entries += [_ent]
-                                else:    
-                                    try:
-                                        is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
-                                        if not is_pl:
-                                            _ent['original_url'] = self.futures[fut]
-                                            
-                                            self._url_pl_entries.append(_ent)
-                                        else:
-                                            _res = self.ytdl.extract_info(_ent['url'], download=False)
-                                            
-                                            for _ent2 in _res.get('entries'):
-                                                _ent2['original_url'] = _ent['url']
-                                                #_ent2['webpage_url'] = _ent['url']
-                                                self._url_pl_entries.append(_ent2)
-                                    except Exception as e:
-                                        logger.warning(f"[url_playlist_lists][{self.futures[fut]}]:{_ent['url']} no video entries - {repr(e)}")
+                self._count_pl = 1
+                
+                self.futures = {}
                 
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=min(self.init_nworkers, len(url_pl_list))) as ex:
+                    
+                    def custom_callback(fut):
                         
-                    self.futures = {ex.submit(self.ytdl.extract_info, url, download=False): url for url in url_pl_list}
-                    for fut in self.futures: fut.add_done_callback(custom_callback)
+                        logger.info(f"[url_playlist_list]: [{self._count_pl}/{len(self.futures)}] {self.futures[fut]}")
+                        self._count_pl += 1
+                        try:
+                            _info = self.ytdl.sanitize_info(fut.result())
+                        except Exception as e:
+                            _info = None
+                        if _info:
+                            if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
+                                
+                                _info['original_url'] = self.futures[fut]
+                                self._url_pl_entries += [_info]
+                            else:
+                                for _ent in _info.get('entries'):
+                                    
+                                    if _ent.get('_type', 'video') == 'video':
+                                        _ent['original_url'] = self.futures[fut]
+                                        self._url_pl_entries += [_ent]
+                                    else:    
+                                        try:
+                                            is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
+                                            if not is_pl:
+                                                _ent['original_url'] = self.futures[fut]
+                                                
+                                                self._url_pl_entries.append(_ent)
+                                            else:
+                                                self.futures.update({(_fut:=ex.submit(self.ytdl.extract_info, _ent['url'], download=False)): _ent['url']})
+                                                _fut.add_done_callback(custom_callback)
+                                                #_res = self.ytdl.extract_info(_ent['url'], download=False)
+                                                
+                                                #for _ent2 in _res.get('entries'):
+                                                #    _ent2['original_url'] = _ent['url']
+                                                #    #_ent2['webpage_url'] = _ent['url']
+                                                #    self._url_pl_entries.append(_ent2)
+                                        except Exception as e:
+                                            logger.warning(f"[url_playlist_lists][{self.futures[fut]}]:{_ent['url']} no video entries - {repr(e)}")
+                    for url in url_pl_list:    
+                        self.futures.update({(_future:=ex.submit(self.ytdl.extract_info, url, download=False)): url}) 
+                        _future.add_done_callback(custom_callback)
+                    #for fut in self.futures: fut.add_done_callback(custom_callback)
                               
         
                 logger.debug(f"[url_playlist_lists] entries \n{self._url_pl_entries}")
@@ -948,14 +1000,26 @@ class AsyncDL():
                                             
                                     self.info_videos[urlkey].update({'status': 'initok', 'filename': dl.info_dl.get('filename'), 'dl': dl})
 
-                                    self.list_dl.append(dl)
+                                    async with self.lock:
+                                        self.list_dl.append(dl)
+                                        
                                     
-                                    if dl.info_dl['status'] in ("init_manipulating", "done"):
-                                        self.queue_manip.put_nowait((urlkey, dl))
-                                        logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
-                                    else:
-                                        self.queue_run.put_nowait((urlkey, dl))
-                                        logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL")
+                                        if dl.info_dl['status'] in ("init_manipulating", "done"):
+                                            self.queue_manip.put_nowait((urlkey, dl))
+                                            logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
+                                        else:
+                                            self.queue_run.put_nowait((urlkey, dl))
+                                            _msg = ''
+                                            if dl.info_dl.get('auto_pasres'):
+                                                _index_in_dl = len(self.list_dl)
+                                                self.list_pasres.add(_index_in_dl)
+                                                _msg = f', add this dl[{_index_in_dl}] to auto_pasres{list(self.list_pasres)}'
+                                                if self.window_console and not self.stop_root: sg.cprint(f"[pause-resume autom] {self.list_pasres}")
+                                                                               
+                                            logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL{_msg}")
+                                           
+                                            
+                                                     
                                 
                                 else:
                                     async with self.lock:

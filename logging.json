@@ -38,7 +38,7 @@
         "class": "logging.handlers.RotatingFileHandler",
         "level": "DEBUG",
         "formatter": "file_format",
-        "filename": "{home}/Projects/common/logs/info.log",
+        "filename": "{home}/Projects/common/logs/info2.log",
         "filters": ["filtermodules"],
         "maxBytes": 12621440,
         "backupCount": 5,

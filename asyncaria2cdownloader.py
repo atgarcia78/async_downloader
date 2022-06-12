@@ -12,7 +12,7 @@ import aria2p
 
 from utils import async_ex_in_executor, naturalsize, none_to_cero, wait_time
 
-from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15, limiter_2
+from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15, limiter_2, limiter_0_5
 from yt_dlp.utils import try_get
 
 from threading import Lock, Event, Semaphore
@@ -40,7 +40,7 @@ class AsyncARIA2CDLError(Exception):
 class AsyncARIA2CDownloader():
     
     _CONFIG = {('userload', 'evoload', 'highload'): {'ratelimit': limiter_15, 'maxsplits': 4},
-               ('doodstream',): {'ratelimit': limiter_10, 'maxsplits': 4}, 
+               ('doodstream',): {'ratelimit': limiter_2, 'maxsplits': 4}, 
                ('tubeload',): {'ratelimit': limiter_2, 'maxsplits': 4}}
     
     _SEM = {}
@@ -99,13 +99,16 @@ class AsyncARIA2CDownloader():
         
         def getter(x):
         
-            value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x in (kt:=_) for _ in k)], lambda y: y[0]) 
+            value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x in (kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
             if value:
                 return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
         
         _extractor = self.info_dict.get('extractor', '')
+        self.auto_pasres = False
         if _extractor:
             _decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
+            if _extractor == 'doodstream':
+                self.auto_pasres = True
         else: 
             _decor, _nsplits = transp, self.nworkers
 
