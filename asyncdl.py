@@ -71,6 +71,7 @@ class AsyncDL():
         
         self.list_pasres = set()
         self.pasres_time_from_resume_to_pause = 15
+        self.pasres_active = False
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -94,7 +95,7 @@ class AsyncDL():
             
             await async_wait_time(self._INTERVAL_GUI)
             
-        logger.debug(f"[gui_root] End waiting. Signal stop_self.gui_root{self.stop_root}]")
+        logger.debug(f"[gui_root] End waiting. Signal stop: stop_root[{self.stop_root}] {self.stop_root}]")
         
         if not self.stop_root:
             
@@ -185,32 +186,38 @@ class AsyncDL():
                     
 
     def pasres_periodic(self):
-        logger.info('[pasres_periodic] START')
-        while(not self.stop_console):
-            
-            # for dl in self.list_dl:                            
-            #     dl.pause()
-            #self.window_console.write_event_value('Pause', {'-IN-': ''})
-            
-            if self.pasres_repeat and (_list:= list(self.list_pasres)):
-                for _index in _list:
-                    self.list_dl[_index-1].pause()
-                wait_time(2)
-            # for dl in self.list_dl:
-            #     dl.resume()
-            #self.window_console.write_event_value('Resume', {'-IN-': ''})
-                for _index in _list:
-                    self.list_dl[_index-1].resume()
-            
-                wait_time(self.pasres_time_from_resume_to_pause)
-               
-            else:
-                wait_time(self._INTERVAL_GUI) 
-            # if not self.pasres_repeat:
-            #     break
-           
-        logger.info('[pasres_periodic] END')
         
+        logger.info('[pasres_periodic] START')
+        
+        try:        
+            
+            self.pasres_active = True
+            while(True):
+                
+                if self.pasres_repeat and (_list:= list(self.list_pasres)):
+                    for _index in _list:
+                        self.list_dl[_index-1].pause()
+                    wait_time(2)
+            
+                    for _index in _list:
+                        self.list_dl[_index-1].resume()
+                
+                    wait_time(self.pasres_time_from_resume_to_pause)
+                
+                else:
+                    wait_time(self._INTERVAL_GUI)
+                    
+                if self.stop_console:
+                    break
+
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())                
+            logger.error(f"[pasres_periodic]: error: {repr(e)}\n{'!!'.join(lines)}")
+        finally:
+            self.pasres_active = False
+            logger.info('[pasres_periodic] END')
+            
+            
     def cancel_all_tasks(self):
         if self.loop:
             pending_tasks = asyncio.all_tasks(loop=self.loop)
@@ -239,6 +246,9 @@ class AsyncDL():
             
             logger.debug(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
             
+            if self.stop_root: 
+                return
+            
             _console = init_gui_console()
             
             await async_wait_time(self._INTERVAL_GUI)
@@ -246,11 +256,15 @@ class AsyncDL():
             self.window_console = _console
             
             sg.cprint(f"[pause-resume autom] {self.list_pasres}")
-            self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
+            self.window_console.perform_long_operation(self.pasres_periodic, "-ENDLONGOP-")
+            while(not self.pasres_active):
+                await asyncio.sleep(0)
             
             while not self.stop_root:             
                 
                 await async_wait_time(self._INTERVAL_GUI/2)
+                if self.stop_console and not self.pasres_active:
+                    break
                 event, values = self.window_console.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
@@ -269,10 +283,13 @@ class AsyncDL():
                     self.wkinit_stop = not self.wkinit_stop
                     sg.cprint(f'Worker inits: BLOCKED') if self.wkinit_stop else sg.cprint(f'Worker inits: RUNNING')                    
                 elif event in ['-PASRES-']:
-                    if not values['-PASRES-']: self.pasres_repeat = False
-                    if self.pasres_repeat:
-                        #no espera, lanza en otro thread la llamada 
-                        self.window_console.perform_long_operation(self.pasres_periodic, end_key='-PASRES-STOP-')
+                    if not values['-PASRES-']: 
+                        self.pasres_repeat = False
+                    else:
+                        self.pasres_repeat = True
+                    # if self.pasres_repeat:
+                    #     #no espera, lanza en otro thread la llamada 
+                    #     self.window_console.perform_long_operation(self.pasres_periodic)
                 elif event in ['-DL-STATUS']:
                     if not self.console_dl_status:
                         self.console_dl_status = True
@@ -363,7 +380,8 @@ class AsyncDL():
             logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
         finally:           
             logger.info("[gui_console] BYE")
-            self.stop_console = True
+            self.stop_root = True
+            await asyncio.sleep(0)
             try:                
                 if self.window_console:
                     self.window_console.close()                    
@@ -371,6 +389,7 @@ class AsyncDL():
                 logger.exception(f"[gui_console]: error: {repr(e)}")
             finally:
                 del self.window_console
+                self.window_console = None
     
     def get_videos_cached(self):
         
@@ -873,6 +892,8 @@ class AsyncDL():
                     if not self.list_dl: 
                         self.stop_root = True
                         self.stop_console = False
+                        self.pasres_repeat = False
+                        await asyncio.sleep(0)
                     
                     #self.ies_close(client=False)     
  
@@ -943,7 +964,9 @@ class AsyncDL():
                             else:
                                 infdict['id'] = str(int(hashlib.sha256(urlkey.encode('utf-8')).hexdigest(),16) % 10**8)                            
                             
-                            
+                            if (_title:=infdict.get('title')):
+                                if len(_title) > 150: infdict['title'] = _title[:150]
+                                
                             if extradict:
                                 if not infdict.get('release_timestamp') and (_mtime:=extradict.get('release_timestamp')):
                                     
@@ -1166,7 +1189,12 @@ class AsyncDL():
                         self.queue_manip.put_nowait(("", "KILL")) 
                     await asyncio.sleep(0)
                     
-                    self.stop_root = True
+                    
+                    #self.stop_root = True
+                    self.stop_console = True
+                    self.pasres_repeat = False
+                    #await asyncio.sleep(0)
+                    
                     break
                 
                 else:

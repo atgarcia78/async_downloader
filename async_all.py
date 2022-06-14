@@ -61,7 +61,9 @@ def main():
                 except (KeyboardInterrupt, Exception) as e:
                     logger.info(repr(e))
                 
-                    try:        
+                    try:
+                        asyncDL.stop_console = True
+                        asyncDL.pasres_repeat = False        
                         pending_tasks = asyncio.all_tasks(loop=asyncDL.loop)
                         if pending_tasks:
                             logger.info(f"pending tasks: {pending_tasks}")

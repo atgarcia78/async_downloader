@@ -12,7 +12,7 @@ import aria2p
 
 from utils import async_ex_in_executor, naturalsize, none_to_cero, wait_time
 
-from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15, limiter_2, limiter_0_5
+from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15, limiter_2, limiter_5
 from yt_dlp.utils import try_get
 
 from threading import Lock, Event, Semaphore
@@ -41,7 +41,8 @@ class AsyncARIA2CDownloader():
     
     _CONFIG = {('userload', 'evoload', 'highload'): {'ratelimit': limiter_15, 'maxsplits': 4},
                ('doodstream',): {'ratelimit': limiter_2, 'maxsplits': 4}, 
-               ('tubeload',): {'ratelimit': limiter_2, 'maxsplits': 4}}
+               ('tubeload',): {'ratelimit': limiter_2, 'maxsplits': 4},
+               ('fembed',): {'ratelimit': limiter_5, 'maxsplits': 16}}
     
     _SEM = {}
     
