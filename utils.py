@@ -303,7 +303,7 @@ def init_logging(file_path=None):
 def init_argparser():
     
  
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:103.0) Gecko/20100101 Firefox/103.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:101.0) Gecko/20100101 Firefox/101.0"]
     #UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")

@@ -197,7 +197,7 @@ class AsyncDL():
                 if self.pasres_repeat and (_list:= list(self.list_pasres)):
                     for _index in _list:
                         self.list_dl[_index-1].pause()
-                    wait_time(2)
+                    wait_time(1)
             
                     for _index in _list:
                         self.list_dl[_index-1].resume()
@@ -539,7 +539,7 @@ class AsyncDL():
             url_list = []
             _url_list_caplinks = []
             _url_list_cli = []
-            url_pl_list = set()
+            url_pl_list = {}
             netdna_list = set()
             _url_list = {}
             
@@ -591,7 +591,8 @@ class AsyncDL():
                             self.list_videos.append(_entry)
                 
                     else:
-                        url_pl_list.add(_elurl)
+                        if not url_pl_list.get(_elurl):
+                            url_pl_list[_elurl] = {'source': _source}
 
             
 
@@ -646,7 +647,10 @@ class AsyncDL():
                             _info = self.ytdl.sanitize_info(fut.result())
                         except Exception as e:
                             _info = None
-                        if _info:
+                        if not _info:
+                            _info = {'_type': 'error', 'url': self.futures[fut]}
+                            self._url_pl_entries += [_info]
+                        elif _info:
                             if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
                                 
                                 _info['original_url'] = self.futures[fut]
@@ -689,6 +693,18 @@ class AsyncDL():
                     if _type == 'playlist':
                         logger.warning(f"PLAYLIST IN PLAYLIST: {_url_entry}")
                         continue
+                    elif _type == 'error':
+                        _errorurl = _url_entry.get('url')
+                        if _errorurl and not self.info_videos.get(_errorurl):
+                            
+                                    
+                            
+                            self.info_videos[_errorurl] = {'source' : url_pl_list.get(_errorurl,{}).get('source') or 'playlist',
+                                                        'video_info': {}, 
+                                                        'status': 'prenok',                                                         
+                                                        'error': ['no video entry']}
+                        continue
+                        
                     elif _type == 'video':                        
                         _url = _url_entry.get('webpage_url') or _url_entry.get('url')
                         
