@@ -14,18 +14,16 @@ import logging
 
 import random
 
-from utils import (
-    print_norm_time,
-    naturalsize,
-    int_or_none,
-    EMA
-)
+from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
+                   naturalsize, print_norm_time)
 
 import aiofiles
 import datetime
 from statistics import median
 import copy
 import time
+
+from concurrent.futures import ThreadPoolExecutor
 
 logger = logging.getLogger("async_DASH_DL")
 
@@ -57,19 +55,18 @@ class AsyncDASHDLReset(Exception):
 
 class AsyncDASHDownloader():
 
-    #_CHUNK_SIZE = 1048576
-    #_CHUNK_SIZE = 1024
     _CHUNK_SIZE = 102400
     _MAX_RETRIES = 5
     _MAX_RESETS = 10
+    _MIN_TIME_RESETS = 15
        
     def __init__(self, video_dict, vid_dl):
 
 
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
-        self.iworkers = vid_dl.info_dl['n_workers'] 
-        self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a iworkers
+        self.n_workers = vid_dl.info_dl['n_workers'] 
+        self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
         self.video_url = self.info_dict.get('url')
         self.webpage_url = self.info_dict.get('webpage_url')
         self.fragment_base_url = self.info_dict.get('fragment_base_url')
@@ -83,8 +80,8 @@ class AsyncDASHDownloader():
         else: self.proxies = None
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
-        self.timeout = httpx.Timeout(10, connect=30)
-        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
+        self.timeout = httpx.Timeout(30, connect=30)
+        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
         self.headers = self.info_dict.get('http_headers')
         self.base_download_path = Path(str(self.info_dict['download_path']))
         if (_filename:=self.info_dict.get('_filename')):
@@ -108,6 +105,10 @@ class AsyncDASHDownloader():
         
         self.ema_s = EMA(smoothing=0.0001)
         self.ema_t = EMA(smoothing=0.0001)
+        
+        self.reset_event = None
+        
+        self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
 
 
     def prep_init(self):
@@ -177,6 +178,9 @@ class AsyncDASHDownloader():
     
     def reset(self):         
 
+        
+        self.ema_s = EMA(smoothing=0.0001)
+        self.ema_t = EMA(smoothing=0.0001)
         count = 0
         
         while (count < 5):
@@ -187,7 +191,7 @@ class AsyncDASHDownloader():
                 
                 try:
 
-                    _info = self.ytdl.extract_info(self.webpage_url, download=False)
+                    _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
                     info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
                     
@@ -202,6 +206,7 @@ class AsyncDASHDownloader():
                         info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
                         self.prep_reset(info_format[0])
                     else: self.prep_reset(info_reset)
+                    self.n_reset += 1
                     break
                 except Exception as e:
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
@@ -212,8 +217,7 @@ class AsyncDASHDownloader():
                 count += 1
                 if count == 5: raise AsyncDASHDLErrorFatal("Reset failed")
 
-        self.n_reset += 1
-    
+
     def prep_reset(self, info_reset):       
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
@@ -250,14 +254,7 @@ class AsyncDASHDownloader():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
 
-    async def wait_time(self, n):
 
-        _started = time.monotonic()
-        while True:
-            if (_t:=(time.monotonic() - _started)) >= n:
-                return _t
-            else:
-                await asyncio.sleep(0)
                 
     async def fetch(self, nco):
 
@@ -265,21 +262,39 @@ class AsyncDASHDownloader():
 
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
             
-            while True:
+            while not self.reset_event.is_set():
 
                 q = await self.frags_queue.get()
                 
+                if self.reset_event.is_set(): 
+                    return
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]")
                 
                 if q == "KILL":
                     break  
-                         
+
+                if self.video_downloader.stop_event.is_set():
+                    return
+                if self.video_downloader.pause_event.is_set():
+                    await self.video_downloader.resume_event.wait()
+                    
+                    async with self._LOCK:
+                        if self.video_downloader.stop_event.is_set():
+                            if not self.reset_event.is_set():
+                                self.reset_event.set()
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: reset event set")
+                            self.video_downloader.stop_event.clear()
+
+                    self.video_downloader.pause_event.clear()
+                    self.video_downloader.resume_event.clear()
+                    self.ema_s = EMA(smoothing=0.0001)
+                    self.ema_t = EMA(smoothing=0.0001)                         
                 url = self.info_frag[q - 1]['url']
                 filename = Path(self.info_frag[q - 1]['file'])
 
                 await asyncio.sleep(0)        
                 
-                while self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES:
+                while ((self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES) and not self.reset_event.is_set()):
     
                     try: 
                         
@@ -310,7 +325,7 @@ class AsyncDASHDownloader():
                                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag{q}: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 5 <=_size <= _hsize + 5}]")                                    
                                                 break
                                             else:
-                                                await f.truncate()
+                                                await f.truncate(0)
                                                 self.info_frag[q-1]['downloaded'] = False
                                                 async with self._LOCK:
                                                     self.n_dl_fragments -= 1
@@ -339,7 +354,10 @@ class AsyncDASHDownloader():
                                     self.info_frag[q - 1]['statistics'] = []
                                     
                                     _started = time.monotonic()
-                                    async for chunk in res.aiter_bytes(chunk_size=_chunk_size): 
+                                    async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
+                                        
+                                        if self.reset_event.is_set(): 
+                                            raise AsyncDASHDLErrorFatal("reset event")
                                         
                                         _timechunk = time.monotonic() - _started 
                                         self.info_frag[q - 1]['time2dlchunks'].append(_timechunk)                             
@@ -430,7 +448,7 @@ class AsyncDASHDownloader():
                         if self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES:
                                                      
 
-                                await self.wait_time(random.choice([i for i in range(1,5)]))
+                                await async_wait_time(random.choice([i for i in range(1,5)]))
                                 await asyncio.sleep(0)
                                 
                                 
@@ -451,15 +469,17 @@ class AsyncDASHDownloader():
 
         
         self._LOCK = asyncio.Lock()
+        self.reset_event = asyncio.Event()
         self.frags_queue = asyncio.Queue()
         for frag in self.frags_to_dl:
             self.frags_queue.put_nowait(frag)        
         
-        for _ in range(self.iworkers):
+        for _ in range(self.n_workers):
             self.frags_queue.put_nowait("KILL")
 
         n_frags_dl = 0
 
+        _tstart = time.monotonic()
         while True:
 
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] TASKS INIT") 
@@ -468,126 +488,106 @@ class AsyncDASHDownloader():
                 self.client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
 
 
-                self.count = self.iworkers
+                self.count = self.n_workers
                 self.status = "downloading"
                 self.down_temp = self.down_size
                 self.started = time.monotonic()
+                self.reset_event.clear()
 
-                self.tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.iworkers)]
-                done, pending = await asyncio.wait(self.tasks, return_when=asyncio.FIRST_EXCEPTION)
-
-                if pending:
-
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] PENDING {pending}") 
-                    for t in pending: t.cancel()
-                    await asyncio.gather(*pending,return_exceptions=True)
-                    await asyncio.sleep(0)
+                tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.n_workers)]
+                done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+                  
+                if self.video_downloader.stop_event.is_set():
+                    self.status = "stop"
+                    return
                     
                 inc_frags_dl = (_nfragsdl:=len(self.fragsdl())) - n_frags_dl
-                n_frags_dl = _nfragsdl
+                n_frags_dl = _nfragsdl                
+
                 
-                if done:
-                    _res = []
-                    for t in done:
-                        try:                            
-                            t.result()  
-                        except Exception as e:
-                            _res.append(repr(e))                            
-                    
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] DONE [{len(done)}] with exceptions {_res}")
-                    for e in _res:
-                        if (("AsyncDASHDLErrorFatal" in e) or ("CancelledError" in e)): raise AsyncDASHDLReset(e)
-
-            
-            except Exception as e:
-                
-                lines = traceback.format_exception(*sys.exc_info())
-                
-                if "AsyncDASHDLReset" in  str(e.__class__):
-                
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:RESET:{repr(e)}\n{'!!'.join(lines)}")
-
-
-                    if self.n_reset < self._MAX_RESETS:
-                    
-                        
-                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}] {e}")
-                        await asyncio.sleep(0)
-                        
-                        try:
-
-                            await asyncio.to_thread(self.reset)
-
-                            self.frags_queue = asyncio.Queue()
-                            for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
-                            for _ in range(self.iworkers): self.frags_queue.put_nowait("KILL")
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
-                            continue 
-                            
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
-                            self.status = "error"
-                            await self.clean_when_error()
-                            await asyncio.sleep(0)
-                            raise AsyncDASHDLErrorFatal("ERROR reset couldnt progress")
-                    
-                    else:
-                        
-                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
-                        self.status = "error"
-                        await self.clean_when_error()
-                        await asyncio.sleep(0)
-                        raise AsyncDASHDLErrorFatal("ERROR max resets")     
+                if n_frags_dl == len(self.info_dict['fragments']): 
+                    break
                 
                 else:
-                
-                
-                    logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:fetch_async:Exception {repr(e)} \n{'!!'.join(lines)}")
-
-                
-            else:
-                
-                if not self.fragsnotdl(): 
-                    #todos los fragmentos en local
-                    break
-                else:                    
-                    #raise AsyncDASHDLErrorFatal("reset") 
-                    if (inc_frags_dl > 0):
+                    
+                    if self.reset_event.is_set():
                         
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
-                        try:
-                            await asyncio.to_thread(self.reset)
-
-                            self.frags_queue = asyncio.Queue()
-                            for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
-                            for _ in range(self.iworkers): self.frags_queue.put_nowait("KILL")
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
-                            self.n_reset -= 1
-                            continue 
+                        if self.n_reset < self._MAX_RESETS:
                             
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
+                            
+                            try:
+                                
+                                #await asyncio.to_thread(self.reset)
+                                await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                self.frags_queue = asyncio.Queue()
+                                for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
+                                if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
+                                    self.n_workers -= self.n_workers // 4
+                                _tstart = _t
+                                for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                await self.client.aclose()
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
+                                await asyncio.sleep(0)
+                                continue 
+                                
+                            except Exception as e:
+                                lines = traceback.format_exception(*sys.exc_info())
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                                self.status = "error"
+                                await self.clean_when_error()
+                                #await asyncio.sleep(0)
+                                raise AsyncDASHDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
+                        
+                        else:
+                            
+                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
                             self.status = "error"
                             await self.clean_when_error()
                             await asyncio.sleep(0)
-                            raise AsyncDASHDLErrorFatal("ERROR reset couldnt progress")
-                        
-                    else:
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
-                        
-                        raise AsyncDASHDLError("no changes in number of dl segs in once cycle")
+                            raise AsyncDASHDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR max resets")
+                    
+                    else:                
+
+                        if (inc_frags_dl > 0):
+                            
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
+                            try:
+                                #await asyncio.to_thread(self.reset)
+                                await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                self.frags_queue = asyncio.Queue()
+                                for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
+                                for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
+                                self.n_reset -= 1
+                                await self.client.aclose()
+                                continue 
+                                
+                            except Exception as e:
+                                lines = traceback.format_exception(*sys.exc_info())
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                                self.status = "error"
+                                await self.clean_when_error()
+                                await asyncio.sleep(0)
+                                raise AsyncDASHDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
+                            
+                        else:
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
+                            
+                            raise AsyncDASHDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: no changes in number of dl frags in one cycle") 
+                            
+            except Exception as e:
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
             finally:
+                for t in tasks: t.cancel()
+                await asyncio.wait(tasks)            
                 await self.client.aclose()
-                del self.client
+                await asyncio.sleep(0)
 
 
-    
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
-
-
         self.status = "init_manipulating"
+
 
     
     async def clean_when_error(self):
@@ -621,7 +621,7 @@ class AsyncDASHDownloader():
                         continue
                     if not f['size']:
                         if f['file'].exists(): f['size'] = f['file'].stat().st_size
-                        if f['size'] and (f['headersize'] - 5 <= f['size'] <= f['headersize'] + 5):                
+                        if f['size'] and (f['headersize'] - 100 <= f['size'] <= f['headersize'] + 100):                
               
                             with open(f['file'], 'rb') as source:
                                 dest.write(source.read())
@@ -671,33 +671,43 @@ class AsyncDASHDownloader():
         import math        
         return f'{(int(math.log(self.n_total_fragments, 10)) + 1)}d'
     
-    async def print_hookup(self):         
+    def print_hookup(self):         
         
+        _filesize_str = naturalsize(self.filesize) if self.filesize else "--" 
         if self.status == "done":
             msg = f"[DASH][{self.info_dict['format_id']}]: Completed \n"
         elif self.status == "init":
-            msg = f"[DASH][{self.info_dict['format_id']}]: Waiting to DL [{naturalsize(self.filesize)}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"           
+            msg = f"[DASH][{self.info_dict['format_id']}]: Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"           
         elif self.status == "error":
             _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
             msg = f"[DASH][{self.info_dict['format_id']}]: ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+        elif self.status == "stop":
+            _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
+            msg = f"[DASH][{self.info_dict['format_id']}]: STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+        
         elif self.status == "downloading":
-            async with self._LOCK:
-                _new = time.monotonic()                                  
-                _speed = (self.down_size - self.down_temp) / (_new - self.started)
-                _speed_ema = (_diff_size_ema:=self.ema_s(self.down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started)) 
+            
+            _down_size = self.down_size
+            _new = time.monotonic()                                  
+            _speed = (_down_size - self.down_temp) / (_new - self.started)
+            _speed_ema = (_diff_size_ema:=self.ema_s(_down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started))
+            if self.video_downloader.pause_event and self.video_downloader.pause_event.is_set():
+                _speed_str = "--" 
+                _eta_str = "--"
+            else:
                 _speed_str = f'{naturalsize(_speed_ema,True)}ps'
-                _progress_str = f'{(self.down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
-                        
                 if _speed_ema and self.filesize:
-                    
-                    if (_est_time:=((self.filesize - self.down_size)/_speed_ema)) < 3600:
+                
+                    if (_est_time:=((self.filesize - _down_size)/_speed_ema)) < 3600:
                         _eta = datetime.timedelta(seconds=_est_time)                    
                         _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
                     else: _eta_str = "--"
                 else: _eta_str = "--"
-                
-                self.down_temp = self.down_size
-                self.started = time.monotonic()             
+            
+            _progress_str = f'{(_down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
+            self.down_temp = _down_size
+            self.started = time.monotonic()   
+                        
                 
             msg = f"[DASH][{self.info_dict['format_id']}]:(WK[{self.count:2d}]) DL[{_speed_str}] FR[{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] ETA[{_eta_str}]\n"
             

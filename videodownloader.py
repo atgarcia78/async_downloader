@@ -162,13 +162,13 @@ class VideoDownloader():
     def pause(self):
         if self.pause_event:
             self.pause_event.set()
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event pause")
+            #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event pause")
         
     def resume(self):
         if self.resume_event:
             if self.pause_event.is_set(): 
                 self.resume_event.set()
-                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event resume")
+                #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event resume")
         
     async def run_dl(self):
 
