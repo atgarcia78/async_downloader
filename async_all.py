@@ -2,7 +2,7 @@
 import asyncio
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor
+from multiprocess import Process, Queue
 
 import uvloop
 from codetiming import Timer
@@ -39,15 +39,14 @@ def main():
         
         try:
             
-            with ThreadPoolExecutor(thread_name_prefix="Init", max_workers=2) as ex:
-                ex.submit(asyncDL.get_videos_cached)
-                ex.submit(asyncDL.get_list_videos)
-            
-
+            q = Queue()
+            p1 = Process(target=asyncDL.get_videos_cached, args=(args.nodlcaching, q))
+            p1.start()            
+            asyncDL.get_list_videos()
+            asyncDL.files_cached = q.get()            
             asyncDL.get_videos_to_dl()    
 
-            t1.stop()
-            
+            t1.stop()            
             t2.start()
             
             if asyncDL.videos_to_dl:    
@@ -78,6 +77,7 @@ def main():
                         asyncDL.close()
 
             t2.stop()
+        
         except Exception as e:
             logger.exception(f"[asyncdl results] {repr(e)}")
         finally:

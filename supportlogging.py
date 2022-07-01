@@ -8,7 +8,7 @@ import logging.handlers
 
 from logging.config import ConvertingList, ConvertingDict, valid_ident
 from logging.handlers import QueueHandler, QueueListener
-from queue import Queue
+from multiprocess import Queue
 import atexit
 import shutil
 

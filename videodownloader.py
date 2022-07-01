@@ -1,7 +1,6 @@
 
 import asyncio
 import copy
-import functools
 import logging
 import shutil
 import subprocess
@@ -20,7 +19,7 @@ from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asyncdashdownloader import AsyncDASHDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import async_ex_in_executor, naturalsize, none_to_cero
+from utils import async_ex_in_executor, naturalsize
 
 SUPPORTED_EXT = {
     DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'

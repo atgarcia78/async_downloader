@@ -164,10 +164,7 @@ class AsyncHLSDownloader():
 
         self.info_frag = []
         self.frags_to_dl = []
-        
-
         self.n_dl_fragments = 0
-        
         
         self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
         self.abr = self.info_dict.get('abr', 0)
@@ -213,7 +210,6 @@ class AsyncHLSDownloader():
             else:
                 self.info_frag.append({"frag" : i+1, "url" : fragment.absolute_uri, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : False, "estsize" : est_size, "headersize": None, "size": None, "n_retries": 0, "error" : []})
                 self.frags_to_dl.append(i+1)
-                
  
                 
             if fragment.key is not None and fragment.key.method == 'AES-128':
@@ -222,11 +218,7 @@ class AsyncHLSDownloader():
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.key_cache[fragment.key.absolute_uri]}")
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{fragment.key.iv}")
 
-
-
-
-        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
-        
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")        
           
         self.n_total_fragments = len(self.info_dict['fragments'])
         self.calculate_duration() #get total duration
@@ -264,15 +256,9 @@ class AsyncHLSDownloader():
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{count}]:get video dict: {self.webpage_url}")
                 
                 try:
-
-                    # ie = self.ytdl.get_info_extractor("NakedSwordScene")
-                    # if not ie._MASTER_INIT:
-                    #     self.to_screen(f"[{ie}] Initialize")
-                    #     ie._real_initialize()     
                     _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
                     info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
-                    
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")                    
                 except Exception as e:
                     raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:fails no descriptor {e}")
 
@@ -298,8 +284,7 @@ class AsyncHLSDownloader():
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
         self.video_url = self.info_dict['url'] = info_reset.get('url')
         self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
-        self.manifest_url = self.info_dict['manifest_url'] = info_reset.get('manifest_url')
-        
+        self.manifest_url = self.info_dict['manifest_url'] = info_reset.get('manifest_url')        
 
         self.frags_to_dl = []
 
@@ -307,10 +292,8 @@ class AsyncHLSDownloader():
         uri_ant = ""
         byte_range = {}
         
-        self.info_dict['fragments'] = self.get_info_fragments()
-        
-        #logger.info(f"info_frag\{self.info_frag}")
-        #logger.info(f"info_dict[fragments]\{self.info_dict['fragments']}")
+        self.info_dict['fragments'] = self.get_info_fragments()        
+
 
         for i, fragment in enumerate(self.info_dict['fragments']):
                                 
@@ -357,6 +340,7 @@ class AsyncHLSDownloader():
         else:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
+    
     async def fetch(self, nco):
 
         try:
