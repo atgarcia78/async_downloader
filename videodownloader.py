@@ -133,7 +133,7 @@ class VideoDownloader():
             return dl
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
+            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
             raise 
             
     def reset(self):
