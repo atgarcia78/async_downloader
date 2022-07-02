@@ -663,20 +663,25 @@ class AsyncDL():
                     elif _info:
                         if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
                             
-                            _info['original_url'] = self.futures[fut]
+                            ##_info['original_url'] = self.futures[fut]
+                            if not _info.get('original_url'): _info.update({'original_url': self.futures[fut]})
+                            
                             self._url_pl_entries += [_info]
                         else:
                             for _ent in _info.get('entries'):
                                 
                                 if _ent.get('_type', 'video') == 'video':
-                                    _ent['original_url'] = self.futures[fut]
+                                    if not _ent.get('original_url'): _ent.update({'original_url': self.futures[fut]})
+                                    if ((_wurl:=_ent['webpage_url']) == _ent['original_url']):
+                                        if _ent.get('n_entries', 0) > 1:
+                                            _ent.update({'webpage_url': f"{_wurl}?id={_ent['playlist_index']}"})
                                     self._url_pl_entries += [_ent]
                                 else:    
                                     try:
                                         is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
                                         _error = _ent.get('error')
                                         if not is_pl or _error:
-                                            _ent['original_url'] = self.futures[fut]
+                                            if not _ent.get('original_url'): _ent.update({'original_url': self.futures[fut]})
                                             if _error: _ent['_type'] = "error"
                                             self._url_pl_entries.append(_ent)
                                         else:
