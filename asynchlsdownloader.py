@@ -14,7 +14,7 @@ from statistics import median
 from urllib.parse import urlparse
 
 import aiofiles
-import aiofiles.os
+import aiofiles.os as os
 import httpx
 import m3u8
 from Cryptodome.Cipher import AES
@@ -382,7 +382,7 @@ class AsyncHLSDownloader():
                           
                 url = self.info_frag[q - 1]['url']
                 filename = Path(self.info_frag[q - 1]['file'])
-                filename_exists = await aiofiles.os.path.exists(filename)
+                filename_exists = await os.path.exists(filename)
                 key = self.info_frag[q - 1]['key']
                 cipher = None
                 if key is not None and key.method == 'AES-128':
@@ -427,7 +427,7 @@ class AsyncHLSDownloader():
                                         
                                         #if (await asyncio.to_thread(filename.exists)):
                                         if filename_exists:
-                                            _size = self.info_frag[q-1]['size'] = (await aiofiles.os.stat(filename)).st_size #(await asyncio.to_thread(filename.stat)).st_size 
+                                            _size = self.info_frag[q-1]['size'] = (await os.stat(filename)).st_size #(await asyncio.to_thread(filename.stat)).st_size 
                                             if _size and  (_hsize - 100 <= _size <= _hsize + 100):                            
                                     
                                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 100 <=_size <= _hsize + 100}]")                                    
@@ -499,7 +499,7 @@ class AsyncHLSDownloader():
                                         await asyncio.sleep(0)
                                         _started = time.monotonic()
                                     
-                        _size = (await aiofiles.os.stat(filename)).st_size
+                        _size = (await os.stat(filename)).st_size
                         _hsize = self.info_frag[q-1]['headersize']
                         if (_hsize - 100 <= _size <= _hsize + 100):
                             self.info_frag[q - 1]['downloaded'] = True 
@@ -524,10 +524,10 @@ class AsyncHLSDownloader():
                         #await self.client.aclose()
                         lines = traceback.format_exception(*sys.exc_info())
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: fatalError: \n{'!!'.join(lines)}")
-                        if await aiofiles.os.path.exists(filename):
-                            _size = (await aiofiles.os.stat(filename)).st_size                           
+                        if await os.path.exists(filename):
+                            _size = (await os.stat(filename)).st_size                           
                             #await asyncio.to_thread(filename.unlink)
-                            await aiofiles.os.remove(filename)
+                            await os.remove(filename)
                         
                             async with self._LOCK:
                                 self.down_size -= _size
@@ -543,10 +543,10 @@ class AsyncHLSDownloader():
                         self.info_frag[q - 1]['downloaded'] = False
                         lines = traceback.format_exception(*sys.exc_info())
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: CancelledError: \n{'!!'.join(lines)}")
-                        if await aiofiles.os.path.exists(filename):
-                            _size = (await aiofiles.os.stat(filename)).st_size                           
+                        if await os.path.exists(filename):
+                            _size = (await os.stat(filename)).st_size                           
                             #await asyncio.to_thread(filename.unlink)
-                            await aiofiles.os.remove(filename)
+                            await os.remove(filename)
                             
                             async with self._LOCK:
                                 self.down_size -= _size
@@ -562,10 +562,10 @@ class AsyncHLSDownloader():
                             logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {str(e.__class__)}")
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {repr(e)} \n{'!!'.join(lines)}")
                         self.info_frag[q - 1]['n_retries'] += 1
-                        if await aiofiles.os.path.exists(filename):
-                            _size = (await aiofiles.os.stat(filename)).st_size                           
+                        if await os.path.exists(filename):
+                            _size = (await os.stat(filename)).st_size                           
                             #await asyncio.to_thread(filename.unlink)
-                            await aiofiles.os.remove(filename)
+                            await os.remove(filename)
                         
                             async with self._LOCK:
                                 self.down_size -= _size
@@ -729,8 +729,8 @@ class AsyncHLSDownloader():
         for f in self.info_frag:
             if f['downloaded'] == False:
                 
-                if (await aiofiles.os.path.exists(f['file'])):
-                    await aiofiles.os.path.remove(f['file'])
+                if (await os.path.exists(f['file'])):
+                    await os.path.remove(f['file'])
    
     def sync_clean_when_error(self):
             

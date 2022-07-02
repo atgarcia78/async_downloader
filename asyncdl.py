@@ -239,10 +239,8 @@ class AsyncDL():
         
         try:
             
-            #self.window_console = init_gui_console()
             
             while self.stop_console:
-                #await async_wait_time(self._INTERVAL_GUI)
                 await asyncio.sleep(0)
             
             logger.debug(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
@@ -435,7 +433,7 @@ class AsyncDL():
                 with open(current_res, 'w') as f:
                     f.write("WORKING")
             
-                #list_folders = [Path(Path.home(), "testing"), Path("/Volumes/WD5/videos"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/T7/videos"), Path("/Volumes/Pandaext1/videos"), Path("/Volumes/WD/videos")]
+
                 list_folders = [Path(Path.home(), "testing"), Path("/Volumes/WD5/videos"), Path("/Volumes/Pandaext4/videos")]
                 
                 _repeated = []
@@ -566,7 +564,8 @@ class AsyncDL():
                 _url_list_caplinks = list(_temp)
                 
                 logger.info(f"video list caplinks \n{_url_list_caplinks}")
-                shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
+                shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", 
+                            "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
                 with open(filecaplinks, "w") as file:
                     file.write("")
                     
@@ -615,15 +614,12 @@ class AsyncDL():
                     
             if netdna_list:
                 logger.info(f"[netdna_list]: {netdna_list}")
-                #NetDNAIE._downloader = self.ytdl
                 _ies_netdna = self.ytdl.get_info_extractor('NetDNA')
                  
                 with ThreadPoolExecutor(thread_name_prefix="Get_netdna", max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
                      
                     futures = [ex.submit(_ies_netdna.get_entry, _url_netdna) for _url_netdna in netdna_list]
-                    
 
-                    
                 for fut,_url_netdna in zip(futures, netdna_list):
                     try:
                         _entry_netdna = fut.result()                        
@@ -710,8 +706,6 @@ class AsyncDL():
                     elif _type == 'error':
                         _errorurl = _url_entry.get('url')
                         if _errorurl and not self.info_videos.get(_errorurl):
-                            
-                                    
                             
                             self.info_videos[_errorurl] = {'source' : url_pl_list.get(_errorurl,{}).get('source') or 'playlist',
                                                         'video_info': {}, 
@@ -858,19 +852,15 @@ class AsyncDL():
                     else: _last = len(initial_videos)
                     initial_videos = initial_videos[self.args.first - 1: _last]
                     
-                    #for (url, vid) in initial_videos[self.args.first-1:_last]: 
-                    #    self.info_videos[url].update({'todl': True})
                        
                 else: raise IndexError(f"index issue with '--first {self.args.first}' and '--last {self.args.last}' options and index video range [0..{len(initial_videos)-1}]")
             else:
                 if (_last:=self.args.last) > 0:
                     initial_videos = initial_videos[: _last]
-                    #for (url, vid) in initial_videos[:_last]: 
-                    #    self.info_videos[url].update({'todl': True})
+
                         
         for (url, vid) in initial_videos:
             
-            #if not self.args.nodl: self.info_videos[url].update({'todl': True})
             self.info_videos[url].update({'todl': True})
             if (_id:=self.info_videos[url]['video_info'].get('id')):
                 self.info_videos[url]['video_info']['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
@@ -897,7 +887,6 @@ class AsyncDL():
         
             while True:
                 
-                #num, vid = self.queue_vid.get(block=True)    
                 
                 url_key = await self.queue_vid.get()
                 async with self.lock:
@@ -911,7 +900,6 @@ class AsyncDL():
                     
                     #wait for the others workers_init to finish
                     while (self.count_init < (self.init_nworkers - 1)):
-                        #time.sleep(1)
                         await asyncio.sleep(0)
                     
                     self.print_list_videos()
@@ -925,7 +913,6 @@ class AsyncDL():
                         self.pasres_repeat = False
                         await asyncio.sleep(0)
                     
-                    #self.ies_close(client=False)     
  
                     break
                 
@@ -1006,7 +993,6 @@ class AsyncDL():
                             
                             self.info_videos[urlkey].update({'video_info': infdict})
                             
-                            #_filesize = extradict.get('filesize',0) if extradict else infdict.get('filesize', 0)
                             
                             _filesize = none_to_cero(extradict.get('filesize', 0)) if extradict else none_to_cero(infdict.get('filesize', 0))
                             
@@ -1024,7 +1010,6 @@ class AsyncDL():
                             
                             if (_same_video_url:=self._check_if_same_video(urlkey)):
                                                                 
-                                #self.videos_to_dl.remove(vid)                            
                                 if _filesize:
                                     async with self.lock:
                                         self.totalbytes2dl -= _filesize
@@ -1040,7 +1025,6 @@ class AsyncDL():
                             if await go_for_dl(urlkey ,infdict, extradict) and not self.args.nodl:
                                 
                                 dl = await async_ex_in_executor(self.ex_winit, VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args)
-                                #dl = await asyncio.to_thread(VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args)                       
                                 _filesize = none_to_cero(extradict.get('filesize', 0)) if extradict else none_to_cero(infdict.get('filesize', 0))       
                                 if not dl.info_dl.get('status', "") == "error":
                                     
@@ -1122,9 +1106,7 @@ class AsyncDL():
                                                 logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
                                         
                                             else:
-                                                #_filesize = none_to_cero(_entry.get('filesize', 0))
                                                 async with self.lock:
-                                                    #self.totalbytes2dl += _filesize
                                                     self.totalbytes2dl += none_to_cero(_entry.get('filesize', 0))
                                                 if self.wkinit_stop:
                                                     logger.info(f"[worker_init][{i}]: BLOCKED")
@@ -1280,7 +1262,6 @@ class AsyncDL():
                 
                 if video_dl == "KILL":
                     logger.debug(f"[worker_manip][{i}]: get KILL, bye")                    
-                    #await asyncio.sleep(0)
                     break                
 
                 else:
