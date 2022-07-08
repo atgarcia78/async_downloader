@@ -167,7 +167,7 @@ class AsyncARIA2CDownloader():
         
             while True:
                 self.dl_cont.update()
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
+                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if self.dl_cont.status in ('error'):
@@ -216,7 +216,7 @@ class AsyncARIA2CDownloader():
             
             while True:
                 await async_ex_in_executor(self.ex_aria2dl, self.dl_cont.update)
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_init]\n{self.dl_cont._struct}")
+                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_init]\n{self.dl_cont._struct}")
                 if self.dl_cont.status in ('active', 'error'):
                     break                    
                 await asyncio.sleep(0)
@@ -224,7 +224,7 @@ class AsyncARIA2CDownloader():
             if self.dl_cont.status in ('active'):        
                 self.status = "downloading"  
                 
-                timer0 = time.monotonic()
+                #timer0 = time.monotonic()
                 while self.dl_cont.status in ('active'):                    
                                     
                     _incsize = self.dl_cont.completed_length - self.down_size
@@ -250,9 +250,9 @@ class AsyncARIA2CDownloader():
                         
                     else: 
                         await async_ex_in_executor(self.ex_aria2dl, self.dl_cont.update)
-                        if ((timer1:=time.monotonic()) - timer0 > 1):
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_dl]\n{self.dl_cont._struct}")
-                            timer0 = timer1
+                        # if ((timer1:=time.monotonic()) - timer0 > 1):
+                        #     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_dl]\n{self.dl_cont._struct}")
+                        #     timer0 = timer1
                     await asyncio.sleep(0)
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
             if self.dl_cont.status in ('complete'): self.status = "done"
