@@ -562,6 +562,9 @@ def init_gui_single():
         
         return window_single
     
+    except Exception as e:
+        logger.exception(f'[init_gui] error {repr(e)}')
+    
     
       
 def init_gui():
