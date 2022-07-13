@@ -153,7 +153,7 @@ class AsyncARIA2CDownloader():
             
         @_decor
         def _throttle_add_uris():
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{_extractor}] init uris[{uris}]")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{_extractor}] init uris[{uris}]")
             
             return self.aria2_client.add_uris(uris, opts)
                         

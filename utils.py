@@ -325,6 +325,7 @@ def init_argparser():
     parser.add_argument("--path", default=None, type=str)    
     parser.add_argument("--caplinks", action="store_true", default=False)    
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
+    parser.add_argument("--vv", help="verbose plus", action="store_true", default=False)
     parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
     parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
     parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
@@ -346,6 +347,9 @@ def init_argparser():
     if args.path and len(args.path.split("/")) == 1:
         _path = Path(Path.home(),"testing", args.path)
         args.path = str(_path)
+        
+    if args.vv:
+        args.verbose = True
             
     return args
 
@@ -376,20 +380,26 @@ class MyLogger(logging.LoggerAdapter):
     #se pasa un logger de logging al crear la instancia 
     # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
     
-    def __init__(self, logger, quiet=False, verbose=False):
+    def __init__(self, logger, quiet=False, verbose=False, superverbose=False):
         super().__init__(logger, {})
         self.quiet = quiet
         self.verbose = verbose
-
+        self.superverbose = superverbose
     
     def debug(self, msg, *args, **kwargs):
+        mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
+        mobj2 = re.search(r'Playlist [^\:]+\: Downloading', msg) or re.search(r'\: Extracting information', msg)
         if self.quiet:
             self.log(DEBUG, msg, *args, **kwargs)
-        elif self.verbose:
-            self.log(INFO, msg, *args, **kwargs)            
+        elif self.verbose and not self.superverbose:
+            if (mobj in ('[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and 'Extracting URL:' in msg) or mobj2:
+                self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+            else:
+                self.log(INFO, msg, *args, **kwargs)            
+        elif self.superverbose:
+            self.log(INFO, msg, *args, **kwargs)
         else:    
-            mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
-            if mobj in ('[debug]', '[info]', '[download]'):
+            if mobj in ('[debug]', '[info]', '[download]', '[debug+]') or mobj2:
                 self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else: self.log(INFO, msg, *args, **kwargs)
         
@@ -419,7 +429,7 @@ def init_ytdl(args):
     ytdl_opts = {
         "http_headers": headers,
         "proxy" : proxy,        
-        "logger" : MyLogger(logger, args.quiet, args.verbose),
+        "logger" : MyLogger(logger, args.quiet, args.verbose, args.vv),
         "verbose": args.verbose,
         "quiet": args.quiet,
         "format" : args.format,
@@ -437,9 +447,10 @@ def init_ytdl(args):
         "skip_download": True,        
         "writesubtitles": True,        
         "restrictfilenames": True,
-        "user_agent": args.useragent,
+        "user_agent": args.useragent,        
+        "hls_split_discontinuity": True,
         "winit": args.winit,
-        "hls_split_discontinuity": True
+        "verboseplus": args.vv
                   
     }
     
