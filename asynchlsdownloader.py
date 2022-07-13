@@ -127,7 +127,7 @@ class AsyncHLSDownloader():
                 try:
                     res = client.get(self.video_url, headers=self.headers)
                     res.raise_for_status()
-                    self.m3u8_obj = m3u8.loads(res.text, uri=self.video_url)
+                    self.m3u8_obj = m3u8.loads((res.content).decode('utf-8', 'replace') , uri=self.video_url)
                     break
                 except Exception as e:
                     logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error num[{i+1}] when downloading m3u8 file, will retry")

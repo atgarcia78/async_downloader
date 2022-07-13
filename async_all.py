@@ -70,7 +70,7 @@ def main():
                     else: logger.info(f"pending tasks: []")
                 finally:
                     asyncio.set_event_loop(None)
-                    #asyncDL.close()
+                    
 
             
         

@@ -385,14 +385,15 @@ class MyLogger(logging.LoggerAdapter):
         self.quiet = quiet
         self.verbose = verbose
         self.superverbose = superverbose
+        self.debug_phr = ['Extracting URL:','The information of all playlist entries will be held in memory' ]
     
     def debug(self, msg, *args, **kwargs):
         mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
-        mobj2 = re.search(r'Playlist [^\:]+\: Downloading', msg) or re.search(r'\: Extracting information', msg)
+        mobj2 = re.search(r'Playlist [^\:]+\: Downloading', msg) or re.search(r'\: Extracting information', msg) or re.search(r'\: Downloading webpage', msg)
         if self.quiet:
             self.log(DEBUG, msg, *args, **kwargs)
         elif self.verbose and not self.superverbose:
-            if (mobj in ('[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and 'Extracting URL:' in msg) or mobj2:
+            if (mobj in ('[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and any(_ in msg for _ in self.debug_phr)) or mobj2:
                 self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:
                 self.log(INFO, msg, *args, **kwargs)            
@@ -401,7 +402,8 @@ class MyLogger(logging.LoggerAdapter):
         else:    
             if mobj in ('[debug]', '[info]', '[download]', '[debug+]') or mobj2:
                 self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
-            else: self.log(INFO, msg, *args, **kwargs)
+            else:                
+                self.log(INFO, msg, *args, **kwargs)
         
 def init_ytdl(args):
 

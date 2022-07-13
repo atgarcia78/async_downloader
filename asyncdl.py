@@ -96,8 +96,9 @@ class AsyncDL():
         self.ex_winit = ThreadPoolExecutor(thread_name_prefix="ex_wkinit")
         self.lock = Lock()
         
-        self.t1 = Timer("execution", text="Time spent with data preparation: {:.2f}", logger=logger.info)
+        self.t1 = Timer("execution", text="Time spent with data preparation for the init workers: {:.2f}", logger=logger.info)
         self.t2 = Timer("execution", text="Time spent with DL: {:.2f}", logger=logger.info)
+        self.t3 = Timer("execution", text="Time spent by init workers: {:.2f}", logger=logger.info)
 
     async def gui_root(self):
         '''
@@ -558,9 +559,7 @@ class AsyncDL():
     def get_list_videos(self):
         
         logger.info(f"[get_list_videos] start scanning")
-        
-        
-        self.t1.start()
+
 
         try:
          
@@ -721,9 +720,10 @@ class AsyncDL():
                         self.futures.update({(_future:=ex.submit(self.ytdl.extract_info, url, download=False)): url}) 
                         _future.add_done_callback(custom_callback)
                               
-        
+                logger.debug(f"[url_playlist_lists] entries \n{self._url_pl_entries}")
+                
                 if not self.nowaitforstartdl:
-                    logger.debug(f"[url_playlist_lists] entries \n{self._url_pl_entries}")
+                    
                 
                     for _url_entry in self._url_pl_entries:
                         
@@ -769,14 +769,9 @@ class AsyncDL():
                                 if self.nowaitforstartdl: self._prepare_for_dl(_url)
                                 self.list_videos.append(self.info_videos[_url]['video_info'])
 
-                else:
-                    for _ in range(self.init_nworkers-1):
-                        self.queue_vid.sync_q.put_nowait("KILL")        
-                    self.queue_vid.sync_q.put_nowait("KILLANDCLEAN")
-                    self.getlistvid_done = True
-                    self.t1.stop()
+
                     
-                logger.debug(f"[url_playlist_lists] list videos \n{self.list_videos}\n{self.info_videos}") 
+                
                 
             if self.args.collection_files:
                 
@@ -820,6 +815,12 @@ class AsyncDL():
 
             logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}\n{self.info_videos}")
             
+            if self.nowaitforstartdl:
+                for _ in range(self.init_nworkers - 1):
+                    self.queue_vid.sync_q.put_nowait("KILL")        
+                self.queue_vid.sync_q.put_nowait("KILLANDCLEAN")
+                self.getlistvid_done = True
+                self.t1.stop()
 
             return self.list_videos
         
@@ -932,6 +933,7 @@ class AsyncDL():
     
     def get_videos_to_dl(self): 
         
+        logger.warning("[get_videos_to_dl] LEGACY MODE")
         initial_videos = [(url, video) for url, video in self.info_videos.items()]
         
         if self.args.index: 
@@ -1000,9 +1002,14 @@ class AsyncDL():
                     logger.debug(f"[worker_init][{i}]: finds KILLANDCLEAN")
                     
                     #wait for the others workers_init to finish
-                    while (self.count_init < (self.init_nworkers - 1)):
-                        await asyncio.sleep(0)
+                    i = 0
+                    while (_val:=self.count_init < (self.init_nworkers - 1)):
+                        i += 1
+                        if i == 6:
+                            logger.debug(f"[worker_init][{i}]: bucle while [count_init] {self.count_init} [init_workers] {self.init_workers} [val] {_val}")
+                        await asyncio.sleep(5)
                     
+                    self.t3.stop()
                     self.print_list_videos()
                     for _ in range(self.workers - 1): self.queue_run.put_nowait(("", "KILL"))
                     
@@ -1420,7 +1427,12 @@ class AsyncDL():
         logger.info(f"MAX WORKERS [{self.workers}]")
         
         try:
+            if self.nowaitforstartdl:
+                #await async_ex_in_executor(self.ex_winit, self.t1.start)
+                self.t1.start()
+            #await async_ex_in_executor(self.ex_winit, self.t2.start)
             self.t2.start()
+            self.t3.start()
             self.loop  =  asyncio.get_running_loop()
             self.tasks_run = []
             task_gui_root = []
