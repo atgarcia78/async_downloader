@@ -69,7 +69,8 @@ class EMA(object):
 
 def perform_long_operation(_func, *args, **kwargs):
 
-    stop_event = threading.Event()
+    
+    stop_event = kwargs.get('event', threading.Event())
     thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=kwargs, daemon=True)
     thread.start()
     return(thread, stop_event)
@@ -540,7 +541,7 @@ def init_gui_console():
         logger.exception(f'[init_gui] error {repr(e)}')
         
 
-def init_gui_single():
+def init_gui():
     
     try:
         
@@ -575,7 +576,7 @@ def init_gui_single():
                             [col_pygui] ]
 
 
-        window_single = sg.Window('async_downloader', layout_single, location=(0, 0), finalize=True, resizable=True)
+        window_single = sg.Window('async_downloader', layout_single,  alpha_channel=0.99, location=(0, 0), finalize=True, resizable=True)
         window_single.set_min_size(window_single.size)
         
         window_single['-ML0-'].expand(True, True, True)
@@ -590,7 +591,7 @@ def init_gui_single():
     
     
       
-def init_gui():
+def _init_gui():
    
     try:
         
