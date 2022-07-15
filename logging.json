@@ -40,8 +40,8 @@
         "formatter": "file_format",
         "filename": "{home}/Projects/common/logs/info2.log",
         "filters": ["filtermodules"],
-        "maxBytes": 12621440,
-        "backupCount": 5,
+        "maxBytes": 6310720,
+        "backupCount": 12,
         "encoding": "utf8"
     },
 

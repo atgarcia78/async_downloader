@@ -23,6 +23,8 @@ import PySimpleGUI as sg
 from yt_dlp import YoutubeDL
 from yt_dlp.utils import js_to_json
 
+import threading
+
 
 class SignalHandler:
     
@@ -64,6 +66,14 @@ class EMA(object):
             self.last = self.alpha * x + beta * self.last
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
+
+def perform_long_operation(_func, *args, **kwargs):
+
+    stop_event = threading.Event()
+    thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=kwargs, daemon=True)
+    thread.start()
+    return(thread, stop_event)
+
 
 async def async_ex_in_executor(executor, func, /, *args, **kwargs):
     loop = asyncio.get_running_loop()
@@ -489,7 +499,7 @@ def init_gui_root():
         
         layout_root = [ [col_0, col_1, col_2] ]
         
-        window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True)
+        window_root = sg.Window('async_downloader', layout_root, alpha_channel=0.99, location=(0, 0), finalize=True, resizable=True)
         window_root.set_min_size(window_root.size)
         
         window_root['-ML0-'].expand(True, True, True)
@@ -518,7 +528,7 @@ def init_gui_console():
         
         layout_pygui = [ [col_pygui] ]
 
-        window_console = sg.Window('Console', layout_pygui, location=(0, 500), finalize=True, resizable=True)
+        window_console = sg.Window('Console', layout_pygui, alpha_channel=0.99, location=(0, 500), finalize=True, resizable=True)
         window_console.set_min_size(window_console.size)
         window_console['-ML-'].expand(True, True, True)
         

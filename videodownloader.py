@@ -95,10 +95,10 @@ class VideoDownloader():
             self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
             
             
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"{repr(e)} - DL constructor failed for {video_dict}\n{'!!'.join(lines)}")
-            raise 
+        except Exception as e:            
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] DL constructor failed")
+            self.info_dl['status'] = "error"
+            
 
     def _get_dl(self, info):
         
@@ -132,8 +132,7 @@ class VideoDownloader():
                          
             return dl
         except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed for {info}\n{'!!'.join(lines)}")
+            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed")
             raise 
             
     def reset(self):
