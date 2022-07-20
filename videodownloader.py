@@ -11,8 +11,8 @@ from pathlib import Path
 from shutil import rmtree
 
 import httpx
-from pycaption import (DFXPReader, SAMIReader, SCCReader, SRTReader,
-                       WebVTTReader, SRTWriter, detect_format)
+#from pycaption import (DFXPReader, SAMIReader, SCCReader, SRTReader,
+#                       WebVTTReader, SRTWriter, detect_format)
 from yt_dlp.utils import determine_protocol, sanitize_filename
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
@@ -21,10 +21,10 @@ from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
 from utils import async_ex_in_executor, naturalsize
 
-SUPPORTED_EXT = {
-    DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
+# SUPPORTED_EXT = {
+#     DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
     
-}
+# }
 
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -65,10 +65,15 @@ class VideoDownloader():
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
                 downloaders.append(self._get_dl(_new_info_dict))
             else:
+                #logger.info(_requested_formats)
                 for f in _requested_formats:
+                    #logger.info(f)
                     _new_info_dict = copy.deepcopy(f)                
                     _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
-                    downloaders.append(self._get_dl(_new_info_dict))        
+                    #logger.info(_new_info_dict)
+                    dl = self._get_dl(_new_info_dict)
+                    #logger.info(dl)
+                    downloaders.append(dl)        
 
             res = sorted(list(set([dl.status for dl in downloaders])))
             if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]):
@@ -102,38 +107,33 @@ class VideoDownloader():
 
     def _get_dl(self, info):
         
-        try:
-            protocol = determine_protocol(info)
-            if protocol in ('http', 'https'):
-                if self.info_dl['rpcport']: 
-                    try:
-                        dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
-                        logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
-                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
-                    except Exception:
-                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}]: aria2c DL failed")
-                        #dl = AsyncHTTPDownloader(info, self)
-                        #logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                        raise
-                else: 
-                    dl = AsyncHTTPDownloader(info, self)
-                    logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")                   
-            elif protocol in ('m3u8', 'm3u8_native'):
-                dl = AsyncHLSDownloader(info, self)
-                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
-                            
-            elif protocol in ('http_dash_segments', 'dash'):
-                dl = AsyncDASHDownloader(info, self)
-                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
-            else:
-                logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
-                raise NotImplementedError("protocol not supported")
             
-                         
-            return dl
-        except Exception as e:
-            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: {repr(e)} - DL constructor failed")
-            raise 
+        protocol = determine_protocol(info)
+                    
+        if protocol in ('http', 'https'):
+            if self.info_dl['rpcport']: 
+                
+                dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+
+            else: 
+                dl = AsyncHTTPDownloader(info, self)
+                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")                   
+        elif protocol in ('m3u8', 'm3u8_native'):
+            dl = AsyncHLSDownloader(info, self)
+            logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
+                        
+        elif protocol in ('http_dash_segments', 'dash'):
+            dl = AsyncDASHDownloader(info, self)
+            logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
+        else:
+            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
+            raise NotImplementedError("protocol not supported")
+        
+                        
+        return dl
+
             
     def reset(self):
         for dl in self.info_dl['downloaders']:
@@ -221,37 +221,43 @@ class VideoDownloader():
             if _el.startswith('es'): 
                 key = _el
                 break
-        if not key: 
-            if 'en' in _keys: key = 'en'
-            else: return            
+            if _el.startswith('en'):
+                key= _el
+        
+        if not key: return            
       
-        value = self.info_dl['requested_subtitles'][key]
-        try:
-            _srt = httpx.get(value['url']).text
-            reader = detect_format(_srt)
-            
-            _ext = SUPPORTED_EXT[reader]
-            _subs_file_stem = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}"
-            
-            # with open(f'{_subs_file_stem}.{_ext}', "wb") as f:
-            #     f.write(res.content)
-                
-            if reader is not SRTReader: 
-            
-                _srt = SRTWriter().write(reader().read(_srt))
-                _ext = 'srt'                  
-                
-            with open(f'{_subs_file_stem}.{_ext}', "w") as f:
-                f.write(_srt)
+        subtitles = self.info_dl['requested_subtitles'][key]
+        
+        for value in subtitles:
+        
+            try:
+                if (_ext:=value.get('ext') in ('srt', 'vtt')):
                     
-            
-            #value['file'] = f'{_subs_file_stem}.{_ext}' #the srt format will be embed to the video file
+                    _content = httpx.get(value['url']).text
+                    #reader = detect_format(_srt)
                 
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloadeded and converted to srt format")
+                    #_ext = SUPPORTED_EXT[reader]
+                    _subs_file = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}.{_ext}"
                 
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when downloading subs file\n{'!!'.join(lines)}")
+                # with open(f'{_subs_file_stem}.{_ext}', "wb") as f:
+                #     f.write(res.content)
+                    
+                # if reader is not SRTReader: 
+                
+                #     _srt = SRTWriter().write(reader().read(_srt))
+                #     _ext = 'srt'                  
+                    
+                    with open(_subs_file, "w") as f:
+                        f.write(_content)
+                        
+                
+                #value['file'] = f'{_subs_file_stem}.{_ext}' #the srt format will be embed to the video file
+                    
+                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloaded in {_ext} format")
+                    
+            except Exception as e:
+                lines = traceback.format_exception(*sys.exc_info())                
+                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when downloading subs file\n{'!!'.join(lines)}")
            
    
     @staticmethod

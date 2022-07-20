@@ -67,6 +67,10 @@ class EMA(object):
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
+def print_tasks(tasks):
+   #return [f"{task.get_name()} : {str(task.get_coro()).split(' ')[0]}\n" for task in tasks]
+   return "\n".join([f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks])
+
 def perform_long_operation(_func, *args, **kwargs):
 
     
@@ -383,8 +387,7 @@ def init_aria2c(args):
     del cl
     
     
-INFO = 20
-DEBUG = 10
+
 class MyLogger(logging.LoggerAdapter):
     #para ser compatible con el logging de yt_dlp: yt_dlp usa debug para enviar los debug y
     #los info. Los debug llevan '[debug] ' antes.
@@ -396,25 +399,38 @@ class MyLogger(logging.LoggerAdapter):
         self.quiet = quiet
         self.verbose = verbose
         self.superverbose = superverbose
-        self.debug_phr = ['Extracting URL:','The information of all playlist entries will be held in memory' ]
+        self.debug_phr = ['Falling back on generic information extractor','Extracting URL:',
+                          'The information of all playlist entries will be held in memory', 'Looking for video embeds',
+                          'Identified a HTML5 media', 'Identified a KWS Player']
+        self.skip_phr = ['Downloading', 'Extracting information']
+    
+    def error(self, msg, *args, **kwargs):
+        self.log(logging.DEBUG, msg, *args, **kwargs)
+    
+    def warning(self, msg, *args, **kwargs):
+        if any(_ in msg for _ in self.debug_phr):
+            self.log(logging.DEBUG, msg, *args, **kwargs)
+        else:
+            self.log(logging.WARNING, msg, *args, **kwargs)            
     
     def debug(self, msg, *args, **kwargs):
         mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
-        mobj2 = re.search(r'Playlist [^\:]+\: Downloading', msg) or re.search(r'\: Extracting information', msg) or re.search(r'\: Downloading webpage', msg)
+        mobj2 = msg.split(': ')[-1]
+        #mobj2 = re.search(r'Playlist [^\:]+\: Downloading', msg) or re.search(r'\: Extracting information', msg) or re.search(r'\: Downloading webpage', msg)
         if self.quiet:
-            self.log(DEBUG, msg, *args, **kwargs)
+            self.log(logging.DEBUG, msg, *args, **kwargs)
         elif self.verbose and not self.superverbose:
-            if (mobj in ('[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and any(_ in msg for _ in self.debug_phr)) or mobj2:
-                self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+            if (mobj in ('[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and any(_ in msg for _ in self.debug_phr)) or any(_ in mobj2 for _ in self.skip_phr):
+                self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:
-                self.log(INFO, msg, *args, **kwargs)            
+                self.log(logging.INFO, msg, *args, **kwargs)            
         elif self.superverbose:
-            self.log(INFO, msg, *args, **kwargs)
+            self.log(logging.INFO, msg, *args, **kwargs)
         else:    
-            if mobj in ('[debug]', '[info]', '[download]', '[debug+]') or mobj2:
-                self.log(DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+            if mobj in ('[debug]', '[info]', '[download]', '[debug+]') or any(_ in mobj2 for _ in self.skip_phr):
+                self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:                
-                self.log(INFO, msg, *args, **kwargs)
+                self.log(logging.INFO, msg, *args, **kwargs)
         
 def init_ytdl(args):
 

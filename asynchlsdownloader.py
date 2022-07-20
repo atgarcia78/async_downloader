@@ -104,11 +104,13 @@ class AsyncHLSDownloader():
         self.status = "init"
         self.error_message = "" 
         
-        self.init()
-        
         self.reset_event = None
         
         self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
+        
+        self.init()
+        
+        
         
     def get_info_fragments(self):
         
@@ -155,84 +157,91 @@ class AsyncHLSDownloader():
             return self.m3u8_obj.segments
  
         except Exception as e:
-            logger.exception(f"no m3u8 info - {repr(e)}")
-            raise AsyncHLSDLErrorFatal("no m3u8 info")
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][get_info_fragments] - {repr(e)}")
+            raise AsyncHLSDLErrorFatal(repr(e))
         finally:
             client.close()
         
     def init(self):
 
-        self.info_frag = []
-        self.frags_to_dl = []
-        self.n_dl_fragments = 0
+        try:
         
-        self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
-        self.abr = self.info_dict.get('abr', 0)
-        _br = self.tbr or self.abr
+            self.info_frag = []
+            self.frags_to_dl = []
+            self.n_dl_fragments = 0
+            
+            self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
+            self.abr = self.info_dict.get('abr', 0)
+            _br = self.tbr or self.abr
 
-        part = 0
-        uri_ant = ""
-        byte_range = {}
-        
-        self.info_dict['fragments'] = self.get_info_fragments()
+            part = 0
+            uri_ant = ""
+            byte_range = {}
+            
+            
+            self.info_dict['fragments'] = self.get_info_fragments()
 
-        for i, fragment in enumerate(self.info_dict['fragments']):
-                                
-            if fragment.byterange:
-                if fragment.uri == uri_ant:
-                    part += 1
-                else:
-                    part = 1
+            for i, fragment in enumerate(self.info_dict['fragments']):
+                                    
+                if fragment.byterange:
+                    if fragment.uri == uri_ant:
+                        part += 1
+                    else:
+                        part = 1
+                        
+                    uri_ant = fragment.uri
                     
-                uri_ant = fragment.uri
+                    _file_path =  Path(self.download_path, f"{Path(urlparse(fragment.uri).path).name}_part_{part}")
+                    splitted_byte_range = fragment.byterange.split('@')
+                    sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
+                    byte_range = {
+                        'start': sub_range_start,
+                        'end': sub_range_start + int(splitted_byte_range[0]),
+                    }
+
+                else:
+                    _file_path =  Path(self.download_path,Path(urlparse(fragment.uri).path).name)
+                    byte_range = {}
+
+                est_size = int(_br * fragment.duration * 1000 / 8)
                 
-                _file_path =  Path(self.download_path, f"{Path(urlparse(fragment.uri).path).name}_part_{part}")
-                splitted_byte_range = fragment.byterange.split('@')
-                sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
-                byte_range = {
-                    'start': sub_range_start,
-                    'end': sub_range_start + int(splitted_byte_range[0]),
-                }
+                if _file_path.exists():
+                    size = _file_path.stat().st_size
+                    self.info_frag.append({"frag" : i+1, "url" : fragment.absolute_uri, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : True, "estsize" : est_size, "headersize" : None, "size": size, "n_retries": 0, "error" : ["AlreadyDL"]})                
+                    self.n_dl_fragments += 1
+                    self.down_size += size
+                    self.frags_to_dl.append(i+1)
+                    
+                else:
+                    self.info_frag.append({"frag" : i+1, "url" : fragment.absolute_uri, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : False, "estsize" : est_size, "headersize": None, "size": None, "n_retries": 0, "error" : []})
+                    self.frags_to_dl.append(i+1)
+    
+                    
+                if fragment.key is not None and fragment.key.method == 'AES-128':
+                    if fragment.key.absolute_uri not in self.key_cache:
+                        self.key_cache.update({fragment.key.absolute_uri : httpx.get(fragment.key.absolute_uri, headers=self.headers).content})
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.key_cache[fragment.key.absolute_uri]}")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{fragment.key.iv}")
 
-            else:
-                _file_path =  Path(self.download_path,Path(urlparse(fragment.uri).path).name)
-                byte_range = {}
-
-            est_size = int(_br * fragment.duration * 1000 / 8)
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")        
             
-            if _file_path.exists():
-                size = _file_path.stat().st_size
-                self.info_frag.append({"frag" : i+1, "url" : fragment.absolute_uri, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : True, "estsize" : est_size, "headersize" : None, "size": size, "n_retries": 0, "error" : ["AlreadyDL"]})                
-                self.n_dl_fragments += 1
-                self.down_size += size
-                self.frags_to_dl.append(i+1)
-                
-            else:
-                self.info_frag.append({"frag" : i+1, "url" : fragment.absolute_uri, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : False, "estsize" : est_size, "headersize": None, "size": None, "n_retries": 0, "error" : []})
-                self.frags_to_dl.append(i+1)
- 
-                
-            if fragment.key is not None and fragment.key.method == 'AES-128':
-                if fragment.key.absolute_uri not in self.key_cache:
-                    self.key_cache.update({fragment.key.absolute_uri : httpx.get(fragment.key.absolute_uri, headers=self.headers).content})
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.key_cache[fragment.key.absolute_uri]}")
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{fragment.key.iv}")
-
-        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")        
-          
-        self.n_total_fragments = len(self.info_dict['fragments'])
-        self.calculate_duration() #get total duration
-        self.calculate_filesize() #get filesize estimated
-        
-        if self.filesize == 0: _est_size = "NA"
-        else: _est_size = naturalsize(self.filesize)
-        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
-        
-        if self.filename.exists() and self.filename.stat().st_size > 0:
-            self.status = "done"
+            self.n_total_fragments = len(self.info_dict['fragments'])
+            self.calculate_duration() #get total duration
+            self.calculate_filesize() #get filesize estimated
             
-        elif not self.frags_to_dl:
-            self.status = "init_manipulating"
+            if self.filesize == 0: _est_size = "NA"
+            else: _est_size = naturalsize(self.filesize)
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
+            
+            if self.filename.exists() and self.filename.stat().st_size > 0:
+                self.status = "done"
+                
+            elif not self.frags_to_dl:
+                self.status = "init_manipulating"
+        except Exception as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][init] {repr(e)}")
+            self.status = "error"
+            
        
     def calculate_duration(self):
         self.totalduration = 0
