@@ -107,7 +107,6 @@ class VideoDownloader():
 
     def _get_dl(self, info):
         
-            
         protocol = determine_protocol(info)
                     
         if protocol in ('http', 'https'):
@@ -134,7 +133,6 @@ class VideoDownloader():
                         
         return dl
 
-            
     def reset(self):
         for dl in self.info_dl['downloaders']:
             if 'hls' in str(type(dl)).lower():
@@ -151,12 +149,12 @@ class VideoDownloader():
                 if dl.status == "downloading":
                     if dl.reset_event: dl.reset_event.set()
                 logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
+    
     def stop(self):
         if self.stop_event:
             self.stop_event.set()
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event stop")
         
-    
     def pause(self):
         if self.pause_event:
             self.pause_event.set()
@@ -167,7 +165,6 @@ class VideoDownloader():
             if self.pause_event.is_set(): 
                 self.resume_event.set()
                 #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event resume")
-        
     async def run_dl(self):
 
         self.info_dl['status'] = "downloading"
@@ -212,8 +209,6 @@ class VideoDownloader():
             for t in tasks_run: t.cancel()
             await asyncio.wait(tasks_run)
              
-        
-
     def _get_subs_files(self):
      
         key = None
@@ -259,7 +254,6 @@ class VideoDownloader():
                 lines = traceback.format_exception(*sys.exc_info())                
                 logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when downloading subs file\n{'!!'.join(lines)}")
            
-   
     @staticmethod
     def embed_subs(_file_subs_en, _filename, _logger, _menslogger):
         
