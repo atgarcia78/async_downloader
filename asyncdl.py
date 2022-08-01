@@ -80,7 +80,7 @@ class AsyncDL():
         self.console_dl_status = False
         
         self.list_pasres = set()
-        self.pasres_time_from_resume_to_pause = 15
+        self.pasres_time_from_resume_to_pause = 5
         self.pasres_active = False
 
         #contadores sobre número de workers init, workers run y workers manip
@@ -114,7 +114,7 @@ class AsyncDL():
                 if self.pasres_repeat and (_list:= list(self.list_pasres)):
                     for _index in _list:
                         self.list_dl[_index-1].pause()
-                    wait_time(1)
+                    wait_time(0.5)
             
                     for _index in _list:
                         self.list_dl[_index-1].resume()
@@ -671,7 +671,8 @@ class AsyncDL():
                         
                     except Exception as e:
                         self.info_videos[_url_netdna]['error'].append(str(e))
-                        self.info_videos[_url_netdna]['status'] = 'prenok'                      
+                        self.info_videos[_url_netdna]['status'] = 'prenok'
+                        self.info_videos[_url_netdna]['todl'] = True                        
                         
                         logger.error(repr(e))
                 
@@ -947,7 +948,8 @@ class AsyncDL():
                 
                 self.info_videos[_errorurl] = {'source' : self.url_pl_list.get(_errorurl,{}).get('source') or 'playlist',
                                             'video_info': {}, 
-                                            'status': 'prenok',                                                         
+                                            'status': 'prenok',
+                                            'todl': True,                                                         
                                             'error': [entry.get('error') or 'no video entry']}
             return
             

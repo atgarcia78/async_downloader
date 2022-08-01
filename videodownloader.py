@@ -13,13 +13,13 @@ from shutil import rmtree
 import httpx
 #from pycaption import (DFXPReader, SAMIReader, SCCReader, SRTReader,
 #                       WebVTTReader, SRTWriter, detect_format)
-from yt_dlp.utils import determine_protocol, sanitize_filename
+from yt_dlp.utils import determine_protocol, sanitize_filename, try_get
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asyncdashdownloader import AsyncDASHDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import async_ex_in_executor, naturalsize
+from utils import async_ex_in_executor, naturalsize, try_get
 
 # SUPPORTED_EXT = {
 #     DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
@@ -28,6 +28,9 @@ from utils import async_ex_in_executor, naturalsize
 
 import os
 from concurrent.futures import ThreadPoolExecutor
+
+
+
 
 logger = logging.getLogger("video_DL")
 class VideoDownloader():
@@ -103,6 +106,10 @@ class VideoDownloader():
         except Exception as e:            
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] DL constructor failed")
             self.info_dl['status'] = "error"
+        finally:
+            if self.info_dl['status'] == "error":
+                rmtree(self.info_dl['download_path'], ignore_errors=True)
+                
             
 
     def _get_dl(self, info):
@@ -112,9 +119,17 @@ class VideoDownloader():
         if protocol in ('http', 'https'):
             if self.info_dl['rpcport']: 
                 
-                dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
-                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
-                if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                try:
+                    dl = None
+                    dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                    logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                except Exception as e:
+                    logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
+                    #if dl and dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                    dl = AsyncHTTPDownloader(info, self)
+                    logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
 
             else: 
                 dl = AsyncHTTPDownloader(info, self)

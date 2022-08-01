@@ -10,12 +10,10 @@ from urllib.parse import unquote, urlparse
 
 import aria2p
 
-from utils import async_ex_in_executor, naturalsize, none_to_cero, wait_time
+from utils import async_ex_in_executor, naturalsize, none_to_cero, limiter_15, limiter_5, try_get
 
-from yt_dlp.extractor.commonwebdriver import limiter_10, limiter_15, limiter_2, limiter_5
-from yt_dlp.utils import try_get
 
-from threading import Lock, Event, Semaphore
+from threading import Lock, Semaphore
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -40,10 +38,10 @@ class AsyncARIA2CDLError(Exception):
 class AsyncARIA2CDownloader():
     
     _CONFIG = {('userload', 'evoload', 'highload'): {'ratelimit': limiter_15, 'maxsplits': 4},
-               ('doodstream',): {'ratelimit': limiter_5, 'maxsplits': 4}, 
+               ('doodstream',): {'ratelimit': limiter_5, 'maxsplits': 2}, 
                ('tubeload',): {'ratelimit': limiter_5, 'maxsplits': 4},
                ('fembed', 'streamtape'): {'ratelimit': limiter_5, 'maxsplits': 16}, 
-               ('gayforfans') : {'ratelimit': limiter_5, 'maxsplits': 16}}
+               ('gayforfans',) : {'ratelimit': limiter_5, 'maxsplits': 16}}
     
     _SEM = {}
     
@@ -67,7 +65,7 @@ class AsyncARIA2CDownloader():
         
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')        
         self.video_url = self.info_dict.get('url')
-        self._extra_urls = self.info_dict.get('_extra_urls')
+        #self._extra_urls = self.info_dict.get('_extra_urls')
         
         self.headers = self.info_dict.get('http_headers')  
         
@@ -112,7 +110,7 @@ class AsyncARIA2CDownloader():
         
         _extractor = self.info_dict.get('extractor', '')
         self.auto_pasres = False
-        if _extractor:
+        if _extractor and _extractor.lower() != 'generic':
             _decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
             if _extractor == 'doodstream':
                 self.auto_pasres = True
@@ -130,7 +128,7 @@ class AsyncARIA2CDownloader():
             'dir': str(self.download_path),
             'out': self.filename.name,
             #'check-certificate': self.verifycert,
-            'check-certificate': False,              
+            #'check-certificate': False,              
             #'user-agent': self.video_downloader.args.useragent
         }
         
@@ -148,9 +146,9 @@ class AsyncARIA2CDownloader():
                  
             
         uris = [unquote(self.video_url)]
-        if self._extra_urls:
-            for el in self._extra_urls: 
-                uris.append(unquote(el))
+        #if self._extra_urls:
+        #    for el in self._extra_urls: 
+        #        uris.append(unquote(el))
         
         self._host = urlparse(uris[0]).netloc
                 
@@ -184,7 +182,7 @@ class AsyncARIA2CDownloader():
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if self.dl_cont.status in ('error') or (time.monotonic() - _tstart > 15):
-
+                #if (time.monotonic() - _tstart > 15):
                     if self.dl_cont.status in ('error'):
                         _msg_error = self.dl_cont.error_message
                     else:
@@ -197,7 +195,7 @@ class AsyncARIA2CDownloader():
                     if self.sem: AsyncARIA2CDownloader._SEM[self._host].release()
                     
                     cont += 1
-                    if cont > 3: 
+                    if cont > 1: 
                         raise AsyncARIA2CDLErrorFatal("Max init repeat")
                     else:
                         time.sleep(1)

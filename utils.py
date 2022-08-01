@@ -21,7 +21,10 @@ import aria2p
 import httpx
 import PySimpleGUI as sg
 from yt_dlp import YoutubeDL
-from yt_dlp.utils import js_to_json
+from yt_dlp.utils import js_to_json, try_get
+
+from yt_dlp.extractor.commonwebdriver import limiter_15, limiter_5, dec_on_exception
+
 
 import threading
 
@@ -199,15 +202,15 @@ def folderfiles(folder):
 def variadic(x, allowed_types=(str, bytes, dict)):
     return x if isinstance(x, collections.abc.Iterable) and not isinstance(x, allowed_types) else (x,)
 
-def try_get(src, getter, expected_type=None):
-    for get in variadic(getter):
-        try:
-            v = get(src)
-        except (AttributeError, KeyError, TypeError, IndexError):
-            pass
-        else:
-            if expected_type is None or isinstance(v, expected_type):
-                return v 
+# def try_get(src, getter, expected_type=None):
+#     for get in variadic(getter):
+#         try:
+#             v = get(src)
+#         except (AttributeError, KeyError, TypeError, IndexError):
+#             pass
+#         else:
+#             if expected_type is None or isinstance(v, expected_type):
+#                 return v 
 
 def int_or_none(res):
     return int(res) if res else None
@@ -318,7 +321,7 @@ def init_logging(file_path=None):
 def init_argparser():
     
  
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:102.0) Gecko/20100101 Firefox/102.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:103.0) Gecko/20100101 Firefox/103.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="10", type=int)
