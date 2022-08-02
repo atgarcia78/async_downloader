@@ -48,11 +48,10 @@ class AsyncHTTPDownloader():
     #_CHUNK_SIZE = 1048576 #1MB
     _MAX_RETRIES = 10
     #_DICT_NPARTS = {'DoodStream': 2} #, 'Hulu123': 2}
-    _CONFIG = {('userload', 'evoload', 'highload'): {'ratelimit': limiter_15, 'maxsplits': 4},
-            ('doodstream',): {'ratelimit': limiter_5, 'maxsplits': 2}, 
-            ('tubeload',): {'ratelimit': limiter_5, 'maxsplits': 4},
-            ('fembed', 'streamtape'): {'ratelimit': limiter_5, 'maxsplits': 16}, 
-            ('gayforfans',) : {'ratelimit': limiter_5, 'maxsplits': 16}}
+    _CONFIG = {('userload', 'evoload', 'highload',): {'ratelimit': limiter_15, 'maxsplits': 4},
+               ('doodstream',): {'ratelimit': limiter_5, 'maxsplits': 2}, 
+               ('tubeload', 'embedo',): {'ratelimit': limiter_5, 'maxsplits': 4},
+               ('fembed', 'streamtape', 'gayforfans',): {'ratelimit': limiter_5, 'maxsplits': 16}}
     
     _SEM = {}
     

@@ -37,11 +37,10 @@ class AsyncARIA2CDLError(Exception):
 
 class AsyncARIA2CDownloader():
     
-    _CONFIG = {('userload', 'evoload', 'highload'): {'ratelimit': limiter_15, 'maxsplits': 4},
+    _CONFIG = {('userload', 'evoload', 'highload',): {'ratelimit': limiter_15, 'maxsplits': 4},
                ('doodstream',): {'ratelimit': limiter_5, 'maxsplits': 2}, 
-               ('tubeload',): {'ratelimit': limiter_5, 'maxsplits': 4},
-               ('fembed', 'streamtape'): {'ratelimit': limiter_5, 'maxsplits': 16}, 
-               ('gayforfans',) : {'ratelimit': limiter_5, 'maxsplits': 16}}
+               ('tubeload', 'embedo',): {'ratelimit': limiter_5, 'maxsplits': 4},
+               ('fembed', 'streamtape', 'gayforfans',): {'ratelimit': limiter_5, 'maxsplits': 16}}
     
     _SEM = {}
     
