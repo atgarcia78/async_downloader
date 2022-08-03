@@ -693,11 +693,13 @@ class AsyncDL():
                         logger.info(f"[url_playlist_list]: [{self._count_pl}/{len(self.futures) + len(self.futures2)}] {_url}")
                     try:
                         #_info = self.ytdl.sanitize_info(fut.result())
+                        _errormsg = 'no video entry'
                         _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
                     except Exception as e:
                         _info = None
+                        _errormsg = repr(e)
                     if not _info:
-                        _info = {'_type': 'error', 'url': _url}
+                        _info = {'_type': 'error', 'url': _url, 'error': _errormsg}
                         if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_info)
                         self._url_pl_entries += [_info]
                     elif _info:
@@ -950,7 +952,10 @@ class AsyncDL():
                                             'video_info': {}, 
                                             'status': 'prenok',
                                             'todl': True,                                                         
-                                            'error': [entry.get('error') or 'no video entry']}
+                                            'error': [entry.get('error', 'no video entry')]}
+                if any(_ in str(entry.get('error', 'no video entry')).lower() for _ in ['not found', '404', 'flagged', '403', 'suspended', 'unavailable', 'disabled']): self.list_notvalid_urls.append(_errorurl)                                    
+                else: self.list_urls_to_check.append((_errorurl, entry.get('error', 'no video entry')))
+                self.list_initnok.append((_errorurl, entry.get('error', 'no video entry')))
             return
             
         elif _type == 'video':                        

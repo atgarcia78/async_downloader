@@ -51,7 +51,7 @@ class AsyncHTTPDownloader():
     _CONFIG = {('userload', 'evoload', 'highload',): {'ratelimit': limiter_15, 'maxsplits': 4},
                ('doodstream',): {'ratelimit': limiter_5, 'maxsplits': 2}, 
                ('tubeload', 'embedo',): {'ratelimit': limiter_5, 'maxsplits': 4},
-               ('fembed', 'streamtape', 'gayforfans',): {'ratelimit': limiter_5, 'maxsplits': 16}}
+               ('fembed', 'streamtape', 'gayforfans', 'gayguytop',): {'ratelimit': limiter_5, 'maxsplits': 16}}
     
     _SEM = {}
     
