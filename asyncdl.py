@@ -435,6 +435,7 @@ class AsyncDL():
         
         try:
             current_res = Path(Path.home(),"Projects/common/logs/current_res.json")
+            last_res = Path(Path.home(),"Projects/common/logs/files_cached.json")
             
             if current_res.exists():
                 logger.info(f"[videos_cached] waiting for other asyncdl already scanning")
@@ -442,22 +443,26 @@ class AsyncDL():
                 while (current_res.exists()):
                     time.sleep(1)
                 
-                Path(Path.home(),"Projects/common/logs/files_cached.json")
-                with open(Path(Path.home(),"Projects/common/logs/files_cached.json"),"r") as f:
-                    files_cached = json.load(f)
-                    
+                
+                with open(last_res,"r") as f:
+                    _temp = json.load(f)
+
+                for _vol,_files in _temp.items():
+                    files_cached.update(_files)
                 logger.info(f"[videos_cached] Total cached videos (existing files_cached): [{len(files_cached)}]")
                 
                 queue.put_nowait(files_cached)
                 return                 
             
-            last_res = Path(Path.home(),"Projects/common/logs/files_cached.json")
+            
             if nodlcaching and last_res.exists():
                 
                                 
                 with open(last_res,"r") as f:
-                    files_cached = json.load(f)
-                    
+                    _temp = json.load(f)
+                  
+                for _vol,_files in _temp.items():
+                    files_cached.update(_files)  
                 logger.info(f"[videos_cached] Total cached videos: [{len(files_cached)}]")
                 
                 queue.put_nowait(files_cached)
@@ -468,9 +473,21 @@ class AsyncDL():
                 with open(current_res, 'w') as f:
                     f.write("WORKING")
             
+                if last_res.exists():
+                    with open(last_res, "r") as f:
+                        _temp = json.load(f)
 
-                list_folders = [Path(Path.home(), "testing"), Path("/Volumes/WD5/videos"), Path("/Volumes/Pandaext4/videos"), Path("/Volumes/DatosToni/videos"), Path("/Volumes/WD1B/videos")]
+                config_folders = {'local': Path(Path.home(), "testing"), 'wd5': Path("/Volumes/WD5/videos"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos")}
                 
+                list_folders = []
+                
+                for _vol,_folder in config_folders.items():
+                    if not _folder.exists():
+                        files_cached.update(_temp.get(_vol))
+                    else:
+                        list_folders.append(_folder)
+                    
+
                 _repeated = []
                 _dont_exist = []
                 
@@ -557,8 +574,19 @@ class AsyncDL():
                     if prev_res.exists(): prev_res.unlink()
                     last_res.rename(Path(last_res.parent,f"prev_files_cached.json"))
                 
+                _temp = {'local': {}, 'wd5': {}, 'wd1b': {}, 'pandaext4': {}, 'datostoni': {}}
+                def getter(x):
+                    if 'Pandaext4/videos' in x: return 'pandaext4'
+                    elif 'WD5/videos' in x: return 'wd5'
+                    elif 'WD1B/videos' in x: return 'wd1b'
+                    elif 'antoniotorres/testing' in x: return 'local'
+                    elif 'DatosToni/videos' in x: return 'datostoni'
+                for key,val in files_cached.items():                   
+                    _temp[getter(val)].update({key: val})
+                
+                
                 with open(last_res,"w") as f:
-                    json.dump(files_cached,f)    
+                    json.dump(_temp,f)    
                 
                 if _repeated:
                     
