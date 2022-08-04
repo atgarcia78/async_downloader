@@ -49,9 +49,9 @@ class AsyncHTTPDownloader():
     _MAX_RETRIES = 10
     #_DICT_NPARTS = {'DoodStream': 2} #, 'Hulu123': 2}
     _CONFIG = {('userload', 'evoload', 'highload',): {'ratelimit': limiter_15, 'maxsplits': 4},
-               ('doodstream',): {'ratelimit': limiter_5, 'maxsplits': 2}, 
+               ('doodstream', 'vidoza', ): {'ratelimit': limiter_5, 'maxsplits': 2}, 
                ('tubeload', 'embedo',): {'ratelimit': limiter_5, 'maxsplits': 4},
-               ('fembed', 'streamtape', 'gayforfans', 'gayguytop',): {'ratelimit': limiter_5, 'maxsplits': 16}}
+               ('fembed', 'streamtape', 'gayforfans', 'gayguytop', 'upstream', 'videobin', 'xvidgay',): {'ratelimit': limiter_5, 'maxsplits': 16}}
     
     _SEM = {}
     
