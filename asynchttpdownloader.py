@@ -15,7 +15,7 @@ import httpx
 #from backoff import constant, on_exception
 #from pyrate_limiter import Duration, Limiter, RequestRate
 
-from utils import EMA, int_or_none, naturalsize, none_to_cero, try_get, async_ex_in_executor, limiter_15, limiter_5, dec_on_exception
+from utils import EMA, int_or_none, naturalsize, none_to_cero, try_get, async_ex_in_executor, limiter_15, limiter_5, limiter_1, dec_retry_error, CONFIG_EXTRACTORS
 
 
 from threading import Lock, Semaphore
@@ -45,13 +45,8 @@ class AsyncHTTPDownloader():
     
     _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
-    #_CHUNK_SIZE = 1048576 #1MB
     _MAX_RETRIES = 10
-    #_DICT_NPARTS = {'DoodStream': 2} #, 'Hulu123': 2}
-    _CONFIG = {('userload', 'evoload', 'highload',): {'ratelimit': limiter_15, 'maxsplits': 4},
-               ('doodstream', 'vidoza', ): {'ratelimit': limiter_5, 'maxsplits': 2}, 
-               ('tubeload', 'embedo',): {'ratelimit': limiter_5, 'maxsplits': 4},
-               ('fembed', 'streamtape', 'gayforfans', 'gayguytop', 'upstream', 'videobin', 'xvidgay',): {'ratelimit': limiter_5, 'maxsplits': 16}}
+    _CONFIG = copy.deepcopy(CONFIG_EXTRACTORS)
     
     _SEM = {}
     
@@ -75,7 +70,11 @@ class AsyncHTTPDownloader():
         # self._NUM_WORKERS = self.n_parts 
         self.video_url = self.info_dict.get('url')
         #self._extra_urls = self.info_dict.get('_extra_urls')
-        self.uris = [unquote(self.video_url)] 
+        
+        def _transf(_url):
+            return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
+        
+        self.uris = [unquote(_transf(self.video_url))] 
         #if self._extra_urls: 
         #    self.n_parts = 10
         #    self.uris += self._extra_urls
@@ -140,50 +139,31 @@ class AsyncHTTPDownloader():
 
     def check_server(self):
         
-        @dec_on_exception
+        @dec_retry_error
         @self._decor    
         def _check_server():
             #checks if server can handle ranges
 
 
             try:             
-                res = self.init_client.head(self.video_url, headers={'range': 'bytes=0-100'})
+                res = self.init_client.head(self.uris[0], headers={'range': 'bytes=0-'})
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {res} {res.request.headers} {res.headers}") 
                 res.raise_for_status()
-                return(res.headers.get('accept-ranges') or res.headers.get('content-range'))
+                return(res.headers.get('accept-ranges') or res.headers.get('content-range'), int_or_none(res.headers.get('content-length')))
 
             except Exception as e:
                 lines = traceback.format_exception(*sys.exc_info())
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)} \n{'!!'.join(lines)}")
                 raise
             
-        return _check_server()
+        return (_check_server() or (None,None))
         
 
-    def get_filesize(self):
-
-        @dec_on_exception
-        @self._decor    
-        def _get_filesize():
-            try:             
-                res = self.init_client.head(self.video_url)
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[get_filesize] {res} {res.request.headers} {res.headers}") 
-                res.raise_for_status()
-                return(int_or_none(res.headers.get('content-length')))
-
-            except Exception as e:
-                
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[get_filesize] {repr(e)}")
-                raise
-        
-        return _get_filesize()
-
-        
 
     def upt_hsize(self, i, offset=None):
 
         
-        @dec_on_exception
+        @dec_retry_error
         @self._decor
         def _upt_hsize():    
             try: 
@@ -192,7 +172,7 @@ class AsyncHTTPDownloader():
                 if offset:
                     self.parts[i]['headers'].append({'range' : f"bytes={self.parts[i]['offset'] + self.parts[i]['start']}-{self.parts[i]['end']}"})
 
-                res = self.init_client.head(self.video_url, headers=self.parts[i]['headers'][-1])
+                res = self.init_client.head(self.parts[i]['url'], headers=self.parts[i]['headers'][-1])
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[upt_hsize] {res} {res.request} {res.request.headers} {res.headers.get('content-length')}")
                 res.raise_for_status()
                 headers_size = int_or_none(res.headers.get('content-length'))
@@ -212,11 +192,7 @@ class AsyncHTTPDownloader():
         
     def create_parts(self):       
        
-        if not self.check_server(): #server can not handle ranges
-            self._NUM_WORKERS = self.n_parts = 1
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: server cant handle ranges")
-            
-        elif (_partsize:=self.filesize // self.n_parts) < self._MIN_SIZE: #size of parts cant be less than _MIN_SIZE
+        if (_partsize:=self.filesize // self.n_parts) < self._MIN_SIZE: #size of parts cant be less than _MIN_SIZE
             temp = self.filesize // self._MIN_SIZE + 1            
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: size parts [{_partsize}] < {self._MIN_SIZE} -> change nparts [{self.n_parts} -> {temp}]")
             self.n_parts = temp
@@ -241,7 +217,10 @@ class AsyncHTTPDownloader():
                     
                     
                     start_range = end_range + 1
-                    
+            
+            for i,part in enumerate(self.parts):
+                part.update({'url': self.uris[i % len(self.uris)]})     
+            
             if self.n_parts == 1: self.parts[0].update({'headersize' : self.filesize})
             else:
                 with ThreadPoolExecutor(thread_name_prefix="ex_httphsize") as ex:
@@ -252,8 +231,7 @@ class AsyncHTTPDownloader():
             _not_hsize = [_part for _part in self.parts if not _part['headersize']]
             if len(_not_hsize) > 0: logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] not headersize in [{len(_not_hsize)}/{self.n_parts}]")
             
-            for i,part in enumerate(self.parts):
-                part.update({'url': self.uris[i % len(self.uris)]})
+
                 
                 
                 
@@ -269,16 +247,17 @@ class AsyncHTTPDownloader():
             
             def transp(func):
                 return func
-        
+            
             def getter(x):
             
-                value, key_text = try_get([(v,kt) for k,v in AsyncHTTPDownloader._CONFIG.copy.deepcopy().items() if any(x in (kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
+                value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
                 if value:
                     return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
             
             self.n_parts = getattr(self.video_downloader, 'info_dl', {}).get('n_workers', 16)
             
             _extractor = self.info_dict.get('extractor', '')
+            
             self.auto_pasres = False
             if _extractor and _extractor.lower() != 'generic':
                 self._decor, self._nsplits = getter(_extractor) or (transp, self.n_parts)
@@ -287,10 +266,12 @@ class AsyncHTTPDownloader():
                 self.sem = True
                 if self.n_parts != self._nsplits:
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: change nparts [{self.n_parts} -> {self._nsplits}]")
-                    self.n_parts = self._nsplits
+                    self.n_parts = min(self.n_parts, self._nsplits)
             else: 
                 self._decor, self._nsplits = transp, self.n_parts
                 self.sem = False
+                
+            #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {_extractor}:{self._decor}:{self._nsplits}:{self.n_parts}") 
             
             self._NUM_WORKERS = self.n_parts 
 
@@ -303,19 +284,26 @@ class AsyncHTTPDownloader():
                         
                 AsyncHTTPDownloader._SEM[self._host].acquire()
             
-            if not self.filesize:
-                self.filesize = self.get_filesize()
+            
+            _mult_ranges, _filesize = self.check_server()
+            
+            if not _mult_ranges:
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: server cant handle ranges")
+                self.n_parts = 1
+                self._NUM_WORKERS = 1
+            
+            if _filesize: 
+                self.filesize = _filesize
                 
             if self.filesize:
                 
                 self.create_parts() 
                 self.get_parts_to_dl()
             
-            else:
-
-                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Can't get size of file")                
+            else:                                
                 raise AsyncHTTPDLErrorFatal("Can't get filesize")
-        except Exception as e:
+        except (KeyboardInterrupt, Exception) as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {str(e)}")
             self.init_client.close()
             self.status = "error"
             self.error_message = repr(e)
@@ -434,7 +422,6 @@ class AsyncHTTPDownloader():
                         
                             await self.rate_limit()
                                                        
-                            #async with client.stream("GET", self.video_url, headers=self.parts[part-1]['headers'][-1]) as res:
                             async with client.stream("GET", self.parts[part-1]['url'], headers=self.parts[part-1]['headers'][-1]) as res:
                             
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]:part[{part}]: [fetch] resp code {str(res.status_code)}: rep {self.parts[part-1]['n_retries']}\n{res.request.headers}")

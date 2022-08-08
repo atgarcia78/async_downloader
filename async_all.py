@@ -57,38 +57,45 @@ def main():
                 logger.info(repr(e))
             
                 try:
+                    asyncDL.reset = True
                     asyncDL.stop_console = True
                     asyncDL.pasres_repeat = False        
                     pending_tasks = asyncio.all_tasks(loop=asyncDL.loop)
                     if pending_tasks:
-                        logger.info(f"pending tasks: {pending_tasks}")
+                        logger.debug(f"pending tasks: {pending_tasks}")
                         for task in pending_tasks:
                             task.cancel()
                     
                         asyncDL.loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
-                        logger.info(f"[async_ex] tasks after cancelletation{asyncio.all_tasks(loop=asyncDL.loop)}")
-                    else: logger.info(f"pending tasks: []")
+                        logger.debug(f"[async_ex] tasks after cancelletation: {asyncio.all_tasks(loop=asyncDL.loop)}")
+                    else: logger.debug(f"pending tasks: []")
                 finally:
                     asyncio.set_event_loop(None)
-                    
-
-            
         
-        except Exception as e:
-            logger.exception(f"[asyncdl results] {repr(e)}")
+        except (KeyboardInterrupt, Exception) as e:
+            logger.info(f"{repr(e)}")
+            try:
+                p1.kill()
+            except Exception as e:
+                pass
+            asyncDL.clean()
         finally:
             asyncDL.get_results_info()
             asyncDL.close()
             
     
-    except Exception as e:
+    except (KeyboardInterrupt, Exception) as e:
         logger.exception(f"[asyncdl bye] {repr(e)}")
 
     
 
 if __name__ == "__main__":    
     
-    main()
+    try:
+        main()
+    except (KeyboardInterrupt, Exception) as e:
+        logger.exception(f"[main] {repr(e)}")
+        
     
    
      

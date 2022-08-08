@@ -21,10 +21,21 @@ import aria2p
 import httpx
 import PySimpleGUI as sg
 from yt_dlp import YoutubeDL
-from yt_dlp.utils import js_to_json, try_get
+from yt_dlp.utils import (
+    js_to_json, 
+    try_get, 
+    sanitize_filename, 
+    std_headers
+)
 
-from yt_dlp.extractor.commonwebdriver import limiter_15, limiter_5, dec_on_exception
-
+from yt_dlp.extractor.commonwebdriver import (
+    limiter_15, 
+    limiter_5, 
+    limiter_1, 
+    dec_on_exception, 
+    dec_retry_error,
+    CONFIG_EXTRACTORS
+)
 
 import threading
 
@@ -69,6 +80,15 @@ class EMA(object):
             self.last = self.alpha * x + beta * self.last
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
+
+def get_format_id(info_dict, _formatid):
+    if (_req_fts:=info_dict.get('requested_formats')):
+        for _ft in _req_fts:
+            if _ft['format_id'] == _formatid:
+                return _ft
+    elif (_req_ft:=info_dict.get('format_id')):
+        if _req_ft == _formatid:
+            return info_dict
 
 def print_tasks(tasks):
    #return [f"{task.get_name()} : {str(task.get_coro()).split(' ')[0]}\n" for task in tasks]
@@ -324,7 +344,7 @@ def init_argparser():
     UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:103.0) Gecko/20100101 Firefox/103.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
-    parser.add_argument("-w", help="Number of DL workers", default="10", type=int)
+    parser.add_argument("-w", help="Number of DL workers", default="8", type=int)
     parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="0", type=int)
     parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
@@ -348,6 +368,7 @@ def init_argparser():
     parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
     parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
+    parser.add_argument("--use-http-failover", action="store_true", default=False)
 
     args = parser.parse_args()
     
@@ -363,7 +384,7 @@ def init_argparser():
         args.aria2c = False 
         args.rpcport = None        
     if args.path and len(args.path.split("/")) == 1:
-        _path = Path(Path.home(),"testing", args.path)
+        _path = Path(Path.home(), "testing", args.path)
         args.path = str(_path)
         
     if args.vv:

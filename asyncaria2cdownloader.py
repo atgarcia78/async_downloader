@@ -10,7 +10,7 @@ from urllib.parse import unquote, urlparse
 
 import aria2p
 
-from utils import async_ex_in_executor, naturalsize, none_to_cero, limiter_15, limiter_5, try_get
+from utils import async_ex_in_executor, naturalsize, none_to_cero, try_get, CONFIG_EXTRACTORS
 
 
 from threading import Lock, Semaphore
@@ -37,15 +37,9 @@ class AsyncARIA2CDLError(Exception):
 
 class AsyncARIA2CDownloader():
     
-    _CONFIG = {('userload', 'evoload', 'highload',): {'ratelimit': limiter_15, 'maxsplits': 4},
-               ('doodstream', 'vidoza', ): {'ratelimit': limiter_5, 'maxsplits': 2}, 
-               ('tubeload', 'embedo',): {'ratelimit': limiter_5, 'maxsplits': 4},
-               ('fembed', 'streamtape', 'gayforfans', 'gayguytop', 'upstream', 'videobin', 'xvidgay',): {'ratelimit': limiter_5, 'maxsplits': 16}}
-    
-    _SEM = {}
-    
-    _LOCK = Lock()
-    
+    _CONFIG = copy.deepcopy(CONFIG_EXTRACTORS)    
+    _SEM = {}    
+    _LOCK = Lock()    
     _EX_ARIA2DL = None
         
     
@@ -103,20 +97,21 @@ class AsyncARIA2CDownloader():
         
         def getter(x):
         
-            value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x in (kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
+            value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
             if value:
                 return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
         
         _extractor = self.info_dict.get('extractor', '')
         self.auto_pasres = False
+        self.sem = False
         if _extractor and _extractor.lower() != 'generic':
             _decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
             if _extractor == 'doodstream':
                 self.auto_pasres = True
-            self.sem = True
+            if _nsplits < 16: self.sem = True
         else: 
             _decor, _nsplits = transp, self.nworkers
-            self.sem = False
+            
 
         self.nworkers = min(_nsplits, self.nworkers)
         #logger.info(f"{_extractor}:{_nsplits}:{self.nworkers}")
@@ -144,7 +139,10 @@ class AsyncARIA2CDownloader():
 
                  
             
-        uris = [unquote(self.video_url)]
+        def _transf(_url):
+            return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
+        
+        uris = [unquote(_transf(self.video_url))]
         #if self._extra_urls:
         #    for el in self._extra_urls: 
         #        uris.append(unquote(el))

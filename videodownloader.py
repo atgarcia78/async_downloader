@@ -43,7 +43,7 @@ class VideoDownloader():
             self.info_dict = copy.deepcopy(video_dict) 
             
             _date_file = datetime.now().strftime("%Y%m%d")
-            _download_path = Path(Path.home(),"testing", _date_file, self.info_dict['id']) if not self.args.path else Path(self.args.path, self.info_dict['id'])
+            _download_path = Path(Path.home(), "testing", _date_file, self.info_dict['id']) if not self.args.path else Path(self.args.path, self.info_dict['id'])
             
                 
             self.info_dl = {
@@ -58,6 +58,7 @@ class VideoDownloader():
                 'date_file': _date_file,
                 'download_path': _download_path,
                 'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
+                'backup_http': self.args.use_http_failover,
             } 
                 
             self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
@@ -125,12 +126,13 @@ class VideoDownloader():
                     logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                     if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                 except Exception as e:
-                    logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
-                    #if dl and dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
-                    dl = AsyncHTTPDownloader(info, self)
-                    logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
-
+                    if self.info_dl['backup_http']:
+                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
+                        #if dl and dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                        dl = AsyncHTTPDownloader(info, self)
+                        logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                    else: raise
             else: 
                 dl = AsyncHTTPDownloader(info, self)
                 logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")                   

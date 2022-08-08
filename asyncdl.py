@@ -6,18 +6,37 @@ import shutil
 import sys
 import time
 import traceback
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    wait
+)
 from datetime import datetime
 from pathlib import Path
 from textwrap import fill
 
 from tabulate import tabulate
-from yt_dlp.utils import js_to_json, sanitize_filename, std_headers
 
-from utils import (perform_long_operation, async_ex_in_executor, async_wait_time, get_chain_links,
-                   init_aria2c, init_gui_console, init_gui_root,
-                   init_ytdl, is_playlist_extractor, kill_processes,
-                   naturalsize, none_to_cero, sg, wait_time, try_get, print_tasks)
+from utils import (
+    perform_long_operation,
+    async_ex_in_executor,
+    async_wait_time,
+    get_chain_links,
+    init_aria2c, 
+    init_gui_console,
+    init_gui_root,
+    init_ytdl, 
+    is_playlist_extractor, 
+    kill_processes,
+    naturalsize, 
+    none_to_cero, 
+    sg, 
+    wait_time, 
+    try_get,
+    js_to_json,
+    sanitize_filename,
+    std_headers,
+    print_tasks
+)
 
 from videodownloader import VideoDownloader
 import janus
@@ -33,7 +52,7 @@ class AsyncDL():
     
         #args
         self.args = args
-        self.parts = self.args.parts
+        #self.parts = self.args.parts
         self.workers = self.args.w        
         self.init_nworkers = self.args.winit if self.args.winit > 0 else self.args.w
         
@@ -99,6 +118,8 @@ class AsyncDL():
         self.t1 = Timer("execution", text="Time spent with data preparation for the init workers: {:.2f}", logger=logger.info)
         self.t2 = Timer("execution", text="Time spent with DL: {:.2f}", logger=logger.info)
         self.t3 = Timer("execution", text="Time spent by init workers: {:.2f}", logger=logger.info)
+        
+        self.reset = False
 
 
     def pasres_periodic(self, event):
@@ -250,6 +271,7 @@ class AsyncDL():
                                 sg.cprint('must be > 0')
                                 
                             else:
+                                self.args.parts = _nvidworkers
                                 if self.list_dl:
                                     for dl in self.list_dl:
                                         dl.change_numvidworkers(_nvidworkers)
@@ -477,7 +499,7 @@ class AsyncDL():
                     with open(last_res, "r") as f:
                         _temp = json.load(f)
 
-                config_folders = {'local': Path(Path.home(), "testing"), 'wd5': Path("/Volumes/WD5/videos"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos")}
+                config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos")}
                 
                 list_folders = []
                 
@@ -715,74 +737,82 @@ class AsyncDL():
 
                 def custom_callback(_url):                        
                     
-                    with self.lock:
-                        self._count_pl += 1
-                        #_url = self.futures.get(fut) or self.futures2.get(fut)
-                        logger.info(f"[url_playlist_list]: [{self._count_pl}/{len(self.futures) + len(self.futures2)}] {_url}")
                     try:
-                        #_info = self.ytdl.sanitize_info(fut.result())
-                        _errormsg = 'no video entry'
-                        _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
-                    except Exception as e:
-                        _info = None
-                        _errormsg = repr(e)
-                    if not _info:
-                        _info = {'_type': 'error', 'url': _url, 'error': _errormsg}
-                        if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_info)
-                        self._url_pl_entries += [_info]
-                    elif _info:
-                        if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
-                            
-                            ##_info['original_url'] = _url
-                            if not _info.get('original_url'): _info.update({'original_url': _url})
-                            
+                        
+                        if self.reset: 
+                            raise Exception("reset")
+                        with self.lock:
+                            self._count_pl += 1
+                            #_url = self.futures.get(fut) or self.futures2.get(fut)
+                            logger.info(f"[url_playlist_list]: [{self._count_pl}/{len(self.futures) + len(self.futures2)}] {_url}")
+                        try:
+                            #_info = self.ytdl.sanitize_info(fut.result())
+                            _errormsg = 'no video entry'
+                            _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
+                        except Exception as e:
+                            _info = None
+                            _errormsg = repr(e)
+                        if not _info:
+                            _info = {'_type': 'error', 'url': _url, 'error': _errormsg}
                             if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_info)
                             self._url_pl_entries += [_info]
-                        else:                                
-                            
-                            for _ent in _info.get('entries'):
+                        elif _info:
+                            if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
                                 
-                                if _ent.get('_type', 'video') == 'video':
-                                    if not _ent.get('original_url'): 
-                                        _ent.update({'original_url': _url})
-                                    if ((_ent.get('extractor') == 'generic') or (_ent.get('ie_key') == 'Generic'))  and (_ent.get('n_entries',0) <= 1):
-                                            _ent.pop("playlist","")
-                                            _ent.pop("playlist_index","")
-                                            _ent.pop("n_entries","")
-                                            _ent.pop("playlist", "")
-                                            _ent.pop('playlist_id',"")
-                                            _ent.pop('playlist_title','')
+                                ##_info['original_url'] = _url
+                                if not _info.get('original_url'): _info.update({'original_url': _url})
+                                
+                                if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_info)
+                                self._url_pl_entries += [_info]
+                            else:                                
+                                
+                                for _ent in _info.get('entries'):
                                     
-                                    if ((_wurl:=_ent['webpage_url']) == _ent['original_url']):
-                                        if _ent.get('n_entries', 0) > 1:
-                                            _ent.update({'webpage_url': f"{_wurl}?id={_ent['playlist_index']}"})
-                                            
-                                    if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_ent)
-                                    self._url_pl_entries += [_ent]
-                                else:    
-                                    try:
-                                        is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
-                                        _error = _ent.get('error')
-                                        if not is_pl or _error:
-                                            if not _ent.get('original_url'): _ent.update({'original_url': _url})
-                                            if _error: _ent['_type'] = "error"
-                                            if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_ent)
-                                            self._url_pl_entries.append(_ent)
-                                        else:
-                                            #self.futures2.update({(_fut:=self.ex_pl.submit(self.ytdl.extract_info, _ent['url'], download=False)): _ent['url']})
-                                            #_fut.add_done_callback(custom_callback)
-                                            self.futures2.update({self.ex_pl.submit(custom_callback, _ent['url']): _ent['url']})
+                                    if _ent.get('_type', 'video') == 'video':
+                                        if not _ent.get('original_url'): 
+                                            _ent.update({'original_url': _url})
+                                        if ((_ent.get('extractor') == 'generic') or (_ent.get('ie_key') == 'Generic'))  and (_ent.get('n_entries',0) <= 1):
+                                                _ent.pop("playlist","")
+                                                _ent.pop("playlist_index","")
+                                                _ent.pop("n_entries","")
+                                                _ent.pop("playlist", "")
+                                                _ent.pop('playlist_id',"")
+                                                _ent.pop('playlist_title','')
+                                        
+                                        if ((_wurl:=_ent['webpage_url']) == _ent['original_url']):
+                                            if _ent.get('n_entries', 0) > 1:
+                                                _ent.update({'webpage_url': f"{_wurl}?id={_ent['playlist_index']}"})
+                                                
+                                        if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_ent)
+                                        self._url_pl_entries += [_ent]
+                                    else:    
+                                        try:
+                                            is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
+                                            _error = _ent.get('error')
+                                            if not is_pl or _error:
+                                                if not _ent.get('original_url'): _ent.update({'original_url': _url})
+                                                if _error: _ent['_type'] = "error"
+                                                if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_ent)
+                                                self._url_pl_entries.append(_ent)
+                                            else:
+                                                #self.futures2.update({(_fut:=self.ex_pl.submit(self.ytdl.extract_info, _ent['url'], download=False)): _ent['url']})
+                                                #_fut.add_done_callback(custom_callback)
+                                                self.futures2.update({self.ex_pl.submit(custom_callback, _ent['url']): _ent['url']})
 
-                                    except Exception as e:
-                                        logger.warning(f"[url_playlist_lists][{_url}]:{_ent['url']} no video entries - {repr(e)}")
+                                        except Exception as e:
+                                            logger.warning(f"[url_playlist_lists][{_url}]:{_ent['url']} no video entries - {repr(e)}")
+                    except (KeyboardInterrupt, Exception) as e:
+                        logger.error(f"[url_playlist_lists] {repr(e)}")
                 
                 
+                if self.reset: raise Exception("reset")
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers) as self.ex_pl:
                 
                 #ex = ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers)
                     for url in self.url_pl_list:    
                         #self.futures.update({(_future:=self.ex_pl.submit(self.ytdl.extract_info, url, download=False)): url})
+                        if self.reset: raise Exception("reset")
                         self.futures.update({self.ex_pl.submit(custom_callback, url): url}) 
                         #_future.add_done_callback(custom_callback)
                 
@@ -792,10 +822,13 @@ class AsyncDL():
                 
                     logger.info(f"[url_playlist_lists] futures2: {len(self.futures2)}")
                 
+                    if self.reset: raise Exception("reset")
+                    
                     if self.futures2:
                         wait(list(self.futures2))
                 
                 
+                if self.reset: raise Exception("reset")
                 
                 logger.debug(f"[url_playlist_lists] entries \n{self._url_pl_entries}")
                 
@@ -894,8 +927,10 @@ class AsyncDL():
             logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}\n{self.info_videos}")
             
 
-        except Exception as e:            
-            logger.exception(f"[get_videos]: Error {repr(e)}")
+        
+        except (KeyboardInterrupt, Exception) as e:            
+            logger.error(f"[get_videos]: Error {repr(e)}")
+            raise
         finally:
             if self.nowaitforstartdl:
                 for _ in range(self.init_nworkers - 1):
@@ -930,7 +965,7 @@ class AsyncDL():
                 if self.args.path:
                     _folderpath = Path(self.args.path)
                 else:
-                    _folderpath = Path(Path.home(),"testing",self.time_now.strftime('%Y%m%d'))
+                    _folderpath = Path(Path.home(), "testing", self.time_now.strftime('%Y%m%d'))
                 _folderpath.mkdir(parents=True, exist_ok=True)
                 file_aldl = Path(_folderpath, vid_path.name)
                 if file_aldl not in _folderpath.iterdir():
@@ -959,7 +994,8 @@ class AsyncDL():
         if not self.info_videos[url]['video_info'].get('filesize', None):
             self.info_videos[url]['video_info']['filesize'] = 0
         if (_path:=self._check_if_aldl(self.info_videos[url]['video_info'])):  
-            self.info_videos[url].update({'aldl' : _path, 'status': 'done'})            
+            self.info_videos[url].update({'aldl' : _path, 'status': 'done'})
+            logger.info(f"[{self.info_videos[url]['video_info'].get('id')}][{self.info_videos[url]['video_info'].get('title')}] already DL")            
 
         if self.info_videos[url].get('todl') and not self.info_videos[url].get('aldl') and not self.info_videos[url].get('samevideo') and self.info_videos[url].get('status') != 'prenok':
             self.totalbytes2dl += none_to_cero(self.info_videos[url].get('video_info', {}).get('filesize', 0))
@@ -1296,7 +1332,7 @@ class AsyncDL():
 
                         continue       
         
-        except Exception as e:           
+        except (KeyboardInterrupt, Exception) as e:           
             logger.exception(f"[worker_init][{i}]: Error:{repr(e)}")
                     
         finally:
@@ -1402,7 +1438,7 @@ class AsyncDL():
                         
                     await asyncio.sleep(0)
                                 
-        except Exception as e:
+        except (KeyboardInterrupt, Exception) as e:
             lines = traceback.format_exception(*sys.exc_info())
             logger.debug(f"[worker_run][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
         
@@ -1448,7 +1484,7 @@ class AsyncDL():
                     if video_dl.info_dl['status'] == "done": self.info_videos[url_key].update({'status': 'done'})
                     else: self.info_videos[url_key].update({'status': 'nok'})
                         
-        except Exception as e:
+        except (KeyboardInterrupt, Exception) as e:
             lines = traceback.format_exception(*sys.exc_info())
             logger.debug(f"[worker_manip][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
         finally:
@@ -1487,10 +1523,8 @@ class AsyncDL():
             self.t2.start()
             self.t3.start()
             self.loop  =  asyncio.get_running_loop()
-            self.tasks_run = []
-            task_gui_root = []
-            tasks_manip = []
-            task_gui_console = []
+            self.tasks_run = []            
+            tasks_manip = []            
             task_get_videos = []
 
             if self.nowaitforstartdl:
@@ -1514,9 +1548,8 @@ class AsyncDL():
             for d in done:
                 try:
                     d.result()
-                except Exception as e:
-                    lines = traceback.format_exception(*sys.exc_info())                
-                    logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
+                except (KeyboardInterrupt, Exception) as e:                                   
+                    logger.exception(f"[async_ex] {repr(e)}")
             
             for _task in tasks_gui:
                 _task.cancel()
@@ -1524,9 +1557,9 @@ class AsyncDL():
             await asyncio.wait(tasks_gui) 
                     
 
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[async_ex] {repr(e)}\n{'!!'.join(lines)}")
+        except (KeyboardInterrupt, Exception) as e:                            
+            logger.exception(f"[async_ex] {repr(e)}")
+            raise
             
     def get_results_info(self):
         
@@ -1716,8 +1749,7 @@ class AsyncDL():
             
         with open("/Users/antoniotorres/Projects/common/logs/error_links.txt", "w") as file:
             file.write(videos_ko_str) 
-        
-        
+
         return info_dict
 
  
@@ -1740,7 +1772,10 @@ class AsyncDL():
     
     def close(self):
         
-        self.t2.stop()
+        try:
+            self.t2.stop()
+        except Exception as e:
+            pass
         
         try:        
             self.ies_close()
@@ -1751,6 +1786,16 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
             
+        
+    def clean(self):
+        
+        try:
+            current_res = Path(Path.home(),"Projects/common/logs/current_res.json")
+            if current_res.exists():
+                current_res.unlink()
+        except Exception as e:
+            logger.exception(f"[clean] {repr(e)}")
+          
     def get_videos_to_dl(self): 
         
         logger.warning("[get_videos_to_dl] LEGACY MODE")

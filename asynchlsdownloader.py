@@ -20,7 +20,7 @@ import m3u8
 from Cryptodome.Cipher import AES
 
 from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
-                   naturalsize, print_norm_time)
+                   naturalsize, print_norm_time, get_format_id)
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -134,12 +134,13 @@ class AsyncHLSDownloader():
                 except Exception as e:
                     logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error num[{i+1}] when downloading m3u8 file, will retry")
                     _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
-                    _new_info = {}
-                    if _info.get('requested_formats'):
-                        for _info_format in _info['requested_formats']:
-                            if _info_format['format_id'] == self.info_dict['format_id']:
-                                _new_info = _info_format
-                    else: _new_info = _info
+                    # _new_info = {}
+                    # if _info.get('requested_formats'):
+                    #     for _info_format in _info['requested_formats']:
+                    #         if _info_format['format_id'] == self.info_dict['format_id']:
+                    #             _new_info = _info_format
+                    # else: _new_info = _info
+                    _new_info = get_format_id(_info, self.info_dict['format_id'])
                     if _new_info: 
                         self.headers = self.info_dict['http_headers'] = _new_info.get('http_headers')
                         self.video_url = self.info_dict['url'] = _new_info.get('url')
@@ -275,10 +276,13 @@ class AsyncHLSDownloader():
                     raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: fails no descriptor")         
 
                 try: 
-                    if info_reset.get('requested_formats'):
-                        info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
-                        self.prep_reset(info_format[0])
-                    else: self.prep_reset(info_reset)
+                    info_format = get_format_id(info_reset, self.info_dict['format_id'])
+                    # if info_reset.get('requested_formats'):
+                    #     info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
+                    #     self.prep_reset(info_format[0])
+                    # else: self.prep_reset(info_reset)
+                    if not info_format: raise AsyncHLSDLError("couldnt get format_id")
+                    self.prep_reset(info_format) 
                     self.n_reset += 1
                     break
                 except Exception as e:
