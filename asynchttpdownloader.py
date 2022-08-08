@@ -12,8 +12,6 @@ from statistics import median
 
 import aiofiles
 import httpx
-#from backoff import constant, on_exception
-#from pyrate_limiter import Duration, Limiter, RequestRate
 
 from utils import EMA, int_or_none, naturalsize, none_to_cero, try_get, async_ex_in_executor, limiter_15, limiter_5, limiter_1, dec_retry_error, CONFIG_EXTRACTORS
 
@@ -259,19 +257,18 @@ class AsyncHTTPDownloader():
             _extractor = self.info_dict.get('extractor', '')
             
             self.auto_pasres = False
+            self.sem = False
             if _extractor and _extractor.lower() != 'generic':
                 self._decor, self._nsplits = getter(_extractor) or (transp, self.n_parts)
                 if _extractor == 'doodstream':
                     self.auto_pasres = True
-                self.sem = True
+                if self._nsplits < 16: self.sem = True
                 if self.n_parts != self._nsplits:
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: change nparts [{self.n_parts} -> {self._nsplits}]")
                     self.n_parts = min(self.n_parts, self._nsplits)
             else: 
                 self._decor, self._nsplits = transp, self.n_parts
-                self.sem = False
                 
-            #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {_extractor}:{self._decor}:{self._nsplits}:{self.n_parts}") 
             
             self._NUM_WORKERS = self.n_parts 
 

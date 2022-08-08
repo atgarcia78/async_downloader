@@ -25,7 +25,7 @@ from yt_dlp.utils import (
     js_to_json, 
     try_get, 
     sanitize_filename, 
-    std_headers
+
 )
 
 from yt_dlp.extractor.commonwebdriver import (
@@ -501,7 +501,6 @@ def init_ytdl(args):
         "writesubtitles": True,        
         "restrictfilenames": True,
         "user_agent": args.useragent,        
-        "hls_split_discontinuity": True,
         "winit": args.winit,
         "verboseplus": args.vv
                   

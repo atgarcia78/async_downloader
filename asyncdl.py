@@ -34,7 +34,6 @@ from utils import (
     try_get,
     js_to_json,
     sanitize_filename,
-    std_headers,
     print_tasks
 )
 
@@ -52,18 +51,11 @@ class AsyncDL():
     
         #args
         self.args = args
-        #self.parts = self.args.parts
         self.workers = self.args.w        
         self.init_nworkers = self.args.winit if self.args.winit > 0 else self.args.w
         
         #youtube_dl
         self.ytdl = init_ytdl(self.args)
-        std_headers.update(self.ytdl.params.get('http_headers'))
-
-        if args.headers:
-            std_headers.update(json.loads(js_to_json(args.headers)))       
-        
-        logger.debug(f"std_headers:\n{std_headers}")
         
         #aria2c
         if self.args.aria2c: init_aria2c(self.args)
@@ -168,9 +160,6 @@ class AsyncDL():
                     task.cancel()
             await asyncio.wait(pending_tasks)
             
-
-            #if self.window_console:
-            #    self.window_console.write_event_value('-EXIT-', {})
            
     async def print_pending_tasks(self):
         if self.loop:
