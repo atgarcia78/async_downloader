@@ -580,6 +580,36 @@ def init_gui_console():
         logger.exception(f'[init_gui] error {repr(e)}')
         
 
+def init_gui_result():
+    
+    try:
+        
+        logger = logging.getLogger("asyncDL")
+        
+        sg.theme("SystemDefaultForReal")
+        
+        col = sg.Column([
+                            [sg.Text("RESULTS", font='Any 14')], 
+                            [sg.Multiline(default_text = "Waiting for info", size=(160, 50), font='Any 10', write_only=True, key='-MLRES-', reroute_cprint=True, autoscroll=True, auto_refresh=True)]
+        ], element_justification='c', expand_x=True, expand_y=True)
+        
+        layout = [ [col] ]
+        
+        window = sg.Window('Console', layout, alpha_channel=0.99, location=(0, 500), finalize=True, resizable=True)
+        window.set_min_size(window.size)
+        window['-MLRES-'].expand(True, True, True)
+        
+        window.bring_to_front()
+        
+        return window
+    
+    except Exception as e:
+        logger.exception(f'[init_gui_result] error {repr(e)}')
+        
+        
+        
+        
+
 def init_gui():
     
     try:
