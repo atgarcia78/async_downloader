@@ -17,6 +17,7 @@ from utils import EMA, int_or_none, naturalsize, none_to_cero, try_get, async_ex
 
 
 from threading import Lock, Semaphore
+from cs.threads import PriorityLock
 
 from urllib.parse import unquote, urlparse
 
@@ -69,10 +70,11 @@ class AsyncHTTPDownloader():
         self.video_url = self.info_dict.get('url')
         #self._extra_urls = self.info_dict.get('_extra_urls')
         
-        def _transf(_url):
-            return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
+        # def _transf(_url):
+        #    return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
         
-        self.uris = [unquote(_transf(self.video_url))] 
+        #uris = [unquote(_transf(self.video_url))]
+        self.uris = [unquote(self.video_url)]
         #if self._extra_urls: 
         #    self.n_parts = 10
         #    self.uris += self._extra_urls
@@ -260,7 +262,7 @@ class AsyncHTTPDownloader():
             self.sem = False
             if _extractor and _extractor.lower() != 'generic':
                 self._decor, self._nsplits = getter(_extractor) or (transp, self.n_parts)
-                if _extractor == 'doodstream':
+                if _extractor in ['doodstream', 'vidoza']:
                     self.auto_pasres = True
                 if self._nsplits < 16: self.sem = True
                 if self.n_parts != self._nsplits:
@@ -277,7 +279,8 @@ class AsyncHTTPDownloader():
             if self.sem:
                 with AsyncHTTPDownloader._LOCK:
                     if not (AsyncHTTPDownloader._SEM.get(self._host)):
-                        AsyncHTTPDownloader._SEM.update({self._host: Semaphore()})
+                        #AsyncHTTPDownloader._SEM.update({self._host: Semaphore()})
+                        AsyncHTTPDownloader._SEM.update({self._host: PriorityLock()})
                         
                 AsyncHTTPDownloader._SEM[self._host].acquire()
             

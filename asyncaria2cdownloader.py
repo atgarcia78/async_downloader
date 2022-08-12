@@ -14,6 +14,7 @@ from utils import async_ex_in_executor, naturalsize, none_to_cero, try_get, CONF
 
 
 from threading import Lock, Semaphore
+from cs.threads import PriorityLock
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -51,6 +52,7 @@ class AsyncARIA2CDownloader():
         self.aria2_client = aria2p.API(aria2p.Client(port=port))
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
+        self.ytdl.params['sem'] = AsyncARIA2CDownloader._SEM
                 
         proxies = self.ytdl.params.get('proxy', None)
         if proxies:
@@ -106,7 +108,7 @@ class AsyncARIA2CDownloader():
         self.sem = False
         if _extractor and _extractor.lower() != 'generic':
             _decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
-            if _extractor == 'doodstream':
+            if _extractor in ['doodstream', 'vidoza']:
                 self.auto_pasres = True
             if _nsplits < 16: self.sem = True
         else: 
@@ -139,10 +141,11 @@ class AsyncARIA2CDownloader():
 
                  
             
-        def _transf(_url):
-            return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
+        # def _transf(_url):
+        #    return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
         
-        uris = [unquote(_transf(self.video_url))]
+        #uris = [unquote(_transf(self.video_url))]
+        uris = [unquote(self.video_url)]
         #if self._extra_urls:
         #    for el in self._extra_urls: 
         #        uris.append(unquote(el))
@@ -152,8 +155,8 @@ class AsyncARIA2CDownloader():
         if self.sem:
             with AsyncARIA2CDownloader._LOCK:
                 if not (AsyncARIA2CDownloader._SEM.get(self._host)):
-                    AsyncARIA2CDownloader._SEM.update({self._host: Semaphore()})
-                    #AsyncARIA2CDownloader._EVENTS[self._host].set()
+                    #AsyncARIA2CDownloader._SEM.update({self._host: Semaphore()})
+                    AsyncARIA2CDownloader._SEM.update({self._host: PriorityLock()})
                 
             
         @_decor
@@ -237,7 +240,7 @@ class AsyncARIA2CDownloader():
 
         try: 
             
-            if self.sem: await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, AsyncARIA2CDownloader._SEM[self._host].acquire)
+            if self.sem: await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, AsyncARIA2CDownloader._SEM[self._host].acquire, priority=50)
             
             await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.resume,[self.dl_cont])
             

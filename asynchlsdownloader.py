@@ -548,7 +548,7 @@ class AsyncHLSDownloader():
                                 async with self.video_downloader.lock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size                                               
                         
-                        await asyncio.sleep(0)
+                        #await asyncio.sleep(0)
                         return                 
                     except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError) as e:
                         #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: cancelled exception")
@@ -566,7 +566,7 @@ class AsyncHLSDownloader():
                                 self.down_temp -= _size
                                 async with self.video_downloader.lock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
-                        #raise                   
+                        return                   
                     except Exception as e:                        
                         self.info_frag[q - 1]['error'].append(repr(e))
                         self.info_frag[q - 1]['downloaded'] = False
@@ -585,6 +585,9 @@ class AsyncHLSDownloader():
                                 self.down_temp -= _size
                                 async with self.video_downloader.lock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
+                        
+                        if self.reset_event.is_set():
+                            return
                         
                         if self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES:
                                                      

@@ -77,6 +77,7 @@ class AsyncDL():
         else:
             self.nowaitforstartdl = False
         self.num_videos_to_check = 0
+        self.num_videos_pending = 0
         self.getlistvid_done = False
                 
 
@@ -976,7 +977,7 @@ class AsyncDL():
                     if _vid['video_info'].get('_type', 'video') == 'video' and (_vid['video_info'].get('id', "") == _id) and (_vid['video_info'].get('title', "")) == _title:
                         return(urlkey)
                 
-    def _prepare_for_dl(self, url):
+    def _prepare_for_dl(self, url, put=True):
         self.info_videos[url].update({'todl': True})
         if (_id:=self.info_videos[url]['video_info'].get('id')):
             self.info_videos[url]['video_info']['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
@@ -987,10 +988,12 @@ class AsyncDL():
             logger.info(f"[{self.info_videos[url]['video_info'].get('id')}][{self.info_videos[url]['video_info'].get('title')}] already DL")            
 
         if self.info_videos[url].get('todl') and not self.info_videos[url].get('aldl') and not self.info_videos[url].get('samevideo') and self.info_videos[url].get('status') != 'prenok':
-            self.totalbytes2dl += none_to_cero(self.info_videos[url].get('video_info', {}).get('filesize', 0))
-            self.videos_to_dl.append(url)
-            self.queue_vid.sync_q.put_nowait(url)
-            self.num_videos_to_check += 1
+            with self.lock:
+                self.totalbytes2dl += none_to_cero(self.info_videos[url].get('video_info', {}).get('filesize', 0))
+                self.videos_to_dl.append(url)
+                if put: self.queue_vid.sync_q.put_nowait(url)
+                self.num_videos_to_check += 1
+                self.num_videos_pending += 1
             
     def _prepare_entry_pl_for_dl(self, entry):
         _type = entry.get('_type', 'video')
@@ -1048,9 +1051,16 @@ class AsyncDL():
         await asyncio.sleep(0)
 
         try:
-        
+            
+            while True:
+                if not self.nowaitforstartdl or self.getlistvid_done: break
+                if self.queue_vid.async_q.qsize() < 2:
+                    await asyncio.sleep(0)
+                else: break
+
             while True:
 
+                
                 url_key = await self.queue_vid.async_q.get()
 
                 if url_key == "KILL":
@@ -1085,11 +1095,16 @@ class AsyncDL():
                 
                 else: 
                     async with self.alock:
-                        _qsize = self.queue_vid.async_q.qsize() 
-                        if not self.nowaitforstartdl or self.getlistvid_done:
-                            _pending = _qsize - self.init_nworkers - 1
-                        else:
-                            _pending = _qsize 
+                        # _qsize = self.queue_vid.async_q.qsize()
+                        # logger.info(f"qsize: {_qsize}")
+                        # if not self.nowaitforstartdl or self.getlistvid_done:
+                        #     _pending = _qsize - (self.init_nworkers - 1) + self.count_init
+                        #     logger.info(f"1:{_pending}")
+                        # else:
+                        #     _pending = _qsize 
+                        #     logger.info(f"2:{_pending}")
+                        _pending = self.num_videos_pending
+                        _to_check = self.num_videos_to_check
                     
                     vid = self.info_videos[url_key]['video_info']
                     logger.debug(f"[worker_init][{i}]: [{url_key}] extracting info\n{vid}")
@@ -1134,7 +1149,7 @@ class AsyncDL():
                                 self.info_videos[url_key]['error'].append(_error)
                                 self.info_videos[url_key]['status'] = 'initnok'
                                 
-                                logger.error(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{url_key}] init nok - {_error}")                                
+                                logger.error(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{url_key}] init nok - {_error}")                                
                                     
                                 continue
 
@@ -1161,7 +1176,7 @@ class AsyncDL():
                                     infdict['release_timestamp'] = _mtime
                                     infdict['release_date'] = extradict.get('release_date')
                                 
-                            logger.debug(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{infdict.get('id')}][{infdict.get('title')}] info extracted")                        
+                            logger.debug(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{infdict.get('id')}][{infdict.get('title')}] info extracted")                        
                             logger.debug(f"[worker_init][{i}]: [{urlkey}] info extracted\n{infdict}")
                             
                             self.info_videos[urlkey].update({'video_info': infdict})
@@ -1219,7 +1234,7 @@ class AsyncDL():
                                     
                                     if dl.info_dl['status'] in ("init_manipulating", "done"):
                                         self.queue_manip.put_nowait((urlkey, dl))
-                                        logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
+                                        logger.info(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
                                     
                                     else:
                                         logger.debug(f"[worker_init][{i}]: [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, lets put in run queue")
@@ -1232,7 +1247,7 @@ class AsyncDL():
                                                 _msg = f', add this dl[{_index_in_dl}] to auto_pasres{list(self.list_pasres)}'
                                                 if self.window_console and not self.stop_root: sg.cprint(f"[pause-resume autom] {self.list_pasres}")
                                                                             
-                                        logger.info(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL{_msg}")
+                                        logger.info(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL{_msg}")
                                 
                                 else:
                                     async with self.alock:
@@ -1253,11 +1268,11 @@ class AsyncDL():
                                 logger.info(f"[worker_init][{i}]: UNBLOCKED")
                                 
                             await get_dl(url_key, infdict=info, extradict=vid)
-                            await asyncio.sleep(0)
-                            continue
+
                         
                         elif _type == 'playlist':
                             
+                            logger.warning(f"[worker_init][{i}]: [{url_key}] playlist en worker_init")
                             self.info_videos[url_key]['todl'] = False
                             
                             for _entry in info['entries']:
@@ -1265,7 +1280,7 @@ class AsyncDL():
                                 try:
                                 
                                     if (_type:=_entry.get('_type', 'video')) != 'video':
-                                        logger.warning(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{url_key}] playlist of entries that are not videos")
+                                        logger.warning(f"[worker_init][{i}]: [{url_key}] playlist of entries that are not videos")
                                     else:
                                         _url = _entry.get('original_url') or _entry.get('url')
                         
@@ -1285,19 +1300,29 @@ class AsyncDL():
                                 
                                                 self.info_videos[_url].update({'samevideo': _same_video_url})
                                                 logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
+                                                if self.nowaitforstartdl: self._prepare_for_dl(_url,put=False)
                                         
                                             else:
-                                                async with self.alock:
-                                                    self.totalbytes2dl += none_to_cero(_entry.get('filesize', 0))
-                                                if self.wkinit_stop:
-                                                    logger.info(f"[worker_init][{i}]: BLOCKED")
-                            
-                                                    while self.wkinit_stop:
-                                                        await async_wait_time(5)
-                                                        logger.debug(f"[worker_init][{i}]: BLOCKED")
+                                                
+                                                try:
+                                                    if self.nowaitforstartdl: self._prepare_for_dl(_url, put=False)
+                                                    if self.wkinit_stop:
+                                                        logger.info(f"[worker_init][{i}]: BLOCKED")
                                 
-                                                    logger.info(f"[worker_init][{i}]: UNBLOCKED")
-                                                await get_dl(_url, infdict=_entry)
+                                                        while self.wkinit_stop:
+                                                            await async_wait_time(5)
+                                                            logger.debug(f"[worker_init][{i}]: BLOCKED")
+                                    
+                                                        logger.info(f"[worker_init][{i}]: UNBLOCKED")
+                                                    await get_dl(_url, infdict=_entry)
+                                                    
+                                                    
+                                                except Exception as e:
+                                                    raise
+                                                finally:
+                                                    async with self.alock:
+                                                        self.num_videos_pending -= 1
+                                                    
                                 
                                 except Exception as e:
                                     
@@ -1307,19 +1332,28 @@ class AsyncDL():
                                     self.list_urls_to_check.append((_url,repr(e)))
                                     self.info_videos[_url]['error'].append(f'DL constructor error:{repr(e)}')
                                     self.info_videos[_url]['status'] = 'initnok'                                    
-                                    
+                                
+                                finally:
+                                    await asyncio.sleep(0)
                                     continue
+                                    
 
                     except Exception as e:
                         
                         self.list_initnok.append((vid, f"Error:{repr(e)}"))
-                        logger.error(f"[worker_init][{i}]: [{self.num_videos_to_check - _pending}/{self.num_videos_to_check}] [{url_key}] init nok - Error:{repr(e)}")
+                        logger.error(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{url_key}] init nok - Error:{repr(e)}")
                         
                         self.list_urls_to_check.append((url_key,repr(e)))
                         self.info_videos[url_key]['error'].append(f'DL constructor error:{repr(e)}')
                         self.info_videos[url_key]['status'] = 'initnok'
 
-                        continue       
+
+                    finally:
+                        async with self.alock:
+                            self.num_videos_pending -= 1
+                        await asyncio.sleep(0)
+                        continue
+                               
         
         except (KeyboardInterrupt, Exception) as e:           
             logger.exception(f"[worker_init][{i}]: Error:{repr(e)}")
