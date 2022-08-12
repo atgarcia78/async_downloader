@@ -151,12 +151,14 @@ class VideoDownloader():
         return dl
 
     def reset(self):
+        
         for dl in self.info_dl['downloaders']:
-            if 'hls' in str(type(dl)).lower():
-                if dl.status == "downloading":
-                    if dl.reset_event: dl.reset_event.set()
+            #if 'hls' in str(type(dl)).lower():
+            if dl.reset_event and dl.status == "downloading":
+                self.resume()
+                dl.reset_event.set()
                 
-                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
+        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
     
     def change_numvidworkers(self, n):
         for dl in self.info_dl['downloaders']:
@@ -165,7 +167,7 @@ class VideoDownloader():
                 dl.n_workers = n
                 if dl.status == "downloading":
                     if dl.reset_event: dl.reset_event.set()
-                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
+        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
     def stop(self):
         if self.stop_event:

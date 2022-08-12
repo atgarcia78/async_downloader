@@ -32,6 +32,7 @@ from utils import (
     sg, 
     wait_time, 
     try_get,
+    traverse_obj,
     js_to_json,
     sanitize_filename,
     print_tasks
@@ -960,8 +961,11 @@ class AsyncDL():
                 file_aldl = Path(_folderpath, vid_path.name)
                 if file_aldl not in _folderpath.iterdir():
                     file_aldl.symlink_to(vid_path)
-                    mtime = int(vid_path.stat().st_mtime)
-                    file_aldl._accessor.utime(file_aldl, (int(datetime.now().timestamp()), mtime), follow_symlinks=False)
+                    try:
+                        mtime = int(vid_path.stat().st_mtime)
+                        file_aldl._accessor.utime(file_aldl, (int(datetime.now().timestamp()), mtime), follow_symlinks=False)
+                    except Exception as e:
+                        logger.debug(f'[check_if_aldl] [{str(file_aldl)}] -> [{str(vid_path)}] error when copying times {repr(e)}')
                 
                 
             return vid_path_str
@@ -1673,11 +1677,17 @@ class AsyncDL():
         videos_kodl = []        
         videos_koinit = []     
         
+        files_cached = Path(Path.home(),"Projects/common/logs/files_cached.json")
+        
+        with open(files_cached,"r") as f:
+            _temp = json.load(f)
+        
 
         for url, video in self.info_videos.items():
             if not video.get('aldl') and not video.get('samevideo') and video.get('todl'):
                 if video['status'] == "done":
                     videos_okdl.append(_getter(url, video))
+                    _temp['local'].update({f"{traverse_obj(video, ('video_info', 'id'))}_{traverse_obj(video, ('video_info', 'title')).upper()}": str(traverse_obj(video, 'filename'))})
                 else:                    
                     if video['status'] == "initnok" or video['status'] == "prenok":
                         videos_kodl.append(_getter(url, video))
@@ -1685,6 +1695,9 @@ class AsyncDL():
                     elif video['status'] == "initok":
                         if self.args.nodl: videos_okdl.append(_getter(url, video))
                     else: videos_kodl.append(_getter(url, video))
+        
+        with open(files_cached, "w") as f:
+            json.dump(_temp, f)
             
             
         info_dict = _print_list_videos()

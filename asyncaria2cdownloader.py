@@ -87,11 +87,14 @@ class AsyncARIA2CDownloader():
             if not AsyncARIA2CDownloader._EX_ARIA2DL:
                 AsyncARIA2CDownloader._EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
         
+        self.reset_event = None
+        
+        self.prep_init()
         self.init()       
         
         
 
-    def init(self):
+    def prep_init(self):
         
         
         def transp(func):
@@ -107,12 +110,12 @@ class AsyncARIA2CDownloader():
         self.auto_pasres = False
         self.sem = False
         if _extractor and _extractor.lower() != 'generic':
-            _decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
+            self._decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
             if _extractor in ['doodstream', 'vidoza']:
                 self.auto_pasres = True
             if _nsplits < 16: self.sem = True
         else: 
-            _decor, _nsplits = transp, self.nworkers
+            self._decor, _nsplits = transp, self.nworkers
             
 
         self.nworkers = min(_nsplits, self.nworkers)
@@ -132,9 +135,9 @@ class AsyncARIA2CDownloader():
         #    opts_dict.update({'referer': _referer})
         
         
-        opts = self.aria2_client.get_global_options()
+        self.opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
-            rc = opts.set(key, value)
+            rc = self.opts.set(key, value)
             if not rc:
                 logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] options - couldnt set [{key}] to [{value}]")
                 
@@ -145,12 +148,12 @@ class AsyncARIA2CDownloader():
         #    return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
         
         #uris = [unquote(_transf(self.video_url))]
-        uris = [unquote(self.video_url)]
+        self.uris = [unquote(self.video_url)]
         #if self._extra_urls:
         #    for el in self._extra_urls: 
         #        uris.append(unquote(el))
         
-        self._host = urlparse(uris[0]).netloc
+        self._host = urlparse(self.uris[0]).netloc
                 
         if self.sem:
             with AsyncARIA2CDownloader._LOCK:
@@ -158,12 +161,13 @@ class AsyncARIA2CDownloader():
                     #AsyncARIA2CDownloader._SEM.update({self._host: Semaphore()})
                     AsyncARIA2CDownloader._SEM.update({self._host: PriorityLock()})
                 
+    def init(self):
             
-        @_decor
+        @self._decor
         def _throttle_add_uris():
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{_extractor}] init uris[{uris}]")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] init uris[{self.uris}]")
             #logger.info(opts.get_struct())
-            return self.aria2_client.add_uris(uris, opts)
+            return self.aria2_client.add_uris(self.uris, self.opts)
                         
         try:
             
@@ -209,6 +213,7 @@ class AsyncARIA2CDownloader():
             if self.dl_cont.status in ('active'):
                 self.aria2_client.pause([self.dl_cont])
                 
+                
             elif self.dl_cont.status in ('complete'):
                 self.status = "done"
                 #AsyncARIA2CDownloader._SEM[self._host].release()
@@ -236,11 +241,12 @@ class AsyncARIA2CDownloader():
         
         
 
-    async def fetch_async(self):        
+    async def fetch(self):        
 
         try: 
             
             if self.sem: await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, AsyncARIA2CDownloader._SEM[self._host].acquire, priority=50)
+            
             
             await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.resume,[self.dl_cont])
             
@@ -252,10 +258,10 @@ class AsyncARIA2CDownloader():
                 await asyncio.sleep(0)
             
             if self.dl_cont.status in ('active'):        
-                self.status = "downloading"  
+                self.status = 'downloading'
                 
                 #timer0 = time.monotonic()
-                while self.dl_cont.status in ('active'):                    
+                while (self.dl_cont.status in ('active') and not self.reset_event.is_set()):                    
                                     
                     _incsize = self.dl_cont.completed_length - self.down_size
                     self.down_size = self.dl_cont.completed_length
@@ -284,11 +290,7 @@ class AsyncARIA2CDownloader():
                         #     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_dl]\n{self.dl_cont._struct}")
                         #     timer0 = timer1
                     await asyncio.sleep(0)
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
-            if self.dl_cont.status in ('complete'): self.status = "done"
-            elif self.dl_cont.status in ('error'): 
-                self.status = 'error'
-                self.error_message = self.dl_cont.error_message
+
 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
@@ -298,7 +300,31 @@ class AsyncARIA2CDownloader():
         finally:
             if self.sem: await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, AsyncARIA2CDownloader._SEM[self._host].release)
             
+    async def fetch_async(self):
+        self.reset_event = asyncio.Event()
+        
+        while True:
             
+            await self.fetch()
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
+            if self.dl_cont.status in ('complete'): 
+                self.status = 'done'
+                break
+            elif self.reset_event.is_set():
+                try:
+                    self.reset_event.clear()
+                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.remove, [self.dl_cont], force=False, files=False, clean=False)
+                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.init)
+                    continue
+                except Exception as e:
+                    break
+                    
+            elif self.dl_cont.status in ('error'): 
+                self.status = 'error'
+                self.error_message = self.dl_cont.error_message
+                break
+            
+                
             
     def print_hookup(self):
         

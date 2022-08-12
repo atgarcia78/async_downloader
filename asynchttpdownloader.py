@@ -134,6 +134,8 @@ class AsyncHTTPDownloader():
             if not AsyncHTTPDownloader._EX_HTTPDL:
                 AsyncHTTPDownloader._EX_HTTPDL = ThreadPoolExecutor(thread_name_prefix="ex_httpdl")
         
+        self.reset_event = None
+        
         self.init()
 
 
