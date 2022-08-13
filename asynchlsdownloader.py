@@ -20,7 +20,7 @@ import m3u8
 from Cryptodome.Cipher import AES
 
 from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
-                   naturalsize, print_norm_time, get_format_id)
+                   naturalsize, print_norm_time, get_format_id, dec_retry_error)
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -108,6 +108,8 @@ class AsyncHLSDownloader():
         
         self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
         
+        self.init_client = httpx.Client(follow_redirects=True, limits=self.limits, timeout=self.timeout, verify=False, headers=self.headers)
+        
         self.init()
         
         
@@ -115,19 +117,16 @@ class AsyncHLSDownloader():
     def get_info_fragments(self):
         
         try:
-            
-            client = httpx.Client(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies)
-            
-            if self.headers.get('Cookie'):
+
+            if self.headers.get('Cookie'):      
                 
-                del self.headers['Cookie']
-                res = client.get(self.manifest_url, headers=self.headers)            
+                res = self.init_client.get(self.manifest_url)            
             
             self.m3u8_obj = None
             
             for i in range(3):
                 try:
-                    res = client.get(self.video_url, headers=self.headers)
+                    res = self.init_client.get(self.video_url)
                     res.raise_for_status()
                     self.m3u8_obj = m3u8.loads((res.content).decode('utf-8', 'replace') , uri=self.video_url)
                     break
@@ -150,7 +149,7 @@ class AsyncHLSDownloader():
 
             if not self.m3u8_obj: raise AsyncHLSDLError("couldnt get m3u8 file")
             
-            self.cookies = client.cookies.jar.__dict__['_cookies']
+            self.cookies = self.init_client.cookies.jar.__dict__['_cookies']
             #self.m3u8_obj = m3u8.load(self.video_url, headers=self.headers, verify_ssl=self.verifycert)
             if self.m3u8_obj.keys:
                 for _key in self.m3u8_obj.keys:
@@ -160,14 +159,32 @@ class AsyncHLSDownloader():
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][get_info_fragments] - {repr(e)}")
             raise AsyncHLSDLErrorFatal(repr(e))
-        finally:
-            client.close()
+ 
         
+   
+    @dec_retry_error
+    def get_init_section(self, uri, file):
+        try:  
+                       
+            res = self.init_client.get(uri)
+            res.raise_for_status()
+            with open(file, "wb") as f:
+                f.write(res.content)            
+
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[get_init_section] {repr(e)} \n{'!!'.join(lines)}")
+            raise
+        
+         
+        
+    
     def init(self):
 
         try:
         
             self.info_frag = []
+            self.info_init_section = {}
             self.frags_to_dl = []
             self.n_dl_fragments = 0
             
@@ -181,6 +198,14 @@ class AsyncHLSDownloader():
             
             
             self.info_dict['fragments'] = self.get_info_fragments()
+            self.info_dict['init_section'] = self.info_dict['fragments'][0].init_section
+            
+            if (_frag:=self.info_dict['init_section']):
+                _file_path =  Path(self.download_path,Path(_frag.get_path_from_uri()).name)
+                self.get_init_section(_frag.absolute_uri, _file_path)
+                self.info_init_section.update({"frag": 0, "url": _frag.absolute_uri, "file": _file_path, "downloaded": True})
+                
+                
 
             for i, fragment in enumerate(self.info_dict['fragments']):
                                     
@@ -731,6 +756,7 @@ class AsyncHLSDownloader():
             except Exception as e:
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
             finally:
+                self.init_client.close()
                 for t in tasks: t.cancel()
                 await asyncio.wait(tasks)            
                 await self.client.aclose()
@@ -757,12 +783,19 @@ class AsyncHLSDownloader():
                     
     def ensamble_file(self):
        
-        self.status = "manipulating"
+        self.status = "manipulating"  
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
+        if self.info_init_section:
+            self.filename = Path(self.filename.parent, self.filename.stem + '.mp4')
+            
         
         try:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
             with open(self.filename, mode='wb') as dest:
+                if self.info_init_section:                    
+                    with open(self.info_init_section['file'], 'rb') as source:
+                        dest.write(source.read())
+                
                 _skipped = 0
                 for f in self.info_frag: 
                     if f.get('skipped', False):

@@ -724,9 +724,14 @@ class AsyncDL():
                 self._url_pl_entries = []                
                 self._count_pl = 0                
                 self.futures = {}
-                self.futures2 = {}    
+                self.futures2 = {}
+                
+                if len(self.url_pl_list) == 1 and self.args.use_path_pl:
+                    _get_name = True
+                else:
+                    _get_name = False
 
-                def custom_callback(_url):                        
+                def custom_callback(_url, _get):                        
                     
                     try:
                         
@@ -738,16 +743,18 @@ class AsyncDL():
                             logger.info(f"[url_playlist_list]: [{self._count_pl}/{len(self.futures) + len(self.futures2)}] {_url}")
                         try:
                             #_info = self.ytdl.sanitize_info(fut.result())
-                            _errormsg = 'no video entry'
+                            _errormsg = None
                             _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
                         except Exception as e:
                             _info = None
                             _errormsg = repr(e)
                         if not _info:
-                            _info = {'_type': 'error', 'url': _url, 'error': _errormsg}
+                            _info = {'_type': 'error', 'url': _url, 'error': _errormsg or 'no video entry'}
                             if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_info)
                             self._url_pl_entries += [_info]
                         elif _info:
+                                
+                                
                             if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
                                 
                                 ##_info['original_url'] = _url
@@ -755,8 +762,12 @@ class AsyncDL():
                                 
                                 if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_info)
                                 self._url_pl_entries += [_info]
-                            else:                                
-                                
+                            else:   
+                                if _get and not self.args.path:                             
+                                    _name = f"{_info.get('title')}{_info.get('extractor_key')}{_info.get('id')}"
+                                    self.args.path = str(Path(Path.home(), 'testing', _name))
+                                    logger.info(f"[path for pl] {self.args.path}")
+                                    
                                 for _ent in _info.get('entries'):
                                     
                                     if _ent.get('_type', 'video') == 'video':
@@ -788,7 +799,7 @@ class AsyncDL():
                                             else:
                                                 #self.futures2.update({(_fut:=self.ex_pl.submit(self.ytdl.extract_info, _ent['url'], download=False)): _ent['url']})
                                                 #_fut.add_done_callback(custom_callback)
-                                                self.futures2.update({self.ex_pl.submit(custom_callback, _ent['url']): _ent['url']})
+                                                self.futures2.update({self.ex_pl.submit(custom_callback, _ent['url'], False): _ent['url']})
 
                                         except Exception as e:
                                             logger.warning(f"[url_playlist_lists][{_url}]:{_ent['url']} no video entries - {repr(e)}")
@@ -804,7 +815,7 @@ class AsyncDL():
                     for url in self.url_pl_list:    
                         #self.futures.update({(_future:=self.ex_pl.submit(self.ytdl.extract_info, url, download=False)): url})
                         if self.reset: raise Exception("reset")
-                        self.futures.update({self.ex_pl.submit(custom_callback, url): url}) 
+                        self.futures.update({self.ex_pl.submit(custom_callback, url, _get_name): url}) 
                         #_future.add_done_callback(custom_callback)
                 
                     logger.info(f"[url_playlist_lists] futures1: {len(self.futures)}")

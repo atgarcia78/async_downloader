@@ -370,6 +370,7 @@ def init_argparser():
     parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true", default=False)
+    parser.add_argument("--use-path-pl", action="store_true", default=False)
 
     args = parser.parse_args()
     
@@ -487,7 +488,7 @@ def init_ytdl(args):
         "verbose": args.verbose,
         "quiet": args.quiet,
         "format" : args.format,
-        "format_sort" : ['ext:mp4:mp4a'],
+        "format_sort" : ["ext:mp4:mp4a"],
         "nocheckcertificate" : args.nocheckcert,
         "subtitleslangs": ['all'],
         "convertsubtitles": 'srt',
