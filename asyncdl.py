@@ -1013,7 +1013,7 @@ class AsyncDL():
                                             'status': 'prenok',
                                             'todl': True,                                                         
                                             'error': [entry.get('error', 'no video entry')]}
-                if any(_ in str(entry.get('error', 'no video entry')).lower() for _ in ['not found', '404', 'flagged', '403', 'suspended', 'unavailable', 'disabled']): self.list_notvalid_urls.append(_errorurl)                                    
+                if any(_ in str(entry.get('error', 'no video entry')).lower() for _ in ['not found', '404', 'flagged', '403', '410', 'suspended', 'unavailable', 'disabled']): self.list_notvalid_urls.append(_errorurl)                                    
                 else: self.list_urls_to_check.append((_errorurl, entry.get('error', 'no video entry')))
                 self.list_initnok.append((_errorurl, entry.get('error', 'no video entry')))
             return
@@ -1140,7 +1140,7 @@ class AsyncDL():
                                     self.list_unsup_urls.append(url_key)
                                     _error = 'unsupported_url'
                                     
-                                elif any(_ in str(e).lower() for _ in ['not found', '404', 'flagged', '403', 'suspended', 'unavailable', 'disabled']):
+                                elif any(_ in str(e).lower() for _ in ['not found', '404', 'flagged', '403', '410', 'suspended', 'unavailable', 'disabled']):
                                     _error = 'not_valid_url'
                                     self.list_notvalid_urls.append(url_key)                                    
                                     
