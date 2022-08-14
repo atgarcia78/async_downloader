@@ -53,7 +53,7 @@ def main():
                 asyncio.set_event_loop(asyncDL.loop)
                 asyncDL.main_task = asyncDL.loop.create_task(asyncDL.async_ex())                  
                 asyncDL.loop.run_until_complete(asyncDL.main_task)
-            except (KeyboardInterrupt, Exception) as e:
+            except BaseException as e:
                 logger.info(repr(e))
             
                 try:
@@ -71,21 +71,29 @@ def main():
                     else: logger.debug(f"pending tasks: []")
                 finally:
                     asyncio.set_event_loop(None)
+                    
+                if isinstance(e, KeyboardInterrupt):
+                    raise
         
-        except (KeyboardInterrupt, Exception) as e:
+        except BaseException as e:
             logger.info(f"{repr(e)}")
             try:
                 p1.kill()
             except Exception as e:
                 pass
             asyncDL.clean()
+            
+            if isinstance(e, KeyboardInterrupt):
+                raise
         finally:
             asyncDL.get_results_info()
             asyncDL.close()
             
     
-    except (KeyboardInterrupt, Exception) as e:
+    except BaseException as e:
         logger.exception(f"[asyncdl bye] {repr(e)}")
+        if isinstance(e, KeyboardInterrupt):
+            raise
 
     
 
@@ -93,8 +101,10 @@ if __name__ == "__main__":
     
     try:
         main()
-    except (KeyboardInterrupt, Exception) as e:
+    except BaseException as e:
         logger.exception(f"[main] {repr(e)}")
+        if isinstance(e, KeyboardInterrupt):
+            raise
         
     
    

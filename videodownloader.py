@@ -19,7 +19,7 @@ from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asyncdashdownloader import AsyncDASHDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import async_ex_in_executor, naturalsize, try_get
+from utils import async_ex_in_executor, naturalsize, try_get, traverse_obj
 
 # SUPPORTED_EXT = {
 #     DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
@@ -240,12 +240,15 @@ class VideoDownloader():
         
         if not key: return            
       
-        subtitles = self.info_dl['requested_subtitles'][key]
+        subtitles = traverse_obj(self.info_dl, ('requested_subtitles', key))
+        
+        if isinstance(subtitles, dict):
+            subtitles = [subtitles]
         
         for value in subtitles:
         
             try:
-                if (_ext:=value.get('ext') in ('srt', 'vtt')):
+                if ((_ext:=value.get('ext')) in ('srt', 'vtt')):
                     
                     _content = httpx.get(value['url']).text
                     #reader = detect_format(_srt)

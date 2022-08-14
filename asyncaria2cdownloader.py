@@ -262,41 +262,50 @@ class AsyncARIA2CDownloader():
                 
                 #timer0 = time.monotonic()
                 while (self.dl_cont.status in ('active') and not self.reset_event.is_set()):                    
-                                    
-                    _incsize = self.dl_cont.completed_length - self.down_size
-                    self.down_size = self.dl_cont.completed_length
-                    async with self.video_downloader.lock: 
-                        self.video_downloader.info_dl['down_size'] += _incsize
-                    if self.video_downloader.stop_event.is_set():
-                        await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.remove,[self.dl_cont], force=False, files=False, clean=False)
-                        self.status = 'stop'
-                        return
-                        
-                    if self.video_downloader.pause_event.is_set():
-                        await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.pause,[self.dl_cont])                        
-                        await self.video_downloader.resume_event.wait()
-                        await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.resume,[self.dl_cont])                        
-                        self.video_downloader.pause_event.clear()
-                        self.video_downloader.resume_event.clear()
-                        while True:
+                   
+                    try:                
+                        _incsize = self.dl_cont.completed_length - self.down_size
+                        self.down_size = self.dl_cont.completed_length
+                        async with self.video_downloader.lock: 
+                            self.video_downloader.info_dl['down_size'] += _incsize
+                        if self.video_downloader.stop_event.is_set():
+                            await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.remove,[self.dl_cont], force=False, files=False, clean=False)
+                            self.status = 'stop'
+                            return
+                            
+                        if self.video_downloader.pause_event.is_set():
+                            await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.pause,[self.dl_cont])                        
+                            await self.video_downloader.resume_event.wait()
+                            await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.resume,[self.dl_cont])                        
+                            self.video_downloader.pause_event.clear()
+                            self.video_downloader.resume_event.clear()
+                            while True:
+                                await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.dl_cont.update)
+                                if self.dl_cont.status in ('active', 'error', 'complete'):
+                                    break                    
+                                await asyncio.sleep(0)
+                            
+                        else: 
                             await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.dl_cont.update)
-                            if self.dl_cont.status in ('active', 'error', 'complete'):
-                                break                    
-                            await asyncio.sleep(0)
-                        
-                    else: 
-                        await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.dl_cont.update)
-                        # if ((timer1:=time.monotonic()) - timer0 > 1):
-                        #     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_dl]\n{self.dl_cont._struct}")
-                        #     timer0 = timer1
-                    await asyncio.sleep(0)
+                            # if ((timer1:=time.monotonic()) - timer0 > 1):
+                            #     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_dl]\n{self.dl_cont._struct}")
+                            #     timer0 = timer1
+                        await asyncio.sleep(0)
+                    except BaseException as e:
+                        if isinstance(e, KeyboardInterrupt):
+                            raise
 
 
-        except Exception as e:
+        except BaseException as e:
+            
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
             self.status = "error"
             self.error_message = repr(e)
+                        
         finally:
             if self.sem: await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, AsyncARIA2CDownloader._SEM[self._host].release)
             
@@ -305,24 +314,34 @@ class AsyncARIA2CDownloader():
         
         while True:
             
-            await self.fetch()
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
-            if self.dl_cont.status in ('complete'): 
-                self.status = 'done'
-                break
-            elif self.reset_event.is_set():
-                try:
-                    self.reset_event.clear()
-                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.remove, [self.dl_cont], force=False, files=False, clean=False)
-                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.init)
-                    continue
-                except Exception as e:
+            try:
+                await self.fetch()
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
+                if self.dl_cont.status in ('complete'): 
+                    self.status = 'done'
                     break
-                    
-            elif self.dl_cont.status in ('error'): 
-                self.status = 'error'
-                self.error_message = self.dl_cont.error_message
-                break
+                elif self.reset_event.is_set():
+                    try:
+                        self.reset_event.clear()
+                        await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.remove, [self.dl_cont], force=False, files=False, clean=False)
+                        await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.init)
+                        continue
+                    except BaseException as e:
+                        if isinstance(e, KeyboardInterrupt):
+                            raise
+                        
+                        
+                elif self.dl_cont.status in ('error'): 
+                    self.status = 'error'
+                    self.error_message = self.dl_cont.error_message
+                    break
+            
+            except BaseException as e:
+                if isinstance(e, KeyboardInterrupt):
+                    raise
+                
+                
+                
             
                 
             

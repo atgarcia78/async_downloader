@@ -803,9 +803,11 @@ class AsyncDL():
 
                                         except Exception as e:
                                             logger.warning(f"[url_playlist_lists][{_url}]:{_ent['url']} no video entries - {repr(e)}")
-                    except (KeyboardInterrupt, Exception) as e:
+                   
+                    except BaseException as e:
                         logger.error(f"[url_playlist_lists] {repr(e)}")
-                
+                        if isinstance(e, KeyboardInterrupt):
+                            raise
                 
                 if self.reset: raise Exception("reset")
                 
@@ -930,7 +932,7 @@ class AsyncDL():
             
 
         
-        except (KeyboardInterrupt, Exception) as e:            
+        except BaseException as e:            
             logger.error(f"[get_videos]: Error {repr(e)}")
             raise
         finally:
@@ -1370,8 +1372,10 @@ class AsyncDL():
                         continue
                                
         
-        except (KeyboardInterrupt, Exception) as e:           
+        except BaseException as e:           
             logger.exception(f"[worker_init][{i}]: Error:{repr(e)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
                     
         finally:
             async with self.alock:
@@ -1476,9 +1480,11 @@ class AsyncDL():
                         
                     await asyncio.sleep(0)
                                 
-        except (KeyboardInterrupt, Exception) as e:
+        except BaseException as e:
             lines = traceback.format_exception(*sys.exc_info())
             logger.debug(f"[worker_run][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
         
         finally:
             async with self.alock:
@@ -1522,9 +1528,11 @@ class AsyncDL():
                     if video_dl.info_dl['status'] == "done": self.info_videos[url_key].update({'status': 'done'})
                     else: self.info_videos[url_key].update({'status': 'nok'})
                         
-        except (KeyboardInterrupt, Exception) as e:
+        except BaseException as e:
             lines = traceback.format_exception(*sys.exc_info())
             logger.debug(f"[worker_manip][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
         finally:
             async with self.alock:
                 self.count_manip += 1 
@@ -1586,8 +1594,10 @@ class AsyncDL():
             for d in done:
                 try:
                     d.result()
-                except (KeyboardInterrupt, Exception) as e:                                   
+                except BaseException as e:                                   
                     logger.exception(f"[async_ex] {repr(e)}")
+                    if isinstance(e, KeyboardInterrupt):
+                        raise
             
             for _task in tasks_gui:
                 _task.cancel()
@@ -1595,9 +1605,10 @@ class AsyncDL():
             await asyncio.wait(tasks_gui) 
                     
 
-        except (KeyboardInterrupt, Exception) as e:                            
+        except BaseException as e:                            
             logger.exception(f"[async_ex] {repr(e)}")
-            raise
+            if isinstance(e, KeyboardInterrupt):
+                raise
             
     def get_results_info(self):
         
