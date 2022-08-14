@@ -639,6 +639,7 @@ class AsyncDL():
                         if (_url:=_url.strip()): _temp.add(_url)           
                     
                 _url_list_caplinks = list(_temp)
+                logger.debug(f"[video list caplinks]\n{_url_list_caplinks}")
                 
                 logger.info(f"video list caplinks \n{_url_list_caplinks}")
                 shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", 
@@ -650,11 +651,13 @@ class AsyncDL():
             
             if self.args.collection:                
                 _url_list_cli = list(set(self.args.collection)) 
-                logger.info(f"video list cli \n{_url_list_cli}")
+                logger.debug(f"[video list cli]\n{_url_list_cli}")
                 
                 _url_list['cli'] = _url_list_cli   
             
-                
+            
+            logger.info(f"[get_list_videos] Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\tCAP[{len(_url_list_caplinks)}]")
+            
             for _source, _ulist in _url_list.items():
                 
                 for _elurl in _ulist:
@@ -691,7 +694,8 @@ class AsyncDL():
 
             url_list = list(self.info_videos.keys())
             
-            logger.info(f"[url_list]: {url_list}")
+            logger.info(f"[url_list] Initial number of urls not pl [{len(url_list)}]")
+            logger.debug(f"[url_list] {url_list}")
                     
             if netdna_list:
                 logger.info(f"[netdna_list]: {netdna_list}")
@@ -720,7 +724,8 @@ class AsyncDL():
                         
             if self.url_pl_list:
                 
-                logger.info(f"[url_playlist_list]: {self.url_pl_list}")                
+                logger.info(f"[url_playlist_list] Initial number of pl [{len(self.url_pl_list)}]")
+                logger.debug(f"[url_playlist_list]\n{len(self.url_pl_list)}")                 
                 self._url_pl_entries = []                
                 self._count_pl = 0                
                 self.futures = {}
@@ -740,7 +745,7 @@ class AsyncDL():
                         with self.lock:
                             self._count_pl += 1
                             #_url = self.futures.get(fut) or self.futures2.get(fut)
-                            logger.info(f"[url_playlist_list]: [{self._count_pl}/{len(self.futures) + len(self.futures2)}] {_url}")
+                            logger.info(f"[url_playlist_list][{self._count_pl}/{len(self.futures) + len(self.futures2)}] processing {_url}")
                         try:
                             #_info = self.ytdl.sanitize_info(fut.result())
                             _errormsg = None
@@ -802,10 +807,10 @@ class AsyncDL():
                                                 self.futures2.update({self.ex_pl.submit(custom_callback, _ent['url'], False): _ent['url']})
 
                                         except Exception as e:
-                                            logger.warning(f"[url_playlist_lists][{_url}]:{_ent['url']} no video entries - {repr(e)}")
+                                            logger.warning(f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}")
                    
                     except BaseException as e:
-                        logger.error(f"[url_playlist_lists] {repr(e)}")
+                        logger.error(f"[url_playlist_list] {repr(e)}")
                         if isinstance(e, KeyboardInterrupt):
                             raise
                 
@@ -820,11 +825,11 @@ class AsyncDL():
                         self.futures.update({self.ex_pl.submit(custom_callback, url, _get_name): url}) 
                         #_future.add_done_callback(custom_callback)
                 
-                    logger.info(f"[url_playlist_lists] futures1: {len(self.futures)}")
+                    logger.info(f"[url_playlist_list] futures1: {len(self.futures)}")
                 
                     wait(list(self.futures))
                 
-                    logger.info(f"[url_playlist_lists] futures2: {len(self.futures2)}")
+                    logger.info(f"[url_playlist_list] futures2: {len(self.futures2)}")
                 
                     if self.reset: raise Exception("reset")
                     
@@ -834,7 +839,7 @@ class AsyncDL():
                 
                 if self.reset: raise Exception("reset")
                 
-                logger.debug(f"[url_playlist_lists] entries \n{self._url_pl_entries}")
+                logger.debug(f"[url_playlist_list] entries \n{self._url_pl_entries}")
                 
                 if not self.nowaitforstartdl:
                                  
@@ -962,7 +967,7 @@ class AsyncDL():
         else: #video en local            
             
             vid_path = Path(vid_path_str)
-            logger.debug(f"[{vid_name}]: already DL: {vid_path}")
+            logger.debug(f"[{vid_name}] already DL: {vid_path}")
                 
                                    
             if not self.args.nosymlinks:
@@ -998,11 +1003,13 @@ class AsyncDL():
         self.info_videos[url].update({'todl': True})
         if (_id:=self.info_videos[url]['video_info'].get('id')):
             self.info_videos[url]['video_info']['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
+        if (_title:=self.info_videos[url]['video_info'].get('title')):
+            self.info_videos[url]['video_info']['title'] = sanitize_filename(_title[:150], restricted=True)
         if not self.info_videos[url]['video_info'].get('filesize', None):
             self.info_videos[url]['video_info']['filesize'] = 0
         if (_path:=self._check_if_aldl(self.info_videos[url]['video_info'])):  
             self.info_videos[url].update({'aldl' : _path, 'status': 'done'})
-            logger.info(f"[{self.info_videos[url]['video_info'].get('id')}][{self.info_videos[url]['video_info'].get('title')}] already DL")            
+            logger.debug(f"[{self.info_videos[url]['video_info'].get('id')}][{self.info_videos[url]['video_info'].get('title')}] already DL")            
 
         if self.info_videos[url].get('todl') and not self.info_videos[url].get('aldl') and not self.info_videos[url].get('samevideo') and self.info_videos[url].get('status') != 'prenok':
             with self.lock:
@@ -1182,10 +1189,12 @@ class AsyncDL():
                                 infdict['id'] = sanitize_filename(_id, restricted=True).replace('_', '').replace('-','')
                                 
                             else:
-                                infdict['id'] = str(int(hashlib.sha256(urlkey.encode('utf-8')).hexdigest(),16) % 10**8)                            
+                                infdict['id'] = str(int(hashlib.sha256(urlkey.encode('utf-8')).hexdigest(),16) % 10**8)
+
                             
                             if (_title:=infdict.get('title')):
-                                if len(_title) > 150: infdict['title'] = _title[:150]
+                                _title = sanitize_filename(_title[:150], restricted=True)
+                                infdict['title'] = _title
                                 
                             if extradict:
                                 if not infdict.get('release_timestamp') and (_mtime:=extradict.get('release_timestamp')):
@@ -1197,13 +1206,12 @@ class AsyncDL():
                             logger.debug(f"[worker_init][{i}]: [{urlkey}] info extracted\n{infdict}")
                             
                             self.info_videos[urlkey].update({'video_info': infdict})
-                            
-                            
+ 
                             _filesize = none_to_cero(extradict.get('filesize', 0)) if extradict else none_to_cero(infdict.get('filesize', 0))
                             
                             if (_path:=self._check_if_aldl(infdict)):
                                 
-                                logger.info(f"[worker_init][{i}]: [{infdict.get('id')}][{infdict.get('title')}] already DL")                               
+                                logger.debug(f"[worker_init][{i}][{infdict.get('id')}][{infdict.get('title')}] already DL")                               
                                 
                                 
                                 if _filesize:
@@ -1251,10 +1259,10 @@ class AsyncDL():
                                     
                                     if dl.info_dl['status'] in ("init_manipulating", "done"):
                                         self.queue_manip.put_nowait((urlkey, dl))
-                                        logger.info(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, video parts DL")
+                                        logger.info(f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, video parts DL")
                                     
                                     else:
-                                        logger.debug(f"[worker_init][{i}]: [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, lets put in run queue")
+                                        logger.debug(f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, lets put in run queue")
                                         self.queue_run.put_nowait((urlkey, dl))
                                         _msg = ''
                                         async with self.alock:
@@ -1264,7 +1272,7 @@ class AsyncDL():
                                                 _msg = f', add this dl[{_index_in_dl}] to auto_pasres{list(self.list_pasres)}'
                                                 if self.window_console and not self.stop_root: sg.cprint(f"[pause-resume autom] {self.list_pasres}")
                                                                             
-                                        logger.info(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{dl.info_dict['id']}][{dl.info_dict['title']}]: init OK, ready to DL{_msg}")
+                                        logger.debug(f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, ready to DL{_msg}")
                                 
                                 else:
                                     async with self.alock:

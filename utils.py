@@ -425,8 +425,9 @@ class MyLogger(logging.LoggerAdapter):
         self.superverbose = superverbose
         self.debug_phr = ['Falling back on generic information extractor','Extracting URL:',
                           'The information of all playlist entries will be held in memory', 'Looking for video embeds',
-                          'Identified a HTML5 media', 'Identified a KWS Player']
-        self.skip_phr = ['Downloading', 'Extracting information']
+                          'Identified a HTML5 media', 'Identified a KWS Player', ' unable to extract', 'Looking for embeds',
+                          'Looking for Brightcove embeds', 'Identified a html5 embed']
+        self.skip_phr = ['Downloading', 'Extracting information', 'Checking', 'Logging']
     
     def error(self, msg, *args, **kwargs):
         self.log(logging.DEBUG, msg, *args, **kwargs)
@@ -444,14 +445,14 @@ class MyLogger(logging.LoggerAdapter):
         if self.quiet:
             self.log(logging.DEBUG, msg, *args, **kwargs)
         elif self.verbose and not self.superverbose:
-            if (mobj in ('[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and any(_ in msg for _ in self.debug_phr)) or any(_ in mobj2 for _ in self.skip_phr):
+            if (mobj in ('[redirect]', '[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and any(_ in msg for _ in self.debug_phr)) or any(_ in mobj2 for _ in self.skip_phr):
                 self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:
                 self.log(logging.INFO, msg, *args, **kwargs)            
         elif self.superverbose:
             self.log(logging.INFO, msg, *args, **kwargs)
         else:    
-            if mobj in ('[debug]', '[info]', '[download]', '[debug+]') or any(_ in mobj2 for _ in self.skip_phr):
+            if mobj in ('[redirect]', '[debug]', '[info]', '[download]', '[debug+]') or any(_ in mobj2 for _ in self.skip_phr):
                 self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:                
                 self.log(logging.INFO, msg, *args, **kwargs)

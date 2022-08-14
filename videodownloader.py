@@ -123,30 +123,30 @@ class VideoDownloader():
                 try:
                     dl = None
                     dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
-                    logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                     if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                 except Exception as e:
                     if self.info_dl['backup_http']:
                         logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
                         #if dl and dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                         dl = AsyncHTTPDownloader(info, self)
-                        logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
                         if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
                     else: raise
             
             else: #not used option --aria2c
                 
                 dl = AsyncHTTPDownloader(info, self)
-                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
                 if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
                                    
         elif protocol in ('m3u8', 'm3u8_native'):
             dl = AsyncHLSDownloader(info, self)
-            logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
+            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
                         
         elif protocol in ('http_dash_segments', 'dash'):
             dl = AsyncDASHDownloader(info, self)
-            logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
+            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
         else:
             logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
             raise NotImplementedError("protocol not supported")
@@ -384,7 +384,7 @@ class VideoDownloader():
                         #     rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], logger, f"[{self.info_dict['id']}][{self.info_dict['title']}]")
                                                                 
                         self.info_dl['status'] = "done"
-                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
                         
                     else:
                         self.info_dl['status'] = "error"
@@ -412,7 +412,7 @@ class VideoDownloader():
                             await async_ex_in_executor(self.ex_videodl, dl.filename.unlink)
                             
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Streams merged for: {self.info_dl['filename']}")
-                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
                     
                     else:
                         self.info_dl['status'] = "error"
