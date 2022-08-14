@@ -13,7 +13,7 @@ import aria2p
 from utils import async_ex_in_executor, naturalsize, none_to_cero, try_get, CONFIG_EXTRACTORS
 
 
-from threading import Lock, Semaphore
+from threading import Lock
 from cs.threads import PriorityLock
 
 logger = logging.getLogger("async_ARIA2C_DL")
@@ -52,7 +52,9 @@ class AsyncARIA2CDownloader():
         self.aria2_client = aria2p.API(aria2p.Client(port=port))
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
-        self.ytdl.params['sem'] = AsyncARIA2CDownloader._SEM
+        
+        AsyncARIA2CDownloader._SEM = self.ytdl.params['sem'] #any change in any of the dicts will be
+                                                            # the same for both dicts
                 
         proxies = self.ytdl.params.get('proxy', None)
         if proxies:
@@ -172,7 +174,8 @@ class AsyncARIA2CDownloader():
         try:
             
             if self.sem:
-                AsyncARIA2CDownloader._SEM[self._host].acquire()
+                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
+                    _sem.acquire(25)
             
             self.dl_cont = _throttle_add_uris()            
         
@@ -203,7 +206,7 @@ class AsyncARIA2CDownloader():
                         raise AsyncARIA2CDLErrorFatal("Max init repeat")
                     else:
                         time.sleep(1)
-                        if self.sem: AsyncARIA2CDownloader._SEM[self._host].acquire()
+                        if self.sem: AsyncARIA2CDownloader._SEM[self._host].acquire(25)
                 
                         self.dl_cont = _throttle_add_uris()
                     
@@ -237,7 +240,9 @@ class AsyncARIA2CDownloader():
                 self.error_message = repr(e)            
             raise AsyncARIA2CDLErrorFatal(self.error_message)
         finally:
-            if self.sem: AsyncARIA2CDownloader._SEM[self._host].release()
+            if self.sem:
+                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
+                    _sem.release()
         
         
 
@@ -245,9 +250,10 @@ class AsyncARIA2CDownloader():
 
         try: 
             
-            if self.sem: await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, AsyncARIA2CDownloader._SEM[self._host].acquire, priority=50)
-            
-            
+            if self.sem: 
+                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
+                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, _sem.acquire, priority=50)
+
             await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.resume,[self.dl_cont])
             
             while True:
@@ -307,7 +313,9 @@ class AsyncARIA2CDownloader():
             self.error_message = repr(e)
                         
         finally:
-            if self.sem: await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, AsyncARIA2CDownloader._SEM[self._host].release)
+            if self.sem: 
+                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
+                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, _sem.release)
             
     async def fetch_async(self):
         self.reset_event = asyncio.Event()

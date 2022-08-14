@@ -59,30 +59,14 @@ class AsyncHTTPDownloader():
         if not video_dict or not vid_dl: return
         self.info_dict = copy.deepcopy(video_dict)
         self.video_downloader = vid_dl
-        # self.n_parts = getattr(self.video_downloader, 'info_dl', {}).get('n_workers', 16)
-        # if (ie:=self.info_dict.get('extractor_key')):
-        #     if (nparts:=self._DICT_NPARTS.get(ie)):
-                
-        #         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ie[{ie}] change nparts [{self.n_parts} -> {nparts}]")
-        #         self.n_parts = nparts
-            
-        # self._NUM_WORKERS = self.n_parts 
-        self.video_url = self.info_dict.get('url')
-        #self._extra_urls = self.info_dict.get('_extra_urls')
-        
-        # def _transf(_url):
-        #    return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
-        
-        #uris = [unquote(_transf(self.video_url))]
-        self.uris = [unquote(self.video_url)]
-        #if self._extra_urls: 
-        #    self.n_parts = 10
-        #    self.uris += self._extra_urls
-        
-        
 
-        
+        self.video_url = self.info_dict.get('url')
+
+        self.uris = [unquote(self.video_url)]
+
         self.ytdl = getattr(self.video_downloader, 'info_dl', {}).get('ytdl', None)
+        
+        AsyncHTTPDownloader._SEM = self.ytdl.params['sem']
 
         #ip_proxies = ["192.145.124.234", "192.145.124.242", "89.238.178.234", "192.145.124.190", "192.145.124.186", "192.145.124.226", "192.145.124.174", "192.145.124.238", "89.238.178.206"]
         #self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:6060", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1337"} for ip in ip_proxies]
@@ -169,7 +153,6 @@ class AsyncHTTPDownloader():
         @self._decor
         def _upt_hsize():    
             try: 
-
 
                 if offset:
                     self.parts[i]['headers'].append({'range' : f"bytes={self.parts[i]['offset'] + self.parts[i]['start']}-{self.parts[i]['end']}"})
@@ -284,8 +267,8 @@ class AsyncHTTPDownloader():
                         #AsyncHTTPDownloader._SEM.update({self._host: Semaphore()})
                         AsyncHTTPDownloader._SEM.update({self._host: PriorityLock()})
                         
-                AsyncHTTPDownloader._SEM[self._host].acquire()
-            
+                
+            AsyncHTTPDownloader._SEM[self._host].acquire(priority=50)
             
             _mult_ranges, _filesize = self.check_server()
             
@@ -304,17 +287,19 @@ class AsyncHTTPDownloader():
             
             else:                                
                 raise AsyncHTTPDLErrorFatal("Can't get filesize")
+        
         except (KeyboardInterrupt, Exception) as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {str(e)}")
             self.init_client.close()
             self.status = "error"
             self.error_message = repr(e)
+            
+            raise
+        finally:
             if self.sem: 
                 if (_sem:=AsyncHTTPDownloader._SEM.get(self._host)):
                     _sem.release()
-            raise
 
-            
 
     def get_parts_to_dl(self):
         
@@ -412,10 +397,8 @@ class AsyncHTTPDownloader():
                 if part == "KILL": break            
                 tempfilename = self.parts[part-1]['filepath']
 
-                
                 await asyncio.sleep(0)
-                
-                               
+          
                 while True: #bucle del worker
                         
                     try:
@@ -541,7 +524,11 @@ class AsyncHTTPDownloader():
             self.count = self._NUM_WORKERS
             self.down_temp = self.down_size
             self.started = time.monotonic()
-            self.status = "downloading"      
+            self.status = "downloading"
+            
+            if self.sem: 
+                if (_sem:=AsyncHTTPDownloader._SEM.get(self._host)):
+                    await async_ex_in_executor(AsyncHTTPDownloader._EX_ARIA2DL, _sem.acquire, priority=50)  
             
             self.tasks = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
             

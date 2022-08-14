@@ -133,9 +133,13 @@ class VideoDownloader():
                         logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
                         if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
                     else: raise
-            else: 
+            
+            else: #not used option --aria2c
+                
                 dl = AsyncHTTPDownloader(info, self)
-                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")                   
+                logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                                   
         elif protocol in ('m3u8', 'm3u8_native'):
             dl = AsyncHLSDownloader(info, self)
             logger.info(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
@@ -184,6 +188,7 @@ class VideoDownloader():
             if self.pause_event.is_set(): 
                 self.resume_event.set()
                 #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event resume")
+    
     async def run_dl(self):
 
         self.info_dl['status'] = "downloading"

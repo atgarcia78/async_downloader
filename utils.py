@@ -345,7 +345,7 @@ def init_argparser():
     UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:103.0) Gecko/20100101 Firefox/103.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
-    parser.add_argument("-w", help="Number of DL workers", default="8", type=int)
+    parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
     parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="0", type=int)
     parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
@@ -367,7 +367,7 @@ def init_argparser():
     parser.add_argument("--vv", help="verbose plus", action="store_true", default=False)
     parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
     parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
-    parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
+    #parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
@@ -382,9 +382,7 @@ def init_argparser():
     else: 
         args.rpcport = None
         args.aria2c = False        
-    if args.notaria2c:
-        args.aria2c = False 
-        args.rpcport = None        
+    
     if args.path and len(args.path.split("/")) == 1:
         _path = Path(Path.home(), "testing", args.path)
         args.path = str(_path)
@@ -504,7 +502,8 @@ def init_ytdl(args):
         "restrictfilenames": True,
         "user_agent": args.useragent,        
         "winit": args.winit,
-        "verboseplus": args.vv
+        "verboseplus": args.vv,
+        "sem": {}
                   
     }
     
