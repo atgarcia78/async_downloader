@@ -20,12 +20,12 @@ import m3u8
 from Cryptodome.Cipher import AES
 
 from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
-                   naturalsize, print_norm_time, get_format_id, dec_retry_error)
+                   naturalsize, print_norm_time, get_format_id, dec_retry_error,
+                   try_get)
 
 logger = logging.getLogger("async_HLS_DL")
 
-class AsyncHLSDLErrorFatal(Exception):
-    
+class AsyncHLSDLErrorFatal(Exception):    
 
     def __init__(self, msg):
         
@@ -33,8 +33,7 @@ class AsyncHLSDLErrorFatal(Exception):
 
         self.exc_info = sys.exc_info()  # preserve original exception
 
-class AsyncHLSDLError(Exception):
-   
+class AsyncHLSDLError(Exception):   
 
     def __init__(self, msg):
         
@@ -60,125 +59,62 @@ class AsyncHLSDownloader():
     def __init__(self, video_dict, vid_dl):
 
 
-        self.info_dict = copy.deepcopy(video_dict)
-        self.video_downloader = vid_dl
-        self.n_workers = vid_dl.info_dl['n_workers'] 
-        self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
-        self.video_url = self.info_dict.get('url') #url del format
-        self.webpage_url = self.info_dict.get('webpage_url') #url oioginal de la web
-        self.manifest_url = self.info_dict.get('manifest_url') #url del manifiesto de donde salen todos los formatos
-
-        self.id = self.info_dict['id']
-        
-        self.ytdl = vid_dl.info_dl['ytdl']
-        proxies = self.ytdl.params.get('proxy', None)
-        if proxies:
-            self.proxies = {'http://': f"http://{proxies}", 'https://': f"http://{proxies}"}
-        else: self.proxies = None
-        self.verifycert = not self.ytdl.params.get('nocheckcertificate')
-
-        self.timeout = httpx.Timeout(30, connect=30)
-        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
-        self.headers = self.info_dict.get('http_headers')
-        self.base_download_path = Path(str(self.info_dict['download_path']))
-        if (_filename:=self.info_dict.get('_filename')):
-            self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
-            self.download_path.mkdir(parents=True, exist_ok=True) 
-            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
-        else:
-            _filename = self.info_dict.get('filename')
-            self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
-            self.download_path.mkdir(parents=True, exist_ok=True)
-            self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
-
-        self.key_cache = dict()
-        
-        self.n_reset = 0
-       
-        self.ema_s = EMA(smoothing=0.0001)
-        self.ema_t = EMA(smoothing=0.0001)
-        
-        self.down_size = 0
-        self.down_temp = 0        
-        
-        self.status = "init"
-        self.error_message = "" 
-        
-        self.reset_event = None
-        
-        self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
-        
-        self.init_client = httpx.Client(follow_redirects=True, limits=self.limits, timeout=self.timeout, verify=False, headers=self.headers)
-        
-        self.init()
-        
-        
-        
-    def get_info_fragments(self):
-        
         try:
+        
+            self.info_dict = copy.deepcopy(video_dict)
+            self.video_downloader = vid_dl
+            self.n_workers = vid_dl.info_dl['n_workers'] 
+            self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
+            self.video_url = self.info_dict.get('url') #url del format
+            self.webpage_url = self.info_dict.get('webpage_url') #url oioginal de la web
+            self.manifest_url = self.info_dict.get('manifest_url') #url del manifiesto de donde salen todos los formatos
 
-            if self.headers.get('Cookie'):      
-                
-                res = self.init_client.get(self.manifest_url)            
+            self.id = self.info_dict['id']
             
-            self.m3u8_obj = None
+            self.ytdl = vid_dl.info_dl['ytdl']
+            proxies = self.ytdl.params.get('proxy', None)
+            if proxies:
+                self.proxies = {'http://': f"http://{proxies}", 'https://': f"http://{proxies}"}
+            else: self.proxies = None
+            self.verifycert = not self.ytdl.params.get('nocheckcertificate')
+
+            self.timeout = httpx.Timeout(30, connect=30)
+            self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
+            self.headers = self.info_dict.get('http_headers')
+            self.base_download_path = Path(str(self.info_dict['download_path']))
+            if (_filename:=self.info_dict.get('_filename')):
+                self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
+                self.download_path.mkdir(parents=True, exist_ok=True) 
+                self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
+            else:
+                _filename = self.info_dict.get('filename')
+                self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
+                self.download_path.mkdir(parents=True, exist_ok=True)
+                self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
+
+            self.key_cache = dict()
             
-            for i in range(3):
-                try:
-                    res = self.init_client.get(self.video_url)
-                    res.raise_for_status()
-                    self.m3u8_obj = m3u8.loads((res.content).decode('utf-8', 'replace') , uri=self.video_url)
-                    break
-                except Exception as e:
-                    logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error num[{i+1}] when downloading m3u8 file, will retry")
-                    _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
-                    # _new_info = {}
-                    # if _info.get('requested_formats'):
-                    #     for _info_format in _info['requested_formats']:
-                    #         if _info_format['format_id'] == self.info_dict['format_id']:
-                    #             _new_info = _info_format
-                    # else: _new_info = _info
-                    _new_info = get_format_id(_info, self.info_dict['format_id'])
-                    if _new_info: 
-                        self.headers = self.info_dict['http_headers'] = _new_info.get('http_headers')
-                        self.video_url = self.info_dict['url'] = _new_info.get('url')
-                        self.webpage_url = self.info_dict['webpage_url'] = _new_info.get('webpage_url')
-                        self.manifest_url = self.info_dict['manifest_url'] = _new_info.get('manifest_url')
+            self.n_reset = 0
+        
+            self.ema_s = EMA(smoothing=0.0001)
+            self.ema_t = EMA(smoothing=0.0001)
+            
+            self.down_size = 0
+            self.down_temp = 0        
+            
+            self.status = "init"
+            self.error_message = "" 
+            
+            self.reset_event = None
+            
+            self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")            
                     
-
-            if not self.m3u8_obj: raise AsyncHLSDLError("couldnt get m3u8 file")
+            self.init_client = httpx.Client(follow_redirects=True, limits=self.limits, timeout=self.timeout, verify=False)
             
-            self.cookies = self.init_client.cookies.jar.__dict__['_cookies']
-            #self.m3u8_obj = m3u8.load(self.video_url, headers=self.headers, verify_ssl=self.verifycert)
-            if self.m3u8_obj.keys:
-                for _key in self.m3u8_obj.keys:
-                    if _key and _key.method != 'AES-128': logger.warning(f"key AES method: {_key.method}")
-            return self.m3u8_obj.segments
- 
+            self.init()
         except Exception as e:
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][get_info_fragments] - {repr(e)}")
-            raise AsyncHLSDLErrorFatal(repr(e))
- 
-        
-   
-    @dec_retry_error
-    def get_init_section(self, uri, file):
-        try:  
-                       
-            res = self.init_client.get(uri)
-            res.raise_for_status()
-            with open(file, "wb") as f:
-                f.write(res.content)            
+            logger.exception(repr(e))
 
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[get_init_section] {repr(e)} \n{'!!'.join(lines)}")
-            raise
-        
-         
-        
-    
     def init(self):
 
         try:
@@ -265,10 +201,9 @@ class AsyncHLSDownloader():
             elif not self.frags_to_dl:
                 self.status = "init_manipulating"
         except Exception as e:
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][init] {repr(e)}")
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][init] {repr(e)}")
             self.status = "error"
             
-       
     def calculate_duration(self):
         self.totalduration = 0
         for fragment in self.info_dict['fragments']:
@@ -277,6 +212,65 @@ class AsyncHLSDownloader():
     def calculate_filesize(self):
         _bitrate = self.tbr or self.abr
         self.filesize = int(self.totalduration * 1000 * _bitrate / 8)
+          
+    def get_info_fragments(self):
+        
+        try:
+            # self.m3u8_obj = None
+            
+            # for i in range(3):
+            #     try:
+            #         self.m3u8_obj = self.get_m3u8_obj()
+            #         break
+            #     except Exception as e:
+            #         logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error num[{i+1}] when downloading m3u8 file, will retry")
+            #         _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
+
+            #         _new_info = get_format_id(_info, self.info_dict['format_id'])
+            #         if _new_info: 
+            #             self.headers = self.info_dict['http_headers'] = _new_info.get('http_headers')
+            #             self.init_client.headers.update(self.headers)
+            #             self.video_url = self.info_dict['url'] = _new_info.get('url')
+            #             self.webpage_url = self.info_dict['webpage_url'] = _new_info.get('webpage_url')
+            #             self.manifest_url = self.info_dict['manifest_url'] = _new_info.get('manifest_url')
+                    
+            self.m3u8_obj = self.get_m3u8_obj()
+            
+            if not self.m3u8_obj or not self.m3u8_obj.segments: 
+                raise AsyncHLSDLError("couldnt get m3u8 file")
+            
+            self.cookies = self.init_client.cookies.jar.__dict__['_cookies']
+            if self.m3u8_obj.keys:
+                for _key in self.m3u8_obj.keys:
+                    if _key and _key.method != 'AES-128': logger.warning(f"key AES method: {_key.method}")
+            
+            return self.m3u8_obj.segments
+ 
+        except Exception as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][get_info_fragments] - {repr(e)}")
+            raise AsyncHLSDLErrorFatal(repr(e))
+ 
+
+    def get_m3u8_obj(self):  
+            
+        m3u8_doc = try_get(self.init_client.get(self.video_url, headers=self.headers), 
+                                lambda x: x.content.decode('utf-8', 'replace'))
+
+        return(m3u8.loads(m3u8_doc, self.video_url))
+        
+    @dec_retry_error
+    def get_init_section(self, uri, file):
+        try:  
+
+            res = self.init_client.get(uri)
+            res.raise_for_status()
+            with open(file, "wb") as f:
+                f.write(res.content)            
+
+        except Exception as e:
+            lines = traceback.format_exception(*sys.exc_info())
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[get_init_section] {repr(e)} \n{'!!'.join(lines)}")
+            raise
         
     def reset(self):
 
@@ -320,9 +314,12 @@ class AsyncHLSDownloader():
     def prep_reset(self, info_reset):
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
+        self.init_client.headers.update(self.headers)
         self.video_url = self.info_dict['url'] = info_reset.get('url')
         self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
-        self.manifest_url = self.info_dict['manifest_url'] = info_reset.get('manifest_url')        
+        self.manifest_url = self.info_dict['manifest_url'] = info_reset.get('manifest_url')
+        
+        self.init   
 
         self.frags_to_dl = []
 
@@ -378,7 +375,6 @@ class AsyncHLSDownloader():
         else:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
-    
     async def fetch(self, nco):
 
         try:
@@ -650,121 +646,126 @@ class AsyncHLSDownloader():
         
         _tstart = time.monotonic() 
         
-        while True:
-
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] TASKS INIT")
-
-            try:
-                self.client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
-
-                for domain, value in self.cookies.items():
-                    for _, _value in value["/"].items():
-                        self.client._cookies.set(name=_value.__dict__['name'], value=_value.__dict__['value'], domain=domain)
-                
-                self.count = self.n_workers
-                self.down_temp = self.down_size
-                self.started = time.monotonic()
-                self.status = "downloading"
-                self.reset_event.clear() 
-
-                tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.n_workers)]
-                
-                done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
-
-                       
-                if self.video_downloader.stop_event.is_set():
-                    self.status = "stop"
-                    return
-                
-                #inc_frags_dl = (_nfragsdl:=len(await asyncio.to_thread(self.fragsdl))) - n_frags_dl
-                inc_frags_dl = (_nfragsdl:=len(await async_ex_in_executor(self.ex_hlsdl, self.fragsdl))) - n_frags_dl
-                n_frags_dl = _nfragsdl
-                
-                if n_frags_dl == len(self.info_dict['fragments']): 
-                    #todos los fragmentos en local: DL OK
-                    break
-                
-                else:
+        try:
                     
-                    if self.reset_event.is_set():
-                        
-                        if self.n_reset < self._MAX_RESETS:
+            while True:
 
-                            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] TASKS INIT")
+
+                try:
+                    self.client = httpx.AsyncClient(limits=self.limits, timeout=self.timeout, verify=self.verifycert, proxies=self.proxies, headers=self.headers)
+
+                    for domain, value in self.cookies.items():
+                        for _, _value in value["/"].items():
+                            self.client._cookies.set(name=_value.__dict__['name'], value=_value.__dict__['value'], domain=domain)
+                    
+                    self.count = self.n_workers
+                    self.down_temp = self.down_size
+                    self.started = time.monotonic()
+                    self.status = "downloading"
+                    self.reset_event.clear() 
+
+                    tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.n_workers)]
+                    
+                    done, pending = await asyncio.wait(tasks, return_when=asyncio.ALL_COMPLETED)
+
+                        
+                    if self.video_downloader.stop_event.is_set():
+                        self.status = "stop"
+                        return
+                    
+                    #inc_frags_dl = (_nfragsdl:=len(await asyncio.to_thread(self.fragsdl))) - n_frags_dl
+                    inc_frags_dl = (_nfragsdl:=len(await async_ex_in_executor(self.ex_hlsdl, self.fragsdl))) - n_frags_dl
+                    n_frags_dl = _nfragsdl
+                    
+                    if n_frags_dl == len(self.info_dict['fragments']): 
+                        #todos los fragmentos en local: DL OK
+                        break
+                    
+                    else:
+                        
+                        if self.reset_event.is_set():
                             
+                            if self.n_reset < self._MAX_RESETS:
+
+                                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
+                                
+                                
+                                try:
+                                    
+                                    #await asyncio.to_thread(self.reset)
+                                    await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                    self.frags_queue = asyncio.Queue()
+                                    for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
+                                    if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
+                                        self.n_workers -= self.n_workers // 4
+                                    _tstart = _t
+                                    for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                    await self.client.aclose()
+                                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
+                                    await asyncio.sleep(0)
+                                    continue 
+                                    
+                                except Exception as e:
+                                    lines = traceback.format_exception(*sys.exc_info())
+                                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                                    self.status = "error"
+                                    await self.clean_when_error()
+                                    #await asyncio.sleep(0)
+                                    raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
                             
-                            try:
+                            else:
                                 
-                                #await asyncio.to_thread(self.reset)
-                                await async_ex_in_executor(self.ex_hlsdl, self.reset)
-                                self.frags_queue = asyncio.Queue()
-                                for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
-                                if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
-                                    self.n_workers -= self.n_workers // 4
-                                _tstart = _t
-                                for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
-                                await self.client.aclose()
-                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
-                                await asyncio.sleep(0)
-                                continue 
-                                
-                            except Exception as e:
-                                lines = traceback.format_exception(*sys.exc_info())
-                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                                logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
                                 self.status = "error"
                                 await self.clean_when_error()
-                                #await asyncio.sleep(0)
-                                raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
-                        
-                        else:
-                            
-                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")  
-                            self.status = "error"
-                            await self.clean_when_error()
-                            await asyncio.sleep(0)
-                            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR max resets")     
-
-                    else:                
-
-                        if (inc_frags_dl > 0):
-                            
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
-                            try:
-                                #await asyncio.to_thread(self.reset)
-                                await async_ex_in_executor(self.ex_hlsdl, self.reset)
-                                self.frags_queue = asyncio.Queue()
-                                for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
-                                for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
-                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
-                                self.n_reset -= 1
-                                await self.client.aclose()
-                                continue 
-                                
-                            except Exception as e:
-                                lines = traceback.format_exception(*sys.exc_info())
-                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
-                                self.status = "error"
-                                await self.clean_when_error()
                                 await asyncio.sleep(0)
-                                raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
+                                raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR max resets")     
+
+                        else:                
+
+                            if (inc_frags_dl > 0):
+                                
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
+                                try:
+                                    #await asyncio.to_thread(self.reset)
+                                    await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                    self.frags_queue = asyncio.Queue()
+                                    for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
+                                    for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
+                                    self.n_reset -= 1
+                                    await self.client.aclose()
+                                    continue 
+                                    
+                                except Exception as e:
+                                    lines = traceback.format_exception(*sys.exc_info())
+                                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
+                                    self.status = "error"
+                                    await self.clean_when_error()
+                                    await asyncio.sleep(0)
+                                    raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
+                                
+                            else:
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
+                                
+                                raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: no changes in number of dl frags in one cycle")
                             
-                        else:
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error")
-                            
-                            raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: no changes in number of dl frags in one cycle")
-                        
-            except Exception as e:
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
-            finally:
-                self.init_client.close()
-                for t in tasks: t.cancel()
-                await asyncio.wait(tasks)            
-                await self.client.aclose()
-                await asyncio.sleep(0)
+                except Exception as e:
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
+                finally:                    
+                    for t in tasks: t.cancel()
+                    await asyncio.wait(tasks)            
+                    await self.client.aclose()
+                    await asyncio.sleep(0)
 
 
-        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
-        self.status = "init_manipulating"
+        except Exception as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
+        finally:
+            self.init_client.close()            
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
+            self.status = "init_manipulating"
 
     async def clean_when_error(self):
         
