@@ -43,6 +43,8 @@ import janus
 from threading import Lock
 from codetiming import Timer
 
+from multiprocess import Process
+
 logger = logging.getLogger("asyncDL")
 class AsyncDL():
 
@@ -114,8 +116,203 @@ class AsyncDL():
         self.t3 = Timer("execution", text="Time spent by init workers: {:.2f}", logger=logger.info)
         
         self.reset = False
+        
+        self.get_videos_cached()        
+        
+        
+        
+    
+    def get_videos_cached(self):                
+        self.p1 = Process(target=self._get_videos_cached)
+        self.p1.start() 
+    
+    def wait_for_files(self):        
+        self.p1.join()    
+    
+    def _get_videos_cached(self):
+        
+        logger.debug(f"[videos_cached] start scanning")
+        
+        files_cached = {}
+        
+        try:
+            current_res = Path(Path.home(),"Projects/common/logs/current_res.json")
+            last_res = Path(Path.home(),"Projects/common/logs/files_cached.json")
+            
+            if current_res.exists():
+                logger.info(f"[videos_cached] waiting for other asyncdl already scanning")
+                
+                while (current_res.exists()):
+                    time.sleep(1)
+                
+                
+                with open(last_res,"r") as f:
+                    _temp = json.load(f)
 
+                for _vol,_files in _temp.items():
+                    files_cached.update(_files)
+                logger.info(f"[videos_cached] Total cached videos (existing files_cached): [{len(files_cached)}]")
+                
+                #queue.put_nowait(files_cached)
+                
+                self.files_cached = files_cached
+                
+                return                 
+            
+            
+            if self.args.nodlcaching and last_res.exists():
+                
+                                
+                with open(last_res,"r") as f:
+                    _temp = json.load(f)
+                  
+                for _vol,_files in _temp.items():
+                    files_cached.update(_files)  
+                logger.info(f"[videos_cached] Total cached videos: [{len(files_cached)}]")
+                
+                #queue.put_nowait(files_cached)
+                
+                self.files_cached = files_cached
+                
+                return 
+            
+            else:  
+                
+                with open(current_res, 'w') as f:
+                    f.write("WORKING")
+            
+                if last_res.exists():
+                    with open(last_res, "r") as f:
+                        _temp = json.load(f)
 
+                config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos")}
+                
+                list_folders = []
+                
+                for _vol,_folder in config_folders.items():
+                    if not _folder.exists():
+                        files_cached.update(_temp.get(_vol))
+                    else:
+                        list_folders.append(_folder)
+                    
+
+                _repeated = []
+                _dont_exist = []
+                
+                for folder in list_folders:
+                    files = [file for file in folder.rglob('*') 
+                             if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip'))]
+                    
+                    for file in files:                        
+
+                        _res = file.stem.split('_', 1)
+                        if len(_res) == 2:
+                            _id = _res[0]
+                            _title = sanitize_filename(_res[1], restricted=True).upper()                                
+                            _name = f"{_id}_{_title}"
+                        else:
+                            _name = sanitize_filename(file.stem, restricted=True).upper()
+
+                        if not (_video_path_str:=files_cached.get(_name)): 
+                            
+                            files_cached.update({_name: str(file)})
+                            
+                        else:
+                            _video_path = Path(_video_path_str)
+                            if _video_path != file: 
+                                
+                                if not file.is_symlink() and not _video_path.is_symlink(): #only if both are hard files we have to do something, so lets report it in repeated files
+                                    _repeated.append({'title':_name, 'indict': _video_path_str, 'file': str(file)})
+                                elif not file.is_symlink() and _video_path.is_symlink():
+                                        _links = get_chain_links(_video_path)                                             
+                                        if (_links[-1] == file):
+                                            if len(_links) > 2:
+                                                logger.debug(f'[videos_cached] \nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
+                                                for _link in _links[0:-1]:
+                                                    _link.unlink()
+                                                    _link.symlink_to(file)
+                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), file.stat().st_mtime), follow_symlinks=False)
+                                            
+                                            files_cached.update({_name: str(file)})
+                                        else:
+                                            logger.warning(f'[videos_cached] \n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
+                                                
+                                elif file.is_symlink() and not _video_path.is_symlink():
+                                    _links =  get_chain_links(file)
+                                    if (_links[-1] == _video_path):
+                                        if len(_links) > 2:
+                                            logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+                                            for _link in _links[0:-1]:
+                                                _link.unlink()
+                                                _link.symlink_to(_video_path)
+                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _video_path.stat().st_mtime), follow_symlinks=False)
+                                            
+                                        files_cached.update({_name: str(_video_path)})
+                                        if not _video_path.exists(): _dont_exist.append({'title': _name, 'file_not_exist': str(_video_path), 'links': [str(_l) for _l in _links[0:-1]]})
+                                    else:
+                                        logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+
+                                else:
+                                    _links_file = get_chain_links(file) 
+                                    _links_video_path = get_chain_links(_video_path)
+                                    if ((_file:=_links_file[-1]) == _links_video_path[-1]):
+                                        if len(_links_file) > 2:
+                                            logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}')                                                
+                                            for _link in _links_file[0:-1]:
+                                                _link.unlink()
+                                                _link.symlink_to(_file)
+                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                        if len(_links_video_path) > 2:
+                                            logger.debug(f'[videos_cached] \nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}')
+                                            for _link in _links_video_path[0:-1]:
+                                                _link.unlink()
+                                                _link.symlink_to(_file)
+                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                        
+                                        files_cached.update({_name: str(_file)})
+                                        if not _file.exists():  _dont_exist.append({'title': _name, 'file_not_exist': str(_file), 'links': [str(_l) for _l in (_links_file[0:-1] + _links_video_path[0:-1])]})
+                                            
+                                    else:
+                                        logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}') 
+
+                
+                logger.info(f"[videos_cached] Total cached videos: [{len(files_cached)}]")
+                prev_res = Path(Path.home(),"Projects/common/logs/prev_files_cached.json")                    
+                if last_res.exists():
+                    if prev_res.exists(): prev_res.unlink()
+                    last_res.rename(Path(last_res.parent,f"prev_files_cached.json"))
+                
+                _temp = {'local': {}, 'wd5': {}, 'wd1b': {}, 'pandaext4': {}, 'datostoni': {}}
+                def getter(x):
+                    if 'Pandaext4/videos' in x: return 'pandaext4'
+                    elif 'WD5/videos' in x: return 'wd5'
+                    elif 'WD1B/videos' in x: return 'wd1b'
+                    elif 'antoniotorres/testing' in x: return 'local'
+                    elif 'DatosToni/videos' in x: return 'datostoni'
+                for key,val in files_cached.items():                   
+                    _temp[getter(val)].update({key: val})
+                
+                
+                with open(last_res,"w") as f:
+                    json.dump(_temp,f)    
+                
+                if _repeated:
+                    
+                    logger.warning("[videos_cached] Please check videos repeated in logs")
+                    logger.debug(f"[videos_cached] videos repeated: \n {_repeated}")
+                    
+                if _dont_exist:
+                    logger.warning("[videos_cached] Please check videos dont exist in logs")
+                    logger.debug(f"[videos_cached] videos dont exist: \n {_dont_exist}")
+                    
+                current_res.unlink() 
+            
+                self.files_cached = files_cached                
+                #queue.put_nowait(files_cached)                
+                #return             
+        except Exception as e:
+            logger.exception(f"[videos_cached] {repr(e)}")
+               
     def pasres_periodic(self, event):
         
         logger.info('[pasres_periodic] START')
@@ -162,7 +359,6 @@ class AsyncDL():
                     task.cancel()
             await asyncio.wait(pending_tasks)
             
-           
     async def print_pending_tasks(self):
         if self.loop:
             pending_tasks = asyncio.all_tasks(loop=self.loop)
@@ -174,7 +370,6 @@ class AsyncDL():
             logger.info(f"[run_vid] {self.queue_run._queue}")
             logger.info(f"[manip_vid] {self.queue_manip._queue}")
         
-    
     async def gui_console(self):
         
         try:
@@ -435,189 +630,7 @@ class AsyncDL():
                     logger.exception(f"[gui_root]: error: {repr(e)}")
                 finally:
                     del self.window_root
-                    
 
-
-    def get_videos_cached(self, nodlcaching, queue):
-        
-        logger = logging.getLogger("asyncDL")
-        
-        logger.debug(f"[videos_cached] start scanning")
-        
-        files_cached = {}
-        
-        try:
-            current_res = Path(Path.home(),"Projects/common/logs/current_res.json")
-            last_res = Path(Path.home(),"Projects/common/logs/files_cached.json")
-            
-            if current_res.exists():
-                logger.info(f"[videos_cached] waiting for other asyncdl already scanning")
-                
-                while (current_res.exists()):
-                    time.sleep(1)
-                
-                
-                with open(last_res,"r") as f:
-                    _temp = json.load(f)
-
-                for _vol,_files in _temp.items():
-                    files_cached.update(_files)
-                logger.info(f"[videos_cached] Total cached videos (existing files_cached): [{len(files_cached)}]")
-                
-                queue.put_nowait(files_cached)
-                return                 
-            
-            
-            if nodlcaching and last_res.exists():
-                
-                                
-                with open(last_res,"r") as f:
-                    _temp = json.load(f)
-                  
-                for _vol,_files in _temp.items():
-                    files_cached.update(_files)  
-                logger.info(f"[videos_cached] Total cached videos: [{len(files_cached)}]")
-                
-                queue.put_nowait(files_cached)
-                return 
-            
-            else:  
-                
-                with open(current_res, 'w') as f:
-                    f.write("WORKING")
-            
-                if last_res.exists():
-                    with open(last_res, "r") as f:
-                        _temp = json.load(f)
-
-                config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos")}
-                
-                list_folders = []
-                
-                for _vol,_folder in config_folders.items():
-                    if not _folder.exists():
-                        files_cached.update(_temp.get(_vol))
-                    else:
-                        list_folders.append(_folder)
-                    
-
-                _repeated = []
-                _dont_exist = []
-                
-                for folder in list_folders:
-                    files = [file for file in folder.rglob('*') 
-                             if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip'))]
-                    
-                    for file in files:                        
-
-                        _res = file.stem.split('_', 1)
-                        if len(_res) == 2:
-                            _id = _res[0]
-                            _title = sanitize_filename(_res[1], restricted=True).upper()                                
-                            _name = f"{_id}_{_title}"
-                        else:
-                            _name = sanitize_filename(file.stem, restricted=True).upper()
-
-                        if not (_video_path_str:=files_cached.get(_name)): 
-                            
-                            files_cached.update({_name: str(file)})
-                            
-                        else:
-                            _video_path = Path(_video_path_str)
-                            if _video_path != file: 
-                                
-                                if not file.is_symlink() and not _video_path.is_symlink(): #only if both are hard files we have to do something, so lets report it in repeated files
-                                    _repeated.append({'title':_name, 'indict': _video_path_str, 'file': str(file)})
-                                elif not file.is_symlink() and _video_path.is_symlink():
-                                        _links = get_chain_links(_video_path)                                             
-                                        if (_links[-1] == file):
-                                            if len(_links) > 2:
-                                                logger.debug(f'[videos_cached] \nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
-                                                for _link in _links[0:-1]:
-                                                    _link.unlink()
-                                                    _link.symlink_to(file)
-                                                    _link._accessor.utime(_link, (int(datetime.now().timestamp()), file.stat().st_mtime), follow_symlinks=False)
-                                            
-                                            files_cached.update({_name: str(file)})
-                                        else:
-                                            logger.warning(f'[videos_cached] \n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
-                                                
-                                elif file.is_symlink() and not _video_path.is_symlink():
-                                    _links =  get_chain_links(file)
-                                    if (_links[-1] == _video_path):
-                                        if len(_links) > 2:
-                                            logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
-                                            for _link in _links[0:-1]:
-                                                _link.unlink()
-                                                _link.symlink_to(_video_path)
-                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _video_path.stat().st_mtime), follow_symlinks=False)
-                                            
-                                        files_cached.update({_name: str(_video_path)})
-                                        if not _video_path.exists(): _dont_exist.append({'title': _name, 'file_not_exist': str(_video_path), 'links': [str(_l) for _l in _links[0:-1]]})
-                                    else:
-                                        logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
-
-                                else:
-                                    _links_file = get_chain_links(file) 
-                                    _links_video_path = get_chain_links(_video_path)
-                                    if ((_file:=_links_file[-1]) == _links_video_path[-1]):
-                                        if len(_links_file) > 2:
-                                            logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}')                                                
-                                            for _link in _links_file[0:-1]:
-                                                _link.unlink()
-                                                _link.symlink_to(_file)
-                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
-                                        if len(_links_video_path) > 2:
-                                            logger.debug(f'[videos_cached] \nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}')
-                                            for _link in _links_video_path[0:-1]:
-                                                _link.unlink()
-                                                _link.symlink_to(_file)
-                                                _link._accessor.utime(_link, (int(datetime.now().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
-                                        
-                                        files_cached.update({_name: str(_file)})
-                                        if not _file.exists():  _dont_exist.append({'title': _name, 'file_not_exist': str(_file), 'links': [str(_l) for _l in (_links_file[0:-1] + _links_video_path[0:-1])]})
-                                            
-                                    else:
-                                        logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}') 
-
-                
-                logger.info(f"[videos_cached] Total cached videos: [{len(files_cached)}]")
-                prev_res = Path(Path.home(),"Projects/common/logs/prev_files_cached.json")                    
-                if last_res.exists():
-                    if prev_res.exists(): prev_res.unlink()
-                    last_res.rename(Path(last_res.parent,f"prev_files_cached.json"))
-                
-                _temp = {'local': {}, 'wd5': {}, 'wd1b': {}, 'pandaext4': {}, 'datostoni': {}}
-                def getter(x):
-                    if 'Pandaext4/videos' in x: return 'pandaext4'
-                    elif 'WD5/videos' in x: return 'wd5'
-                    elif 'WD1B/videos' in x: return 'wd1b'
-                    elif 'antoniotorres/testing' in x: return 'local'
-                    elif 'DatosToni/videos' in x: return 'datostoni'
-                for key,val in files_cached.items():                   
-                    _temp[getter(val)].update({key: val})
-                
-                
-                with open(last_res,"w") as f:
-                    json.dump(_temp,f)    
-                
-                if _repeated:
-                    
-                    logger.warning("[videos_cached] Please check videos repeated in logs")
-                    logger.debug(f"[videos_cached] videos repeated: \n {_repeated}")
-                    
-                if _dont_exist:
-                    logger.warning("[videos_cached] Please check videos dont exist in logs")
-                    logger.debug(f"[videos_cached] videos dont exist: \n {_dont_exist}")
-                    
-                current_res.unlink() 
-            
-                queue.put_nowait(files_cached)
-                return 
-            
-        except Exception as e:
-            logger.exception(f"[videos_cached] {repr(e)}")
-               
     def get_list_videos(self):
         
         logger.info(f"[get_list_videos] start scanning")
@@ -818,12 +831,9 @@ class AsyncDL():
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers) as self.ex_pl:
                 
-                #ex = ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers)
                     for url in self.url_pl_list:    
-                        #self.futures.update({(_future:=self.ex_pl.submit(self.ytdl.extract_info, url, download=False)): url})
                         if self.reset: raise Exception("reset")
                         self.futures.update({self.ex_pl.submit(custom_callback, url, _get_name): url}) 
-                        #_future.add_done_callback(custom_callback)
                 
                     logger.info(f"[url_playlist_list] futures1: {len(self.futures)}")
                 
@@ -888,10 +898,6 @@ class AsyncDL():
                                 if self.nowaitforstartdl: self._prepare_for_dl(_url)
                                 self.list_videos.append(self.info_videos[_url]['video_info'])
 
-
-                    
-                
-                
             if self.args.collection_files:
                 
                 def get_info_json(file):
@@ -930,12 +936,10 @@ class AsyncDL():
                         else:
                             if self.nowaitforstartdl: self._prepare_for_dl(_url)
                             self.list_videos.append(self.info_videos[_url]['video_info'])
-                       
-            
+
 
             logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}\n{self.info_videos}")
             
-
         
         except BaseException as e:            
             logger.error(f"[get_videos]: Error {repr(e)}")
@@ -948,9 +952,7 @@ class AsyncDL():
                 self.getlistvid_done = True
                 self.t1.stop()
                 
-        #return self.list_videos
-            
-            
+ 
     def _check_if_aldl(self, info_dict):  
                     
 
@@ -1077,7 +1079,8 @@ class AsyncDL():
         try:
             
             while True:
-                if not self.nowaitforstartdl or self.getlistvid_done: break
+                if not self.nowaitforstartdl or self.getlistvid_done: 
+                    break
                 if self.queue_vid.async_q.qsize() < 2:
                     await asyncio.sleep(0)
                 else: break
@@ -1595,8 +1598,7 @@ class AsyncDL():
                 
                 tasks_gui = [self.task_gui_root, self.console_task] 
 
-            
-                
+
             #done, _ = await asyncio.wait(task_get_videos + tasks_init + task_gui_root + self.tasks_run + tasks_manip + task_gui_console)
             done, _ = await asyncio.wait(task_get_videos + tasks_init + self.tasks_run + tasks_manip)            
             for d in done:
@@ -1619,19 +1621,6 @@ class AsyncDL():
                 raise
             
     def get_results_info(self):
-        
-        # def _getter(url, vid):
-        #     webpageurl = vid['video_info'].get('webpage_url')
-        #     originalurl = vid['video_info'].get('original_url')
-        #     playlist = vid['video_info'].get('playlist')            
-        #     if url == webpageurl:
-        #         if playlist and vid['video_info']['n_entries'] > 1:
-        #             return f"{playlist}:[{vid['video_info']['playlist_index']}]:{url}"
-        #         else:
-        #             return f"{originalurl}"
-        #     else:
-        #         return url
-            
             
         def _getter(url, vid):
             webpageurl = vid.get('video_info',{}).get('webpage_url')
@@ -1645,7 +1634,6 @@ class AsyncDL():
                 return(originalurl or webpageurl)
 
         def _print_list_videos():
-        
             try:
                 
                 col = shutil.get_terminal_size().columns
@@ -1692,9 +1680,7 @@ class AsyncDL():
                         'videosaldl': {'urls': list_videosaldl, 'str': list_videosaldl_str}, 'videossamevideo': {'urls': list_videossamevideo, 'str': list_videossamevideo_str}}
             except Exception as e:
                 logger.exception(repr(e))
-        
-        
-        
+
         
         _videos_url_notsupported = self.list_unsup_urls
         _videos_url_notvalid = self.list_notvalid_urls
@@ -1719,7 +1705,7 @@ class AsyncDL():
                     videos_okdl.append(_getter(url, video))
                     _temp['local'].update({f"{traverse_obj(video, ('video_info', 'id'))}_{traverse_obj(video, ('video_info', 'title')).upper()}": str(traverse_obj(video, 'filename'))})
                 else:                    
-                    if video['status'] == "initnok" or video['status'] == "prenok":
+                    if ((video['status'] == "initnok") or (video['status'] == "prenok")):
                         videos_kodl.append(_getter(url, video))
                         videos_koinit.append(_getter(url, video))
                     elif video['status'] == "initok":
@@ -1806,8 +1792,7 @@ class AsyncDL():
         
         logger.debug(f'\n{self.info_videos}')
         
-        
-        
+
         videos_ko = list(set(info_dict['videoskodl']['urls'] + info_dict['videoskoinit']['urls']))
                     
         if videos_ko: videos_ko_str = "\n".join(videos_ko)        
@@ -1817,10 +1802,8 @@ class AsyncDL():
             file.write(videos_ko_str) 
 
         return info_dict
-
  
-    
-    def ies_close(self, client=True):
+    def ies_close(self):
         
         ies = self.ytdl._ies_instances
         
@@ -1830,7 +1813,7 @@ class AsyncDL():
             
             if (close:=getattr(ins, 'close', None)):
                 try:
-                    close(client=client)
+                    close()
                     logger.info(f"[close][{ie}] closed ok")
                     break
                 except Exception as e:
@@ -1852,9 +1835,10 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
             
-        
     def clean(self):
         
+        self.p1.join()
+                
         try:
             current_res = Path(Path.home(),"Projects/common/logs/current_res.json")
             if current_res.exists():

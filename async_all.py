@@ -32,21 +32,15 @@ def main():
 
         try:
             
-            q = Queue()
-            p1 = Process(target=asyncDL.get_videos_cached, args=(args.nodlcaching, q))
-            p1.start()
+            asyncDL.wait_for_files()
+            
             if not asyncDL.nowaitforstartdl:            
                 asyncDL.get_list_videos()
-            
-            asyncDL.files_cached = q.get()            
-            
-            if not asyncDL.nowaitforstartdl:
-                asyncDL.get_videos_to_dl()
+                asyncDL.get_videos_to_dl()            
 
                 if not asyncDL.videos_to_dl:
-                    raise Exception("no videos to dl")         
-                
-                
+                    raise Exception("no videos to dl")                
+
             try:
                 uvloop.install()
                 asyncDL.loop = asyncio.new_event_loop()
@@ -76,12 +70,8 @@ def main():
                     raise
         
         except BaseException as e:
-            logger.info(f"{repr(e)}")
-            try:
-                p1.kill()
-            except Exception as e:
-                pass
             asyncDL.clean()
+            logger.info(f"{repr(e)}")            
             
             if isinstance(e, KeyboardInterrupt):
                 raise

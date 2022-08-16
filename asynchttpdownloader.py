@@ -13,17 +13,18 @@ from statistics import median
 import aiofiles
 import httpx
 
-from utils import EMA, int_or_none, naturalsize, none_to_cero, try_get, async_ex_in_executor, limiter_15, limiter_5, limiter_1, dec_retry_error, CONFIG_EXTRACTORS
+from utils import (EMA, int_or_none, naturalsize, none_to_cero, try_get, 
+                   async_ex_in_executor, limiter_15, limiter_5, limiter_1, 
+                   dec_retry_error, traverse_obj, CONFIG_EXTRACTORS)
 
 
-from threading import Lock, Semaphore
+from threading import Lock
 from cs.threads import PriorityLock
 
 from urllib.parse import unquote, urlparse
 
 logger = logging.getLogger("async_http_DL")
 
-#limiter = Limiter(RequestRate(5, Duration.SECOND))
 class AsyncHTTPDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -44,13 +45,10 @@ class AsyncHTTPDownloader():
     
     _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
-    _MAX_RETRIES = 10
-    _CONFIG = copy.deepcopy(CONFIG_EXTRACTORS)
+    _MAX_RETRIES = 10    
+    _CONFIG = copy.deepcopy(CONFIG_EXTRACTORS)   
     
-    _SEM = {}
-    
-    _LOCK = Lock()
-    
+    _LOCK = Lock()    
     _EX_HTTPDL = None
     
     def __init__(self, video_dict, vid_dl):
@@ -66,7 +64,6 @@ class AsyncHTTPDownloader():
 
         self.ytdl = getattr(self.video_downloader, 'info_dl', {}).get('ytdl', None)
         
-        AsyncHTTPDownloader._SEM = self.ytdl.params['sem']
 
         #ip_proxies = ["192.145.124.234", "192.145.124.242", "89.238.178.234", "192.145.124.190", "192.145.124.186", "192.145.124.226", "192.145.124.174", "192.145.124.238", "89.238.178.206"]
         #self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:6060", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1337"} for ip in ip_proxies]
@@ -91,9 +88,7 @@ class AsyncHTTPDownloader():
             self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
             self.download_path.mkdir(parents=True, exist_ok=True)
             self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
-            
-        
-        
+
         self.filesize = none_to_cero(self.info_dict.get('filesize', 0))
         self.down_size = 0
         self.down_temp = 0
@@ -112,8 +107,7 @@ class AsyncHTTPDownloader():
         self.ema_s = EMA(smoothing=0.0001)
         self.ema_t = EMA(smoothing=0.0001)
         
-        
-        
+
         with AsyncHTTPDownloader._LOCK:
             if not AsyncHTTPDownloader._EX_HTTPDL:
                 AsyncHTTPDownloader._EX_HTTPDL = ThreadPoolExecutor(thread_name_prefix="ex_httpdl")
@@ -123,6 +117,88 @@ class AsyncHTTPDownloader():
         self.init()
 
 
+      
+    def init(self): 
+        
+
+        try:
+            
+           
+            def transp(func):
+                return func
+            
+            def getter(x):            
+                value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
+                if value:
+                    return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
+            
+            
+            self.n_parts = getattr(self.video_downloader, 'info_dl', {}).get('n_workers', 16)
+            
+            _extractor = self.info_dict.get('extractor', '')
+            
+            self.auto_pasres = False
+            
+            _sem = False
+            if _extractor and _extractor.lower() != 'generic':
+                self._decor, self._nsplits = getter(_extractor) or (transp, self.n_parts)
+                if _extractor in ['doodstream', 'vidoza']:
+                    self.auto_pasres = True
+                if self._nsplits < 16: 
+                    _sem = True
+                if self.n_parts != self._nsplits:
+                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: change nparts [{self.n_parts} -> {self._nsplits}]")
+                    self.n_parts = min(self.n_parts, self._nsplits)
+            else: 
+                self._decor, self._nsplits = transp, self.n_parts
+
+            self._NUM_WORKERS = self.n_parts 
+
+            self._host = urlparse(self.uris[0]).netloc
+                
+            if _sem:
+                
+                with self.ytdl.params['lock']:                
+                    if not (_temp:=traverse_obj(self.ytdl.params['sem'], self._host)):
+                        _temp = PriorityLock()
+                        self.ytdl.params['sem'].update({self._host: _temp})
+                        
+                self.sem = _temp
+                
+                self.sem.acquire(priority=50)
+                
+            else: 
+                self.sem = None 
+            
+            
+            _mult_ranges, _filesize = self.check_server()
+            
+            if not _mult_ranges:
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: server cant handle ranges")
+                self.n_parts = 1
+                self._NUM_WORKERS = 1
+            
+            if _filesize: 
+                self.filesize = _filesize
+                
+            if self.filesize:
+                
+                self.create_parts() 
+                self.get_parts_to_dl()
+            
+            else:                                
+                raise AsyncHTTPDLErrorFatal("Can't get filesize")
+        
+        except (KeyboardInterrupt, Exception) as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {str(e)}")
+            self.init_client.close()
+            self.status = "error"
+            self.error_message = repr(e)            
+            raise
+        finally:
+            if self.sem:
+                self.sem.release()
+                
     def check_server(self):
         
         @dec_retry_error
@@ -144,8 +220,6 @@ class AsyncHTTPDownloader():
             
         return (_check_server() or (None,None))
         
-
-
     def upt_hsize(self, i, offset=None):
 
         
@@ -224,83 +298,6 @@ class AsyncHTTPDownloader():
             lines = traceback.format_exception(*sys.exc_info())
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] {repr(e)} \n{'!!'.join(lines)}")
 
-        
-    def init(self): 
-        
-
-        try:
-            
-            def transp(func):
-                return func
-            
-            def getter(x):
-            
-                value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
-                if value:
-                    return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
-            
-            self.n_parts = getattr(self.video_downloader, 'info_dl', {}).get('n_workers', 16)
-            
-            _extractor = self.info_dict.get('extractor', '')
-            
-            self.auto_pasres = False
-            self.sem = False
-            if _extractor and _extractor.lower() != 'generic':
-                self._decor, self._nsplits = getter(_extractor) or (transp, self.n_parts)
-                if _extractor in ['doodstream', 'vidoza']:
-                    self.auto_pasres = True
-                if self._nsplits < 16: self.sem = True
-                if self.n_parts != self._nsplits:
-                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: change nparts [{self.n_parts} -> {self._nsplits}]")
-                    self.n_parts = min(self.n_parts, self._nsplits)
-            else: 
-                self._decor, self._nsplits = transp, self.n_parts
-                
-            
-            self._NUM_WORKERS = self.n_parts 
-
-            self._host = urlparse(self.uris[0]).netloc
-                
-            if self.sem:
-                with AsyncHTTPDownloader._LOCK:
-                    if not (AsyncHTTPDownloader._SEM.get(self._host)):
-                        #AsyncHTTPDownloader._SEM.update({self._host: Semaphore()})
-                        AsyncHTTPDownloader._SEM.update({self._host: PriorityLock()})
-                        
-                
-            AsyncHTTPDownloader._SEM[self._host].acquire(priority=50)
-            
-            _mult_ranges, _filesize = self.check_server()
-            
-            if not _mult_ranges:
-                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: server cant handle ranges")
-                self.n_parts = 1
-                self._NUM_WORKERS = 1
-            
-            if _filesize: 
-                self.filesize = _filesize
-                
-            if self.filesize:
-                
-                self.create_parts() 
-                self.get_parts_to_dl()
-            
-            else:                                
-                raise AsyncHTTPDLErrorFatal("Can't get filesize")
-        
-        except (KeyboardInterrupt, Exception) as e:
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: {str(e)}")
-            self.init_client.close()
-            self.status = "error"
-            self.error_message = repr(e)
-            
-            raise
-        finally:
-            if self.sem: 
-                if (_sem:=AsyncHTTPDownloader._SEM.get(self._host)):
-                    _sem.release()
-
-
     def get_parts_to_dl(self):
         
         self.parts_to_dl = []
@@ -374,7 +371,6 @@ class AsyncHTTPDownloader():
             else:
                 await asyncio.sleep(0)
         
-    #@limiter.ratelimit("httpdl1", delay=True)
     async def rate_limit(self):
         
         @self._decor
@@ -527,8 +523,7 @@ class AsyncHTTPDownloader():
             self.status = "downloading"
             
             if self.sem: 
-                if (_sem:=AsyncHTTPDownloader._SEM.get(self._host)):
-                    await async_ex_in_executor(AsyncHTTPDownloader._EX_ARIA2DL, _sem.acquire, priority=50)  
+                await async_ex_in_executor(AsyncHTTPDownloader._EX_ARIA2DL, self.sem.acquire, priority=50)  
             
             self.tasks = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
             
@@ -557,9 +552,8 @@ class AsyncHTTPDownloader():
         finally:
             if self.init_client:
                 self.init_client.close()
-            if self.sem: 
-                if (_sem:=AsyncHTTPDownloader._SEM.get(self._host)):
-                    await async_ex_in_executor(AsyncHTTPDownloader._EX_HTTPDL, _sem.release)
+            if self.sem:                 
+                await async_ex_in_executor(AsyncHTTPDownloader._EX_HTTPDL, self.sem.release)
 
     def partsnotdl(self):
         res = []

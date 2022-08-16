@@ -3,15 +3,13 @@ import copy
 import logging
 import sys
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import aria2p
 
-from utils import async_ex_in_executor, naturalsize, none_to_cero, try_get, CONFIG_EXTRACTORS
-
+from utils import async_ex_in_executor, naturalsize, none_to_cero, try_get, CONFIG_EXTRACTORS, traverse_obj
 
 from threading import Lock
 from cs.threads import PriorityLock
@@ -39,7 +37,6 @@ class AsyncARIA2CDLError(Exception):
 class AsyncARIA2CDownloader():
     
     _CONFIG = copy.deepcopy(CONFIG_EXTRACTORS)    
-    _SEM = {}    
     _LOCK = Lock()    
     _EX_ARIA2DL = None
         
@@ -53,20 +50,18 @@ class AsyncARIA2CDownloader():
         
         self.ytdl = self.video_downloader.info_dl['ytdl']
         
-        AsyncARIA2CDownloader._SEM = self.ytdl.params['sem'] #any change in any of the dicts will be
-                                                            # the same for both dicts
                 
         proxies = self.ytdl.params.get('proxy', None)
         if proxies:
             self.proxies = f"http://{proxies}"
         
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')        
-        self.video_url = self.info_dict.get('url')
-        #self._extra_urls = self.info_dict.get('_extra_urls')
         
+        self.video_url = self.info_dict.get('url')        
         self.headers = self.info_dict.get('http_headers')  
         
         self.download_path = self.info_dict['download_path']
+        
         self.download_path.mkdir(parents=True, exist_ok=True) 
         if (_filename:=self.info_dict.get('_filename')):            
             
@@ -96,8 +91,7 @@ class AsyncARIA2CDownloader():
         
         
 
-    def prep_init(self):
-        
+    def prep_init(self):        
         
         def transp(func):
             return func
@@ -110,33 +104,28 @@ class AsyncARIA2CDownloader():
         
         _extractor = self.info_dict.get('extractor', '')
         self.auto_pasres = False
-        self.sem = False
+        _sem = False
         if _extractor and _extractor.lower() != 'generic':
             self._decor, _nsplits = getter(_extractor) or (transp, self.nworkers)
             if _extractor in ['doodstream', 'vidoza']:
                 self.auto_pasres = True
-            if _nsplits < 16: self.sem = True
+            if _nsplits < 16: 
+                _sem = True
         else: 
             self._decor, _nsplits = transp, self.nworkers
             
 
         self.nworkers = min(_nsplits, self.nworkers)
-        #logger.info(f"{_extractor}:{_nsplits}:{self.nworkers}")
+
         opts_dict = {
             'split': self.nworkers,
             'max-connection-per-server': self.nworkers,
-            'header': [f"{key}: {value}" for key,value in self.headers.items()],# if key.lower() not in ['user-agent', 'referer', 'accept-encoding']], #+ ["Sec-Fetch-Dest: video", "Sec-Fetch-Mode: cors", "Sec-Fetch-Site: cross-site", "Pragma: no-cache", "Cache-Control: no-cache"],
+            'header': [f"{key}: {value}" for key,value in self.headers.items()],
             'dir': str(self.download_path),
             'out': self.filename.name,
-            #'check-certificate': self.verifycert,
-            #'check-certificate': False,              
-            #'user-agent': self.video_downloader.args.useragent
         }
         
-        #if _referer:=self.headers.get('Referer'):
-        #    opts_dict.update({'referer': _referer})
-        
-        
+
         self.opts = self.aria2_client.get_global_options()
         for key,value in opts_dict.items():
             rc = self.opts.set(key, value)
@@ -144,52 +133,50 @@ class AsyncARIA2CDownloader():
                 logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] options - couldnt set [{key}] to [{value}]")
                 
 
-                 
-            
-        # def _transf(_url):
-        #    return(_url.replace("medialatest-cdn.gayforit.eu", "media.gayforit.eu"))
-        
-        #uris = [unquote(_transf(self.video_url))]
         self.uris = [unquote(self.video_url)]
-        #if self._extra_urls:
-        #    for el in self._extra_urls: 
-        #        uris.append(unquote(el))
         
         self._host = urlparse(self.uris[0]).netloc
                 
-        if self.sem:
-            with AsyncARIA2CDownloader._LOCK:
-                if not (AsyncARIA2CDownloader._SEM.get(self._host)):
-                    #AsyncARIA2CDownloader._SEM.update({self._host: Semaphore()})
-                    AsyncARIA2CDownloader._SEM.update({self._host: PriorityLock()})
+        if _sem:
+            
+            with self.ytdl.params['lock']:                
+                if not (_temp:=traverse_obj(self.ytdl.params['sem'], self._host)):
+                    _temp = PriorityLock()
+                    self.ytdl.params['sem'].update({self._host: _temp})
+                    
+            self.sem = _temp
+            
+        else: 
+            self.sem = None
+                    
+      
                 
+    
     def init(self):
             
         @self._decor
         def _throttle_add_uris():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] init uris[{self.uris}]")
-            #logger.info(opts.get_struct())
             return self.aria2_client.add_uris(self.uris, self.opts)
                         
         try:
             
             if self.sem:
-                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
-                    _sem.acquire(25)
+                self.sem.acquire(25)
             
-            self.dl_cont = _throttle_add_uris()            
-        
-            cont = 0            
-        
+            self.dl_cont = _throttle_add_uris()
+                    
             _tstart = time.monotonic()
+            
+            cont = 0
             
             while True:
                 self.dl_cont.update()
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
-                if self.dl_cont.status in ('error') or (time.monotonic() - _tstart > 15):
-                #if (time.monotonic() - _tstart > 15):
+                if ((self.dl_cont.status in ('error')) or (time.monotonic() - _tstart > 15)):
+                    
                     if self.dl_cont.status in ('error'):
                         _msg_error = self.dl_cont.error_message
                     else:
@@ -199,14 +186,17 @@ class AsyncARIA2CDownloader():
                     
                     self.aria2_client.remove([self.dl_cont], clean=True)                   
 
-                    if self.sem: AsyncARIA2CDownloader._SEM[self._host].release()
+                    if self.sem: 
+                        AsyncARIA2CDownloader._SEM[self._host].release()
                     
                     cont += 1
                     if cont > 1: 
                         raise AsyncARIA2CDLErrorFatal("Max init repeat")
                     else:
                         time.sleep(1)
-                        if self.sem: AsyncARIA2CDownloader._SEM[self._host].acquire(25)
+                        if self.sem: 
+                            if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
+                                _sem.acquire(25)
                 
                         self.dl_cont = _throttle_add_uris()
                     
@@ -214,12 +204,10 @@ class AsyncARIA2CDownloader():
                     
 
             if self.dl_cont.status in ('active'):
-                self.aria2_client.pause([self.dl_cont])
-                
+                self.aria2_client.pause([self.dl_cont])                
                 
             elif self.dl_cont.status in ('complete'):
                 self.status = "done"
-                #AsyncARIA2CDownloader._SEM[self._host].release()
                                     
             if self.dl_cont.total_length:
                 self.filesize = self.dl_cont.total_length
@@ -228,21 +216,18 @@ class AsyncARIA2CDownloader():
         except AsyncARIA2CDLErrorFatal as e:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
-            #AsyncARIA2CDownloader._SEM[self._host].release()
             raise        
         except Exception as e:                         
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
-            #AsyncARIA2CDownloader._SEM[self._host].release()
             try:
                 self.error_message = self.dl_cont.error_message
             except Exception:
                 self.error_message = repr(e)            
             raise AsyncARIA2CDLErrorFatal(self.error_message)
         finally:
-            if self.sem:
-                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
-                    _sem.release()
+            if self.sem:                
+                self.sem.release()
         
         
 
@@ -250,9 +235,8 @@ class AsyncARIA2CDownloader():
 
         try: 
             
-            if self.sem: 
-                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
-                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, _sem.acquire, priority=50)
+            if self.sem:                 
+                await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.acquire, priority=50)
 
             await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.resume,[self.dl_cont])
             
@@ -267,16 +251,17 @@ class AsyncARIA2CDownloader():
                 self.status = 'downloading'
                 
                 #timer0 = time.monotonic()
-                while (self.dl_cont.status in ('active') and not self.reset_event.is_set()):                    
+                while (self.dl_cont.status in ('active') and not self.reset_event.is_set() and not self.video_downloader.stop_event.is_set()):                    
                    
                     try:                
                         _incsize = self.dl_cont.completed_length - self.down_size
                         self.down_size = self.dl_cont.completed_length
                         async with self.video_downloader.lock: 
                             self.video_downloader.info_dl['down_size'] += _incsize
+                        
                         if self.video_downloader.stop_event.is_set():
-                            await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.remove,[self.dl_cont], force=False, files=False, clean=False)
                             self.status = 'stop'
+                            await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.remove,[self.dl_cont], force=False, files=False, clean=False)
                             return
                             
                         if self.video_downloader.pause_event.is_set():
@@ -302,22 +287,20 @@ class AsyncARIA2CDownloader():
                             raise
 
 
-        except BaseException as e:
-            
+        except BaseException as e:            
             if isinstance(e, KeyboardInterrupt):
-                raise
-            
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}\n{'!!'.join(lines)}")
+                raise                       
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
             self.error_message = repr(e)
                         
         finally:
-            if self.sem: 
-                if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
-                    await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, _sem.release)
+            if self.sem:                 
+                await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.release)
             
+    
     async def fetch_async(self):
+        
         self.reset_event = asyncio.Event()
         
         while True:
@@ -348,11 +331,7 @@ class AsyncARIA2CDownloader():
                 if isinstance(e, KeyboardInterrupt):
                     raise
                 
-                
-                
-            
-                
-            
+
     def print_hookup(self):
         
         msg = ""
