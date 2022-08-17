@@ -249,7 +249,7 @@ class AsyncDL():
                         try:
                             
                             files = [file for file in folder.rglob('*') 
-                                    if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip'))]
+                                    if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.zip'))]
                             
                             for file in files:                        
 
@@ -560,7 +560,7 @@ class AsyncDL():
                                 if info:
                                     sg.cprint(f"[{', '.join(info)}]")                                    
                                     if event == 'ToFile':
-                                        with open(Path(Path.home(), "testing", _file:=f"{self.time_now.strftime('%Y%m%d_%H%M')}.json"), "w") as f:
+                                        with open(Path(Path.home(), "testing", _file:=f"{self.launch_time.strftime('%Y%m%d_%H%M')}.json"), "w") as f:
                                             f.write(f'{{"entries": [{", ".join(info)}]}}')
                                         sg.cprint(f"saved to file: {_file}")
                                         
@@ -1055,7 +1055,7 @@ class AsyncDL():
                 if self.args.path:
                     _folderpath = Path(self.args.path)
                 else:
-                    _folderpath = Path(Path.home(), "testing", self.time_now.strftime('%Y%m%d'))
+                    _folderpath = Path(Path.home(), "testing", self.launch_time.strftime('%Y%m%d'))
                 _folderpath.mkdir(parents=True, exist_ok=True)
                 file_aldl = Path(_folderpath, vid_path.name)
                 if file_aldl not in _folderpath.iterdir():

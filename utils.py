@@ -877,4 +877,54 @@ def status_proxy():
     print(json.dumps(list_final))
     return(list_ord)
 
+
+def get_files_same_id():
+    
+    logger = logging.getLogger("getfiles")
+    
+    config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos")}
+
+    list_folders = []
+
+    for _vol,_folder in config_folders.items():
+        if not _folder.exists():
+            logger("failed {_folder}, let get previous info saved in previous files")
+ 
+        else: list_folders.append(_folder)
+
+    files_cached = []
+    for folder in list_folders:
+
+        logger.info('>>>>>>>>>>>STARTS ' + str(folder))
+
+
+        try:
+
+            files = [file for file in folder.rglob('*')
+                    if file.is_file() and not file.is_symlink() and not 'videos/_videos/' in str(file) and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip'))]
+
+        except Exception as e:
+            logger.info(f"[get_files_cached][{folder}] {repr(e)}")
+
+
+        for file in files:
+
+            _res = file.stem.split('_', 1)
+            if len(_res) == 2:
+                _id = _res[0]
+
+            else:
+                _id = sanitize_filename(file.stem, restricted=True).upper()
+
+            files_cached.append((_id, str(file)))
+
+    _res_dict  = {}
+    for el in files_cached:
+        for item in files_cached:
+            if (el != item) and (item[0] == el[0]):
+                if not _res_dict.get(el[0]): _res_dict[el[0]] = set([el[1], item[1]])
+                else: _res_dict[el[0]].update([el[1], item[1]])
+    _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
+    return _ord_res_dict
+
  
