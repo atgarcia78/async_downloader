@@ -2,10 +2,8 @@
 import asyncio
 import logging
 import os
-from multiprocess import Process, Queue
 
 import uvloop
-
 
 from asyncdl import AsyncDL
 from utils import (init_argparser, init_logging, patch_http_connection_pool,

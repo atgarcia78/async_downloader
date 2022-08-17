@@ -11,8 +11,7 @@ from pathlib import Path
 from shutil import rmtree
 
 import httpx
-#from pycaption import (DFXPReader, SAMIReader, SCCReader, SRTReader,
-#                       WebVTTReader, SRTWriter, detect_format)
+
 from yt_dlp.utils import determine_protocol, sanitize_filename, try_get
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
@@ -21,10 +20,6 @@ from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
 from utils import async_ex_in_executor, naturalsize, try_get, traverse_obj
 
-# SUPPORTED_EXT = {
-#     DFXPReader: 'ttml', WebVTTReader: 'vtt', SAMIReader: 'sami', SRTReader: 'srt', SCCReader: 'scc'
-    
-# }
 
 import os
 from concurrent.futures import ThreadPoolExecutor

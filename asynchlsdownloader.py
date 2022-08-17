@@ -216,23 +216,6 @@ class AsyncHLSDownloader():
     def get_info_fragments(self):
         
         try:
-            # self.m3u8_obj = None
-            
-            # for i in range(3):
-            #     try:
-            #         self.m3u8_obj = self.get_m3u8_obj()
-            #         break
-            #     except Exception as e:
-            #         logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error num[{i+1}] when downloading m3u8 file, will retry")
-            #         _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
-
-            #         _new_info = get_format_id(_info, self.info_dict['format_id'])
-            #         if _new_info: 
-            #             self.headers = self.info_dict['http_headers'] = _new_info.get('http_headers')
-            #             self.init_client.headers.update(self.headers)
-            #             self.video_url = self.info_dict['url'] = _new_info.get('url')
-            #             self.webpage_url = self.info_dict['webpage_url'] = _new_info.get('webpage_url')
-            #             self.manifest_url = self.info_dict['manifest_url'] = _new_info.get('manifest_url')
                     
             self.m3u8_obj = self.get_m3u8_obj()
             

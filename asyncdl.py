@@ -172,24 +172,24 @@ class AsyncDL():
                 while (sem_on.exists()):
                     time.sleep(1)
                 
-                
-                with open(local_storage, "r") as f:
-                    _temp = json.load(f)
+                if local_storage.exists():
+                    with open(local_storage, "r") as f:
+                        _temp = json.load(f)
 
-                for _key,_data in _temp.items():
-                    if (_key in list(config_folders.keys())):
-                        videos_cached.update(_data)
-                    elif "last_time_sync" in _key:
-                        last_time_sync = _data
-                    else:
-                        logger.error(f"[videos_cached] found key not registered volumen - {_key}")
-                
-                _queue.put_nowait(videos_cached)
-                                
-                return                 
+                    for _key,_data in _temp.items():
+                        if (_key in list(config_folders.keys())):
+                            videos_cached.update(_data)
+                        elif "last_time_sync" in _key:
+                            last_time_sync = _data
+                        else:
+                            logger.error(f"[videos_cached] found key not registered volumen - {_key}")
+                    
+                    _queue.put_nowait(videos_cached)
+                                    
+                    return                 
             
             
-            elif _nodlcaching and local_storage.exists():
+            if _nodlcaching and local_storage.exists():
                 
                                 
                 with open(local_storage,"r") as f:
@@ -216,19 +216,11 @@ class AsyncDL():
             
                 try:
             
+                    _temp = None
+                    
                     if local_storage.exists():
                         with open(local_storage, "r") as f:
                             _temp = json.load(f)
-                            
-                        for _key,_data in _temp.items():
-                            if (_key in list(config_folders.keys())):
-                                videos_cached.update(_data)
-                            elif "last_time_sync" in _key:
-                                last_time_sync = _data
-                            else:
-                                logger.error(f"[videos_cached] found key not registered volumen - {_key}")
-
-
                     
                     list_folders = {}
                     
@@ -236,11 +228,13 @@ class AsyncDL():
                         if not _folder.exists():
                             if not local_storage.exists(): 
                                 raise Exception(f"Fail to get storage info in [{_vol}]")
+                            logger.error(f"Fail to connect to [{_vol}], will use last info")
                             videos_cached.update(_temp.get(_vol))
                         else:
                             list_folders.update({_folder: _vol})
                         
-
+                    del _temp
+                    
                     _repeated = []
                     _dont_exist = []
                     
@@ -325,8 +319,7 @@ class AsyncDL():
 
                         except Exception as e:
                             logger.error(f"[videos_cached][{list_folders[folder]}] {repr(e)}")
-                            if not local_storage.exists(): 
-                                raise Exception(f"Fail to get storage info in [{_vol}]")
+
                         else:
                             last_time_sync.update({list_folders[folder]: str(self.launch_time)})
                         
@@ -894,8 +887,7 @@ class AsyncDL():
                                                 if self.nowaitforstartdl: self._prepare_entry_pl_for_dl(_ent)
                                                 self._url_pl_entries.append(_ent)
                                             else:
-                                                #self.futures2.update({(_fut:=self.ex_pl.submit(self.ytdl.extract_info, _ent['url'], download=False)): _ent['url']})
-                                                #_fut.add_done_callback(custom_callback)
+
                                                 self.futures2.update({self.ex_pl.submit(custom_callback, _ent['url'], False): _ent['url']})
 
                                         except Exception as e:
@@ -1201,14 +1193,6 @@ class AsyncDL():
                 
                 else: 
                     async with self.alock:
-                        # _qsize = self.queue_vid.async_q.qsize()
-                        # logger.info(f"qsize: {_qsize}")
-                        # if not self.nowaitforstartdl or self.getlistvid_done:
-                        #     _pending = _qsize - (self.init_nworkers - 1) + self.count_init
-                        #     logger.info(f"1:{_pending}")
-                        # else:
-                        #     _pending = _qsize 
-                        #     logger.info(f"2:{_pending}")
                         _pending = self.num_videos_pending
                         _to_check = self.num_videos_to_check
                     
