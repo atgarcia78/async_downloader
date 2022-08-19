@@ -85,13 +85,16 @@ class AsyncHLSDownloader():
             if (_filename:=self.info_dict.get('_filename')):
                 self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
                 self.download_path.mkdir(parents=True, exist_ok=True) 
-                self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
+                self.fragments_base_path = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
+                #self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
+                self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "ts")
             else:
                 _filename = self.info_dict.get('filename')
                 self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
                 self.download_path.mkdir(parents=True, exist_ok=True)
-                self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + ".ts")
-
+                self.fragments_base_path = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
+                #self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
+                self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "ts")
             self.key_cache = dict()
             
             self.n_reset = 0
@@ -137,11 +140,11 @@ class AsyncHLSDownloader():
             self.info_dict['init_section'] = self.info_dict['fragments'][0].init_section
             
             if (_frag:=self.info_dict['init_section']):
-                _file_path =  Path(self.download_path,Path(_frag.get_path_from_uri()).name)
+                _file_path =  Path(str(self.fragments_base_path) + ".Frag0")
                 self.get_init_section(_frag.absolute_uri, _file_path)
                 self.info_init_section.update({"frag": 0, "url": _frag.absolute_uri, "file": _file_path, "downloaded": True})
-                
-                
+            
+               
 
             for i, fragment in enumerate(self.info_dict['fragments']):
                                     
@@ -153,7 +156,8 @@ class AsyncHLSDownloader():
                         
                     uri_ant = fragment.uri
                     
-                    _file_path =  Path(self.download_path, f"{Path(urlparse(fragment.uri).path).name}_part_{part}")
+                    _file_path =  Path(f"{str(self.fragments_base_path)}.Frag{i}.part.{part}")
+                    _file_path = str(self.filename)
                     splitted_byte_range = fragment.byterange.split('@')
                     sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
                     byte_range = {
@@ -162,7 +166,7 @@ class AsyncHLSDownloader():
                     }
 
                 else:
-                    _file_path =  Path(self.download_path,Path(urlparse(fragment.uri).path).name)
+                    _file_path =    Path(f"{str(self.fragments_base_path)}.Frag{i}")
                     byte_range = {}
 
                 est_size = int(_br * fragment.duration * 1000 / 8)
@@ -769,17 +773,16 @@ class AsyncHLSDownloader():
        
         self.status = "manipulating"  
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
-        if self.info_init_section:
-            self.filename = Path(self.filename.parent, self.filename.stem + '.mp4')
-            
+        # if self.info_init_section:
+        #     self.filename = Path(self.filename.parent, self.filename.stem + '.mp4')
+        
+        self.status = "manipulating"
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
         
         try:
+            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
             with open(self.filename, mode='wb') as dest:
-                if self.info_init_section:                    
-                    with open(self.info_init_section['file'], 'rb') as source:
-                        dest.write(source.read())
-                
                 _skipped = 0
                 for f in self.info_frag: 
                     if f.get('skipped', False):
@@ -797,6 +800,7 @@ class AsyncHLSDownloader():
                                 dest.write(source.read())
                         
         
+        
         except Exception as e:
             if self.filename.exists():
                 self.filename.unlink()
@@ -805,17 +809,17 @@ class AsyncHLSDownloader():
             self.status = "error"
             self.sync_clean_when_error() 
             raise
-        
-        if self.filename.exists():
-            rmtree(str(self.download_path),ignore_errors=True)
-            self.status = "done" 
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")
-            if _skipped:
-                logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] skipped frags [{_skipped}]")             
-        else:
-            self.status = "error"  
-            self.sync_clean_when_error()                        
-            raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
+        finally:
+            if self.filename.exists():
+                #rmtree(str(self.download_path),ignore_errors=True)
+                self.status = "done" 
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")
+                if _skipped:
+                    logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] skipped frags [{_skipped}]")             
+            else:
+                self.status = "error"  
+                self.sync_clean_when_error()                        
+                raise AsyncHLSDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling parts")
 
     def fragsnotdl(self):
         res = []

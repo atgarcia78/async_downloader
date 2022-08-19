@@ -12,19 +12,17 @@ from shutil import rmtree
 
 import httpx
 
-from yt_dlp.utils import determine_protocol, sanitize_filename, try_get
+from yt_dlp.utils import determine_protocol, sanitize_filename
 
+from yt_dlp.downloader import FFmpegFD
 from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asyncdashdownloader import AsyncDASHDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import async_ex_in_executor, naturalsize, try_get, traverse_obj
-
+from utils import async_ex_in_executor, naturalsize, traverse_obj
 
 import os
 from concurrent.futures import ThreadPoolExecutor
-
-
 
 
 logger = logging.getLogger("video_DL")
@@ -64,14 +62,10 @@ class VideoDownloader():
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
                 downloaders.append(self._get_dl(_new_info_dict))
             else:
-                #logger.info(_requested_formats)
                 for f in _requested_formats:
-                    #logger.info(f)
                     _new_info_dict = copy.deepcopy(f)                
                     _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
-                    #logger.info(_new_info_dict)
                     dl = self._get_dl(_new_info_dict)
-                    #logger.info(dl)
                     downloaders.append(dl)        
 
             res = sorted(list(set([dl.status for dl in downloaders])))
@@ -123,7 +117,6 @@ class VideoDownloader():
                 except Exception as e:
                     if self.info_dl['backup_http']:
                         logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
-                        #if dl and dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                         dl = AsyncHTTPDownloader(info, self)
                         logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
                         if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
@@ -194,7 +187,6 @@ class VideoDownloader():
         self.lock = asyncio.Lock()
         
         try:
-            
             tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
             done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
             
@@ -206,6 +198,20 @@ class VideoDownloader():
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())                
                         logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
+                            
+                
+            
+            # tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
+            # done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
+            
+        
+            # if done:
+            #     for d in done:
+            #         try:                        
+            #             d.result()  
+            #         except Exception as e:
+            #             lines = traceback.format_exception(*sys.exc_info())                
+            #             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
                         
             if self.stop_event.is_set():
                 self.info_dl['status'] = "stop"
@@ -342,7 +348,7 @@ class VideoDownloader():
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] {dl.filename} exists: [{_exists}] status: [{dl.status}]")
                 
                 
-            
+                            
             if res:    
                            
         
@@ -353,6 +359,8 @@ class VideoDownloader():
                     if "ts" in self.info_dl['downloaders'][0].filename.suffix: #usamos ffmpeg para cambiar contenedor ts del DL de HLS de un sólo stream a mp4
                     
                         cmd = f"ffmpeg -y -probesize max -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:{str(self.info_dl['filename'])}"
+                        
+                    
                         
                         res = await async_ex_in_executor(self.ex_videodl, self._syncpostffmpeg, cmd)
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
@@ -387,7 +395,12 @@ class VideoDownloader():
                         
                 else:
                     
-                    cmd = f"ffmpeg -y -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -i file:{str(self.info_dl['downloaders'][1].filename)} -c copy -map 0:v:0 -map 1:a:0 file:{str(self.info_dl['filename'])}"
+                    
+                    
+                    cmd = f"ffmpeg -y -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -i file:{str(self.info_dl['downloaders'][1].filename)} -c copy -map 0:v:0 -map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:{str(self.info_dl['filename'])}"
+                    
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}")
+                    
                     
                     rc = -1
                     
@@ -456,7 +469,7 @@ class VideoDownloader():
         return proc.returncode
     
     @staticmethod
-    def _syncpostffmpeg(cmd):
+    def syncpostffmpeg(cmd):
         
         res = subprocess.run(cmd.split(' '), encoding='utf-8', capture_output=True)
         return res

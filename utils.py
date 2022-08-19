@@ -420,6 +420,7 @@ def init_argparser():
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
+    parser.add_argument("--use-cookies",action="store_true", default=False)
 
     args = parser.parse_args()
     
@@ -488,7 +489,7 @@ class MyLogger(logging.LoggerAdapter):
             self.log(logging.WARNING, msg, *args, **kwargs)            
     
     def debug(self, msg, *args, **kwargs):
-        mobj = get_values_regex([r'^(\[[^\]]+\])'], msg)
+        mobj = get_values_regex([r'^(\[[^\]]+\])'], msg) or ""
         mobj2 = msg.split(': ')[-1]
         #mobj2 = re.search(r'Playlist [^\:]+\: Downloading', msg) or re.search(r'\: Extracting information', msg) or re.search(r'\: Downloading webpage', msg)
         if self.quiet:
@@ -529,7 +530,7 @@ def init_ytdl(args):
         "Accept-Encoding": "gzip, deflate"
     }
     
-    ytdl_opts = {
+    ytdl_opts = { 
         "http_headers": headers,
         "proxy" : proxy,        
         "logger" : MyLogger(logger, args.quiet, args.verbose, args.vv),
@@ -556,6 +557,9 @@ def init_ytdl(args):
         "sem": {}
                   
     }
+    
+    if args.use_cookies:
+        ytdl_opts.update({"cookiesfrombrowser": ('firefox', '/Users/antoniotorres/Library/Application Support/Firefox/Profiles/c3nsqmmt.default-1637669918519', None)})
     
     if args.ytdlopts: ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
         
