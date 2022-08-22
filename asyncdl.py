@@ -1646,6 +1646,7 @@ class AsyncDL():
             self.tasks_run = []            
             tasks_manip = []            
             task_get_videos = []
+            tasks_gui = []
 
             if self.nowaitforstartdl:
                 task_get_videos = [asyncio.create_task(async_ex_in_executor(self.ex_winit, self.get_list_videos))]
