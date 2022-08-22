@@ -316,7 +316,7 @@ class VideoDownloader():
             _temp = Path(Path(_filename).parent, f"_temp_{_filename.name}")
             cmd = f"ffmpeg -y -loglevel repeat+info -i file:{_filename} -i file:{_file_subs_en} -c copy -map 0 -dn -map -0:s -map -0:d -c:s mov_text -map 1:0 -metadata:s:s:0 language=eng file:{_temp}" 
             
-            res = VideoDownloader._syncpostffmpeg(cmd)
+            res = VideoDownloader.syncpostffmpeg(cmd)
             logger.debug(f"{mens} ffmpeg rc[{res.returncode}]\n{res.stdout}\n{res.stderr}")
                                 
             if (rc:=res.returncode) == 0:
@@ -384,7 +384,7 @@ class VideoDownloader():
                         
                     
                         
-                        res = await async_ex_in_executor(self.ex_videodl, self._syncpostffmpeg, cmd)
+                        res = await async_ex_in_executor(self.ex_videodl, self.syncpostffmpeg, cmd)
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
                         rc = res.returncode
                         
@@ -424,7 +424,7 @@ class VideoDownloader():
                     
                     rc = -1
                     
-                    res = await async_ex_in_executor(self.ex_videodl, self._syncpostffmpeg, cmd)
+                    res = await async_ex_in_executor(self.ex_videodl, self.syncpostffmpeg, cmd)
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: ffmpeg rc[{res.returncode}]\n{res.stdout}")
                     rc = res.returncode
                     
