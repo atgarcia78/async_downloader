@@ -16,6 +16,7 @@ import time
 from concurrent.futures.thread import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
+import copy
 
 import aria2p
 import httpx
@@ -40,6 +41,86 @@ from yt_dlp.extractor.commonwebdriver import (
 
 import threading
 
+PATH_LOGS = Path(Path.home(), "Projects/common/logs")
+
+from filelock import Timeout, FileLock
+
+
+class LocalStorage:           
+        
+    lslogger = logging.getLogger('LocalStorage')
+    lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
+    local_storage = Path(PATH_LOGS, "files_cached.json")
+    prev_local_storage = Path(PATH_LOGS, "prev_files_cached.json")
+    
+    config_folders = {"local": Path(Path.home(), "testing"), "pandaext4": Path("/Volumes/Pandaext4/videos"), 
+                    "datostoni": Path("/Volumes/DatosToni/videos"), "wd1b": Path("/Volumes/WD1B/videos"),
+                    "wd5": Path("/Volumes/WD5/videos")}
+    
+    def __init__(self, paths=None):
+        
+        self._data_from_file = {} #data struct per vol
+        self._data_for_scan = {} #data ready for scan
+        self._last_time_sync = {}
+        
+        if paths:
+            if not isinstance(paths, list):
+                paths = [paths]
+            
+            LocalStorage.config_folders.extend(paths)        
+        
+    
+    @lock
+    def load_info(self):
+        
+        with open(LocalStorage.local_storage,"r") as f:
+            self._data_from_file = json.load(f)     
+                
+        for _key,_data in self._data_from_file.items():
+            if (_key in list(LocalStorage.config_folders.keys())):
+                self._data_for_scan.update(_data)
+            elif "last_time_sync" in _key:
+                self._last_time_sync.update(_data)
+            else:
+                LocalStorage.lslogger.error(f"found key not registered volumen - {_key}")
+    
+    @lock
+    def dump_info(self, videos_cached, last_time_sync):
+                          
+        def getter(x):
+            if 'Pandaext4/videos' in x: return 'pandaext4'
+            elif 'WD5/videos' in x: return 'wd5'
+            elif 'WD1B/videos' in x: return 'wd1b'
+            elif 'antoniotorres/testing' in x: return 'local'
+            elif 'DatosToni/videos' in x: return 'datostoni'
+
+        if videos_cached:
+            self._data_for_scan = copy.deepcopy(videos_cached)
+        if last_time_sync:
+            self._last_time_sync = copy.deepcopy(last_time_sync)
+        
+        _temp = {"last_time_sync": {}, "local": {}, "wd5": {}, "wd1b": {}, "pandaext4": {}, "datostoni": {}}
+        
+        _temp.update({"last_time_sync": last_time_sync})                    
+  
+        for key,val in videos_cached.items():                   
+            
+            _vol = getter(val)
+            if not _vol:
+                LocalStorage.lslogger.error(f"found file with not registered volumen - {val} - {key}")
+            else:
+                _temp[getter(val)].update({key: val})
+                
+                
+        shutil.copy(str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage))                  
+
+        with open(LocalStorage.local_storage, "w") as f:
+            json.dump(_temp,f)
+            
+        self._data_from_file = _temp
+        
+    
+    
 
 class SignalHandler:
     

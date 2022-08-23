@@ -31,13 +31,6 @@ def main():
         try:
             
             asyncDL.wait_for_files()
-            
-            if not asyncDL.nowaitforstartdl:            
-                asyncDL.get_list_videos()
-                asyncDL.get_videos_to_dl()            
-
-                if not asyncDL.videos_to_dl:
-                    raise Exception("no videos to dl")                
 
             try:
                 uvloop.install()
