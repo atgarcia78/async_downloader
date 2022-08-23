@@ -415,7 +415,7 @@ def init_argparser():
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
     parser.add_argument("--vv", help="verbose plus", action="store_true", default=False)
     parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
-    parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800", default=-1, nargs='?', type=int)
+    parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800. PORT 0 to disable", default=-1, type=int)
     #parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true", default=False)
@@ -426,12 +426,18 @@ def init_argparser():
     
     if args.winit == 0:
         args.winit = args.w
-    if args.aria2c != -1:
-        args.rpcport = args.aria2c if args.aria2c else 6800
+    
+    if args.aria2c == -1:
         args.aria2c = True
-    else: 
+        args.rpcport = 6800
+    elif args.aria2c == 0:
         args.rpcport = None
-        args.aria2c = False        
+        args.aria2c = False
+    else: 
+        args.rpcport = args.aria2c
+        args.aria2c = True        
+
+ 
     
     if args.path and len(args.path.split("/")) == 1:
         _path = Path(Path.home(), "testing", args.path)

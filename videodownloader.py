@@ -2,7 +2,6 @@
 import asyncio
 import copy
 import logging
-import re
 import shutil
 import subprocess
 import sys
@@ -121,9 +120,7 @@ class VideoDownloader():
  
           
 
-    def _get_dl(self, info):
-        
-           
+    def _get_dl(self, info):           
         
         protocol = determine_protocol(info)
                     

@@ -79,9 +79,10 @@ def main():
             
     
     except BaseException as e:
-        logger.exception(f"[asyncdl bye] {repr(e)}")
-        if isinstance(e, KeyboardInterrupt):
-            raise
+        if not isinstance(e, SystemExit):
+            logger.exception(f"[asyncdl bye] {repr(e)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
 
     
 
@@ -90,9 +91,10 @@ if __name__ == "__main__":
     try:
         main()
     except BaseException as e:
-        logger.exception(f"[main] {repr(e)}")
-        if isinstance(e, KeyboardInterrupt):
-            raise
+        if not isinstance(e, SystemExit):
+            logger.exception(f"[main] {repr(e)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
         
     
    
