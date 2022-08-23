@@ -38,10 +38,10 @@
         "class": "logging.handlers.RotatingFileHandler",
         "level": "DEBUG",
         "formatter": "file_format",
-        "filename": "{home}/Projects/common/logs/info2.log",
+        "filename": "{home}/Projects/common/logs/asyncdl.log",
         "filters": ["filtermodules"],
         "maxBytes": 6310720,
-        "backupCount": 12,
+        "backupCount": 24,
         "encoding": "utf8"
     },
 

@@ -387,7 +387,7 @@ class AsyncDL():
                
     def pasres_periodic(self, event):
         
-        logger.info('[pasres_periodic] START')
+        logger.debug('[pasres_periodic] START')
         
         try:        
             
@@ -724,9 +724,9 @@ class AsyncDL():
                         if (_url:=_url.strip()): _temp.add(_url)           
                     
                 _url_list_caplinks = list(_temp)
-                logger.debug(f"[video list caplinks]\n{_url_list_caplinks}")
+                logger.info(f"[video list caplinks]\n{_url_list_caplinks}")
                 
-                logger.info(f"video list caplinks \n{_url_list_caplinks}")
+                
                 shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", 
                             "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
                 with open(filecaplinks, "w") as file:
@@ -736,7 +736,7 @@ class AsyncDL():
             
             if self.args.collection:                
                 _url_list_cli = list(set(self.args.collection)) 
-                logger.debug(f"[video list cli]\n{_url_list_cli}")
+                logger.info(f"[video list cli]\n{_url_list_cli}")
                 
                 _url_list['cli'] = _url_list_cli   
             
@@ -809,7 +809,7 @@ class AsyncDL():
                         
             if self.url_pl_list:
                 
-                logger.info(f"[url_playlist_list] Initial number of pl [{len(self.url_pl_list)}]")
+                logger.info(f"[url_playlist_list] Initial number of urls that are pl [{len(self.url_pl_list)}]")
                 logger.debug(f"[url_playlist_list]\n{len(self.url_pl_list)}")                 
                 self._url_pl_entries = []                
                 self._count_pl = 0                
@@ -821,7 +821,7 @@ class AsyncDL():
                 else:
                     _get_name = False
 
-                def custom_callback(_url, _get):                        
+                def process_playlist(_url, _get):                        
                     
                     try:
                         
@@ -888,7 +888,7 @@ class AsyncDL():
                                                 self._url_pl_entries.append(_ent)
                                             else:
 
-                                                self.futures2.update({self.ex_pl.submit(custom_callback, _ent['url'], False): _ent['url']})
+                                                self.futures2.update({self.ex_pl.submit(process_playlist, _ent['url'], False): _ent['url']})
 
                                         except Exception as e:
                                             logger.warning(f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}")
@@ -904,13 +904,13 @@ class AsyncDL():
                 
                     for url in self.url_pl_list:    
                         if self.reset: raise Exception("reset")
-                        self.futures.update({self.ex_pl.submit(custom_callback, url, _get_name): url}) 
+                        self.futures.update({self.ex_pl.submit(process_playlist, url, _get_name): url}) 
                 
-                    logger.info(f"[url_playlist_list] futures1: {len(self.futures)}")
+                    logger.info(f"[url_playlist_list] initial playlists: {len(self.futures)}")
                 
                     wait(list(self.futures))
                 
-                    logger.info(f"[url_playlist_list] futures2: {len(self.futures2)}")
+                    logger.info(f"[url_playlist_list] playlists from initial playlists: {len(self.futures2)}")
                 
                     if self.reset: raise Exception("reset")
                     
@@ -920,7 +920,8 @@ class AsyncDL():
                 
                 if self.reset: raise Exception("reset")
                 
-                logger.debug(f"[url_playlist_list] entries \n{self._url_pl_entries}")
+                logger.info(f"[url_playlist_list] entries from playlists: {len(self._url_pl_entries)}")
+                logger.debug(f"[url_playlist_list] {self._url_pl_entries}")
                 
                 if not self.nowaitforstartdl:
                                  
@@ -1009,7 +1010,8 @@ class AsyncDL():
                             self.list_videos.append(self.info_videos[_url]['video_info'])
 
 
-            logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}\n{self.info_videos}")
+            logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
+            logger.debug(f"[get_list_videos] status de info_videos: \n{self.info_videos}")
             
         
         except BaseException as e:            

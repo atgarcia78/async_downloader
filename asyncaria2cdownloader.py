@@ -102,7 +102,7 @@ class AsyncARIA2CDownloader():
             if value:
                 return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
         
-        _extractor = self.info_dict.get('extractor', '')
+        _extractor = self.info_dict.get('extractor')
         self.auto_pasres = False
         _sem = False
         if _extractor and _extractor.lower() != 'generic':
@@ -140,11 +140,11 @@ class AsyncARIA2CDownloader():
         if _sem:
             
             with self.ytdl.params['lock']:                
-                if not (_temp:=traverse_obj(self.ytdl.params['sem'], self._host)):
-                    _temp = PriorityLock()
-                    self.ytdl.params['sem'].update({self._host: _temp})
+                if not (_sem:=traverse_obj(self.ytdl.params.get('sem'), self._host)):
+                    _sem = PriorityLock()
+                    self.ytdl.params['sem'].update({self._host: _sem})
                     
-            self.sem = _temp
+            self.sem = _sem
             
         else: 
             self.sem = None
@@ -156,7 +156,7 @@ class AsyncARIA2CDownloader():
             
         @self._decor
         def _throttle_add_uris():
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] init uris[{self.uris}]")
+            #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] init uris[{self.uris}]")
             return self.aria2_client.add_uris(self.uris, self.opts)
                         
         try:
@@ -172,7 +172,7 @@ class AsyncARIA2CDownloader():
             
             while True:
                 self.dl_cont.update()
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
+                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [init]\n{self.dl_cont._struct}")
                 if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
                     break
                 if ((self.dl_cont.status in ('error')) or (time.monotonic() - _tstart > 15)):
@@ -187,16 +187,15 @@ class AsyncARIA2CDownloader():
                     self.aria2_client.remove([self.dl_cont], clean=True)                   
 
                     if self.sem: 
-                        AsyncARIA2CDownloader._SEM[self._host].release()
+                        self.sem.release()
                     
                     cont += 1
-                    if cont > 1: 
+                    if cont > 3: 
                         raise AsyncARIA2CDLErrorFatal("Max init repeat")
                     else:
                         time.sleep(1)
                         if self.sem: 
-                            if (_sem:=AsyncARIA2CDownloader._SEM.get(self._host)):
-                                _sem.acquire(25)
+                            self.sem.acquire(25)
                 
                         self.dl_cont = _throttle_add_uris()
                     
@@ -307,7 +306,7 @@ class AsyncARIA2CDownloader():
             
             try:
                 await self.fetch()
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
+                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [fetch_findl]\n{self.dl_cont._struct}")
                 if self.dl_cont.status in ('complete'): 
                     self.status = 'done'
                     break
