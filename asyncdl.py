@@ -49,7 +49,6 @@ from codetiming import Timer
 from multiprocess import Process, Queue
 
 
-
 logger = logging.getLogger("asyncDL")
 class AsyncDL():
 
@@ -720,7 +719,7 @@ class AsyncDL():
             if self.url_pl_list:
                 
                 logger.info(f"[url_playlist_list] Initial number of urls that are pl [{len(self.url_pl_list)}]")
-                logger.debug(f"[url_playlist_list]\n{len(self.url_pl_list)}")                 
+                logger.debug(f"[url_playlist_list]\n{self.url_pl_list}")                 
                 self._url_pl_entries = []                
                 self._count_pl = 0                
                 self.futures = {}
