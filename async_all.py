@@ -29,8 +29,6 @@ def main():
         asyncDL = AsyncDL(args)        
 
         try:
-            
-            asyncDL.wait_for_files()
 
             try:
                 uvloop.install()

@@ -126,10 +126,7 @@ class AsyncDL():
     def get_videos_cached(self):                
         self.queue = Queue()
         self.p1 = Process(target=self.load_videos_cached, args=(self.queue, self.args.nodlcaching,))
-        self.p1.start() 
-    
-    def wait_for_files(self):       
-               
+        self.p1.start()
         self.videos_cached = self.queue.get()
         
         logger.info(f"[videos_cached] Total cached videos: [{len(self.videos_cached )}]")        
@@ -139,7 +136,7 @@ class AsyncDL():
             self.p1.close()
         except Exception as e:
             pass
-
+    
     #run in process
     def load_videos_cached(self, _queue, _nodlcaching):
         

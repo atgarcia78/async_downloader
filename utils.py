@@ -164,51 +164,55 @@ class EMA(object):
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
 
-    # list_folders = []
 
-    # for _vol,_folder in config_folders.items():
-    #     if not _folder.exists():
-    #         logger("failed {_folder}, let get previous info saved in previous files")
-    #         files_cached.update(_temp.get(_vol))
-    #     else: list_folders.append(_folder)
+def get_files_same_id():
+    
+    logger = logging.getLogger('check')
+    
+    config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos")}
 
+    list_folders = []
 
+    for _vol,_folder in config_folders.items():
+        if not _folder.exists():
+            logger("failed {_folder}, let get previous info saved in previous files")
+            
+        else: list_folders.append(_folder)
 
-    # config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos")}
+    files_cached = []
+    for folder in list_folders:
 
-    # files_cached = []
-    # for folder in list_folders:
-
-    #     logger.info('>>>>>>>>>>>STARTS ' + str)folder)
-
-
-    #     try:
-
-    #         files = [file for file in folder.rglob('*')
-    #                 if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip'))]
-
-    #     except Exception as e:
-    #         logger.info(f"[get_files_cached][{folder}] {repr(e)}")
+        logger.info('>>>>>>>>>>>STARTS ' + str(folder))
 
 
-    #     for file in files:
+        try:
 
-    #         _res = file.stem.split('_', 1)
-    #         if len(_res) == 2:
-    #             _id = _res[0]
+            files = [file for file in folder.rglob('*')
+                    if file.is_file() and not file.is_symlink() and not 'videos/_videos/' in str(file) and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.ts', '.zip'))]
 
-    #         else:
-    #             _id = sanitize_filename(file.stem, restricted=True).upper()
+        except Exception as e:
+            logger.info(f"[get_files_cached][{folder}] {repr(e)}")
 
-    #         files_cached.append((folder, _id, str(file)))
 
-    # _res_dict  = {}
-    # for i, el in enumerate(files_cached):
-    #     for j, item in enumerate(files_cached):
-    #         if j != i and item[0] == el[0]:
-    #             if not _res_dict.get(el[0]): _res_dict[el[0]] = set([el[1], item[1]])
-    #             else: _res_dict[el[0]].update([el[1], item[1]])
-    # _ord_res_dict = sorted(_res_dict, lambda x: len(x))
+        for file in files:
+
+            _res = file.stem.split('_', 1)
+            if len(_res) == 2:
+                _id = _res[0]
+
+            else:
+                _id = sanitize_filename(file.stem, restricted=True).upper()
+
+            files_cached.append((_id, str(file)))
+
+    _res_dict  = {}
+    for el in files_cached:
+        for item in files_cached:
+            if (el != item) and (item[0] == el[0]):
+                if not _res_dict.get(el[0]): _res_dict[el[0]] = set([el[1], item[1]])
+                else: _res_dict[el[0]].update([el[1], item[1]])
+    _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
+    return _ord_res_dict
 
 
 
@@ -227,7 +231,6 @@ def print_tasks(tasks):
 
 def perform_long_operation(_func, *args, **kwargs):
 
-    
     stop_event = kwargs.get('event', threading.Event())
     thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=kwargs, daemon=True)
     thread.start()
@@ -472,7 +475,7 @@ def init_logging(file_path=None):
 def init_argparser():
     
  
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:103.0) Gecko/20100101 Firefox/103.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:104.0) Gecko/20100101 Firefox/104.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
@@ -555,22 +558,25 @@ class MyLogger(logging.LoggerAdapter):
     #se pasa un logger de logging al crear la instancia 
     # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
     
+    _debug_phr = [  'Falling back on generic information extractor','Extracting URL:',
+                    'The information of all playlist entries will be held in memory', 'Looking for video embeds',
+                    'Identified a HTML5 media', 'Identified a KWS Player', ' unable to extract', 'Looking for embeds',
+                    'Looking for Brightcove embeds', 'Identified a html5 embed']
+    
+    _skip_phr = ['Downloading', 'Extracting information', 'Checking', 'Logging']
+    
     def __init__(self, logger, quiet=False, verbose=False, superverbose=False):
         super().__init__(logger, {})
         self.quiet = quiet
         self.verbose = verbose
         self.superverbose = superverbose
-        self.debug_phr = ['Falling back on generic information extractor','Extracting URL:',
-                          'The information of all playlist entries will be held in memory', 'Looking for video embeds',
-                          'Identified a HTML5 media', 'Identified a KWS Player', ' unable to extract', 'Looking for embeds',
-                          'Looking for Brightcove embeds', 'Identified a html5 embed']
-        self.skip_phr = ['Downloading', 'Extracting information', 'Checking', 'Logging']
+        
     
     def error(self, msg, *args, **kwargs):
         self.log(logging.DEBUG, msg, *args, **kwargs)
     
     def warning(self, msg, *args, **kwargs):
-        if any(_ in msg for _ in self.debug_phr):
+        if any(_ in msg for _ in self._debug_phr):
             self.log(logging.DEBUG, msg, *args, **kwargs)
         else:
             self.log(logging.WARNING, msg, *args, **kwargs)            
@@ -578,24 +584,23 @@ class MyLogger(logging.LoggerAdapter):
     def debug(self, msg, *args, **kwargs):
         mobj = get_values_regex([r'^(\[[^\]]+\])'], msg) or ""
         mobj2 = msg.split(': ')[-1]
-        #mobj2 = re.search(r'Playlist [^\:]+\: Downloading', msg) or re.search(r'\: Extracting information', msg) or re.search(r'\: Downloading webpage', msg)
+
         if self.quiet:
             self.log(logging.DEBUG, msg, *args, **kwargs)
         elif self.verbose and not self.superverbose:
-            if (mobj in ('[redirect]', '[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and any(_ in msg for _ in self.debug_phr)) or any(_ in mobj2 for _ in self.skip_phr):
+            if (mobj in ('[redirect]', '[download]', '[debug+]', '[info]')) or (mobj in ('[debug]') and any(_ in msg for _ in self._debug_phr)) or any(_ in mobj2 for _ in self._skip_phr):
                 self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:
                 self.log(logging.INFO, msg, *args, **kwargs)            
         elif self.superverbose:
             self.log(logging.INFO, msg, *args, **kwargs)
         else:    
-            if mobj in ('[redirect]', '[debug]', '[info]', '[download]', '[debug+]') or any(_ in mobj2 for _ in self.skip_phr):
+            if mobj in ('[redirect]', '[debug]', '[info]', '[download]', '[debug+]') or any(_ in mobj2 for _ in self._skip_phr):
                 self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:                
                 self.log(logging.INFO, msg, *args, **kwargs)
         
 def init_ytdl(args):
-
 
     logger = logging.getLogger("yt_dlp")
     
