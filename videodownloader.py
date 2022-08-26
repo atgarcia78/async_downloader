@@ -53,8 +53,7 @@ class VideoDownloader():
                 'date_file': _date_file,
                 'download_path': _download_path,
                 'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
-                'backup_http': self.args.use_http_failover,
-                'timer_run_queue': None
+                'backup_http': self.args.use_http_failover
             } 
                 
             self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
@@ -120,8 +119,6 @@ class VideoDownloader():
                 if any(".mp4" for _ in res):
                     return(AsyncFFMPEGDownloader(info, self))
                 
- 
-          
 
     def _get_dl(self, info):           
         

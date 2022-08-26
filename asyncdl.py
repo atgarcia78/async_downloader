@@ -47,14 +47,19 @@ from videodownloader import VideoDownloader
 from threading import Lock
 from codetiming import Timer
 
-from multiprocess import Process, Queue
+from multiprocess import (
+    Process as MPProcess,
+    Queue as MPQueue
+)
 
 from itertools import zip_longest
 
-from urllib.parse import unquote, urlparse
+from urllib.parse import urlparse
 
 
 logger = logging.getLogger("asyncDL")
+
+
 class AsyncDL():
 
     _INTERVAL_GUI = 0.2
@@ -129,8 +134,8 @@ class AsyncDL():
         
         
     def get_videos_cached(self):                
-        self.queue = Queue()
-        self.p1 = Process(target=self.load_videos_cached, args=(self.queue,))
+        self.queue = MPQueue()
+        self.p1 = MPProcess(target=self.load_videos_cached, args=(self.queue,))
         self.p1.start()
         self.videos_cached = self.queue.get()
         
@@ -507,9 +512,7 @@ class AsyncDL():
             stop_event.set()
             daemon.join()            
             
- 
-    
-    
+
     async def gui_root(self):
         '''
         Run a tkinter app in an asyncio event loop.
@@ -608,7 +611,6 @@ class AsyncDL():
             logger.info("[gui_root] BYE")            
             self.window_root.close()
                 
-            
 
     def get_list_videos(self):
         
@@ -672,9 +674,7 @@ class AsyncDL():
                                                     'todl':True,
                                                     'ie_key': ie_key, 
                                                     'error': []}
-                            
- 
-                    
+
                             self._prepare_for_dl(_elurl)
                             self.list_videos.append(_entry)
                 
@@ -736,10 +736,8 @@ class AsyncDL():
                             raise Exception("reset")
                         with self.lock:
                             self._count_pl += 1
-                            #_url = self.futures.get(fut) or self.futures2.get(fut)
                             logger.info(f"[url_playlist_list][{self._count_pl}/{len(self.futures) + len(self.futures2)}] processing {_url}")
                         try:
-                            #_info = self.ytdl.sanitize_info(fut.result())
                             _errormsg = None
                             _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
                         except Exception as e:
@@ -749,12 +747,10 @@ class AsyncDL():
                             _info = {'_type': 'error', 'url': _url, 'error': _errormsg or 'no video entry'}
                             self._prepare_entry_pl_for_dl(_info)
                             self._url_pl_entries += [_info]
-                        elif _info:
-                                
+                        elif _info:                                
                                 
                             if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
                                 
-                                ##_info['original_url'] = _url
                                 if not _info.get('original_url'): _info.update({'original_url': _url})
                                 
                                 self._prepare_entry_pl_for_dl(_info)
@@ -959,7 +955,6 @@ class AsyncDL():
                     if _vid['video_info'].get('_type', 'video') == 'video' and (_vid['video_info'].get('id', "") == _id) and (_vid['video_info'].get('title', "")) == _title:
                         return(urlkey)
         
-                
     def _prepare_for_dl(self, url, put=True):
         self.info_videos[url].update({'todl': True})
         if (_id:=self.info_videos[url]['video_info'].get('id')):
@@ -1030,7 +1025,6 @@ class AsyncDL():
         else:
             logger.warning(f"[prepare_entry_pl_for_dl] {_url}: has not been added to info_videos because it is already")
             
-
     async def worker_init(self, i):
         #worker que lanza la creación de los objetos VideoDownloaders, uno por video
         
@@ -1073,7 +1067,6 @@ class AsyncDL():
                         
                         self.queue_run.put_nowait(("", "KILLANDCLEAN"))
                     
-                    self.end_winit.set()
                     self.t3.stop()          
                     
                     if not self.list_dl: 
@@ -1355,8 +1348,6 @@ class AsyncDL():
     
     async def worker_run(self, i):
         
-        async def reenterqueue(ent):
-            await asyncio.sleep(10)
             
         
         logger.debug(f"[worker_run][{i}]: launched")       
@@ -1418,48 +1409,7 @@ class AsyncDL():
                 
                 else:
                     
-                    #logger.debug(f"[worker_run][{i}][{video_dl.info_dl['id']}] start to dl {video_dl.info_dl['title']}")
-                    if try_get(traverse_obj(video_dl.info_dl, ('downloaders', 0)), lambda x: x.sem):
-                        
-                        _continue = False
-                        async with self.alock:                     
-                        
-                            if ((_timer:=video_dl.info_dl['timer_run_queue']) and (time.monotonic() - _timer >= 10)) or not _timer:                                
-                                    
-                                    _host = try_get(traverse_obj(video_dl.info_dl, ('downloaders', 0)), lambda x: x._host)
-                                    logger.info(f"[worker_run][{i}][{video_dl.info_dl['id']}] {_host} { _host in self.hosts_downloading} in {list(self.hosts_downloading.keys())}")
-                                    if _host in self.hosts_downloading:                                                                                    
-                                            video_dl.info_dl['timer_run_queue'] = time.monotonic()
-                                            asyncio.create_task(reenterqueue((url_key, video_dl)))
-                                            
-
-                            elif _timer and (time.monotonic() - _timer < 10):
-                                
-                                _continue = True
-                                
-                            if _continue:
-                            
-                                    if self.end_winit.is_set():
-                                                    
-                                        try:
-                                        
-                                            _index = self.queue_run._queue.index(("", "KILL"))                                                               
-                                            logger.info(f"[worker_run][{i}][{video_dl.info_dl['id']}] index first kill {_index} {_index > (self.workers + len(self.extra_tasks_run) - 1)} for insert")
-                                            if _index > (self.workers + len(self.extra_tasks_run) - 1):
-                                                self.queue_run._queue.insert(_index, (url_key, video_dl))
-                                                
-                                            else:
-                                                logger.info(f"[worker_run][{i}][{video_dl.info_dl['id']}] no end_winit set, hacemos put")                                        
-                                                self.queue_run.put_nowait((url_key, video_dl))
-                                        except Exception as e:
-                                            logger.exception(f"[worker_run][{i}][{video_dl.info_dl['id']}] {repr(e)} lo procesamos de queue")
-                                            _continue = True
-                                            
-                                           
-                        await asyncio.sleep(0)
-                        if _continue:
-                            continue       
-                    logger.info(f"[worker_run][{i}][{url_key}] launch video_dl.run_dl")
+                    logger.debug(f"[worker_run][{i}][{video_dl.info_dl['id']}] start to dl {video_dl.info_dl['title']}")                    
                     task_run = asyncio.create_task(video_dl.run_dl())
                     await asyncio.sleep(0)
                     done, pending = await asyncio.wait([task_run])
@@ -1558,8 +1508,6 @@ class AsyncDL():
         
         self.queue_vid = asyncio.Queue()
         
-        self.end_winit = asyncio.Event()
-
         
         logger.info(f"MAX WORKERS [{self.workers}]")
         
@@ -1619,7 +1567,6 @@ class AsyncDL():
             done, _ = await asyncio.wait(tasks_gui)
             if any(isinstance(_e, KeyboardInterrupt) for _e in [d.exception() for d in done]):
                 raise KeyboardInterrupt
-            
             
     def get_results_info(self):
             

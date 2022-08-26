@@ -903,9 +903,11 @@ def get_ip_proxy():
     
 def check_proxy(ip, port, queue_ok=None):
     try:
-        cl = httpx.Client(proxies=f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}",timeout=10, follow_redirects=True)
-        res = cl.get("https://torguard.net/whats-my-ip.php")            
+        
+        cl = httpx.Client(proxies={"http://": f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"},timeout=10, follow_redirects=True)
+        res = cl.get("https://checkip.dyndns.org")            
         print(f"{ip}:{port}:{res}")
+        print(res.text)
         if res.status_code == 200:
             if queue_ok:
                 queue_ok.put((ip, port, res))
@@ -914,16 +916,17 @@ def check_proxy(ip, port, queue_ok=None):
     finally:
         cl.close()
 
-def status_proxy():
+def status_proxy(name):
     
     #dscacheutil -q host -a name proxy.torguard.org
-
+    res = subprocess.run(f"dscacheutil -q host -a name {name}".split(' '), encoding='utf-8', capture_output=True).stdout
+    IPS_SSL = re.findall(r"ip_address: (.+)", res)
     
-    IPS_ES_SSL = ["192.145.124.186", "192.145.124.234", "89.238.178.234", "192.145.124.242", "192.145.124.226", "192.145.124.238", "192.145.124.174", "89.238.178.206", "192.145.124.190"]
+    #IPS_ES_SSL = ["192.145.124.186", "192.145.124.234", "89.238.178.234", "192.145.124.242", "192.145.124.226", "192.145.124.238", "192.145.124.174", "89.238.178.206", "192.145.124.190"]
     
    # IPS_TORGUARD = ["82.129.66.196"]
     
-    PORTS = [6060,1337,1338,1339,1340,1341,1342,1343]
+    #PORTS = [6060,1337,1338,1339,1340,1341,1342,1343]
     PORTS_SSL = [489, 23, 7070, 465, 993, 282, 778, 592]
 
     queue_ok = Queue()
@@ -935,7 +938,7 @@ def status_proxy():
     
     
     with ThreadPoolExecutor(max_workers=8) as ex:
-        for ip in IPS_ES_SSL: 
+        for ip in IPS_SSL: 
             for port in PORTS_SSL:            
                 futures.append(ex.submit(check_proxy, ip, port, queue_ok))
         

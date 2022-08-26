@@ -88,7 +88,6 @@ class AsyncARIA2CDownloader():
         self.reset_event = None
         
         self.prep_init()
-        #self.init()
         
         
 
@@ -150,9 +149,7 @@ class AsyncARIA2CDownloader():
         else: 
             self.sem = None
                     
-      
-                
-    
+
     def init(self):
 
         try:
@@ -199,20 +196,16 @@ class AsyncARIA2CDownloader():
                 self.filesize = self.dl_cont.total_length
                             
 
-        except AsyncARIA2CDLErrorFatal as e:
+        except BaseException as e:
             if self.sem:                
                 self.sem.release()
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
             self.error_message = f"{repr(e)} - {self.dl_cont.error_code} - {self.dl_cont.error_message}"            
-            raise        
-        except Exception as e:                         
-            if self.sem:                
-                self.sem.release()
-            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
-            self.status = "error"
-            self.error_message = f"{repr(e)} - {self.dl_cont.error_code} - {self.dl_cont.error_message}"
-            raise AsyncARIA2CDLErrorFatal(self.error_message)
+            if isinstance(e, AsyncARIA2CDLErrorFatal):
+                raise
+            else:
+                raise AsyncARIA2CDLErrorFatal(self.error_message)         
 
 
     async def fetch(self):        
@@ -269,7 +262,7 @@ class AsyncARIA2CDownloader():
             self.status = "error"
             self.error_message = repr(e)
             
-    
+
     async def fetch_async(self):
         
         self.reset_event = asyncio.Event()
@@ -279,9 +272,9 @@ class AsyncARIA2CDownloader():
             async with self.video_downloader.master_alock:
                 self.video_downloader.hosts_dl.update({self._host: True})
                 
-        try:
+        while True:
             
-            while True: 
+            try:
                                 
                 await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.init)
                 if self.status == "done":
@@ -306,18 +299,16 @@ class AsyncARIA2CDownloader():
                     self.error_message = self.dl_cont.error_message
                     return
             
-        except BaseException as e:
-            if isinstance(e, KeyboardInterrupt):
-                raise
-        finally:
-            if self.sem:
-                #await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.release)
-                async with self.video_downloader.master_alock:
-                    self.video_downloader.hosts_dl.pop(self._host, None)
-                
-                self.sem.release()
-                await asyncio.sleep(0)
-                
+            except BaseException as e:
+                if isinstance(e, KeyboardInterrupt):
+                    raise
+            finally:
+                if self.sem:
+                    async with self.video_downloader.master_alock:
+                        self.video_downloader.hosts_dl.pop(self._host, None)
+                    
+                    self.sem.release()
+                    await asyncio.sleep(0)
                 
 
     def print_hookup(self):

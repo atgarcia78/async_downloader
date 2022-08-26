@@ -660,12 +660,10 @@ class AsyncHLSDownloader():
                         self.status = "stop"
                         return
                     
-                    #inc_frags_dl = (_nfragsdl:=len(await asyncio.to_thread(self.fragsdl))) - n_frags_dl
                     inc_frags_dl = (_nfragsdl:=len(await async_ex_in_executor(self.ex_hlsdl, self.fragsdl))) - n_frags_dl
                     n_frags_dl = _nfragsdl
                     
                     if n_frags_dl == len(self.info_dict['fragments']): 
-                        #todos los fragmentos en local: DL OK
                         break
                     
                     else:
