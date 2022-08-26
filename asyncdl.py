@@ -38,7 +38,7 @@ from utils import (
     print_tasks,
     LocalStorage,
     PATH_LOGS,
-    get_domain
+
     
 )
 
@@ -50,6 +50,8 @@ from codetiming import Timer
 from multiprocess import Process, Queue
 
 from itertools import zip_longest
+
+from urllib.parse import unquote, urlparse
 
 
 logger = logging.getLogger("asyncDL")
@@ -107,6 +109,7 @@ class AsyncDL():
         self.count_init = 0
         self.count_run = 0        
         self.count_manip = 0
+        self.hosts_downloading = {}
 
         self.totalbytes2dl = 0
         self.launch_time = datetime.now()
@@ -772,7 +775,7 @@ class AsyncDL():
                                     def get_list_interl(res):
                                         _dict = {}
                                         for ent in res:
-                                            _key = get_domain(ent['url'])
+                                            _key = urlparse(ent['url']).netloc
                                             if not _dict.get(_key): _dict[_key] = [ent]
                                             else: _dict[_key].append(ent)       
                                         logger.info(f'[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries')                                        
@@ -1062,12 +1065,16 @@ class AsyncDL():
                         
                         await asyncio.sleep(5)
                     
-                    self.t3.stop()                    
+                              
                     
-                    for _ in range(self.workers - 1):
-                        self.queue_run.put_nowait(("", "KILL"))
+                    async with self.alock:
+                        for _ in range(self.workers - 1):
+                            self.queue_run.put_nowait(("", "KILL"))
+                        
+                        self.queue_run.put_nowait(("", "KILLANDCLEAN"))
                     
-                    self.queue_run.put_nowait(("", "KILLANDCLEAN"))
+                    self.end_winit.set()
+                    self.t3.stop()          
                     
                     if not self.list_dl: 
                         #self.stop_root = True
@@ -1191,7 +1198,7 @@ class AsyncDL():
                             if (await go_for_dl(urlkey ,infdict, extradict)) and not self.args.nodl:
                                 
                                                                     
-                                dl = await async_ex_in_executor(self.ex_winit, VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args)
+                                dl = await async_ex_in_executor(self.ex_winit, VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args, self.hosts_downloading, self.alock)
                                 
                                 logger.debug(f"[worker_init][{i}]: [{dl.info_dict['id']}][{dl.info_dict['title']}]: {dl.info_dl}")
                                 
@@ -1216,7 +1223,8 @@ class AsyncDL():
                                     
                                     else:
                                         logger.debug(f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, lets put in run queue")
-                                        self.queue_run.put_nowait((urlkey, dl))
+                                        async with self.alock:
+                                            self.queue_run.put_nowait((urlkey, dl))
                                         _msg = ''
                                         async with self.alock:
                                             if dl.info_dl.get('auto_pasres'):
@@ -1347,16 +1355,20 @@ class AsyncDL():
     
     async def worker_run(self, i):
         
+        async def reenterqueue(ent):
+            await asyncio.sleep(10)
+            
+        
         logger.debug(f"[worker_run][{i}]: launched")       
-        await asyncio.sleep(0)
+        
         
         try:
             
             while True:
-            
+                await asyncio.sleep(0)
                 url_key, video_dl = await self.queue_run.get()
                 logger.debug(f"[worker_run][{i}]: get for a video_DL")
-                await asyncio.sleep(0)
+                
                 
                 if video_dl == "KILL":
                     logger.debug(f"[worker_run][{i}]: get KILL, bye")                    
@@ -1406,8 +1418,48 @@ class AsyncDL():
                 
                 else:
                     
-                    logger.debug(f"[worker_run][{i}]: start to dl {video_dl.info_dl['title']}")
-                    
+                    #logger.debug(f"[worker_run][{i}][{video_dl.info_dl['id']}] start to dl {video_dl.info_dl['title']}")
+                    if try_get(traverse_obj(video_dl.info_dl, ('downloaders', 0)), lambda x: x.sem):
+                        
+                        _continue = False
+                        async with self.alock:                     
+                        
+                            if ((_timer:=video_dl.info_dl['timer_run_queue']) and (time.monotonic() - _timer >= 10)) or not _timer:                                
+                                    
+                                    _host = try_get(traverse_obj(video_dl.info_dl, ('downloaders', 0)), lambda x: x._host)
+                                    logger.info(f"[worker_run][{i}][{video_dl.info_dl['id']}] {_host} { _host in self.hosts_downloading} in {list(self.hosts_downloading.keys())}")
+                                    if _host in self.hosts_downloading:                                                                                    
+                                            video_dl.info_dl['timer_run_queue'] = time.monotonic()
+                                            asyncio.create_task(reenterqueue((url_key, video_dl)))
+                                            
+
+                            elif _timer and (time.monotonic() - _timer < 10):
+                                
+                                _continue = True
+                                
+                            if _continue:
+                            
+                                    if self.end_winit.is_set():
+                                                    
+                                        try:
+                                        
+                                            _index = self.queue_run._queue.index(("", "KILL"))                                                               
+                                            logger.info(f"[worker_run][{i}][{video_dl.info_dl['id']}] index first kill {_index} {_index > (self.workers + len(self.extra_tasks_run) - 1)} for insert")
+                                            if _index > (self.workers + len(self.extra_tasks_run) - 1):
+                                                self.queue_run._queue.insert(_index, (url_key, video_dl))
+                                                
+                                            else:
+                                                logger.info(f"[worker_run][{i}][{video_dl.info_dl['id']}] no end_winit set, hacemos put")                                        
+                                                self.queue_run.put_nowait((url_key, video_dl))
+                                        except Exception as e:
+                                            logger.exception(f"[worker_run][{i}][{video_dl.info_dl['id']}] {repr(e)} lo procesamos de queue")
+                                            _continue = True
+                                            
+                                           
+                        await asyncio.sleep(0)
+                        if _continue:
+                            continue       
+                    logger.info(f"[worker_run][{i}][{url_key}] launch video_dl.run_dl")
                     task_run = asyncio.create_task(video_dl.run_dl())
                     await asyncio.sleep(0)
                     done, pending = await asyncio.wait([task_run])
@@ -1442,7 +1494,7 @@ class AsyncDL():
                     await asyncio.sleep(0)
                                 
         except BaseException as e:            
-            logger.error(f"[worker_run][{i}]: Error:{repr(e)}")
+            logger.exception(f"[worker_run][{i}]: Error:{repr(e)}")
             if isinstance(e, KeyboardInterrupt):
                 raise
         
@@ -1505,6 +1557,8 @@ class AsyncDL():
         self.alock = asyncio.Lock()
         
         self.queue_vid = asyncio.Queue()
+        
+        self.end_winit = asyncio.Event()
 
         
         logger.info(f"MAX WORKERS [{self.workers}]")

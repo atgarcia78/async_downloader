@@ -275,8 +275,10 @@ class AsyncARIA2CDownloader():
         self.reset_event = asyncio.Event()
 
         if self.sem:
-            await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.acquire, priority=5)
-        
+            await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.acquire, priority=5)        
+            async with self.video_downloader.master_alock:
+                self.video_downloader.hosts_dl.update({self._host: True})
+                
         try:
             
             while True: 
@@ -310,6 +312,9 @@ class AsyncARIA2CDownloader():
         finally:
             if self.sem:
                 #await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.release)
+                async with self.video_downloader.master_alock:
+                    self.video_downloader.hosts_dl.pop(self._host, None)
+                
                 self.sem.release()
                 await asyncio.sleep(0)
                 

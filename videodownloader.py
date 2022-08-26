@@ -28,10 +28,12 @@ from concurrent.futures import ThreadPoolExecutor
 logger = logging.getLogger("video_DL")
 class VideoDownloader():
     
-    def __init__(self, video_dict, ytdl, args): 
+    def __init__(self, video_dict, ytdl, args, hosts_dl, alock): 
         
         try:
-        
+            
+            self.hosts_dl = hosts_dl
+            self.master_alock = alock
             self.args = args
             self.info_dict = copy.deepcopy(video_dict) 
             
@@ -52,6 +54,7 @@ class VideoDownloader():
                 'download_path': _download_path,
                 'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
                 'backup_http': self.args.use_http_failover,
+                'timer_run_queue': None
             } 
                 
             self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
@@ -205,17 +208,20 @@ class VideoDownloader():
         self.lock = asyncio.Lock()
         
         try:
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
             tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
-            done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
+            if tasks_run:
+                done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
             
         
-            if done:
-                for d in done:
-                    try:                        
-                        d.result()  
-                    except Exception as e:
-                        lines = traceback.format_exception(*sys.exc_info())                
-                        logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
+                if done:
+                    for d in done:
+                        try:                        
+                            d.result()  
+                        except Exception as e:
+                            lines = traceback.format_exception(*sys.exc_info())                
+                            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
                             
                 
             
@@ -246,8 +252,10 @@ class VideoDownloader():
                     self.info_dl['status'] = "init_manipulating"
         
         except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL\n{'!!'.join(lines)}")
+            #lines = traceback.format_exception(*sys.exc_info())                
+            #logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL\n{'!!'.join(lines)}")
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL {repr(e)}")
+            self.info_dl['status'] = 'error'
         finally:    
             for t in tasks_run: t.cancel()
             await asyncio.wait(tasks_run)
