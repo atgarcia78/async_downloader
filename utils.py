@@ -232,15 +232,17 @@ def print_tasks(tasks):
 def perform_long_operation(_func, *args, **kwargs):
 
     stop_event = kwargs.get('event', threading.Event())
-    thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=kwargs, daemon=True)
+    _kwargs = {k:v for k,v in kwargs.items() if k != 'event'}
+    thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=_kwargs, daemon=True)
     thread.start()
     return(thread, stop_event)
 
 
 async def async_ex_in_executor(executor, func, /, *args, **kwargs):
-    loop = asyncio.get_running_loop()
+    loop = kwargs.get('loop', asyncio.get_running_loop())
     ctx = contextvars.copy_context()
-    func_call = functools.partial(ctx.run, func, *args, **kwargs)        
+    _kwargs = {k:v for k,v in kwargs.items() if k != 'loop'}
+    func_call = functools.partial(ctx.run, func, *args, **_kwargs)        
     return await loop.run_in_executor(executor, func_call)
     
 async def async_ex_in_thread(prefix, func, /, *args, **kwargs):

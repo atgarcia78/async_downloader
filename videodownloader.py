@@ -215,7 +215,7 @@ class VideoDownloader():
                         d.result()  
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())                
-                        logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
+                        logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
                             
                 
             

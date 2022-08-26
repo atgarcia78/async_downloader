@@ -124,7 +124,7 @@ class AsyncDL():
         
     def get_videos_cached(self):                
         self.queue = Queue()
-        self.p1 = Process(target=self.load_videos_cached, args=(self.queue, self.args.nodlcaching,))
+        self.p1 = Process(target=self.load_videos_cached, args=(self.queue,))
         self.p1.start()
         self.videos_cached = self.queue.get()
         
@@ -137,7 +137,7 @@ class AsyncDL():
             pass
     
     #run in process
-    def load_videos_cached(self, _queue, _nodlcaching):
+    def load_videos_cached(self, _queue):
         
         ''' 
         
@@ -148,7 +148,7 @@ class AsyncDL():
 
         local_storage = LocalStorage()       
 
-        logger.debug(f"[videos_cached] start scanning")
+        logger.info(f"[videos_cached] start scanning - dlnocaching [{self.args.nodlcaching}]")
         
         videos_cached = {}        
         last_time_sync = {}        
@@ -157,23 +157,27 @@ class AsyncDL():
             
             with local_storage.lock:
             
-                local_storage.load_info()            
-                            
-                if _nodlcaching:
-                    _queue.put_nowait(local_storage._data_for_scan)        
-                    return 
+                local_storage.load_info()
                 
                 list_folders_to_scan = {}
-                videos_cached = {}
-                
+                videos_cached = {}            
                 last_time_sync = local_storage._last_time_sync
+                            
+                if self.args.nodlcaching:
+                    for _vol,_folder in local_storage.config_folders.items():
+                        if _vol != "local":                            
+                            videos_cached.update(local_storage._data_from_file.get(_vol))
+                        else:
+                            list_folders_to_scan.update({_folder: _vol})
+
+                else:
                     
-                for _vol,_folder in local_storage.config_folders.items():
-                    if not _folder.exists(): #comm failure
-                        logger.error(f"Fail to connect to [{_vol}], will use last info")
-                        videos_cached.update(local_storage._data_from_file.get(_vol))
-                    else:
-                        list_folders_to_scan.update({_folder: _vol})
+                    for _vol,_folder in local_storage.config_folders.items():
+                        if not _folder.exists(): #comm failure
+                            logger.error(f"Fail to connect to [{_vol}], will use last info")
+                            videos_cached.update(local_storage._data_from_file.get(_vol))
+                        else:
+                            list_folders_to_scan.update({_folder: _vol})
 
                 _repeated = []
                 _dont_exist = []
@@ -332,6 +336,7 @@ class AsyncDL():
             if pending_tasks:
                 pending_tasks.remove(self.main_task)
                 pending_tasks.remove(self.console_task)
+                pending_tasks.remove(self.task_gui_root)
                 for task in pending_tasks:
                     task.cancel()
             await asyncio.wait(pending_tasks)
@@ -372,8 +377,6 @@ class AsyncDL():
                 if self.stop_console:
                     self.pasres_repeat = False
                     break                    
-                #if self.stop_console and not self.pasres_active:
-                #    break
                 event, values = self.window_console.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
@@ -383,12 +386,7 @@ class AsyncDL():
                     break
                 elif event in ['Exit']:
                     self.pasres_repeat = False
-                    #self.window_console.perform_long_operation(self.cancel_all_tasks, end_key='-EXIT-')
                     await self.cancel_all_tasks()
-                # elif event in ['-CANCELALLTASKS-']:
-                #     self.pasres_repeat = False
-                #     logger.info(f'[windows_console] event cancelalltasks') 
-                #     break
                 elif event in ['-EXIT-']:
                     self.pasres_repeat = False
                     logger.info(f'[windows_console] event -exit-') 
@@ -407,9 +405,9 @@ class AsyncDL():
                     if not self.console_dl_status:
                         self.console_dl_status = True
                 elif event  in  ['IncWorkerRun']:
-                    n  =  len(self.tasks_run)
-                    self.tasks_run.append(self.loop.create_task(self.worker_run(n)))
-                    sg.cprint(f'Run Workers: {n} to {len(self.tasks_run)}')
+                    n  =  len(self.extra_tasks_run) + self.workers
+                    self.extra_tasks_run.append(self.loop.create_task(self.worker_run(n)))
+                    sg.cprint(f'Run Workers: {n} to {len(self.extra_tasks_run) + self.workers}')
                 elif event in ['TimePasRes']:
                     if not values['-IN-']:
                         sg.cprint('Please enter number')
@@ -489,50 +487,48 @@ class AsyncDL():
                                     else: sg.cprint('DL index doesnt exist')
                             else: sg.cprint('DL list empty')
                             
-        except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[gui_console]: error: {repr(e)}\n{'!!'.join(lines)}")
+        except BaseException as e:
+            if not isinstance(e, asyncio.CancelledError):           
+                logger.error(f"[gui_console] Error:{repr(e)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            
         finally:           
             logger.info("[gui_console] BYE")
+            self.window_console.close()  
             self.stop_root = True
             self.pasres_repeat = False
             stop_event.set()
-            daemon.join()
-            await asyncio.sleep(0)
-            try:                
-                if self.window_console:
-                    self.window_console.close()                    
-            except Exception as e:
-                logger.exception(f"[gui_console]: error: {repr(e)}")
-            finally:
-                del self.window_console
-                self.window_console = None
+            daemon.join()            
+            
+ 
     
     
     async def gui_root(self):
         '''
         Run a tkinter app in an asyncio event loop.
         '''
-        #self.window_root = init_gui_root()
-        self.window_root = init_gui_root()
-        
-        while (not self.list_dl and not self.stop_root):
+                    
+        try:
+            self.window_root = init_gui_root()
             
-            await async_wait_time(self._INTERVAL_GUI)
+            while (not self.list_dl and not self.stop_root):
+                
+                await async_wait_time(self._INTERVAL_GUI)
+                
+            logger.debug(f"[gui_root] End waiting. Signal stop: stop_root[{self.stop_root}] {self.stop_root}]")
             
-        logger.debug(f"[gui_root] End waiting. Signal stop: stop_root[{self.stop_root}] {self.stop_root}]")
-        
-        if not self.stop_root:
-            
-            #self.window_root = init_gui_root()
-            #self.stop_console = False
-            await asyncio.sleep(0)
-            
-            text0 = self.window_root['-ML0-'].TKText
-            text1 = self.window_root['-ML1-'].TKText
-            text2 = self.window_root['-ML2-'].TKText
+            if not self.stop_root:
+                
+                #self.window_root = init_gui_root()
+                #self.stop_console = False
+                await asyncio.sleep(0)
+                
+                text0 = self.window_root['-ML0-'].TKText
+                text1 = self.window_root['-ML1-'].TKText
+                text2 = self.window_root['-ML2-'].TKText
 
-            try:
+                
                 list_init_old = []
                 list_done_old = []
                 
@@ -597,20 +593,16 @@ class AsyncDL():
                     await async_wait_time(self._INTERVAL_GUI)
         
                     
-            except Exception as e:
-                lines = traceback.format_exception(*sys.exc_info())                
-                logger.error(f"[gui_root]: error: {repr(e)}\n{'!!'.join(lines)}")
-            finally:           
-                logger.debug("[gui_root] BYE")
-                await asyncio.sleep(0)
-                try:
-                    if self.window_root: 
-                        self.window_root.close()
-                except Exception as e:
-                    logger.exception(f"[gui_root]: error: {repr(e)}")
-                finally:
-                    del self.window_root
-
+        except BaseException as e:
+            if not isinstance(e, asyncio.CancelledError):           
+                logger.error(f"[gui_root] Error:{repr(e)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
+        finally:           
+            logger.info("[gui_root] BYE")            
+            self.window_root.close()
+                
+            
 
     def get_list_videos(self):
         
@@ -879,7 +871,7 @@ class AsyncDL():
         
         except BaseException as e:            
             logger.error(f"[get_videos]: Error {repr(e)}")
-            raise
+            
         finally:            
             for _ in range(self.init_nworkers - 1):
                 self.queue_vid.sync_q.put_nowait("KILL")        
@@ -948,7 +940,7 @@ class AsyncDL():
             self.info_videos[url]['video_info']['filesize'] = 0
         if (_path:=self._check_if_aldl(self.info_videos[url]['video_info'])):  
             self.info_videos[url].update({'aldl' : _path, 'status': 'done'})
-            logger.debug(f"[{self.info_videos[url]['video_info'].get('id')}][{self.info_videos[url]['video_info'].get('title')}] already DL")            
+            logger.debug(f"[prepare_for_dl] [{self.info_videos[url]['video_info'].get('id')}][{self.info_videos[url]['video_info'].get('title')}] already DL")            
 
         if self.info_videos[url].get('todl') and not self.info_videos[url].get('aldl') and not self.info_videos[url].get('samevideo') and self.info_videos[url].get('status') != 'prenok':
             with self.lock:
@@ -961,7 +953,7 @@ class AsyncDL():
     def _prepare_entry_pl_for_dl(self, entry):
         _type = entry.get('_type', 'video')
         if _type == 'playlist':
-            logger.warning(f"PLAYLIST IN PLAYLIST: {entry}")
+            logger.warning(f"[prepare_entry_pl_for_dl] PLAYLIST IN PLAYLIST: {entry}")
             return
         elif _type == 'error':
             _errorurl = entry.get('url')
@@ -999,13 +991,15 @@ class AsyncDL():
                 
                 self.info_videos[_url].update({'samevideo': _same_video_url})
                 
-                logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
+                logger.warning(f"[prepare_entry_pl_for_dl] {_url}: has not been added to video list because it gets same video than {_same_video_url}")
                 
                 self._prepare_for_dl(_url)
             else:
                 self._prepare_for_dl(_url)
                 self.list_videos.append(self.info_videos[_url]['video_info'])
-    
+        else:
+            logger.warning(f"[prepare_entry_pl_for_dl] {_url}: has not been added to info_videos because it is already")
+            
 
     async def worker_init(self, i):
         #worker que lanza la creación de los objetos VideoDownloaders, uno por video
@@ -1313,7 +1307,7 @@ class AsyncDL():
                                
         
         except BaseException as e:           
-            logger.exception(f"[worker_init][{i}]: Error:{repr(e)}")
+            logger.error(f"[worker_init][{i}]: Error:{repr(e)}")
             if isinstance(e, KeyboardInterrupt):
                 raise
                     
@@ -1346,7 +1340,7 @@ class AsyncDL():
                     
                     async with self.alock:
                         nworkers  =  self.workers
-                        if  (_inc:=(len(self.tasks_run)  - nworkers)) > 0:
+                        if  (_inc:=(len(self.extra_tasks_run) + self.workers  - nworkers)) > 0:
                             logger.info(f"[worker_run][{i}] nworkers[{nworkers}] inc[{_inc}]")
                             for  _  in  range(_inc):
                                 self.queue_run.put_nowait(("", "KILL"))
@@ -1366,7 +1360,7 @@ class AsyncDL():
                         
                         async with self.alock:
                         
-                            if  (_inc:=(len(self.tasks_run)  - nworkers)) > 0:
+                            if  (_inc:=(len(self.extra_tasks_run) + self.workers  - nworkers)) > 0:
                                 logger.info(f"[worker_run][{i}] nworkers[{nworkers}] inc[{_inc}]")
                                 for  _  in  range(_inc):
                                     self.queue_run.put_nowait(("", "KILL"))
@@ -1420,9 +1414,8 @@ class AsyncDL():
                         
                     await asyncio.sleep(0)
                                 
-        except BaseException as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.debug(f"[worker_run][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
+        except BaseException as e:            
+            logger.error(f"[worker_run][{i}]: Error:{repr(e)}")
             if isinstance(e, KeyboardInterrupt):
                 raise
         
@@ -1469,8 +1462,7 @@ class AsyncDL():
                     else: self.info_videos[url_key].update({'status': 'nok'})
                         
         except BaseException as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.debug(f"[worker_manip][{i}]: Error: {repr(e)}\n{'!!'.join(lines)}")
+            logger.error(f"[worker_manip][{i}]: Error:{repr(e)}")
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
@@ -1498,42 +1490,54 @@ class AsyncDL():
             self.t3.start()
             self.loop  =  asyncio.get_running_loop()
             
-            self.tasks_run = []            
-            tasks_manip = []            
             tasks_gui = []
+            self.extra_tasks_run = []
+            
+            tasks_to_wait = {}
 
-            task_get_videos = [asyncio.create_task(async_ex_in_executor(self.ex_winit, self.get_list_videos))]
-            tasks_init = [asyncio.create_task(self.worker_init(i)) for i in range(self.init_nworkers)]
+            tasks_to_wait.update({asyncio.create_task(async_ex_in_executor(self.ex_winit, self.get_list_videos)): 'task_get_videos'})
+            tasks_to_wait.update({asyncio.create_task(self.worker_init(i)): f'task_worker_init_{i}' for i in range(self.init_nworkers)})
                             
             if not self.args.nodl:                
 
                 self.task_gui_root = asyncio.create_task(self.gui_root())
-                self.console_task = asyncio.create_task(self.gui_console())
+                self.console_task = asyncio.create_task(self.gui_console())                
                 
-                self.tasks_run = [asyncio.create_task(self.worker_run(i)) for i in range(self.workers)]                  
-                tasks_manip = [asyncio.create_task(self.worker_manip(i)) for i in range(self.workers)]
-                
+                tasks_to_wait.update({asyncio.create_task(self.worker_run(i)):f'task_worker_run_{i}' for i in range(self.workers)})   
+                tasks_to_wait.update({asyncio.create_task(self.worker_manip(i)): f'task_worker_manip_{i}' for i in range(self.workers)})
                 tasks_gui = [self.task_gui_root, self.console_task] 
 
 
-            done, _ = await asyncio.wait(task_get_videos + tasks_init + self.tasks_run + tasks_manip)            
+            done, _ = await asyncio.wait(tasks_to_wait)            
             for d in done:
                 try:
                     d.result()
                 except BaseException as e:                                   
-                    logger.exception(f"[async_ex] {repr(e)}")
+                    logger.error(f"[async_ex][{tasks_to_wait[d]}] {repr(e)}")
                     if isinstance(e, KeyboardInterrupt):
                         raise
-            
-            for _task in tasks_gui:
-                _task.cancel()
-            
-            await asyncio.wait(tasks_gui)                    
+            if self.extra_tasks_run:
+                done, _ = await asyncio.wait(self.extra_tasks_run)
+                for d in done:
+                    try:
+                        d.result()
+                    except BaseException as e:                                   
+                        logger.error(f"[async_ex][{tasks_to_wait[d]}] {repr(e)}")
+                        if isinstance(e, KeyboardInterrupt):
+                            raise
+                                  
 
         except BaseException as e:                            
             logger.exception(f"[async_ex] {repr(e)}")
             if isinstance(e, KeyboardInterrupt):
                 raise
+        finally:
+            for _task in tasks_gui:
+                _task.cancel()            
+            done, _ = await asyncio.wait(tasks_gui)
+            if any(isinstance(_e, KeyboardInterrupt) for _e in [d.exception() for d in done]):
+                raise KeyboardInterrupt
+            
             
     def get_results_info(self):
             
