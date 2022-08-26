@@ -37,16 +37,19 @@ from utils import (
     sanitize_filename,
     print_tasks,
     LocalStorage,
-    PATH_LOGS
+    PATH_LOGS,
+    get_domain
+    
 )
 
 from videodownloader import VideoDownloader
 
-import janus
 from threading import Lock
 from codetiming import Timer
 
 from multiprocess import Process, Queue
+
+from itertools import zip_longest
 
 
 logger = logging.getLogger("asyncDL")
@@ -759,6 +762,28 @@ class AsyncDL():
                                     self.args.path = str(Path(Path.home(), 'testing', _name))
                                     logger.info(f"[path for pl] {self.args.path}")
                                     
+                                if _info.get('extractor_key') == 'GVDBlogPlaylist':
+                                    _temp_aldl = [] 
+                                    _temp_nodl = []
+                                    for _ent in _info.get('entries'):
+                                        if not self._check_if_aldl(_ent, test=True): _temp_nodl.append(_ent)
+                                        else: _temp_aldl.append(_ent)
+                                
+                                    def get_list_interl(res):
+                                        _dict = {}
+                                        for ent in res:
+                                            _key = get_domain(ent['url'])
+                                            if not _dict.get(_key): _dict[_key] = [ent]
+                                            else: _dict[_key].append(ent)       
+                                        logger.info(f'[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries')                                        
+                                        _interl = []
+                                        for el in list(zip_longest(*list(_dict.values()))):
+                                            _interl.extend([_el for _el in el if _el])
+                                        return _interl 
+                                                                        
+                                    _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl
+                                   
+                                
                                 for _ent in _info.get('entries'):
                                     
                                     if _ent.get('_type', 'video') == 'video':
@@ -874,13 +899,13 @@ class AsyncDL():
             
         finally:            
             for _ in range(self.init_nworkers - 1):
-                self.queue_vid.sync_q.put_nowait("KILL")        
-            self.queue_vid.sync_q.put_nowait("KILLANDCLEAN")
+                self.queue_vid.put_nowait("KILL")        
+            self.queue_vid.put_nowait("KILLANDCLEAN")
             self.getlistvid_done = True
             self.t1.stop()
                 
  
-    def _check_if_aldl(self, info_dict):  
+    def _check_if_aldl(self, info_dict, test=False):  
                     
 
         
@@ -895,6 +920,8 @@ class AsyncDL():
         
         else: #video en local            
             
+            if test: return True
+                
             vid_path = Path(vid_path_str)
             logger.debug(f"[{vid_name}] already DL: {vid_path}")
                 
@@ -946,7 +973,7 @@ class AsyncDL():
             with self.lock:
                 self.totalbytes2dl += none_to_cero(self.info_videos[url].get('video_info', {}).get('filesize', 0))
                 self.videos_to_dl.append(url)
-                if put: self.queue_vid.sync_q.put_nowait(url)
+                if put: self.queue_vid.put_nowait(url)
                 self.num_videos_to_check += 1
                 self.num_videos_pending += 1
             
@@ -1012,14 +1039,14 @@ class AsyncDL():
             while True:
                 if self.getlistvid_done: 
                     break
-                if self.queue_vid.async_q.qsize() < 2:
+                if self.queue_vid.qsize() < 2:
                     await asyncio.sleep(0)
                 else: break
 
             while True:
 
                 
-                url_key = await self.queue_vid.async_q.get()
+                url_key = await self.queue_vid.get()
 
                 if url_key == "KILL":
                     logger.debug(f"[worker_init][{i}]: finds KILL")
@@ -1477,7 +1504,7 @@ class AsyncDL():
         self.queue_manip = asyncio.Queue()
         self.alock = asyncio.Lock()
         
-        self.queue_vid = janus.Queue()
+        self.queue_vid = asyncio.Queue()
 
         
         logger.info(f"MAX WORKERS [{self.workers}]")
@@ -1489,6 +1516,7 @@ class AsyncDL():
             self.t2.start()
             self.t3.start()
             self.loop  =  asyncio.get_running_loop()
+            self.loop.call_soon_threadsafe
             
             tasks_gui = []
             self.extra_tasks_run = []
@@ -1765,3 +1793,4 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[clean] {repr(e)}")
           
+    

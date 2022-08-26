@@ -26,7 +26,8 @@ from yt_dlp.utils import (
     js_to_json, 
     try_get, 
     sanitize_filename, 
-    traverse_obj
+    traverse_obj,
+    get_domain
 
 )
 

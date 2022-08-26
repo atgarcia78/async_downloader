@@ -9,7 +9,6 @@ import time
 import traceback
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
-from shutil import rmtree
 from statistics import median
 from urllib.parse import urlparse
 

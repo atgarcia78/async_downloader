@@ -11,6 +11,7 @@ import aria2p
 
 from utils import async_ex_in_executor, naturalsize, none_to_cero, try_get, CONFIG_EXTRACTORS, traverse_obj
 
+from asyncio import Lock
 from threading import Lock
 from cs.threads import PriorityLock
 
@@ -213,8 +214,6 @@ class AsyncARIA2CDownloader():
             self.error_message = f"{repr(e)} - {self.dl_cont.error_code} - {self.dl_cont.error_message}"
             raise AsyncARIA2CDLErrorFatal(self.error_message)
 
-        
-        
 
     async def fetch(self):        
 
@@ -269,16 +268,11 @@ class AsyncARIA2CDownloader():
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}")
             self.status = "error"
             self.error_message = repr(e)
-                        
-        # finally:
-        #     if self.sem:                 
-        #         await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.release)
             
     
     async def fetch_async(self):
         
         self.reset_event = asyncio.Event()
-        
 
         if self.sem:
             await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.acquire, priority=5)
@@ -317,6 +311,7 @@ class AsyncARIA2CDownloader():
             if self.sem:
                 #await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.sem.release)
                 self.sem.release()
+                await asyncio.sleep(0)
                 
                 
 
