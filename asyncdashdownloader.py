@@ -63,7 +63,7 @@ class AsyncDASHDownloader():
     def __init__(self, video_dict, vid_dl):
 
 
-        self.info_dict = copy.deepcopy(video_dict)
+        self.info_dict = video_dict.copy()
         self.video_downloader = vid_dl
         self.n_workers = vid_dl.info_dl['n_workers'] 
         self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers

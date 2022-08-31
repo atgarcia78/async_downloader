@@ -1,6 +1,5 @@
 
 import asyncio
-import copy
 import logging
 import shutil
 import subprocess
@@ -28,14 +27,15 @@ from concurrent.futures import ThreadPoolExecutor
 logger = logging.getLogger("video_DL")
 class VideoDownloader():
     
-    def __init__(self, video_dict, ytdl, args, hosts_dl, alock): 
+    def __init__(self, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
         
         try:
             
             self.hosts_dl = hosts_dl
             self.master_alock = alock
+            self.master_hosts_alock = hosts_alock
             self.args = args
-            self.info_dict = copy.deepcopy(video_dict) 
+            self.info_dict = video_dict.copy() 
             
             _date_file = datetime.now().strftime("%Y%m%d")
             _download_path = Path(Path.home(), "testing", _date_file, self.info_dict['id']) if not self.args.path else Path(self.args.path, self.info_dict['id'])
@@ -60,17 +60,17 @@ class VideoDownloader():
             
             downloaders = []
             if not (_requested_formats:=self.info_dict.get('requested_formats')):
-                _new_info_dict = copy.deepcopy(self.info_dict)
+                _new_info_dict = self.info_dict.copy()
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
                 downloaders.append(self._get_dl(_new_info_dict))
             else:
-                _new_info_dict = copy.deepcopy(self.info_dict)
+                _new_info_dict = self.info_dict.copy()
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
                 if (dl:=self._check_if_apple(_new_info_dict)):
                     downloaders.append(dl)
                 else:
                     for f in _requested_formats:
-                        _new_info_dict = copy.deepcopy(f)                
+                        _new_info_dict = f.copy()                
                         _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
                         dl = self._get_dl(_new_info_dict)
                         downloaders.append(dl)        
@@ -85,7 +85,7 @@ class VideoDownloader():
                 
             self.info_dl.update({
                 'downloaders': downloaders,
-                'requested_subtitles': copy.deepcopy(_req_sub) if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
+                'requested_subtitles': _req_sub.copy() if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
                 'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
                 'down_size': sum([dl.down_size for dl in downloaders]),
                 'status': _status,
@@ -205,9 +205,9 @@ class VideoDownloader():
         self.lock = asyncio.Lock()
         
         try:
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
             tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
             if tasks_run:
                 done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
             

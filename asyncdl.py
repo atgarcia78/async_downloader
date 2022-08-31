@@ -38,6 +38,7 @@ from utils import (
     print_tasks,
     LocalStorage,
     PATH_LOGS,
+    get_domain
 
     
 )
@@ -53,8 +54,6 @@ from multiprocess import (
 )
 
 from itertools import zip_longest
-
-from urllib.parse import urlparse
 
 
 logger = logging.getLogger("asyncDL")
@@ -76,7 +75,9 @@ class AsyncDL():
         self.ytdl = init_ytdl(self.args)
         
         #aria2c
-        if self.args.aria2c: init_aria2c(self.args)
+        self.proc_gost = None
+        if self.args.aria2c: 
+            self.proc_gost = init_aria2c(self.args)
     
         #listas, dicts con videos      
         self.info_videos = {}
@@ -771,7 +772,7 @@ class AsyncDL():
                                     def get_list_interl(res):
                                         _dict = {}
                                         for ent in res:
-                                            _key = urlparse(ent['url']).netloc
+                                            _key = get_domain(ent['url'])
                                             if not _dict.get(_key): _dict[_key] = [ent]
                                             else: _dict[_key].append(ent)       
                                         logger.info(f'[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries')                                        
@@ -1191,7 +1192,7 @@ class AsyncDL():
                             if (await go_for_dl(urlkey ,infdict, extradict)) and not self.args.nodl:
                                 
                                                                     
-                                dl = await async_ex_in_executor(self.ex_winit, VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args, self.hosts_downloading, self.alock)
+                                dl = await async_ex_in_executor(self.ex_winit, VideoDownloader, self.info_videos[urlkey]['video_info'], self.ytdl, self.args, self.hosts_downloading, self.alock, self.hosts_alock)
                                 
                                 logger.debug(f"[worker_init][{i}]: [{dl.info_dict['id']}][{dl.info_dict['title']}]: {dl.info_dl}")
                                 
@@ -1505,6 +1506,7 @@ class AsyncDL():
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
         self.alock = asyncio.Lock()
+        self.hosts_alock = asyncio.Lock()
         
         self.queue_vid = asyncio.Queue()
         
@@ -1762,8 +1764,7 @@ class AsyncDL():
             if (close:=getattr(ins, 'close', None)):
                 try:
                     close()
-                    logger.info(f"[close][{ie}] closed ok")
-                    break
+                    logger.info(f"[close][{ie}] closed ok")                    
                 except Exception as e:
                     logger.exception(f"[close][{ie}] {repr(e)}")
     
@@ -1782,6 +1783,17 @@ class AsyncDL():
             kill_processes(logger=logger, rpcport=self.args.rpcport) 
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
+            
+        if self.proc_gost:
+            for proc in self.proc_gost:
+                try:
+                    proc.kill()
+                except Exception as e:
+                    logger.exception(f"[close] {repr(e)}")
+            
+        
+            
+            
             
     def clean(self):
         

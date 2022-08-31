@@ -16,7 +16,6 @@ import time
 from concurrent.futures.thread import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
-import copy
 
 import aria2p
 import httpx
@@ -35,9 +34,11 @@ from yt_dlp.extractor.commonwebdriver import (
     limiter_15, 
     limiter_5, 
     limiter_1, 
+    limiter_non,
     dec_on_exception, 
     dec_retry_error,
-    CONFIG_EXTRACTORS
+    CONFIG_EXTRACTORS,
+    SeleniumInfoExtractor
 )
 
 import threading
@@ -46,6 +47,28 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 from filelock import Timeout, FileLock
 
+
+class AsyncYTDL(YoutubeDL):
+    async def __aenter__(self):
+        return self
+    
+    async def __aexit__(self, *args, **kwargs):
+        ies = self._ies_instances
+        
+        if not ies: return
+                
+        for ie, ins in ies.items():
+            
+            if (close:=getattr(ins, 'close', None)):
+                try:
+                    close()                                        
+                except Exception as e:
+                    pass
+    
+    async def async_extract_info(self, executor, url, **kwargs):
+        return await async_ex_in_executor(executor, self.extract_info, url, **kwargs)
+        
+                   
 
 class LocalStorage:           
         
@@ -96,9 +119,9 @@ class LocalStorage:
             elif 'DatosToni/videos' in x: return 'datostoni'
 
         if videos_cached:
-            self._data_for_scan = copy.deepcopy(videos_cached)
+            self._data_for_scan = videos_cached.copy()
         if last_time_sync:
-            self._last_time_sync = copy.deepcopy(last_time_sync)
+            self._last_time_sync = last_time_sync.copy()
         
         _temp = {"last_time_sync": {}, "local": {}, "wd5": {}, "wd1b": {}, "pandaext4": {}, "datostoni": {}}
         
@@ -552,7 +575,14 @@ def init_aria2c(args):
     logger.debug(f"aria2c options:\n{opts._struct}")
     del opts
     del cl
+    cmd_gost = ["gost -L=:1234 -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@89.238.178.234:7070",
+    "gost -L=:1235 -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@192.145.124.238:7070",
+    "gost -L=:1236 -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@192.145.124.174:7070",
+    "gost -L=:1237 -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@192.145.124.190:7070",
+    "gost -L=:1238 -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@89.238.178.206:7070"]
     
+    proc_gost = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) for cmd in cmd_gost]
+    return proc_gost
     
 
 class MyLogger(logging.LoggerAdapter):
@@ -628,7 +658,7 @@ def init_ytdl(args):
     ytdl_opts = { 
         "http_headers": headers,
         "proxy" : proxy,        
-        "logger" : MyLogger(logger, args.quiet, args.verbose, args.vv),
+        "logger" : MyLogger(logger, quiet=args.quiet, verbose=args.verbose, superverbose=args.vv),
         "verbose": args.verbose,
         "quiet": args.quiet,
         "format" : args.format,

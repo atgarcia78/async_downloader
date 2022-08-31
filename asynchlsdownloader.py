@@ -20,7 +20,7 @@ from Cryptodome.Cipher import AES
 
 from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
                    naturalsize, print_norm_time, get_format_id, dec_retry_error,
-                   try_get)
+                   try_get, get_format_id)
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -60,7 +60,7 @@ class AsyncHLSDownloader():
 
         try:
         
-            self.info_dict = copy.deepcopy(video_dict)
+            self.info_dict = video_dict.copy()
             self.video_downloader = vid_dl
             self.n_workers = vid_dl.info_dl['n_workers'] 
             self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers

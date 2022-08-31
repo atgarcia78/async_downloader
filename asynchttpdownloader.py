@@ -46,7 +46,7 @@ class AsyncHTTPDownloader():
     _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
     _MAX_RETRIES = 10    
-    _CONFIG = copy.deepcopy(CONFIG_EXTRACTORS)   
+    _CONFIG = CONFIG_EXTRACTORS.copy()   
     
     _LOCK = Lock()    
     _EX_HTTPDL = None
@@ -55,7 +55,7 @@ class AsyncHTTPDownloader():
 
              
         if not video_dict or not vid_dl: return
-        self.info_dict = copy.deepcopy(video_dict)
+        self.info_dict = video_dict.copy()
         self.video_downloader = vid_dl
 
         self.video_url = self.info_dict.get('url')
@@ -154,7 +154,7 @@ class AsyncHTTPDownloader():
 
             self._NUM_WORKERS = self.n_parts 
 
-            self._host = urlparse(self.uris[0]).netloc
+            self._host = get_domain(self.uris[0])
                 
             if _sem:
                 

@@ -247,7 +247,7 @@ class AsyncFFMPEGDownloader():
         
         try:
 
-            self.info_dict = copy.deepcopy(video_dict)
+            self.info_dict = video_dict.copy()
             self.video_downloader = vid_dl                
             
                 
