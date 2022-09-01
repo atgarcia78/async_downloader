@@ -91,7 +91,7 @@ class AsyncARIA2CDownloader():
             self.filename = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "aria2."  + self.info_dict['ext'])
 
         self.filesize = none_to_cero((self.info_dict.get('filesize', 0)))
-        
+        self.down_size = 0
                 
         self.status = 'init'
         self.error_message = ""
@@ -202,7 +202,7 @@ class AsyncARIA2CDownloader():
                     
                     self.video_url = proxy_info.get('url')
                     self.uris = [unquote(self.video_url)]
-                    self.headers = proxy_info.get('headers').copy()
+                    self.headers = proxy_info.get('http_headers').copy()
                     self.opts.set("header", [f"{key}: {value}" for key,value in self.headers.items()])
                          
         
