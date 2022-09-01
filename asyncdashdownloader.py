@@ -331,7 +331,7 @@ class AsyncDASHDownloader():
                                                     self.n_dl_fragments -= 1
                                                     self.down_size -= _size
                                                     self.down_temp -= _size
-                                                    async with self.video_downloader.lock:
+                                                    async with self.video_downloader.alock:
                                                         self.video_downloader.info_dl['down_size'] -= _size                                                           
                                         else:
                                             logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag{q}: frag with mark downloaded but file doesnt exists")
@@ -366,7 +366,7 @@ class AsyncDASHDownloader():
                                                                                                
                                         async with self._LOCK:
                                             self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded)) 
-                                            async with self.video_downloader.lock:                                       
+                                            async with self.video_downloader.alock:                                       
                                                 self.video_downloader.info_dl['down_size'] += _iter_bytes 
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                         self.info_frag[q - 1]['nchunks_dl'] += 1 
@@ -411,7 +411,7 @@ class AsyncDASHDownloader():
                             async with self._LOCK:
                                 self.down_size -= _size
                                 self.down_temp -= _size
-                                async with self.video_downloader.lock:                                       
+                                async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size                                             
                         raise                 
                     except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError) as e:
@@ -425,7 +425,7 @@ class AsyncDASHDownloader():
                             async with self._LOCK:
                                 self.down_size -= _size
                                 self.down_temp -= _size
-                                async with self.video_downloader.lock:                                       
+                                async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                         raise                   
                     except Exception as e:                        
@@ -442,7 +442,7 @@ class AsyncDASHDownloader():
                             async with self._LOCK:
                                 self.down_size -= _size
                                 self.down_temp -= _size
-                                async with self.video_downloader.lock:                                       
+                                async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                         
                         if self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES:

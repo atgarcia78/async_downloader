@@ -770,6 +770,8 @@ class AsyncDL():
                                         else: _temp_aldl.append(_ent)
                                 
                                     def get_list_interl(res):
+                                        if not res:
+                                            return []
                                         _dict = {}
                                         for ent in res:
                                             _key = get_domain(ent['url'])

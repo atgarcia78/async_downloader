@@ -15,13 +15,13 @@ import httpx
 
 from utils import (EMA, int_or_none, naturalsize, none_to_cero, try_get, 
                    async_ex_in_executor, limiter_15, limiter_5, limiter_1, 
-                   dec_retry_error, traverse_obj, CONFIG_EXTRACTORS)
+                   dec_retry_error, traverse_obj, CONFIG_EXTRACTORS, get_domain)
 
 
 from threading import Lock
 from cs.threads import PriorityLock
 
-from urllib.parse import unquote, urlparse
+from urllib.parse import unquote
 
 logger = logging.getLogger("async_http_DL")
 
@@ -48,8 +48,7 @@ class AsyncHTTPDownloader():
     _MAX_RETRIES = 10    
     _CONFIG = CONFIG_EXTRACTORS.copy()   
     
-    _LOCK = Lock()    
-    _EX_HTTPDL = None
+    _EX_HTTPDL = ThreadPoolExecutor(thread_name_prefix="ex_httpdl")
     
     def __init__(self, video_dict, vid_dl):
 
@@ -108,9 +107,6 @@ class AsyncHTTPDownloader():
         self.ema_t = EMA(smoothing=0.0001)
         
 
-        with AsyncHTTPDownloader._LOCK:
-            if not AsyncHTTPDownloader._EX_HTTPDL:
-                AsyncHTTPDownloader._EX_HTTPDL = ThreadPoolExecutor(thread_name_prefix="ex_httpdl")
         
         self.reset_event = None
         
@@ -435,7 +431,7 @@ class AsyncHTTPDownloader():
                                            
                                         async with self._ALOCK:
                                             self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded)) 
-                                            async with self.video_downloader.lock:                                       
+                                            async with self.video_downloader.alock:                                       
                                                 self.video_downloader.info_dl['down_size'] += _iter_bytes
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                         self.parts[part-1]['nchunks_dl'][nth_key] += 1
@@ -523,7 +519,7 @@ class AsyncHTTPDownloader():
             self.status = "downloading"
             
             if self.sem: 
-                await async_ex_in_executor(AsyncHTTPDownloader._EX_ARIA2DL, self.sem.acquire, priority=50)  
+                await async_ex_in_executor(AsyncHTTPDownloader._EX_HTTPDL, self.sem.acquire, priority=50)  
             
             self.tasks = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
             

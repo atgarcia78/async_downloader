@@ -191,10 +191,15 @@ class AsyncHLSDownloader():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")        
             
             self.n_total_fragments = len(self.info_dict['fragments'])
-            self.calculate_duration() #get total duration
-            self.calculate_filesize() #get filesize estimated
             
-            if self.filesize == 0: _est_size = "NA"
+            self.totalduration = self.info_dict.get('duration')
+            if not self.totalduration:
+                self.calculate_duration() #get total duration
+            self.filesize = self.info_dict.get('filesize') or self.info_dict.get('filesize_approx')
+            if not self.filesize:
+                self.calculate_filesize() #get filesize estimated
+            
+            if not self.filesize: _est_size = "NA"
             else: _est_size = naturalsize(self.filesize)
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
             
@@ -438,7 +443,7 @@ class AsyncHLSDownloader():
                                         async with self._LOCK:
                                             if not self.filesize:
                                                 self.filesize = _hsize * len(self.info_dict['fragments'])
-                                                async with self.video_downloader.lock:
+                                                async with self.video_downloader.alock:
                                                     self.video_downloader.info_dl['filesize'] += self.filesize
                                     else:
                                         raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} _hsize is None")                                    
@@ -459,7 +464,7 @@ class AsyncHLSDownloader():
                                                     self.n_dl_fragments -= 1
                                                     self.down_size -= _size
                                                     self.down_temp -= _size
-                                                    async with self.video_downloader.lock:
+                                                    async with self.video_downloader.alock:
                                                         self.video_downloader.info_dl['down_size'] -= _size                                                            
                                         else:
                                             logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}:] frag with mark downloaded but file doesnt exists")
@@ -497,7 +502,7 @@ class AsyncHLSDownloader():
                                             self.down_size += (_iter_bytes:=(res.num_bytes_downloaded - num_bytes_downloaded))
                                             if (_dif:=self.down_size - self.filesize) > 0: 
                                                     self.filesize += _dif                                            
-                                            async with self.video_downloader.lock:
+                                            async with self.video_downloader.alock:
                                                 if _dif > 0:    
                                                     self.video_downloader.info_dl['filesize'] += _dif
                                                 self.video_downloader.info_dl['down_size'] += _iter_bytes
@@ -552,7 +557,7 @@ class AsyncHLSDownloader():
                             async with self._LOCK:
                                 self.down_size -= _size
                                 self.down_temp -= _size
-                                async with self.video_downloader.lock:                                       
+                                async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size                                               
                         
                         #await asyncio.sleep(0)
@@ -571,7 +576,7 @@ class AsyncHLSDownloader():
                             async with self._LOCK:
                                 self.down_size -= _size
                                 self.down_temp -= _size
-                                async with self.video_downloader.lock:                                       
+                                async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                         return                   
                     except Exception as e:                        
@@ -590,7 +595,7 @@ class AsyncHLSDownloader():
                             async with self._LOCK:
                                 self.down_size -= _size
                                 self.down_temp -= _size
-                                async with self.video_downloader.lock:                                       
+                                async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                         
                         if self.reset_event.is_set():

@@ -62,7 +62,10 @@ class VideoDownloader():
             if not (_requested_formats:=self.info_dict.get('requested_formats')):
                 _new_info_dict = self.info_dict.copy()
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
-                downloaders.append(self._get_dl(_new_info_dict))
+                if (dl:=self._check_if_apple(_new_info_dict)):
+                    downloaders.append(dl)
+                else:
+                    downloaders.append(self._get_dl(_new_info_dict))
             else:
                 _new_info_dict = self.info_dict.copy()
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
@@ -95,7 +98,7 @@ class VideoDownloader():
             self.pause_event = None
             self.resume_event = None
             self.stop_event = None
-            self.lock = None
+            self.alock = None
             
             self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
             
@@ -107,16 +110,17 @@ class VideoDownloader():
             if self.info_dl['status'] == "error":
                 rmtree(self.info_dl['download_path'], ignore_errors=True)
                 
+    
     def _check_if_apple(self, info):
         
-        prots = [determine_protocol(f) for f in info['requested_formats']]
-        urls = [f['url'] for f in info['requested_formats']]
+        prots = [determine_protocol(f) for f in (info.get('requested_formats') or [info])]
+        urls = [f['url'] for f in (info.get('requested_formats') or [info])]
         if all("m3u8" in _ for _ in prots):
-            if any("dash" for _ in urls):
+            if any("dash" in _ for _ in urls):
                 return(AsyncFFMPEGDownloader(info, self))
             else:
                 res = [self.syncpostffmpeg(f"ffmpeg -i {_url}").stderr for _url in urls]
-                if any(".mp4" for _ in res):
+                if any(".mp4" in _ for _ in res):
                     return(AsyncFFMPEGDownloader(info, self))
                 
 
@@ -202,7 +206,7 @@ class VideoDownloader():
         self.resume_event = asyncio.Event()
         self.stop_event = asyncio.Event()
         self.reset_event = asyncio.Event()
-        self.lock = asyncio.Lock()
+        self.alock = asyncio.Lock()
         
         try:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
@@ -341,8 +345,8 @@ class VideoDownloader():
     async def run_manip(self):
         
         try:
-            if not self.lock:
-                self.lock = asyncio.Lock()
+            if not self.alock:
+                self.alock = asyncio.Lock()
             
             self.info_dl['status'] = "manipulating"
             for dl in self.info_dl['downloaders']: 
