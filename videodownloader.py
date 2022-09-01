@@ -65,7 +65,10 @@ class VideoDownloader():
                 if (dl:=self._check_if_apple(_new_info_dict)):
                     downloaders.append(dl)
                 else:
-                    downloaders.append(self._get_dl(_new_info_dict))
+                    dl = self._get_dl(_new_info_dict)
+                    if isinstance(dl, list): downloaders.extend(dl)
+                    else: downloaders.append(dl)
+                    #downloaders.extend(self._get_mult_dl(_new_info_dict))
             else:
                 _new_info_dict = self.info_dict.copy()
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
@@ -122,6 +125,7 @@ class VideoDownloader():
                 res = [self.syncpostffmpeg(f"ffmpeg -i {_url}").stderr for _url in urls]
                 if any(".mp4" in _ for _ in res):
                     return(AsyncFFMPEGDownloader(info, self))
+
                 
 
     def _get_dl(self, info):           
@@ -132,7 +136,28 @@ class VideoDownloader():
             if self.info_dl['rpcport']: 
                 
                 try:
-                    dl = None
+                    # if (size:=info.get('filesize', 0) > 300000000): 
+                    #     # _base_filename = info['filename'].stem
+                    #     # file1 = Path(info['filename'].parent, f"{_base_filename}_part1{info['filename'].suffix}")
+                    #     # header1 = {'Range': f'bytes=0-{size//2}'}
+                    #     # info1 = info.copy()
+                    #     # info1['filename'] = file1
+                    #     # info1['http_headers'].update(header1)
+                    #     # info1['parent_file'] = info['filename']
+                    #     # info1['filesize'] = size//2
+                    #     # file2 = Path(info['filename'].parent, f"{_base_filename}_part2{info['filename'].suffix}")
+                    #     # header2 = {'Range': f'bytes={size//2 + 1}-'}
+                    #     # info2 = info.copy()
+                    #     # info2['filename'] = file2
+                    #     # info2['http_headers'].update(header2)
+                    #     # info2['parent_file'] = info['filename']
+                    #     # info2['filesize'] = size - size//2
+                    #     # dl1 = AsyncARIA2CDownloader(self.info_dl['rpcport'], info1, self)
+                    #     # dl2 = AsyncARIA2CDownloader(self.info_dl['rpcport'], info2, self)
+                    #     # dl = [dl1, dl2]
+                        
+                    
+                    #else:     
                     dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
                     logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                     if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
@@ -454,7 +479,6 @@ class VideoDownloader():
                 
                     
                 if self.info_dl['status'] == "done":
-                    #await asyncio.to_thread(functools.partial(rmtree, self.info_dl['download_path'], ignore_errors=True))
                     await async_ex_in_executor(self.ex_videodl, rmtree, self.info_dl['download_path'], ignore_errors=True)
                     if (mtime:=self.info_dict.get("release_timestamp")):
                         await async_ex_in_executor(self.ex_videodl, os.utime, self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
