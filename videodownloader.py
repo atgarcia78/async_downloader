@@ -113,7 +113,6 @@ class VideoDownloader():
         finally:
             if self.info_dl['status'] == "error":
                 rmtree(self.info_dl['download_path'], ignore_errors=True)
-                
     
     def _check_if_apple(self, info):
         
@@ -127,28 +126,27 @@ class VideoDownloader():
                 if any(".mp4" in _ for _ in res):
                     return(AsyncFFMPEGDownloader(info, self))
 
-
     def _get_dl(self, info):           
         
         protocol = determine_protocol(info)
                     
         if protocol in ('http', 'https'):
-            if self.info_dl['rpcport']: 
-                
-                try:
-                                  
-                    dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
-                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
-                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
-                except Exception as e:
-                    if self.info_dl['backup_http']:
-                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
-                        dl = AsyncHTTPDownloader(info, self)
-                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
-                    else: raise
+            if self.info_dl['rpcport'] and (info.get('extractor') != 'doodstream'):
+                                
+                    try:
+                                    
+                        dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                    except Exception as e:
+                        if self.info_dl['backup_http']:
+                            logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
+                            dl = AsyncHTTPDownloader(info, self)
+                            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                            if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                        else: raise
             
-            else: #--aria2c 0
+            else: #--aria2c 0 or extractor is doodstream
                 
                 dl = AsyncHTTPDownloader(info, self)
                 logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
@@ -167,7 +165,6 @@ class VideoDownloader():
                         
         return dl
 
-
     def change_numvidworkers(self, n):
         for dl in self.info_dl['downloaders']:
             if 'hls' in str(type(dl)).lower():
@@ -177,13 +174,11 @@ class VideoDownloader():
                     if dl.reset_event: dl.reset_event.set()
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
-    
     def reset(self):
         if self.reset_event:
             self.resume()
             self.reset_event.set()                
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
-    
     
     def stop(self):
         if self.stop_event:
