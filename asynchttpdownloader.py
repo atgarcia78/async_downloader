@@ -118,8 +118,7 @@ class AsyncHTTPDownloader():
         
 
         try:
-            
-           
+
             def transp(func):
                 return func
             
@@ -127,8 +126,7 @@ class AsyncHTTPDownloader():
                 value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
                 if value:
                     return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
-            
-            
+
             self.n_parts = getattr(self.video_downloader, 'info_dl', {}).get('n_workers', 16)
             
             _extractor = self.info_dict.get('extractor', '')

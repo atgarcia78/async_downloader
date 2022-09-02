@@ -70,11 +70,10 @@ class AsyncARIA2CDownloader():
         self._ytdl_opts['verboseplus'] = False
         self._ytdl_opts['logger'] = MyLogger(logging.getLogger("proxy_yt_dlp"),
                                              quiet=True, verbose=False, superverbose=False)
-        self.verifycert = not self.ytdl.params.get('nocheckcertificate')       
-        
+
         self.video_url = self.info_dict.get('url')
         self.uris = [unquote(self.video_url)]        
-        self._host = get_domain(self.uris[0])        
+        self._host = get_domain(self.video_url)        
         
         self.headers = self.info_dict.get('http_headers')  
         
