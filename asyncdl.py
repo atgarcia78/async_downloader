@@ -615,8 +615,7 @@ class AsyncDL():
 
     def get_list_videos(self):
         
-        logger.info(f"[get_list_videos] start scanning")
-
+        
         try:
          
             url_list = []
@@ -740,8 +739,10 @@ class AsyncDL():
                             logger.info(f"[url_playlist_list][{self._count_pl}/{len(self.futures) + len(self.futures2)}] processing {_url}")
                         try:
                             _errormsg = None
-                            _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
+                            #_info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
+                            _info = self.ytdl.extract_info(_url, download=False, process=False)
                         except Exception as e:
+                            logger.exception(repr(e))
                             _info = None
                             _errormsg = repr(e)
                         if not _info:
@@ -761,12 +762,18 @@ class AsyncDL():
                                     _name = f"{_info.get('title')}{_info.get('extractor_key')}{_info.get('id')}"
                                     self.args.path = str(Path(Path.home(), 'testing', _name))
                                     logger.info(f"[path for pl] {self.args.path}")
-                                    
+                                
+                                if isinstance(_info.get('entries'), list):
+                                    _info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))    
+                                
                                 if _info.get('extractor_key') == 'GVDBlogPlaylist':
                                     _temp_aldl = [] 
                                     _temp_nodl = []
                                     for _ent in _info.get('entries'):
-                                        if not self._check_if_aldl(_ent, test=True): _temp_nodl.append(_ent)
+                                        if not isinstance(_info.get('entries'), list):
+                                            _ent = self.ytdl.sanitize_info(_ent)
+                                        if not self._check_if_aldl(_ent, test=True): 
+                                            _temp_nodl.append(_ent)
                                         else: _temp_aldl.append(_ent)
                                 
                                     def get_list_interl(res):
@@ -786,7 +793,8 @@ class AsyncDL():
                                     _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl
                                    
                                 
-                                for _ent in _info.get('entries'):
+                                for _ent in _info.get('entries'):                                    
+                                    
                                     
                                     if _ent.get('_type', 'video') == 'video':
                                         if not _ent.get('original_url'): 
@@ -822,7 +830,7 @@ class AsyncDL():
                                             logger.warning(f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}")
                    
                     except BaseException as e:
-                        logger.error(f"[url_playlist_list] {repr(e)}")
+                        logger.exception(f"[url_playlist_list] {repr(e)}")
                         if isinstance(e, KeyboardInterrupt):
                             raise
                 
@@ -979,6 +987,7 @@ class AsyncDL():
                 self.num_videos_pending += 1
             
     def _prepare_entry_pl_for_dl(self, entry):
+        
         _type = entry.get('_type', 'video')
         if _type == 'playlist':
             logger.warning(f"[prepare_entry_pl_for_dl] PLAYLIST IN PLAYLIST: {entry}")
@@ -1350,19 +1359,15 @@ class AsyncDL():
     
     
     async def worker_run(self, i):
-        
-            
-        
+
         logger.debug(f"[worker_run][{i}]: launched")       
-        
-        
+
         try:
             
             while True:
                 await asyncio.sleep(0)
                 url_key, video_dl = await self.queue_run.get()
                 logger.debug(f"[worker_run][{i}]: get for a video_DL")
-                
                 
                 if video_dl == "KILL":
                     logger.debug(f"[worker_run][{i}]: get KILL, bye")                    
@@ -1442,8 +1447,7 @@ class AsyncDL():
                         logger.error(f"[worker_run][{i}][{url_key}]: STATUS NOT EXPECTED: {video_dl.info_dl['status']}")
                         self.info_videos[url_key]['error'].append(f"error when dl video: {video_dl.info_dl['error_message']}")
                         self.info_videos[url_key]['status'] = 'nok'
-                        
-                        
+
                     await asyncio.sleep(0)
                                 
         except BaseException as e:            
@@ -1457,7 +1461,6 @@ class AsyncDL():
             logger.debug(f"[worker_run][{i}]: BYE")
             await asyncio.sleep(0)
 
-        
     async def worker_manip(self, i):
        
         logger.debug(f"[worker_manip][{i}]: launched")       
@@ -1466,8 +1469,7 @@ class AsyncDL():
         try:
             
             while True:
-            
-                
+
                 url_key, video_dl = await self.queue_manip.get()                              
                 logger.debug(f"[worker_manip][{i}]: get for a video_DL")
                 await asyncio.sleep(0)
@@ -1511,12 +1513,8 @@ class AsyncDL():
         self.hosts_alock = asyncio.Lock()
         
         self.queue_vid = asyncio.Queue()
-        
-        
-        logger.info(f"MAX WORKERS [{self.workers}]")
-        
+
         try:
-            
 
             self.t1.start()
             self.t2.start()
@@ -1792,11 +1790,7 @@ class AsyncDL():
                     proc.kill()
                 except Exception as e:
                     logger.exception(f"[close] {repr(e)}")
-            
-        
-            
-            
-            
+
     def clean(self):
         
         self.p1.join()
