@@ -68,7 +68,7 @@ class VideoDownloader():
                     dl = self._get_dl(_new_info_dict)
                     if isinstance(dl, list): downloaders.extend(dl)
                     else: downloaders.append(dl)
-                    #downloaders.extend(self._get_mult_dl(_new_info_dict))
+
             else:
                 _new_info_dict = self.info_dict.copy()
                 _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
@@ -79,7 +79,8 @@ class VideoDownloader():
                         _new_info_dict = f.copy()                
                         _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
                         dl = self._get_dl(_new_info_dict)
-                        downloaders.append(dl)        
+                        if isinstance(dl, list): downloaders.extend(dl)
+                        else: downloaders.append(dl)        
 
             res = sorted(list(set([dl.status for dl in downloaders])))
             if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]):
@@ -126,7 +127,6 @@ class VideoDownloader():
                 if any(".mp4" in _ for _ in res):
                     return(AsyncFFMPEGDownloader(info, self))
 
-                
 
     def _get_dl(self, info):           
         
@@ -136,28 +136,7 @@ class VideoDownloader():
             if self.info_dl['rpcport']: 
                 
                 try:
-                    # if (size:=info.get('filesize', 0) > 300000000): 
-                    #     # _base_filename = info['filename'].stem
-                    #     # file1 = Path(info['filename'].parent, f"{_base_filename}_part1{info['filename'].suffix}")
-                    #     # header1 = {'Range': f'bytes=0-{size//2}'}
-                    #     # info1 = info.copy()
-                    #     # info1['filename'] = file1
-                    #     # info1['http_headers'].update(header1)
-                    #     # info1['parent_file'] = info['filename']
-                    #     # info1['filesize'] = size//2
-                    #     # file2 = Path(info['filename'].parent, f"{_base_filename}_part2{info['filename'].suffix}")
-                    #     # header2 = {'Range': f'bytes={size//2 + 1}-'}
-                    #     # info2 = info.copy()
-                    #     # info2['filename'] = file2
-                    #     # info2['http_headers'].update(header2)
-                    #     # info2['parent_file'] = info['filename']
-                    #     # info2['filesize'] = size - size//2
-                    #     # dl1 = AsyncARIA2CDownloader(self.info_dl['rpcport'], info1, self)
-                    #     # dl2 = AsyncARIA2CDownloader(self.info_dl['rpcport'], info2, self)
-                    #     # dl = [dl1, dl2]
-                        
-                    
-                    #else:     
+                                  
                     dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
                     logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                     if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
@@ -169,7 +148,7 @@ class VideoDownloader():
                         if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
                     else: raise
             
-            else: #not used option --aria2c
+            else: #--aria2c 0
                 
                 dl = AsyncHTTPDownloader(info, self)
                 logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
@@ -185,20 +164,10 @@ class VideoDownloader():
         else:
             logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
             raise NotImplementedError("protocol not supported")
-        
                         
         return dl
 
-    def reset(self):
-        
-        for dl in self.info_dl['downloaders']:
-            #if 'hls' in str(type(dl)).lower():
-            if dl.reset_event and dl.status == "downloading":
-                self.resume()
-                dl.reset_event.set()
-                
-        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
-    
+
     def change_numvidworkers(self, n):
         for dl in self.info_dl['downloaders']:
             if 'hls' in str(type(dl)).lower():
@@ -207,6 +176,14 @@ class VideoDownloader():
                 if dl.status == "downloading":
                     if dl.reset_event: dl.reset_event.set()
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
+    
+    
+    def reset(self):
+        if self.reset_event:
+            self.resume()
+            self.reset_event.set()                
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
+    
     
     def stop(self):
         if self.stop_event:
@@ -239,7 +216,6 @@ class VideoDownloader():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
             if tasks_run:
                 done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
-            
         
                 if done:
                     for d in done:
@@ -249,20 +225,7 @@ class VideoDownloader():
                             lines = traceback.format_exception(*sys.exc_info())                
                             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
                             
-                
-            
-            # tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
-            # done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
-            
-        
-            # if done:
-            #     for d in done:
-            #         try:                        
-            #             d.result()  
-            #         except Exception as e:
-            #             lines = traceback.format_exception(*sys.exc_info())                
-            #             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error ftch_async: {repr(e)}\n{'!!'.join(lines)}")
-                        
+           
             if self.stop_event.is_set():
                 self.info_dl['status'] = "stop"
             
@@ -278,8 +241,6 @@ class VideoDownloader():
                     self.info_dl['status'] = "init_manipulating"
         
         except Exception as e:
-            #lines = traceback.format_exception(*sys.exc_info())                
-            #logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL\n{'!!'.join(lines)}")
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL {repr(e)}")
             self.info_dl['status'] = 'error'
         finally:    
@@ -398,23 +359,17 @@ class VideoDownloader():
             for dl in self.info_dl['downloaders']:
                 res = res and (_exists:= await async_ex_in_executor(self.ex_videodl, dl.filename.exists)) and dl.status == "done"
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] {dl.filename} exists: [{_exists}] status: [{dl.status}]")
-                
-                
-                            
+
             if res:    
-                           
-        
+
                 if len(self.info_dl['downloaders']) == 1:
                     
                     rc = -1
-                    
-                    
+
                     if "ts" in self.info_dl['downloaders'][0].filename.suffix: #usamos ffmpeg para cambiar contenedor ts del DL de HLS de un sólo stream a mp4
                     
                         cmd = f"ffmpeg -y -probesize max -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:{str(self.info_dl['filename'])}"
-                        
-                    
-                        
+
                         res = await async_ex_in_executor(self.ex_videodl, self.syncpostffmpeg, cmd)
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
                         rc = res.returncode
@@ -433,11 +388,6 @@ class VideoDownloader():
                             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
                             
                     if rc == 0 and (await async_ex_in_executor(self.ex_videodl, self.info_dl['filename'].exists)):
-                    
-                        
-                        # if (_file_subs_en:=self.info_dl.get('requested_subtitles', {}).get('en', {}).get('file')):
-                            
-                        #     rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], logger, f"[{self.info_dict['id']}][{self.info_dict['title']}]")
                                                                 
                         self.info_dl['status'] = "done"
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
@@ -460,10 +410,6 @@ class VideoDownloader():
                     rc = res.returncode
                     
                     if rc == 0 and (await async_ex_in_executor(self.ex_videodl, self.info_dl['filename'].exists)):
-                        
-                        # if (_file_subs_en:=self.info_dl['requested_subtitles'].get('en', {}).get('file')):
-                            
-                        #     rc = await asyncio.to_thread(self.embed_subs, _file_subs_en, self.info_dl['filename'], logger,f"[{self.info_dict['id']}][{self.info_dict['title']}]")
                                                 
                         self.info_dl['status'] = "done"          
                         for dl in self.info_dl['downloaders']:
