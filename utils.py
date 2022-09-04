@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 import argparse
 import asyncio
-import collections
 import contextvars
 import functools
 import json
@@ -17,6 +16,8 @@ from concurrent.futures.thread import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 import contextlib
+from itertools import zip_longest
+
 
 try:
 
@@ -258,18 +259,58 @@ if _SUPPORT_ARIA2P:
         del opts
         del cl
         
+
+def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
+    "Collect data into non-overlapping fixed-length chunks or blocks"
+    # grouper('ABCDEFG', 3, fillvalue='x') --> ABC DEF Gxx
+    # grouper('ABCDEFG', 3, incomplete='strict') --> ABC DEF ValueError
+    # grouper('ABCDEFG', 3, incomplete='ignore') --> ABC DEF
+    args = [iter(iterable)] * n
+    if incomplete == 'fill':
+        return zip_longest(*args, fillvalue=fillvalue)
+    if incomplete == 'strict':
+        return zip(*args, strict=True)
+    if incomplete == 'ignore':
+        return zip(*args)
+    else:
+        raise ValueError('Expected fill, strict, or ignore')      
         
-        IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', '192.145.124.174', '192.145.124.190', '192.145.124.186', '192.145.124.238', '192.145.124.226']
+    
+def init_proxies(n=10, num_el_set=4):
+    
         
-        FINAL_IPS = random.choices(IPS_SSL, k = 6)
-        PORTS = ['7070' for _ in range(6)]
-                
+    #SP
+    IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', '192.145.124.174', '192.145.124.190', '192.145.124.186', '192.145.124.238', '192.145.124.226'] 
+    #FR
+    IPS_SSL += ['93.177.75.90', '93.177.75.18', '93.177.75.26', '93.177.75.122', '93.177.75.138', '93.177.75.2', '93.177.75.146', '93.177.75.42', '93.177.75.50', '93.177.75.154', '93.177.75.34', '93.177.75.98', '93.177.75.202', '93.177.75.218', '93.177.75.106', '37.120.158.138', '93.177.75.10', '93.177.75.210', '93.177.75.130', '93.177.75.162', '93.177.75.82', '93.177.75.74', '93.177.75.58', '93.177.75.66', '93.177.75.114']    
+    #UK
+    IPS_SSL += ['146.70.83.170', '146.70.95.34', '37.120.198.162', '146.70.95.18', '146.70.83.130', '146.70.83.162', '146.70.83.178', '146.70.83.210', '146.70.83.250', '146.70.95.58', '146.70.95.66', '146.70.83.202', '146.70.83.194', '146.70.83.154', '146.70.83.242', '146.70.83.186', '146.70.95.50', '146.70.83.146', '146.70.83.234', '146.70.95.42', '146.70.83.218', '146.70.83.226', '185.253.98.42']
+    #DE
+    IPS_SSL += ['93.177.73.210', '93.177.73.234', '93.177.73.130', '93.177.73.114', '93.177.73.154', '93.177.73.98', '93.177.73.202', '93.177.73.138', '93.177.73.90', '93.177.73.218', '93.177.73.74', '93.177.73.146', '93.177.73.66', '93.177.73.194', '93.177.73.106', '93.177.73.122', '93.177.73.226', '93.177.73.82']
+    
+    
+    logger = logging.getLogger("asyncDL")
+    
+    _ips = random.sample(IPS_SSL, n * num_el_set)
+    
+    FINAL_IPS = list(grouper(_ips, num_el_set))
         
-        cmd_gost = [f"gost -L=:123{i + 4} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}" for i, ip, port in zip([i for i in range(6)], FINAL_IPS, PORTS)]
+    cmd_gost_simple = [f"gost -L=:{1235 + 10*i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[0]}:7070" for i, ip in enumerate(FINAL_IPS)]
+    cmd_gost_ip0 = [f"gost -L=:{1235 + 10*i + 1} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[1]}:7070" for i, ip in enumerate(FINAL_IPS)]
+    cmd_gost_ip1 = [f"gost -L=:{1235 + 10*i + 2} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[2]}:7070" for i, ip in enumerate(FINAL_IPS)]
+    cmd_gost_ip2 = [f"gost -L=:{1235 + 10*i + 3} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[3]}:7070" for i, ip, in enumerate(FINAL_IPS)]
+    cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=':{1235 + 10*i + 9}?ip=:{1235 + 10*i + 1},:{1235 + 10*i + 2},:{1235 + 10*i + 3}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
         
         
-        proc_gost = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) for cmd in cmd_gost]
-        return proc_gost
+    cmd_gost =cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
+        
+
+    
+    logger.debug(f"[init_proxies] {cmd_gost}")
+    
+        
+    proc_gost = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) for cmd in cmd_gost]
+    return proc_gost
         
 
 

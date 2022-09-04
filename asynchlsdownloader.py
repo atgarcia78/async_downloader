@@ -72,7 +72,7 @@ class AsyncHLSDownloader():
             
             self.ytdl = vid_dl.info_dl['ytdl']
 
-            self.proxies = [{'http://': f"http://127.0.0.1:123{i + 4}", 'https://': f"http://127.0.0.1:123{i + 4}"} for i in range(6)]
+            self.proxies = [{'http://': f"http://127.0.0.1:{1234 + i}", 'https://': f"http://127.0.0.1:{1234 + i}"} for i in range(8)]
 
             self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 

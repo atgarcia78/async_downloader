@@ -23,6 +23,8 @@ from utils import async_ex_in_executor, naturalsize, traverse_obj
 import os
 from concurrent.futures import ThreadPoolExecutor
 
+FORCE_TO_HTTP = ['doodstream']
+
 
 logger = logging.getLogger("video_DL")
 class VideoDownloader():
@@ -131,7 +133,7 @@ class VideoDownloader():
         protocol = determine_protocol(info)
                     
         if protocol in ('http', 'https'):
-            if self.info_dl['rpcport'] and (info.get('extractor') != 'doodstream'):
+            if self.info_dl['rpcport'] and (info.get('extractor') not in FORCE_TO_HTTP):
                                 
                     try:
                                     

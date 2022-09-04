@@ -21,7 +21,8 @@ from utils import (
     async_ex_in_executor,
     async_wait_time,
     get_chain_links,
-    init_aria2c, 
+    init_aria2c,
+    init_proxies, 
     init_gui_console,
     init_gui_root,
     init_ytdl, 
@@ -75,9 +76,10 @@ class AsyncDL():
         self.ytdl = init_ytdl(self.args)
         
         #aria2c
-        self.proc_gost = None
-        if self.args.aria2c: 
-            self.proc_gost = init_aria2c(self.args)
+        self.proc_gost = []
+        if self.args.aria2c:             
+            init_aria2c(self.args)
+            self.proc_gost += init_proxies(n=10, )
     
         #listas, dicts con videos      
         self.info_videos = {}
