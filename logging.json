@@ -13,17 +13,16 @@
         "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s",
         "datefmt": "%H:%M:%S"
     },
-    "file_format":{  
+    "file_format":{
         "()": "supportlogging.FileFormatter",
         "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s"
     }
-
   },
   "filters": {
     "filtermodules": {
         "()": "supportlogging.FilterModule",
-        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "seleniumwire.handler", "img2pdf", "hpack", "seleniumwire.mitmproxy", "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache", "charset_normalizer", "blib2to3.pgen2.driver", "pyrate_limiter.limit_context_decorator"]
-    } 
+        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "seleniumwire.handler", "img2pdf", "hpack", "seleniumwire.mitmproxy", "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache", "charset_normalizer", "blib2to3.pgen2.driver", "pyrate_limiter.limit_context_decorator", "oauth2client.client"]
+    }   
   },
   "handlers": {
     "console": {
@@ -38,7 +37,7 @@
         "class": "logging.handlers.RotatingFileHandler",
         "level": "DEBUG",
         "formatter": "file_format",
-        "filename": "{home}/Projects/common/logs/asyncdl.log",
+        "filename": "{path_logs}/asyncdl.log",
         "filters": ["filtermodules"],
         "maxBytes": 6310720,
         "backupCount": 24,
@@ -61,5 +60,3 @@
     "handlers": ["queue_listener"]
   }
 }
-
-

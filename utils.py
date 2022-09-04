@@ -18,16 +18,16 @@ from queue import Queue
 import contextlib
 from itertools import zip_longest
 
+PATH_LOGS = Path(Path.home(), "Projects/common/logs")
+
 
 try:
-
     import aria2p
     _SUPPORT_ARIA2P = True
 except Exception:
      _SUPPORT_ARIA2P = False
 
 try:
-
     import httpx
     _SUPPORT_HTTPX = True
 except Exception:
@@ -47,7 +47,6 @@ try:
         sanitize_filename, 
         traverse_obj,
         get_domain
-
     )
 
     from yt_dlp.extractor.commonwebdriver import (
@@ -66,8 +65,6 @@ except Exception:
     _SUPPORT_YTDL = False
 
 import threading
-
-PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 try:    
     from filelock import FileLock
@@ -174,7 +171,7 @@ def init_logging(file_path=None):
     with open(config_file) as f:
         config = json.loads(f.read())
     
-    config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(home = str(Path.home()))
+    config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(path_logs = str(PATH_LOGS))
     
     logging.config.dictConfig(config)   
 
@@ -207,7 +204,6 @@ def init_argparser():
     parser.add_argument("--vv", help="verbose plus", action="store_true", default=False)
     parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
     parser.add_argument("--aria2c", help="use of external aria2c running in port [PORT]. By default PORT=6800. PORT 0 to disable", default=-1, type=int)
-    #parser.add_argument("--notaria2c", help="force to not use aria2c", action="store_true", default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
@@ -228,8 +224,6 @@ def init_argparser():
         args.rpcport = args.aria2c
         args.aria2c = True        
 
- 
-    
     if args.path and len(args.path.split("/")) == 1:
         _path = Path(Path.home(), "testing", args.path)
         args.path = str(_path)
@@ -277,16 +271,24 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
         
     
 def init_proxies(n=10, num_el_set=4):
-    
         
     #SP
-    IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', '192.145.124.174', '192.145.124.190', '192.145.124.186', '192.145.124.238', '192.145.124.226'] 
+    IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', 
+               '192.145.124.174', '192.145.124.190', '192.145.124.186', '192.145.124.238', '192.145.124.226'] 
     #FR
-    IPS_SSL += ['93.177.75.90', '93.177.75.18', '93.177.75.26', '93.177.75.122', '93.177.75.138', '93.177.75.2', '93.177.75.146', '93.177.75.42', '93.177.75.50', '93.177.75.154', '93.177.75.34', '93.177.75.98', '93.177.75.202', '93.177.75.218', '93.177.75.106', '37.120.158.138', '93.177.75.10', '93.177.75.210', '93.177.75.130', '93.177.75.162', '93.177.75.82', '93.177.75.74', '93.177.75.58', '93.177.75.66', '93.177.75.114']    
+    IPS_SSL += ['93.177.75.90', '93.177.75.18', '93.177.75.26', '93.177.75.122', '93.177.75.138', '93.177.75.2', 
+                '93.177.75.146', '93.177.75.42', '93.177.75.50', '93.177.75.154', '93.177.75.34', '93.177.75.98', 
+                '93.177.75.202', '93.177.75.218', '93.177.75.106', '37.120.158.138', '93.177.75.10', '93.177.75.210', 
+                '93.177.75.130', '93.177.75.162', '93.177.75.82', '93.177.75.74', '93.177.75.58', '93.177.75.66', '93.177.75.114']    
     #UK
-    IPS_SSL += ['146.70.83.170', '146.70.95.34', '37.120.198.162', '146.70.95.18', '146.70.83.130', '146.70.83.162', '146.70.83.178', '146.70.83.210', '146.70.83.250', '146.70.95.58', '146.70.95.66', '146.70.83.202', '146.70.83.194', '146.70.83.154', '146.70.83.242', '146.70.83.186', '146.70.95.50', '146.70.83.146', '146.70.83.234', '146.70.95.42', '146.70.83.218', '146.70.83.226', '185.253.98.42']
+    IPS_SSL += ['146.70.83.170', '146.70.95.34', '37.120.198.162', '146.70.95.18', '146.70.83.130', '146.70.83.162', 
+                '146.70.83.178', '146.70.83.210', '146.70.83.250', '146.70.95.58', '146.70.95.66', '146.70.83.202', 
+                '146.70.83.194', '146.70.83.154', '146.70.83.242', '146.70.83.186', '146.70.95.50', '146.70.83.146', 
+                '146.70.83.234', '146.70.95.42', '146.70.83.218', '146.70.83.226', '185.253.98.42']
     #DE
-    IPS_SSL += ['93.177.73.210', '93.177.73.234', '93.177.73.130', '93.177.73.114', '93.177.73.154', '93.177.73.98', '93.177.73.202', '93.177.73.138', '93.177.73.90', '93.177.73.218', '93.177.73.74', '93.177.73.146', '93.177.73.66', '93.177.73.194', '93.177.73.106', '93.177.73.122', '93.177.73.226', '93.177.73.82']
+    IPS_SSL += ['93.177.73.210', '93.177.73.234', '93.177.73.130', '93.177.73.114', '93.177.73.154', '93.177.73.98', '93.177.73.202', 
+                '93.177.73.138', '93.177.73.90', '93.177.73.218', '93.177.73.74', '93.177.73.146', '93.177.73.66', '93.177.73.194', 
+                '93.177.73.106', '93.177.73.122', '93.177.73.226', '93.177.73.82']
     
     
     logger = logging.getLogger("asyncDL")
@@ -299,7 +301,7 @@ def init_proxies(n=10, num_el_set=4):
     cmd_gost_ip0 = [f"gost -L=:{1235 + 10*i + 1} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[1]}:7070" for i, ip in enumerate(FINAL_IPS)]
     cmd_gost_ip1 = [f"gost -L=:{1235 + 10*i + 2} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[2]}:7070" for i, ip in enumerate(FINAL_IPS)]
     cmd_gost_ip2 = [f"gost -L=:{1235 + 10*i + 3} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[3]}:7070" for i, ip, in enumerate(FINAL_IPS)]
-    cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=':{1235 + 10*i + 9}?ip=:{1235 + 10*i + 1},:{1235 + 10*i + 2},:{1235 + 10*i + 3}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
+    cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=':{1235 + 10*i + 9}?ip={','.join([f':{1235 + 10*i + j}' for j in range(1,num_el_set)])}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
 
     cmd_gost =cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
     
@@ -381,7 +383,8 @@ if _SUPPORT_YTDL:
         ytdl_opts = { 
             "http_headers": headers,
             "proxy" : proxy,        
-            "logger" : MyLogger(logger, quiet=args.quiet, verbose=args.verbose, superverbose=args.vv),
+            "logger" : MyLogger(logger, quiet=args.quiet, 
+                                verbose=args.verbose, superverbose=args.vv),
             "verbose": args.verbose,
             "quiet": args.quiet,
             "format" : args.format,
