@@ -14,11 +14,10 @@ import aiofiles
 import httpx
 
 from utils import (EMA, int_or_none, naturalsize, none_to_cero, try_get, 
-                   async_ex_in_executor, limiter_15, limiter_5, limiter_1, 
+                   async_ex_in_executor, 
                    dec_retry_error, traverse_obj, CONFIG_EXTRACTORS, get_domain)
 
 
-from threading import Lock
 from cs.threads import PriorityLock
 
 from urllib.parse import unquote
@@ -62,13 +61,9 @@ class AsyncHTTPDownloader():
         self.uris = [unquote(self.video_url)]
 
         self.ytdl = getattr(self.video_downloader, 'info_dl', {}).get('ytdl', None)
-        
 
-        #ip_proxies = ["192.145.124.234", "192.145.124.242", "89.238.178.234", "192.145.124.190", "192.145.124.186", "192.145.124.226", "192.145.124.174", "192.145.124.238", "89.238.178.206"]
-        #self.proxies = [{'http://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:6060", 'https://': f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:1337"} for ip in ip_proxies]
         self.proxies = None
-        
-        #self.verifycert = not self.ytdl.params.get('nocheckcertificate', False) if self.ytdl else False
+
         self.verifycert = False
         self.timeout = httpx.Timeout(60, connect=60)
         
@@ -105,17 +100,13 @@ class AsyncHTTPDownloader():
         
         self.ema_s = EMA(smoothing=0.0001)
         self.ema_t = EMA(smoothing=0.0001)
-        
 
-        
         self.reset_event = None
         
         self.init()
 
-
-      
+    
     def init(self): 
-        
 
         try:
 
@@ -198,9 +189,6 @@ class AsyncHTTPDownloader():
         @dec_retry_error
         @self._decor    
         def _check_server():
-            #checks if server can handle ranges
-
-
             try:             
                 res = self.init_client.head(self.uris[0], headers={'range': 'bytes=0-'})
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {res} {res.request.headers} {res.headers}") 
@@ -216,7 +204,6 @@ class AsyncHTTPDownloader():
         
     def upt_hsize(self, i, offset=None):
 
-        
         @dec_retry_error
         @self._decor
         def _upt_hsize():    
@@ -250,8 +237,7 @@ class AsyncHTTPDownloader():
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: size parts [{_partsize}] < {self._MIN_SIZE} -> change nparts [{self.n_parts} -> {temp}]")
             self.n_parts = temp
             self._NUM_WORKERS = self.n_parts            
-        
-                
+ 
         try:
             start_range = 0
             for i in range(1, self.n_parts+1):
@@ -283,11 +269,7 @@ class AsyncHTTPDownloader():
                 
             _not_hsize = [_part for _part in self.parts if not _part['headersize']]
             if len(_not_hsize) > 0: logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] not headersize in [{len(_not_hsize)}/{self.n_parts}]")
-            
 
-                
-                
-                
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] {repr(e)} \n{'!!'.join(lines)}")

@@ -300,16 +300,13 @@ def init_proxies(n=10, num_el_set=4):
     cmd_gost_ip1 = [f"gost -L=:{1235 + 10*i + 2} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[2]}:7070" for i, ip in enumerate(FINAL_IPS)]
     cmd_gost_ip2 = [f"gost -L=:{1235 + 10*i + 3} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[3]}:7070" for i, ip, in enumerate(FINAL_IPS)]
     cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=':{1235 + 10*i + 9}?ip=:{1235 + 10*i + 1},:{1235 + 10*i + 2},:{1235 + 10*i + 3}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
-        
-        
-    cmd_gost =cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
-        
 
+    cmd_gost =cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
     
     logger.debug(f"[init_proxies] {cmd_gost}")
-    
-        
+
     proc_gost = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) for cmd in cmd_gost]
+    
     return proc_gost
         
 
@@ -410,9 +407,13 @@ if _SUPPORT_YTDL:
         }
         
         if args.use_cookies:
-            ytdl_opts.update({"cookiesfrombrowser": ('firefox', '/Users/antoniotorres/Library/Application Support/Firefox/Profiles/c3nsqmmt.default-1637669918519', None)})
+            ytdl_opts.update(
+                {
+                    "cookiesfrombrowser": ('firefox', '/Users/antoniotorres/Library/Application Support/Firefox/Profiles/c3nsqmmt.default-1637669918519', None)
+                })
         
-        if args.ytdlopts: ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
+        if args.ytdlopts: 
+            ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
             
         ytdl = YoutubeDL(ytdl_opts)
         
@@ -655,7 +656,6 @@ def kill_processes(logger=None, rpcport=None):
         for el in mobj2:
             shutil.rmtree(el, ignore_errors=True)
             
-
 def foldersize(folder):
     #devuelve en bytes size folder
     return sum(file.stat().st_size for file in Path(folder).rglob('*') if file.is_file())
@@ -666,7 +666,6 @@ def folderfiles(folder):
         if file.is_file(): count += 1
         
     return count
-
 
 def int_or_none(res):
     return int(res) if res else None

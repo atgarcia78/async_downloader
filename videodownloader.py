@@ -40,21 +40,27 @@ class VideoDownloader():
             self.info_dict = video_dict.copy() 
             
             _date_file = datetime.now().strftime("%Y%m%d")
-            _download_path = Path(Path.home(), "testing", _date_file, self.info_dict['id']) if not self.args.path else Path(self.args.path, self.info_dict['id'])
+            
+            if not self.args.path:
+                _download_path = Path(Path.home(), "testing", _date_file, self.info_dict['id']) 
+            else:
+                _download_path = Path(self.args.path, self.info_dict['id'])
             
                 
             self.info_dl = {
                 
                 'id': self.info_dict['id'],
                 'n_workers': self.args.parts,
-                'rpcport': self.args.rpcport, #será None si no hemos querido usar aria2c si es DL HTTP
+                'rpcport': self.args.rpcport, 
                 'auto_pasres': False,
                 'webpage_url': self.info_dict.get('webpage_url'),
                 'title': self.info_dict.get('title'),
                 'ytdl': ytdl,
                 'date_file': _date_file,
                 'download_path': _download_path,
-                'filename': Path(_download_path.parent, str(self.info_dict['id']) + "_" + sanitize_filename(self.info_dict['title'], restricted=True)  + "." + self.info_dict.get('ext', 'mp4')),
+                'filename': Path(_download_path.parent, str(self.info_dict['id']) + 
+                                 "_" + sanitize_filename(self.info_dict['title'], restricted=True) + 
+                                 "." + self.info_dict.get('ext', 'mp4')),
                 'backup_http': self.args.use_http_failover
             } 
                 
@@ -63,7 +69,8 @@ class VideoDownloader():
             downloaders = []
             if not (_requested_formats:=self.info_dict.get('requested_formats')):
                 _new_info_dict = self.info_dict.copy()
-                _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
+                _new_info_dict.update({'filename': self.info_dl['filename'], 
+                                       'download_path': self.info_dl['download_path']})
                 if (dl:=self._check_if_apple(_new_info_dict)):
                     downloaders.append(dl)
                 else:
@@ -73,13 +80,17 @@ class VideoDownloader():
 
             else:
                 _new_info_dict = self.info_dict.copy()
-                _new_info_dict.update({'filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path']})
+                _new_info_dict.update({'filename': self.info_dl['filename'], 
+                                       'download_path': self.info_dl['download_path']})
                 if (dl:=self._check_if_apple(_new_info_dict)):
                     downloaders.append(dl)
                 else:
                     for f in _requested_formats:
                         _new_info_dict = f.copy()                
-                        _new_info_dict.update({'id': self.info_dl['id'], 'title': self.info_dl['title'], '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'], 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
+                        _new_info_dict.update(
+                            {'id': self.info_dl['id'], 'title': self.info_dl['title'],
+                            '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
+                            'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
                         dl = self._get_dl(_new_info_dict)
                         if isinstance(dl, list): downloaders.extend(dl)
                         else: downloaders.append(dl)        
@@ -135,18 +146,18 @@ class VideoDownloader():
         if protocol in ('http', 'https'):
             if self.info_dl['rpcport'] and (info.get('extractor') not in FORCE_TO_HTTP):
                                 
-                    try:
-                                    
-                        dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
-                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
-                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
-                    except Exception as e:
-                        if self.info_dl['backup_http']:
-                            logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
-                            dl = AsyncHTTPDownloader(info, self)
-                            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                            if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
-                        else: raise
+                try:
+                                
+                    dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                except Exception as e:
+                    if self.info_dl['backup_http']:
+                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
+                        dl = AsyncHTTPDownloader(info, self)
+                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                    else: raise
             
             else: #--aria2c 0 or extractor is doodstream
                 
@@ -190,14 +201,12 @@ class VideoDownloader():
     def pause(self):
         if self.pause_event:
             self.pause_event.set()
-            #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event pause")
-        
+
     def resume(self):
         if self.resume_event:
             if self.pause_event.is_set(): 
                 self.resume_event.set()
-                #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event resume")
-    
+
     async def run_dl(self):
 
         self.info_dl['status'] = "downloading"
@@ -213,7 +222,7 @@ class VideoDownloader():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
             if tasks_run:
                 done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
-        
+                        
                 if done:
                     for d in done:
                         try:                        
@@ -435,15 +444,13 @@ class VideoDownloader():
             for t in blocking_tasks: t.cancel()
             await asyncio.wait(blocking_tasks)
             raise 
-            
-    
+
     @staticmethod
     def syncpostffmpeg(cmd):
         
         res = subprocess.run(cmd.split(' '), encoding='utf-8', capture_output=True)
         return res
-    
-    
+
     def print_hookup(self):        
         
         msg = ""
@@ -469,5 +476,3 @@ class VideoDownloader():
             if self.info_dl['filename'].exists(): _size = self.info_dl['filename'].stat().st_size
             else: _size = 0
             return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]:  Ensambling/Merging {naturalsize(_size, format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
-        
-        

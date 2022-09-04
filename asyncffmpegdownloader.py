@@ -304,10 +304,6 @@ class AsyncFFmpegFD(FFmpegFD):
         except Exception as e:
             logger.exception(repr(e))
 
-
-
-
-
 class AsyncFFMPEGDLErrorFatal(Exception):
     """Error during info extraction."""
 
@@ -352,7 +348,6 @@ class AsyncFFMPEGDownloader():
                 
                 self.filename = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
             else:
-                # self.download_path = self.base_download_path
                 _filename = self.info_dict.get('filename')            
                 self.filename = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
 
