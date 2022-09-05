@@ -4,7 +4,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse, urlunparse
 import copy
 
 import aria2p
@@ -51,6 +51,10 @@ class AsyncARIA2CDownloader():
     _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
     
     ROUTING_DICT = {}
+    
+    MAX_SAME_HOST = 10
+    
+    SIZE_GROUP = 3
         
     
     def __init__(self, port, video_dict, vid_dl):
@@ -63,7 +67,7 @@ class AsyncARIA2CDownloader():
         self.ytdl = self.video_downloader.info_dl['ytdl']
        
        
-        self.proxies = [i for i in range(10)]
+        self.proxies = [i for i in range(self.MAX_SAME_HOST)]
         
         self._ytdl_opts = self.ytdl.params.copy()        
         self._ytdl_opts['quiet'] = True
@@ -95,6 +99,8 @@ class AsyncARIA2CDownloader():
         self.error_message = ""
         
         self.nworkers = self.video_downloader.info_dl['n_workers']
+        
+        self.dl_cont = None
         
         self.prep_init()
         
@@ -130,7 +136,7 @@ class AsyncARIA2CDownloader():
         self.nworkers = min(_nsplits, self.nworkers)
         
         if self._mode == "group":
-            self.nworkers = 3*self.nworkers #for tubeload that is 3*4 segments
+            self.nworkers = self.SIZE_GROUP*self.nworkers #for tubeload that is 3*4 segments
 
         opts_dict = {
             'split': self.nworkers,
@@ -177,7 +183,7 @@ class AsyncARIA2CDownloader():
                             break
                             
                         else:
-                            if self.video_downloader.hosts_dl[self._host]['count'] < len(self.proxies): 
+                            if self.video_downloader.hosts_dl[self._host]['count'] < self.MAX_SAME_HOST:
                                 self.video_downloader.hosts_dl[self._host]['count'] += 1
                                 self._proxy = "get_one"
                                 break                        
@@ -216,20 +222,20 @@ class AsyncARIA2CDownloader():
                         
                     elif self._mode == "group":
                         
-                        self._proxy = f'http://127.0.0.1:{1235 + _index*10 + 9}'
+                        self._proxy = f'http://127.0.0.1:{1235+_index*10+9}'
                         self.opts.set("all-proxy", self._proxy) 
                         
                         self.uris = []
                         
                         _uris = []
                         
-                        for i in range(1, 4):
+                        for i in range(1, self.SIZE_GROUP + 1):
                             
                             try:
                                 _ytdl_opts = self._ytdl_opts.copy()
-                                _proxy = f'http://127.0.0.1:{1235 + _index*10 + i}'
+                                _proxy = f'http://127.0.0.1:{1235+_index*10+i}'
                                 _ytdl_opts['proxy'] = _proxy
-                                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_ytdl_opts['proxy']}")
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_ytdl_opts['proxy']}")
                                 async with AsyncYTDL(_ytdl_opts) as proxy_ytdl:
                                     proxy_info = get_format_id(
                                         proxy_ytdl.sanitize_info(
@@ -239,8 +245,11 @@ class AsyncARIA2CDownloader():
                                                 download=False)
                                         ), self.info_dict['format_id'])
                                 
-                                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] uri{i} {proxy_info.get('url')}")
-                                _uris.append(unquote(proxy_info.get('url')))
+                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] uri{i} {proxy_info.get('url')}")
+                                _url = unquote(proxy_info.get('url'))
+                                _url_as_dict = urlparse(_url)._asdict()
+                                _url_as_dict['netloc'] = f"__routing={1235+_index*10+i}__.{_url_as_dict['netloc']}"
+                                _uris.append(urlunparse(list(_url_as_dict.values())))
                                 
                                 #TO DO
                                 AsyncARIA2CDownloader.ROUTING_DICT.update({proxy_info.get('url'): _proxy})

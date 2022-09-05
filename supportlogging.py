@@ -17,8 +17,6 @@ from copy import copy
 from textwrap import fill
 
 
-    
-
 MAPPING = {
     'DEBUG'   : 34, # white
     'INFO'    : 32, # cyan
@@ -36,6 +34,7 @@ class FileFormatter(logging.Formatter):
         file_record = copy(record)
         if file_record.msg.startswith("%no%"): file_record.msg = file_record.msg[4:]
         return logging.Formatter.format(self, file_record)
+
 class ColoredFormatter(logging.Formatter):
 
     def format(self, record):
@@ -46,6 +45,8 @@ class ColoredFormatter(logging.Formatter):
         colored_levelname = ('{0}{1}m{2}{3}') \
             .format(PREFIX, seq, levelname, SUFFIX)
         colored_record.levelname = colored_levelname
+        if 'proxy.' in colored_record.name:
+            colored_record.name = colored_record.name.split('.')[0]
         if colored_record.msg.startswith("%no%"): 
             colored_record.msg = colored_record.msg[4:]
         else:

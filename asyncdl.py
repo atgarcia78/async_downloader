@@ -39,7 +39,8 @@ from utils import (
     print_tasks,
     LocalStorage,
     PATH_LOGS,
-    get_domain
+    get_domain,
+    run_proxy_http
 
     
 )
@@ -75,12 +76,7 @@ class AsyncDL():
         #youtube_dl
         self.ytdl = init_ytdl(self.args)
         
-        #aria2c
-        self.proc_gost = []
-        if self.args.aria2c:             
-            init_aria2c(self.args)
-            self.proc_gost += init_proxies(n=10, )
-    
+            
         #listas, dicts con videos      
         self.info_videos = {}
         self.videos_cached = {}
@@ -1534,9 +1530,17 @@ class AsyncDL():
                             
             if not self.args.nodl:                
 
-                self.task_gui_root = asyncio.create_task(self.gui_root())
-                self.console_task = asyncio.create_task(self.gui_console())                
+                #aria2c
+                self.proc_gost = []
+                self.stop_proxy = None
+                if self.args.aria2c:             
+                    init_aria2c(self.args)
+                    self.proc_gost += init_proxies()                
+                    self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
                 
+                self.task_gui_root = asyncio.create_task(self.gui_root())
+                self.console_task = asyncio.create_task(self.gui_console())
+                                
                 tasks_to_wait.update({asyncio.create_task(self.worker_run(i)):f'task_worker_run_{i}' for i in range(self.workers)})   
                 tasks_to_wait.update({asyncio.create_task(self.worker_manip(i)): f'task_worker_manip_{i}' for i in range(self.workers)})
                 tasks_gui = [self.task_gui_root, self.console_task] 
@@ -1775,8 +1779,7 @@ class AsyncDL():
         try:
             self.t2.stop()
         except Exception as e:
-            pass
-        
+            pass        
         try:        
             self.ies_close()
         except Exception as e:
@@ -1792,6 +1795,10 @@ class AsyncDL():
                     proc.kill()
                 except Exception as e:
                     logger.exception(f"[close] {repr(e)}")
+        
+        if self.stop_proxy:
+            self.stop_proxy.set()
+            time.sleep(2)
 
     def clean(self):
         

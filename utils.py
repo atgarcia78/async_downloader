@@ -20,6 +20,12 @@ from itertools import zip_longest
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
+try:
+    import proxy
+    _SUPPORT_PROXY = True
+except Exception:
+    _SUPPORT_PROXY = False
+
 
 try:
     import aria2p
@@ -163,6 +169,8 @@ class MyLogger(logging.LoggerAdapter):
 
 def init_logging(file_path=None):
 
+
+    PATH_LOGS = Path(Path.home(), "Projects/common/logs")
     if not file_path:
         config_file = Path(Path.home(), "Projects/common/logging.json")
     else:
@@ -233,6 +241,37 @@ def init_argparser():
             
     return args
 
+
+
+
+
+if _SUPPORT_PROXY:
+    
+    logger = logging.getLogger("http_proxy")
+    
+    def long_operation_in_thread(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            stop_event = kwargs.get('event', threading.Event())
+            _kwargs = {k:v for k,v in kwargs.items() if k != 'event'}
+            thread = threading.Thread(target=func, args=(stop_event, *args), kwargs=_kwargs, daemon=True)
+            thread.start()
+            return stop_event
+        return wrapper  
+
+    @long_operation_in_thread
+    def run_proxy_http(stop_event, log_level="DEBUG"):
+        with proxy.Proxy(log_level=log_level, ca_cert_file='/Users/antoniotorres/Projects/proxy.py/venv/lib/python3.9/site-packages/certifi/cacert.pem',
+                         plugins=[b'proxy.plugin.cache.CacheResponsesPlugin', b'proxy.plugin.ProxyPoolByHostPlugin']) as p:
+            try:
+                logger.info(p.flags)
+                while not stop_event.is_set():
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                raise
+            
+            
+
 if _SUPPORT_ARIA2P:
     
     def init_aria2c(args):
@@ -301,8 +340,9 @@ def init_proxies(n=10, num_el_set=4):
     cmd_gost_ip0 = [f"gost -L=:{1235 + 10*i + 1} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[1]}:7070" for i, ip in enumerate(FINAL_IPS)]
     cmd_gost_ip1 = [f"gost -L=:{1235 + 10*i + 2} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[2]}:7070" for i, ip in enumerate(FINAL_IPS)]
     cmd_gost_ip2 = [f"gost -L=:{1235 + 10*i + 3} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[3]}:7070" for i, ip, in enumerate(FINAL_IPS)]
-    cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=':{1235 + 10*i + 9}?ip={','.join([f':{1235 + 10*i + j}' for j in range(1,num_el_set)])}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
-
+    #cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=':{1235 + 10*i + 9}?ip={','.join([f':{1235 + 10*i + j}' for j in range(1,num_el_set)])}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
+    cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=:8899" for i in range(n)] 
+    
     cmd_gost =cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
     
     logger.debug(f"[init_proxies] {cmd_gost}")
