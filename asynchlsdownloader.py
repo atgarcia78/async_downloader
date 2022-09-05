@@ -71,9 +71,7 @@ class AsyncHLSDownloader():
             self.id = self.info_dict['id']
             
             self.ytdl = vid_dl.info_dl['ytdl']
-
-            self.proxies = [{'http://': f"http://127.0.0.1:{1234 + i}", 'https://': f"http://127.0.0.1:{1234 + i}"} for i in range(8)]
-
+            self.proxies = [{'http://': f"http://127.0.0.1:{1234 + i}", 'https://': f"http://127.0.0.1:{1234 + i}"} for i in range(10)]
             self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
             self.timeout = httpx.Timeout(30, connect=30)
@@ -84,32 +82,28 @@ class AsyncHLSDownloader():
                 self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
                 self.download_path.mkdir(parents=True, exist_ok=True) 
                 self.fragments_base_path = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
-                #self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
                 self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "ts")
             else:
                 _filename = self.info_dict.get('filename')
                 self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
                 self.download_path.mkdir(parents=True, exist_ok=True)
                 self.fragments_base_path = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
-                #self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
                 self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "ts")
             self.key_cache = dict()
             
             self.n_reset = 0
-        
+
             self.ema_s = EMA(smoothing=0.0001)
             self.ema_t = EMA(smoothing=0.0001)
-            
+
             self.down_size = 0
-            self.down_temp = 0        
-            
+            self.down_temp = 0
             self.status = "init"
-            self.error_message = "" 
-            
+            self.error_message = ""
             self.reset_event = None
             
-            self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")            
-                    
+            self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
+
             self._proxy = None
             
             self._host = get_domain(self.video_url)  
@@ -138,8 +132,7 @@ class AsyncHLSDownloader():
             if self._proxy:
                 self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._proxy)
             self.video_downloader.hosts_dl[self._host]['count'] -= 1
-            self.init_client.close()            
-            
+            self.init_client.close()
             
 
     def init(self):
@@ -645,10 +638,10 @@ class AsyncHLSDownloader():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
             async with self._LOCK:
                 self.count -= 1
-                
+
     async def fetch_async(self):
         
-                
+        
         self._LOCK = asyncio.Lock()
         self.reset_event = asyncio.Event()
         self.frags_queue = asyncio.Queue()
@@ -801,17 +794,14 @@ class AsyncHLSDownloader():
                     f['file'].unlink()
                     
     def ensamble_file(self):
-       
+
+
         self.status = "manipulating"  
-        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
-        # if self.info_init_section:
-        #     self.filename = Path(self.filename.parent, self.filename.stem + '.mp4')
-        
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")        
         self.status = "manipulating"
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
         
         try:
-            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.filename}")
             with open(self.filename, mode='wb') as dest:
                 _skipped = 0
@@ -830,7 +820,6 @@ class AsyncHLSDownloader():
                         with open(f['file'], 'rb') as source:
                                 dest.write(source.read())
                         
-        
         
         except Exception as e:
             if self.filename.exists():

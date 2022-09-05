@@ -738,9 +738,10 @@ class AsyncDL():
                         try:
                             _errormsg = None
                             #_info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
-                            _info = self.ytdl.extract_info(_url, download=False, process=False)
+                            #_info = self.ytdl.extract_info(_url, download=False, process=False) #?¿? why process fsalse here?
+                            _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
                         except Exception as e:
-                            logger.exception(repr(e))
+                            logger.error(repr(e))
                             _info = None
                             _errormsg = repr(e)
                         if not _info:
@@ -825,7 +826,7 @@ class AsyncDL():
                                                 self.futures2.update({self.ex_pl.submit(process_playlist, _ent['url'], False): _ent['url']})
 
                                         except Exception as e:
-                                            logger.warning(f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}")
+                                            logger.error(f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}")
                    
                     except BaseException as e:
                         logger.exception(f"[url_playlist_list] {repr(e)}")
@@ -1316,7 +1317,7 @@ class AsyncDL():
                                 except Exception as e:
                                     
                                     self.list_initnok.append((_entry, f"Error:{repr(e)}"))
-                                    logger.exception(f"[worker_init][{i}]: [{_url}] init nok - Error:{repr(e)}")
+                                    logger.error(f"[worker_init][{i}]: [{_url}] init nok - Error:{repr(e)}")
                                     
                                     self.list_urls_to_check.append((_url,repr(e)))
                                     self.info_videos[_url]['error'].append(f'DL constructor error:{repr(e)}')
@@ -1535,8 +1536,9 @@ class AsyncDL():
                 self.stop_proxy = None
                 if self.args.aria2c:             
                     init_aria2c(self.args)
-                    self.proc_gost += init_proxies()                
-                    self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
+                    if self.args.proxy != 0:
+                        self.proc_gost = init_proxies()                
+                        self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
                 
                 self.task_gui_root = asyncio.create_task(self.gui_root())
                 self.console_task = asyncio.create_task(self.gui_console())

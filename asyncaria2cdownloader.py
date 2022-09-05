@@ -122,11 +122,10 @@ class AsyncARIA2CDownloader():
         self._mode = "simple"
         if _extractor and _extractor.lower() != 'generic':
             self._decor, _nsplits = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.nworkers)
-            if _extractor in ['doodstream', 'vidoza']:
+            if _extractor in ['doodstream', 'vidoza', 'tubeload']:
                 #self.auto_pasres = True #ojo review
-                self._mode = "group"
-            if _extractor in ['tubeload']:
-                self._mode = "group"
+                if self.ytdl.params.get('proxy') != 0:
+                    self._mode = "group"            
             if _nsplits < 16: 
                 _sem = True
         else: 

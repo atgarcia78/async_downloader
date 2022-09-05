@@ -37,7 +37,8 @@ class VideoDownloader():
             self.master_alock = alock
             self.master_hosts_alock = hosts_alock
             self.args = args
-            self.info_dict = video_dict.copy() 
+            
+            self.info_dict = video_dict
             
             _date_file = datetime.now().strftime("%Y%m%d")
             
@@ -67,33 +68,18 @@ class VideoDownloader():
             self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
             
             downloaders = []
-            if not (_requested_formats:=self.info_dict.get('requested_formats')):
-                _new_info_dict = self.info_dict.copy()
-                _new_info_dict.update({'filename': self.info_dl['filename'], 
-                                       'download_path': self.info_dl['download_path']})
-                if (dl:=self._check_if_apple(_new_info_dict)):
-                    downloaders.append(dl)
-                else:
-                    dl = self._get_dl(_new_info_dict)
-                    if isinstance(dl, list): downloaders.extend(dl)
-                    else: downloaders.append(dl)
-
+            
+            _new_info_dict = self.info_dict.copy()
+            _new_info_dict.update({'filename': self.info_dl['filename'], 
+                              'download_path': self.info_dl['download_path']})
+            
+            if (dl:=self._check_if_apple(_new_info_dict)):
+                downloaders.append(dl)
             else:
-                _new_info_dict = self.info_dict.copy()
-                _new_info_dict.update({'filename': self.info_dl['filename'], 
-                                       'download_path': self.info_dl['download_path']})
-                if (dl:=self._check_if_apple(_new_info_dict)):
-                    downloaders.append(dl)
-                else:
-                    for f in _requested_formats:
-                        _new_info_dict = f.copy()                
-                        _new_info_dict.update(
-                            {'id': self.info_dl['id'], 'title': self.info_dl['title'],
-                            '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
-                            'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')})
-                        dl = self._get_dl(_new_info_dict)
-                        if isinstance(dl, list): downloaders.extend(dl)
-                        else: downloaders.append(dl)        
+                dl = self._get_dl(_new_info_dict)
+                if isinstance(dl, list): downloaders.extend(dl)
+                else: 
+                    downloaders.append(dl)     
 
             res = sorted(list(set([dl.status for dl in downloaders])))
             if (res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]):
@@ -129,54 +115,75 @@ class VideoDownloader():
     
     def _check_if_apple(self, info):
         
-        prots = [determine_protocol(f) for f in (info.get('requested_formats') or [info])]
-        urls = [f['url'] for f in (info.get('requested_formats') or [info])]
-        if all("m3u8" in _ for _ in prots):
-            if any("dash" in _ for _ in urls):
-                return(AsyncFFMPEGDownloader(info, self))
+        try:
+        
+            if not (_info:=info.get('requested_formats')):
+                _info = [info]
+                
+            prots, urls = list(map(list, zip(*[(determine_protocol(f), f['url']) for f in _info])))
+            
+            if all("dash" in _ for _ in prots) or (all("m3u8" in _ for _ in prots) and any("dash" in _ for _ in urls)):
+                 return(AsyncFFMPEGDownloader(info, self))
             else:
                 res = [self.syncpostffmpeg(f"ffmpeg -i {_url}").stderr for _url in urls]
                 if any(".mp4" in _ for _ in res):
                     return(AsyncFFMPEGDownloader(info, self))
-
-    def _get_dl(self, info):           
-        
-        protocol = determine_protocol(info)
-                    
-        if protocol in ('http', 'https'):
-            if self.info_dl['rpcport'] and (info.get('extractor') not in FORCE_TO_HTTP):
-                                
-                try:
-                                
-                    dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
-                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
-                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
-                except Exception as e:
-                    if self.info_dl['backup_http']:
-                        logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
-                        dl = AsyncHTTPDownloader(info, self)
-                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
-                    else: raise
-            
-            else: #--aria2c 0 or extractor is doodstream
                 
-                dl = AsyncHTTPDownloader(info, self)
-                logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
-                                   
-        elif protocol in ('m3u8', 'm3u8_native'):
-            dl = AsyncHLSDownloader(info, self)
-            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
-                        
-        elif protocol in ('http_dash_segments', 'dash'):
-            dl = AsyncDASHDownloader(info, self)
-            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
+        except Exception as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]check if apple failed - {repr(e)}\n{info}")
+            
+            
+    def _get_dl(self, info): 
+        
+        if not (_info:=info.get('requested_formats')):
+            _info = [info]
         else:
-            logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
-            raise NotImplementedError("protocol not supported")
+            for f in _info:
+                f.update({'id': self.info_dl['id'], 'title': self.info_dl['title'],
+                            '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
+                            'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')}) 
+        dl = []
+        
+        for info in _info:        
+        
+            protocol = determine_protocol(info)
                         
-        return dl
+            if protocol in ('http', 'https'):
+                if self.info_dl['rpcport'] and (info.get('extractor') not in FORCE_TO_HTTP):
+                                    
+                    try:
+                                    
+                        dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                    except Exception as e:
+                        if self.info_dl['backup_http']:
+                            logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
+                            dl = AsyncHTTPDownloader(info, self)
+                            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                            if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                        else: raise
+                
+                else: #--aria2c 0 or extractor is doodstream
+                    
+                    dl = AsyncHTTPDownloader(info, self)
+                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                                    
+            elif protocol in ('m3u8', 'm3u8_native'):
+                dl = AsyncHLSDownloader(info, self)
+                logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
+                            
+            elif protocol in ('http_dash_segments', 'dash'):
+                dl = AsyncDASHDownloader(info, self)
+                logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
+            else:
+                logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
+                raise NotImplementedError("protocol not supported")
+                            
+            dl.append(dl)
+       
+        return dl 
 
     def change_numvidworkers(self, n):
         for dl in self.info_dl['downloaders']:

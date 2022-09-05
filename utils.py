@@ -216,6 +216,7 @@ def init_argparser():
     parser.add_argument("--use-http-failover", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies",action="store_true", default=False)
+ 
 
     args = parser.parse_args()
     
@@ -403,7 +404,7 @@ if _SUPPORT_YTDL:
         logger = logging.getLogger("yt_dlp")
         
         proxy = None
-        if args.proxy:        
+        if args.proxy and args.proxy != 0:     
             sch = args.proxy.split("://")
             if len(sch) == 2:
                 if sch[0] != 'http':
