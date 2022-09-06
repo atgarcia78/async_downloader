@@ -28,6 +28,17 @@ MAPPING = {
 PREFIX = '\033['
 SUFFIX = '\033[0m'
 
+from utils import init_gui_log
+
+class Wintxt(logging.StreamHandler):
+    
+    _GUI_LOG = None    
+     
+    def __init__(self, stream=None):   
+        super().__init__(self)       
+     
+    
+
 class FileFormatter(logging.Formatter):
 
     def format(self, record):

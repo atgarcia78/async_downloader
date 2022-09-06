@@ -194,7 +194,7 @@ class AsyncFFmpegFD(FFmpegFD):
         args.extend(['-progress', 'pipe:1', '-stats_period', '0.2']) #progress stats to stdout every 0.2secs
         
         try:
-        
+            start_time, end_time, total_time_to_dl  = None, None, None
             if "duration" in info_dict.keys() and info_dict["duration"] is not None and info_dict['duration'] != 0:
                 start_time, end_time, total_time_to_dl = None, None, info_dict['duration']
                 for i, arg in enumerate(args):

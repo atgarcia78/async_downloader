@@ -25,6 +25,7 @@ from utils import (
     init_proxies, 
     init_gui_console,
     init_gui_root,
+    init_gui_log,
     init_ytdl, 
     is_playlist_extractor, 
     kill_processes,
@@ -40,9 +41,9 @@ from utils import (
     LocalStorage,
     PATH_LOGS,
     get_domain,
-    run_proxy_http
-
-    
+    run_proxy_http,
+    CONF_PROXIES_MAX_N_GR_HOST, 
+    CONF_PROXIES_N_GR_VIDEO    
 )
 
 from videodownloader import VideoDownloader
@@ -363,6 +364,34 @@ class AsyncDL():
             logger.info(f"[run_vid] {self.queue_run._queue}")
             logger.info(f"[manip_vid] {self.queue_manip._queue}")
       
+    
+    async def gui_log(self):
+        
+        try:            
+            
+            self.logwin = init_gui_log()            
+            await async_wait_time(self._INTERVAL_GUI)
+            
+            while not self.stop_console:
+                
+                await async_wait_time(self._INTERVAL_GUI/2)
+                event, values = self.window_console.read(timeout=0)
+                if event == sg.TIMEOUT_KEY:
+                    continue
+                if event  == sg.WIN_CLOSED:
+                    break
+                
+        except BaseException as e:
+            if not isinstance(e, asyncio.CancelledError):           
+                logger.error(f"[gui_console] Error:{repr(e)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
+            
+        finally:    
+            
+            self.logwin.close()
+            
+    
         
     async def gui_console(self):
         
@@ -739,7 +768,7 @@ class AsyncDL():
                             _errormsg = None
                             #_info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
                             #_info = self.ytdl.extract_info(_url, download=False, process=False) #?¿? why process fsalse here?
-                            _info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
+                            _info = self.ytdl.extract_info(_url, download=False)
                         except Exception as e:
                             logger.error(repr(e))
                             _info = None
@@ -762,15 +791,15 @@ class AsyncDL():
                                     self.args.path = str(Path(Path.home(), 'testing', _name))
                                     logger.info(f"[path for pl] {self.args.path}")
                                 
-                                if isinstance(_info.get('entries'), list):
-                                    _info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))    
+                                #if isinstance(_info.get('entries'), list):
+                                #    _info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))    
                                 
                                 if _info.get('extractor_key') == 'GVDBlogPlaylist':
                                     _temp_aldl = [] 
                                     _temp_nodl = []
                                     for _ent in _info.get('entries'):
-                                        if not isinstance(_info.get('entries'), list):
-                                            _ent = self.ytdl.sanitize_info(_ent)
+                                       #if not isinstance(_info.get('entries'), list):
+                                       #     _ent = self.ytdl.sanitize_info(_ent)
                                         if not self._check_if_aldl(_ent, test=True): 
                                             _temp_nodl.append(_ent)
                                         else: _temp_aldl.append(_ent)
@@ -794,7 +823,7 @@ class AsyncDL():
                                 
                                 for _ent in _info.get('entries'):                                    
                                     
-                                    
+                                    _ent = self.ytdl.sanitize_info(_ent)
                                     if _ent.get('_type', 'video') == 'video':
                                         if not _ent.get('original_url'): 
                                             _ent.update({'original_url': _url})
@@ -1537,7 +1566,7 @@ class AsyncDL():
                 if self.args.aria2c:             
                     init_aria2c(self.args)
                     if self.args.proxy != 0:
-                        self.proc_gost = init_proxies()                
+                        self.proc_gost = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)                
                         self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
                 
                 self.task_gui_root = asyncio.create_task(self.gui_root())

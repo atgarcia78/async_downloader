@@ -17,8 +17,12 @@ from pathlib import Path
 from queue import Queue
 import contextlib
 from itertools import zip_longest
+import certifi
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
+CONF_PROXIES_MAX_N_GR_HOST = 8
+CONF_PROXIES_N_GR_VIDEO = 3
+CONF_PROXIES_BASE_PORT = 12000
 
 try:
     import proxy
@@ -239,6 +243,10 @@ def init_argparser():
         
     if args.vv:
         args.verbose = True
+        
+    if args.proxy == 'no':
+        args.proxy = 0
+        
             
     return args
 
@@ -248,28 +256,26 @@ def init_argparser():
 
 if _SUPPORT_PROXY:
     
-    logger = logging.getLogger("http_proxy")
+    logger = logging.getLogger("http_pry")
     
     def long_operation_in_thread(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            stop_event = kwargs.get('event', threading.Event())
-            _kwargs = {k:v for k,v in kwargs.items() if k != 'event'}
-            thread = threading.Thread(target=func, args=(stop_event, *args), kwargs=_kwargs, daemon=True)
+            stop_event = threading.Event()          
+            thread = threading.Thread(target=func, args=(stop_event, *args), kwargs=kwargs, daemon=True)
             thread.start()
             return stop_event
         return wrapper  
 
     @long_operation_in_thread
-    def run_proxy_http(stop_event, log_level="DEBUG"):
-        with proxy.Proxy(log_level=log_level, ca_cert_file='/Users/antoniotorres/Projects/proxy.py/venv/lib/python3.9/site-packages/certifi/cacert.pem',
-                         plugins=[b'proxy.plugin.cache.CacheResponsesPlugin', b'proxy.plugin.ProxyPoolByHostPlugin']) as p:
+    def run_proxy_http(stop_event, log_level="INFO"):
+        with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
             try:
                 logger.info(p.flags)
                 while not stop_event.is_set():
                     time.sleep(1)
-            except KeyboardInterrupt:
-                raise
+            except BaseException:
+                logger.error("context manager proxy")    
             
             
 
@@ -295,10 +301,6 @@ if _SUPPORT_ARIA2P:
         
 
 def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
-    "Collect data into non-overlapping fixed-length chunks or blocks"
-    # grouper('ABCDEFG', 3, fillvalue='x') --> ABC DEF Gxx
-    # grouper('ABCDEFG', 3, incomplete='strict') --> ABC DEF ValueError
-    # grouper('ABCDEFG', 3, incomplete='ignore') --> ABC DEF
     args = [iter(iterable)] * n
     if incomplete == 'fill':
         return zip_longest(*args, fillvalue=fillvalue)
@@ -310,7 +312,7 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
         raise ValueError('Expected fill, strict, or ignore')      
         
     
-def init_proxies(n=10, num_el_set=4):
+def init_proxies(num, size):
         
     #SP
     IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', 
@@ -333,23 +335,39 @@ def init_proxies(n=10, num_el_set=4):
     
     logger = logging.getLogger("asyncDL")
     
-    _ips = random.sample(IPS_SSL, n * num_el_set)
+    _ips = random.sample(IPS_SSL, num * (size + 1))
     
-    FINAL_IPS = list(grouper(_ips, num_el_set))
+    FINAL_IPS = list(grouper(_ips, (size + 1)))
+    
+    cmd_gost_s = []
+    
+    for j in range(size + 1):
+            
+        cmd_gost_s.extend([f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:7070" for i, ip in enumerate(FINAL_IPS)])
+    
+    # cmd_gost_simple = [f"gost -L=:{1235 + n*i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[0]}:7070" for i, ip in enumerate(FINAL_IPS)]
         
-    cmd_gost_simple = [f"gost -L=:{1235 + 10*i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[0]}:7070" for i, ip in enumerate(FINAL_IPS)]
-    cmd_gost_ip0 = [f"gost -L=:{1235 + 10*i + 1} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[1]}:7070" for i, ip in enumerate(FINAL_IPS)]
-    cmd_gost_ip1 = [f"gost -L=:{1235 + 10*i + 2} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[2]}:7070" for i, ip in enumerate(FINAL_IPS)]
-    cmd_gost_ip2 = [f"gost -L=:{1235 + 10*i + 3} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[3]}:7070" for i, ip, in enumerate(FINAL_IPS)]
-    #cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=':{1235 + 10*i + 9}?ip={','.join([f':{1235 + 10*i + j}' for j in range(1,num_el_set)])}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
-    cmd_gost_group =  [f"gost -L=:{1235 + 10*i + 9} -F=:8899" for i in range(n)] 
+    # cmd_gost_ip0 = [f"gost -L=:{1235 + n*i + 1} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[1]}:7070" for i, ip in enumerate(FINAL_IPS)]
+    # cmd_gost_ip1 = [f"gost -L=:{1235 + n*i + 2} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[2]}:7070" for i, ip in enumerate(FINAL_IPS)]
+    # cmd_gost_ip2 = [f"gost -L=:{1235 + n*i + 3} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[3]}:7070" for i, ip, in enumerate(FINAL_IPS)]
+    #cmd_gost_group =  [f"gost -L=:{1235 + n*i + 9} -F=':{1235 + n*i + 9}?ip={','.join([f':{1235 + n*i + j}' for j in range(1,num_el_set)])}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
+    cmd_gost_group =  [f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)] 
     
-    cmd_gost =cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
+    #cmd_gost = cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
+    
+    cmd_gost = cmd_gost_s + cmd_gost_group
     
     logger.debug(f"[init_proxies] {cmd_gost}")
 
-    proc_gost = [subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True) for cmd in cmd_gost]
+    proc_gost = []
     
+    for cmd in cmd_gost:
+        
+        logger.info(cmd)
+        proc_gost.append(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True))
+        time.sleep(0.05)
+        
+
     return proc_gost
         
 
@@ -843,6 +861,34 @@ if _SUPPORT_PYSIMP:
         except Exception as e:
             logger.exception(f'[init_gui] error {repr(e)}')
 
+    
+    def init_gui_log():
+        try:
+            
+            logger = logging.getLogger("asyncDL")
+            
+            sg.theme("SystemDefaultForReal")
+            
+            col_0 = sg.Column([
+                                [sg.Text("PROXY LOG", font='Any 14')], 
+                                [sg.Multiline(default_text = "Waiting for info", size=(80, 85), font='Any 10', write_only=True, key='-LOG-', autoscroll=True, auto_refresh=True)]
+            ], element_justification='l', expand_x=True, expand_y=True)
+            
+            layout_root = [ [col_0] ]
+            
+            window_log = sg.Window('proxy_log', layout_root, alpha_channel=0.99, location=(0, 0), finalize=True, resizable=True)
+            window_log.set_min_size(window_log.size)
+            
+            window_log['-LOG-'].expand(True, True, True)
+            
+            return window_log
+    
+        except Exception as e:
+            logger.exception(f'[init_gui] error {repr(e)}')
+        
+        
+        
+    
     def init_gui_console():
         
         try:

@@ -28,7 +28,7 @@ from proxy.common.constants import (
 import re
 
 
-logger = logging.getLogger(__name__)
+#logger = logging.getLogger(__name__)
 
 DEFAULT_HTTP_ACCESS_LOG_FORMAT = '{client_ip}:{client_port} - ' + \
     '{request_method} {server_host}:{server_port}{request_path} -> ' + \
@@ -41,29 +41,10 @@ DEFAULT_HTTPS_ACCESS_LOG_FORMAT = '{client_ip}:{client_port} - ' + \
     '{upstream_proxy_host}:{upstream_proxy_port} - ' + \
     '{response_bytes} bytes - {connection_time_ms} ms'
 
-# Run two separate instances of proxy.py
-# on port 9000 and 9001 BUT WITHOUT ProxyPool plugin
-# to avoid infinite loops.
-DEFAULT_PROXY_POOL: List[str] = [
-    # Yes you may use the instance running with ProxyPoolPlugin itself.
-    # ProxyPool plugin will act as a no-op.
-    # 'localhost:8899',
-    #
-    # Remote proxies
-    # 'localhost:9000',
-    # 'localhost:9001',
-]
-
-flags.add_argument(
-    '--proxy-pool',
-    action='append',
-    nargs=1,
-    default=DEFAULT_PROXY_POOL,
-    help='List of upstream proxies to use in the pool',
-)
 
 
-class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
+
+class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
     """Proxy pool plugin simply acts as a proxy adapter for proxy.py itself.
 
     Imagine this plugin as setting up proxy settings for proxy.py instance itself.
@@ -104,13 +85,13 @@ class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         key = re.findall(r'__routing=([^_]+)__', str(request.host))
         
         if key:
-            logger.info(f"Key is {key[0]}")
+            ##logger.info(f"Key is {key[0]}")
             _proxy = f'http://127.0.0.1:{key[0]}'
             self._endpoint = Url.from_bytes(bytes_(_proxy))
             
             _h = bytes_(re.sub(r'(__routing=([^_]+)__.)', '', text_(request.host)))
             request.host = _h
-            #logger.info(f"request.host {request.host}")
+            ##logger.info(f"request.host {request.host}")
             if request.has_header(b'host'):
                 request.del_header(b'host')
                 request.add_header(b'host',_h)
@@ -125,7 +106,7 @@ class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
             return request
         # Establish connection to chosen upstream proxy
         endpoint_tuple = (text_(self._endpoint.hostname), self._endpoint.port)
-        logger.info('Using endpoint: {0}:{1}'.format(*endpoint_tuple))
+        # #logger.info('Using endpoint: {0}:{1}'.format(*endpoint_tuple))
         self.initialize_upstream(*endpoint_tuple)
         assert self.upstream
         try:
@@ -149,11 +130,11 @@ class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
                     *endpoint_tuple,
                 ),
             )
-        logger.info(
-            'Established connection to upstream proxy {0}:{1}'.format(
-                *endpoint_tuple,
-            ),
-        )
+        # #logger.debug(
+        #     'Established connection to upstream proxy {0}:{1}'.format(
+        #         *endpoint_tuple,
+        #     ),
+        # )
         return None
 
     def handle_client_request(
@@ -165,16 +146,12 @@ class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         assert self.upstream
         # For log sanity (i.e. to avoid None:None), expose upstream host:port from headers
         host, port = None, None
-        # Browser or applications may sometime send
-        #
-        # "CONNECT / HTTP/1.0\r\n\r\n"
-        #
-        # for proxy keep alive checks.
+
         
         url = Url.from_bytes(request.host)
         assert url.hostname
         host, port = url.hostname.decode('utf-8'), url.port
-        logger.info(f"{host}:{port}")
+        ##logger.info(f"{host}:{port}")
         if '__routing=' in host:
             host = re.sub(r'(__routing=([^_]+)__.)', '', host)
             _h = bytes_(f'{host}:{port}') if port else bytes_(f'{host}')  
@@ -192,8 +169,8 @@ class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         self._metadata = [
             host, port, path, request.method,
         ]
-        #logger.info(request.header(b'host'))
-        #logger.info(request.host)    
+        ##logger.info(request.header(b'host'))
+        ##logger.info(request.host)    
         # Queue original request optionally with auth headers to upstream proxy
         if self._endpoint.has_credentials:
             assert self._endpoint.username and self._endpoint.password
@@ -225,7 +202,7 @@ class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
     def on_upstream_connection_close(self) -> None:
         """Called when client connection has been closed."""
         if self.upstream and not self.upstream.closed:
-            logger.info('Closing upstream proxy connection')
+            ##logger.info('Closing upstream proxy connection')
             self.upstream.close()
             self.upstream = None
 
@@ -250,7 +227,7 @@ class ProxyPoolPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         request_method = self._metadata[3]
         if request_method and request_method != httpMethods.CONNECT:
             access_log_format = DEFAULT_HTTP_ACCESS_LOG_FORMAT
-        logger.info(access_log_format.format_map(log_attrs))
+        ##logger.debug(access_log_format.format_map(log_attrs))
 
     def _select_proxy(self) -> Url:
         """Choose a random proxy from the pool.

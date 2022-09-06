@@ -20,7 +20,10 @@ from utils import (
     AsyncYTDL, 
     get_format_id,
     MyLogger,
-    get_domain
+    get_domain,
+    CONF_PROXIES_MAX_N_GR_HOST,
+    CONF_PROXIES_N_GR_VIDEO,
+    CONF_PROXIES_BASE_PORT
 )
 
 from cs.threads import PriorityLock
@@ -52,9 +55,6 @@ class AsyncARIA2CDownloader():
     
     ROUTING_DICT = {}
     
-    MAX_SAME_HOST = 10
-    
-    SIZE_GROUP = 3
         
     
     def __init__(self, port, video_dict, vid_dl):
@@ -67,7 +67,7 @@ class AsyncARIA2CDownloader():
         self.ytdl = self.video_downloader.info_dl['ytdl']
        
        
-        self.proxies = [i for i in range(self.MAX_SAME_HOST)]
+        self.proxies = [i for i in range(CONF_PROXIES_MAX_N_GR_HOST)]
         
         self._ytdl_opts = self.ytdl.params.copy()        
         self._ytdl_opts['quiet'] = True
@@ -110,8 +110,8 @@ class AsyncARIA2CDownloader():
         
         def getter(x):
         
-            value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_)
-                                                                                     for _ in k)],
+            value, key_text = try_get([(v,kt)
+                                       for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)],
                                       lambda y: y[0]) or ("","") 
             if value:
                 return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
@@ -122,20 +122,24 @@ class AsyncARIA2CDownloader():
         self._mode = "simple"
         if _extractor and _extractor.lower() != 'generic':
             self._decor, _nsplits = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.nworkers)
-            if _extractor in ['doodstream', 'vidoza', 'tubeload']:
-                #self.auto_pasres = True #ojo review
-                if self.ytdl.params.get('proxy') != 0:
-                    self._mode = "group"            
             if _nsplits < 16: 
                 _sem = True
+            if _extractor in ['doodstream', 'vidoza', 'tubeload']:
+                #self.auto_pasres = True #ojo review
+                self._mode = "group"
+                                
+
         else: 
             self._decor, _nsplits = limiter_non.ratelimit("transp", delay=True), self.nworkers
             
-
+        if self.ytdl.params.get('proxy') == 0:
+            _sem = False
+            self._mode = "simple"
+            
         self.nworkers = min(_nsplits, self.nworkers)
         
         if self._mode == "group":
-            self.nworkers = self.SIZE_GROUP*self.nworkers #for tubeload that is 3*4 segments
+            self.nworkers = CONF_PROXIES_N_GR_VIDEO*self.nworkers #for tubeload that is 3*4 segments
 
         opts_dict = {
             'split': self.nworkers,
@@ -182,7 +186,7 @@ class AsyncARIA2CDownloader():
                             break
                             
                         else:
-                            if self.video_downloader.hosts_dl[self._host]['count'] < self.MAX_SAME_HOST:
+                            if self.video_downloader.hosts_dl[self._host]['count'] < CONF_PROXIES_MAX_N_GR_HOST:
                                 self.video_downloader.hosts_dl[self._host]['count'] += 1
                                 self._proxy = "get_one"
                                 break                        
@@ -201,7 +205,7 @@ class AsyncARIA2CDownloader():
                     
                     if self._mode == "simple":
                         
-                        self._proxy = f'http://127.0.0.1:{1235+_index*10}'
+                        self._proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+_index*100}'
                         self.opts.set("all-proxy", self._proxy) 
                     
                         _ytdl_opts = self._ytdl_opts.copy()
@@ -221,18 +225,18 @@ class AsyncARIA2CDownloader():
                         
                     elif self._mode == "group":
                         
-                        self._proxy = f'http://127.0.0.1:{1235+_index*10+9}'
+                        self._proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+_index*100+50}'
                         self.opts.set("all-proxy", self._proxy) 
                         
                         self.uris = []
                         
                         _uris = []
                         
-                        for i in range(1, self.SIZE_GROUP + 1):
+                        for i in range(1, CONF_PROXIES_N_GR_VIDEO + 1):
                             
                             try:
                                 _ytdl_opts = self._ytdl_opts.copy()
-                                _proxy = f'http://127.0.0.1:{1235+_index*10+i}'
+                                _proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+_index*100+i}'
                                 _ytdl_opts['proxy'] = _proxy
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_ytdl_opts['proxy']}")
                                 async with AsyncYTDL(_ytdl_opts) as proxy_ytdl:
@@ -247,14 +251,15 @@ class AsyncARIA2CDownloader():
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] uri{i} {proxy_info.get('url')}")
                                 _url = unquote(proxy_info.get('url'))
                                 _url_as_dict = urlparse(_url)._asdict()
-                                _url_as_dict['netloc'] = f"__routing={1235+_index*10+i}__.{_url_as_dict['netloc']}"
+                                _url_as_dict['netloc'] = f"__routing={CONF_PROXIES_BASE_PORT+_index*10+i}__.{_url_as_dict['netloc']}"
                                 _uris.append(urlunparse(list(_url_as_dict.values())))
                                 
                                 #TO DO
                                 AsyncARIA2CDownloader.ROUTING_DICT.update({proxy_info.get('url'): _proxy})
     
                             except Exception as e:
-                                logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] init uris {repr(e)}")
+                                _msg = f"host: {self._host} proxy[{i}]: {_proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
+                                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] init uris {repr(e)} - {_msg}")
                         
                         #self.uris = 4 * _uris #self.uris with 3 * 4 uris entrelazadas
                         self.uris = _uris
@@ -317,7 +322,7 @@ class AsyncARIA2CDownloader():
             if self.sem:
                 _msg = f"host: {self._host} proxy: {self._proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
             else: _msg = ""  
-            if self.dl_cont.status in ('error'):
+            if self.dl_cont and self.dl_cont.status in ('error'):
                 _msg_error = f"{repr(e)} - {self.dl_cont.error_message}"
             else:
                 _msg_error = repr(e) 
@@ -380,7 +385,7 @@ class AsyncARIA2CDownloader():
             if self.sem:
                 _msg = f"host: {self._host} proxy: {self._proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
             else: _msg = ""  
-            if self.dl_cont.status in ('error'):
+            if self.dl_cont and self.dl_cont.status in ('error'):
                 _msg_error = f"{repr(e)} - {self.dl_cont.error_message}"
             else:
                 _msg_error = repr(e) 
@@ -431,11 +436,11 @@ class AsyncARIA2CDownloader():
                 if self.sem:
                     _msg = f"host: {self._host} proxy: {self._proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
                 else: _msg = ""  
-                if self.dl_cont.status in ('error'):
+                if self.dl_cont and self.dl_cont.status in ('error'):
                     _msg_error = f"{repr(e)} - {self.dl_cont.error_message}"
                 else:
                     _msg_error = repr(e) 
-                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch] {_msg}error: {_msg_error}")
+                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch] {_msg} error: {_msg_error}")
                 self.status = "error" 
                 self.error_message = _msg_error
             finally:

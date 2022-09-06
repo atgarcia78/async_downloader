@@ -122,13 +122,17 @@ class VideoDownloader():
                 
             prots, urls = list(map(list, zip(*[(determine_protocol(f), f['url']) for f in _info])))
             
-            if all("dash" in _ for _ in prots) or (all("m3u8" in _ for _ in prots) and any("dash" in _ for _ in urls)):
+            if any("dash" in _ for _ in prots):
                  return(AsyncFFMPEGDownloader(info, self))
-            else:
-                res = [self.syncpostffmpeg(f"ffmpeg -i {_url}").stderr for _url in urls]
-                if any(".mp4" in _ for _ in res):
+            elif all("m3u8" in _ for _ in prots):
+                if any("dash" in _ for _ in urls):
                     return(AsyncFFMPEGDownloader(info, self))
-                
+                else:
+                    res = [self.syncpostffmpeg(f"ffmpeg -i {_url}").stderr for _url in urls]
+                    if any(".mp4" in _ for _ in res):
+                        return(AsyncFFMPEGDownloader(info, self))
+                        
+        
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]check if apple failed - {repr(e)}\n{info}")
             
@@ -142,10 +146,11 @@ class VideoDownloader():
                 f.update({'id': self.info_dl['id'], 'title': self.info_dl['title'],
                             '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
                             'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')}) 
-        dl = []
+        res_dl = []
         
         for info in _info:        
         
+            dl = None
             protocol = determine_protocol(info)
                         
             if protocol in ('http', 'https'):
@@ -181,7 +186,8 @@ class VideoDownloader():
                 logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
                 raise NotImplementedError("protocol not supported")
                             
-            dl.append(dl)
+            if dl:
+                res_dl.append(dl)
        
         return dl 
 
