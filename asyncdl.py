@@ -766,9 +766,7 @@ class AsyncDL():
                             logger.info(f"[url_playlist_list][{self._count_pl}/{len(self.futures) + len(self.futures2)}] processing {_url}")
                         try:
                             _errormsg = None
-                            #_info = self.ytdl.sanitize_info(self.ytdl.extract_info(_url, download=False))
-                            #_info = self.ytdl.extract_info(_url, download=False, process=False) #?¿? why process fsalse here?
-                            _info = self.ytdl.extract_info(_url, download=False)
+                            _info = self.ytdl.extract_info(_url, download=False, process=False)
                         except Exception as e:
                             logger.error(repr(e))
                             _info = None
@@ -791,37 +789,39 @@ class AsyncDL():
                                     self.args.path = str(Path(Path.home(), 'testing', _name))
                                     logger.info(f"[path for pl] {self.args.path}")
                                 
-                                #if isinstance(_info.get('entries'), list):
-                                #    _info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))    
-                                
-                                if _info.get('extractor_key') == 'GVDBlogPlaylist':
-                                    _temp_aldl = [] 
-                                    _temp_nodl = []
-                                    for _ent in _info.get('entries'):
-                                       #if not isinstance(_info.get('entries'), list):
-                                       #     _ent = self.ytdl.sanitize_info(_ent)
-                                        if not self._check_if_aldl(_ent, test=True): 
-                                            _temp_nodl.append(_ent)
-                                        else: _temp_aldl.append(_ent)
-                                
-                                    def get_list_interl(res):
-                                        if not res:
-                                            return []
-                                        _dict = {}
-                                        for ent in res:
-                                            _key = get_domain(ent['url'])
-                                            if not _dict.get(_key): _dict[_key] = [ent]
-                                            else: _dict[_key].append(ent)       
-                                        logger.info(f'[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries')                                        
-                                        _interl = []
-                                        for el in list(zip_longest(*list(_dict.values()))):
-                                            _interl.extend([_el for _el in el if _el])
-                                        return _interl 
-                                                                        
-                                    _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl
+                                if isinstance(_info.get('entries'), list):
+                                    _info = self.ytdl.process_ie_result(_info, download=False)
+                                    if (_info.get('extractor_key') in ('GVDBlogPost','GVDBlogPlaylist')):
+                                        _temp_aldl = [] 
+                                        _temp_nodl = []
+                                        for _ent in _info.get('entries'):
+                                            if not self._check_if_aldl(_ent, test=True): 
+                                                _temp_nodl.append(_ent)
+                                            else: _temp_aldl.append(_ent)
+                                    
+                                        def get_list_interl(res):
+                                            if not res:
+                                                return []
+                                            if len(res) < 3:
+                                                return res
+                                            _dict = {}
+                                            for ent in res:
+                                                _key = get_domain(ent['url'])
+                                                if not _dict.get(_key): _dict[_key] = [ent]
+                                                else: _dict[_key].append(ent)       
+                                            logger.info(f'[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries')                                        
+                                            _interl = []
+                                            for el in list(zip_longest(*list(_dict.values()))):
+                                                _interl.extend([_el for _el in el if _el])
+                                            return _interl 
+                                                                            
+                                        _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl
                                    
                                 
                                 for _ent in _info.get('entries'):                                    
+                                    
+                                    if not isinstance(_info.get('entries'), list):
+                                        _ent = self.ytdl.process_ie_result(_ent, download=False)
                                     
                                     _ent = self.ytdl.sanitize_info(_ent)
                                     if _ent.get('_type', 'video') == 'video':
@@ -1571,13 +1571,14 @@ class AsyncDL():
                 
                 self.task_gui_root = asyncio.create_task(self.gui_root())
                 self.console_task = asyncio.create_task(self.gui_console())
+                tasks_gui = [self.task_gui_root, self.console_task] 
                                 
                 tasks_to_wait.update({asyncio.create_task(self.worker_run(i)):f'task_worker_run_{i}' for i in range(self.workers)})   
                 tasks_to_wait.update({asyncio.create_task(self.worker_manip(i)): f'task_worker_manip_{i}' for i in range(self.workers)})
-                tasks_gui = [self.task_gui_root, self.console_task] 
+                
 
 
-            done, _ = await asyncio.wait(tasks_to_wait)            
+            done, _ = await asyncio.wait(tasks_to_wait)          
             for d in done:
                 try:
                     d.result()
@@ -1585,15 +1586,18 @@ class AsyncDL():
                     logger.error(f"[async_ex][{tasks_to_wait[d]}] {repr(e)}")
                     if isinstance(e, KeyboardInterrupt):
                         raise
+            
             if self.extra_tasks_run:
+                        
                 done, _ = await asyncio.wait(self.extra_tasks_run)
                 for d in done:
                     try:
                         d.result()
                     except BaseException as e:                                   
-                        logger.error(f"[async_ex][{tasks_to_wait[d]}] {repr(e)}")
+                        logger.error(f"[async_ex][{d}] {repr(e)}")
                         if isinstance(e, KeyboardInterrupt):
                             raise
+            
                                   
 
         except BaseException as e:                            
@@ -1601,8 +1605,12 @@ class AsyncDL():
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
-            for _task in tasks_gui:
-                _task.cancel()            
+            #for _task in tasks_gui:
+            #    _task.cancel()
+            self.stop_console = True
+            await asyncio.sleep(0)
+            self.stop_root = True 
+            await asyncio.sleep(0)          
             done, _ = await asyncio.wait(tasks_gui)
             if any(isinstance(_e, KeyboardInterrupt) for _e in [d.exception() for d in done]):
                 raise KeyboardInterrupt
@@ -1815,11 +1823,7 @@ class AsyncDL():
             self.ies_close()
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
-        try:
-            kill_processes(logger=logger, rpcport=self.args.rpcport) 
-        except Exception as e:
-            logger.exception(f"[close] {repr(e)}")
-            
+        
         if self.proc_gost:
             for proc in self.proc_gost:
                 try:
@@ -1828,8 +1832,18 @@ class AsyncDL():
                     logger.exception(f"[close] {repr(e)}")
         
         if self.stop_proxy:
-            self.stop_proxy.set()
-            time.sleep(2)
+            try:                
+                self.stop_proxy.set()
+                time.sleep(2)
+            except Exception as e:
+                logger.exception(f"[close] {repr(e)}")       
+            
+        try:
+            kill_processes(logger=logger, rpcport=self.args.rpcport) 
+        except Exception as e:
+            logger.exception(f"[close] {repr(e)}")
+            
+        
 
     def clean(self):
         

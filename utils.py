@@ -17,12 +17,13 @@ from pathlib import Path
 from queue import Queue
 import contextlib
 from itertools import zip_longest
-import certifi
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
-CONF_PROXIES_MAX_N_GR_HOST = 8
-CONF_PROXIES_N_GR_VIDEO = 3
+
+CONF_PROXIES_MAX_N_GR_HOST = 10
+CONF_PROXIES_N_GR_VIDEO = 6
 CONF_PROXIES_BASE_PORT = 12000
+CONF_ARIA2C_MIN_SIZE_SPLIT = 10485760 #10MB
 
 try:
     import proxy
@@ -250,14 +251,9 @@ def init_argparser():
             
     return args
 
-
-
-
-
 if _SUPPORT_PROXY:
     
-    logger = logging.getLogger("http_pry")
-    
+        
     def long_operation_in_thread(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -271,6 +267,7 @@ if _SUPPORT_PROXY:
     def run_proxy_http(stop_event, log_level="INFO"):
         with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
             try:
+                logger = logging.getLogger("proxy")
                 logger.info(p.flags)
                 while not stop_event.is_set():
                     time.sleep(1)
@@ -345,16 +342,9 @@ def init_proxies(num, size):
             
         cmd_gost_s.extend([f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:7070" for i, ip in enumerate(FINAL_IPS)])
     
-    # cmd_gost_simple = [f"gost -L=:{1235 + n*i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[0]}:7070" for i, ip in enumerate(FINAL_IPS)]
-        
-    # cmd_gost_ip0 = [f"gost -L=:{1235 + n*i + 1} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[1]}:7070" for i, ip in enumerate(FINAL_IPS)]
-    # cmd_gost_ip1 = [f"gost -L=:{1235 + n*i + 2} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[2]}:7070" for i, ip in enumerate(FINAL_IPS)]
-    # cmd_gost_ip2 = [f"gost -L=:{1235 + n*i + 3} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[3]}:7070" for i, ip, in enumerate(FINAL_IPS)]
-    #cmd_gost_group =  [f"gost -L=:{1235 + n*i + 9} -F=':{1235 + n*i + 9}?ip={','.join([f':{1235 + n*i + j}' for j in range(1,num_el_set)])}&strategy=round&max_fails=10&fail_timeout=1s'" for i in range(n)]
+
     cmd_gost_group =  [f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)] 
-    
-    #cmd_gost = cmd_gost_simple + cmd_gost_ip0 +  cmd_gost_ip1 +  cmd_gost_ip2 + cmd_gost_group
-    
+
     cmd_gost = cmd_gost_s + cmd_gost_group
     
     logger.debug(f"[init_proxies] {cmd_gost}")
@@ -363,11 +353,11 @@ def init_proxies(num, size):
     
     for cmd in cmd_gost:
         
-        logger.info(cmd)
+        logger.debug(cmd)
         proc_gost.append(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True))
         time.sleep(0.05)
         
-
+    logger.info("[init_proxies] done")
     return proc_gost
         
 
@@ -375,16 +365,14 @@ def init_proxies(num, size):
 if _SUPPORT_YTDL:
 
     class AsyncYTDL(YoutubeDL):
+        
         async def __aenter__(self):
             return self
         
         async def __aexit__(self, *args, **kwargs):
-            ies = self._ies_instances
-            
-            if not ies: return
-                    
-            for ie, ins in ies.items():
-                
+            ies = self._ies_instances            
+            if not ies: return                    
+            for ie, ins in ies.items():                
                 if (close:=getattr(ins, 'close', None)):
                     try:
                         close()                                        

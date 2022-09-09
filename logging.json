@@ -40,7 +40,7 @@
 
     "info_file_handler": {
         "class": "logging.handlers.RotatingFileHandler",
-        "level": "DEBUG",
+        "level": "INFO",
         "formatter": "file_format",
         "filename": "{path_logs}/asyncdl.log",
         "filters": ["filtermodules"],
@@ -61,7 +61,7 @@
   },
 
   "root": {
-    "level": "DEBUG",
+    "level": "INFO",
     "handlers": ["queue_listener"]
   }
 }
