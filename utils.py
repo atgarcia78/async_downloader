@@ -274,7 +274,8 @@ if _SUPPORT_PROXY:
 
     @long_operation_in_thread
     def run_proxy_http(stop_event, log_level="INFO"):
-        with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
+        #with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
+        with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
             try:
                 logger = logging.getLogger("proxy")
                 logger.info(p.flags)
@@ -540,6 +541,7 @@ if _SUPPORT_YTDL:
 
 
 if _SUPPORT_FILELOCK:
+    
     class LocalStorage:           
             
         lslogger = logging.getLogger('LocalStorage')
@@ -633,8 +635,7 @@ async def async_ex_in_executor(executor, func, /, *args, **kwargs):
     func_call = functools.partial(ctx.run, func, *args, **_kwargs)        
     return await loop.run_in_executor(executor, func_call)
     
-async def async_ex_in_thread(prefix, func, /, *args, **kwargs):
-        
+async def async_ex_in_thread(prefix, func, /, *args, **kwargs):        
     loop = asyncio.get_running_loop()
     ctx = contextvars.copy_context()
     func_call = functools.partial(ctx.run, func, *args, **kwargs)
@@ -652,8 +653,7 @@ async def async_lock(executor, lock):
     finally:
         lock.release()
 
-async def async_wait_time(n):
-   
+async def async_wait_time(n):   
     _started = time.monotonic()
     while True:
         if (_t:=(time.monotonic() - _started)) >= n:
@@ -696,22 +696,15 @@ def kill_processes(logger=None, rpcport=None):
     if rpcport: _aria2cstr = f"aria2c.+--rpc-listen-port {rpcport}.+"
     else: _aria2cstr = f"aria2cDUMMY"
     mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox.app/Contents/MacOS/firefox-bin.+))', res)
-    #mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+))', res)
     mobj2 = re.findall(rf'\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ', res)
     if mobj:
         proc_to_kill = list(set(mobj))                    
         results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
-            
         _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
-            
         _log("[kill_processes]\n" + '\n'.join(_debugstr))
-            
-    
     else: 
         _log("[kill_processes] No processes found to kill") 
-        
     if mobj2:
-        
         for el in mobj2:
             shutil.rmtree(el, ignore_errors=True)
             

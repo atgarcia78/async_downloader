@@ -45,12 +45,15 @@ def main():
                     asyncDL.pasres_repeat = False        
                     pending_tasks = asyncio.all_tasks(loop=asyncDL.loop)
                     if pending_tasks:
+                        pending_tasks.remove(asyncDL.main_task)
+                        pending_tasks.remove(asyncDL.console_task)
+                        pending_tasks.remove(asyncDL.task_gui_root)
                         logger.debug(f"pending tasks: {pending_tasks}")
                         for task in pending_tasks:
                             task.cancel()
                     
-                        asyncDL.loop.run_until_complete(asyncio.gather(*pending_tasks, return_exceptions=True))
-                        logger.debug(f"[async_ex] tasks after cancelletation: {asyncio.all_tasks(loop=asyncDL.loop)}")
+                        asyncDL.loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop=asyncDL.loop), return_exceptions=True))
+                        logger.debug(f"[async_ex] tasks after cancellation: {asyncio.all_tasks(loop=asyncDL.loop)}")
                     else: logger.debug(f"pending tasks: []")
                 finally:
                     asyncio.set_event_loop(None)

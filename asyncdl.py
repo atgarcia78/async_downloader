@@ -1552,6 +1552,8 @@ class AsyncDL():
             
             tasks_gui = []
             self.extra_tasks_run = []
+            self.proc_gost = []
+            self.stop_proxy = None
             
             tasks_to_wait = {}
 
@@ -1561,8 +1563,7 @@ class AsyncDL():
             if not self.args.nodl:                
 
                 #aria2c
-                self.proc_gost = []
-                self.stop_proxy = None
+                
                 if self.args.aria2c:             
                     init_aria2c(self.args)
                     if self.args.proxy != 0:
@@ -1605,8 +1606,7 @@ class AsyncDL():
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
-            #for _task in tasks_gui:
-            #    _task.cancel()
+
             self.stop_console = True
             await asyncio.sleep(0)
             self.stop_root = True 
