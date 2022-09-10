@@ -18,7 +18,7 @@ from utils import (EMA, int_or_none, naturalsize, none_to_cero, try_get,
                    dec_retry_error, traverse_obj, CONFIG_EXTRACTORS, get_domain)
 
 
-from cs.threads import PriorityLock
+from threading import Lock
 
 from urllib.parse import unquote
 
@@ -145,12 +145,12 @@ class AsyncHTTPDownloader():
                 
                 with self.ytdl.params['lock']:                
                     if not (_temp:=traverse_obj(self.ytdl.params['sem'], self._host)):
-                        _temp = PriorityLock()
+                        _temp = Lock()
                         self.ytdl.params['sem'].update({self._host: _temp})
                         
                 self.sem = _temp
                 
-                self.sem.acquire(priority=50)
+                self.sem.acquire()
                 
             else: 
                 self.sem = None 
@@ -499,7 +499,7 @@ class AsyncHTTPDownloader():
             self.status = "downloading"
             
             if self.sem: 
-                await async_ex_in_executor(AsyncHTTPDownloader._EX_HTTPDL, self.sem.acquire, priority=50)  
+                await async_ex_in_executor(AsyncHTTPDownloader._EX_HTTPDL, self.sem.acquire)  
             
             self.tasks = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
             

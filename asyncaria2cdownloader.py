@@ -24,10 +24,13 @@ from utils import (
     CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO,
     CONF_PROXIES_BASE_PORT,
-    CONF_ARIA2C_MIN_SIZE_SPLIT
+    CONF_ARIA2C_MIN_SIZE_SPLIT,
+    CONF_ARIA2C_SPEED_PER_CONNECTION,
+    CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED,
+    CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
 )
 
-from cs.threads import PriorityLock
+from threading import Lock
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -53,10 +56,7 @@ class AsyncARIA2CDownloader():
     
     _CONFIG = CONFIG_EXTRACTORS.copy()  
     _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
-    
-   
-        
-    
+
     def __init__(self, port, video_dict, vid_dl):
 
         self.info_dict = video_dict.copy()
@@ -112,9 +112,10 @@ class AsyncARIA2CDownloader():
         
         def getter(x):
         
-            value, key_text = try_get([(v,kt)
-                                       for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)],
-                                      lambda y: y[0]) or ("","") 
+            value, key_text = try_get(
+                [(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)],
+                lambda y: y[0]) or ("","") 
+            
             if value:
                 return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
         
@@ -165,7 +166,7 @@ class AsyncARIA2CDownloader():
             
             with self.ytdl.params['lock']:                
                 if not (_sem:=traverse_obj(self.ytdl.params.get('sem'), self._host)):
-                    _sem = PriorityLock()
+                    _sem = Lock()
                     self.ytdl.params['sem'].update({self._host: _sem})
                     
             self.sem = _sem            
@@ -177,7 +178,6 @@ class AsyncARIA2CDownloader():
 
     async def init(self):
 
-        #self.down_size = 0
         
         try:
             if self.sem:
@@ -356,12 +356,10 @@ class AsyncARIA2CDownloader():
 
     async def fetch(self):        
 
-        EST_SPEED = 102400
-        MIN_N_CHUNKS = 150
-        N_CHUNKS_CHECK = 30
+
         
         def getter(x):
-            return x*EST_SPEED # 204800, 256000
+            return x*CONF_ARIA2C_SPEED_PER_CONNECTION # 204800, 256000
                                 # w 8, gr 6
                                 # 102400,150,30: 482seg
                                 # 204800 1 error, 524seg
@@ -393,9 +391,9 @@ class AsyncARIA2CDownloader():
                                     
                         else: _no_dl = False
                         _speed.append((self.dl_cont.connections, self.dl_cont.download_speed)) 
-                        #if len(_speed) > 150 and len(set([el[0] for el in _speed[-10:]])) == 1 and all([el[1] < getter(el[0]) for el in _speed[-10:]]):
-                        if len(_speed) > MIN_N_CHUNKS and all([el[1] < getter(el[0]) for el in _speed[-N_CHUNKS_CHECK:]]):
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch] speed reset: n_el_speed[{len(_speed)}]\n{_speed[-N_CHUNKS_CHECK:]}")
+                        
+                        if len(_speed) > CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED and all([el[1] < getter(el[0]) for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]]):
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch] speed reset: n_el_speed[{len(_speed)}]\n{_speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]}")
                             self.video_downloader.reset_event.set()
                             return
                             

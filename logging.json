@@ -21,12 +21,8 @@
   "filters": {
     "filtermodules": {
         "()": "supportlogging.FilterModule",
-        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin", "seleniumwire.proxy.handler", "seleniumwire.proxy.storage", "seleniumwire.handler", "img2pdf", "hpack", "seleniumwire.mitmproxy", "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache", "charset_normalizer", "blib2to3.pgen2.driver", "pyrate_limiter.limit_context_decorator", "oauth2client.client"]
-    },
-    "proxymodule": {
-        "()": "supportlogging.FilterModule",
-        "patterns": ["proxy"]
-    }   
+        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin","img2pdf", "hpack", "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache", "charset_normalizer", "blib2to3.pgen2.driver", "pyrate_limiter.limit_context_decorator", "oauth2client.client"]
+    }     
   },
   "handlers": {
     
@@ -40,7 +36,7 @@
 
     "info_file_handler": {
         "class": "logging.handlers.RotatingFileHandler",
-        "level": "INFO",
+        "level": "DEBUG",
         "formatter": "file_format",
         "filename": "{path_logs}/asyncdl.log",
         "filters": ["filtermodules"],
@@ -61,7 +57,7 @@
   },
 
   "root": {
-    "level": "INFO",
+    "level": "DEBUG",
     "handlers": ["queue_listener"]
   }
 }

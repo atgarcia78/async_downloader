@@ -24,6 +24,9 @@ CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 6
 CONF_PROXIES_BASE_PORT = 12000
 CONF_ARIA2C_MIN_SIZE_SPLIT = 10485760 #10MB
+CONF_ARIA2C_SPEED_PER_CONNECTION = 102400
+CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 150
+CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 30
 
 try:
     import proxy
@@ -186,7 +189,13 @@ def init_logging(file_path=None):
     
     config['handlers']['info_file_handler']['filename'] = config['handlers']['info_file_handler']['filename'].format(path_logs = str(PATH_LOGS))
     
-    logging.config.dictConfig(config)   
+    logging.config.dictConfig(config)
+    
+    for log_name, log_obj in logging.Logger.manager.loggerDict.items():
+        if log_name.startswith('proxy'):
+            logger = logging.getLogger(log_name)
+            logger.setLevel(logging.INFO)
+            
 
 def init_argparser():
     
