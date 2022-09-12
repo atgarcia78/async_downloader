@@ -14,7 +14,7 @@ import aiofiles
 import httpx
 
 from utils import (EMA, int_or_none, naturalsize, none_to_cero, try_get, 
-                   async_ex_in_executor, 
+                   async_ex_in_executor, limiter_non,
                    dec_retry_error, traverse_obj, CONFIG_EXTRACTORS, get_domain)
 
 
@@ -40,6 +40,8 @@ class AsyncHTTPDLError(Exception):
         super(AsyncHTTPDLError, self).__init__(msg)
 
         self.exc_info = sys.exc_info()  # preserve original exception
+
+
 class AsyncHTTPDownloader():
     
     _MIN_SIZE = 10485760 #10MB
@@ -60,7 +62,7 @@ class AsyncHTTPDownloader():
 
         self.uris = [unquote(self.video_url)]
 
-        self.ytdl = getattr(self.video_downloader, 'info_dl', {}).get('ytdl', None)
+        self.ytdl = traverse_obj(self.video_downloader, ('info_dl', 'ytdl'))
 
         self.proxies = None
 
@@ -110,32 +112,27 @@ class AsyncHTTPDownloader():
 
         try:
 
-            def transp(func):
-                return func
-            
-            def getter(x):            
+
+            def getter(x):
+                            
                 value, key_text = try_get([(v,kt) for k,v in self._CONFIG.items() if any(x==(kt:=_) for _ in k)], lambda y: y[0]) or ("","") 
                 if value:
                     return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
 
-            self.n_parts = getattr(self.video_downloader, 'info_dl', {}).get('n_workers', 16)
+            self.n_parts = traverse_obj(self.video_downloader, ('info_dl', 'n_workers'), default=16)
             
-            _extractor = self.info_dict.get('extractor', '')
-            
-            self.auto_pasres = False
-            
+            _extractor = self.info_dict.get('extractor')            
+            self.auto_pasres = False            
             _sem = False
             if _extractor and _extractor.lower() != 'generic':
-                self._decor, self._nsplits = getter(_extractor) or (transp, self.n_parts)
+                self._decor, self._nsplits = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.n_parts)
                 if _extractor in ['doodstream', 'vidoza']:
                     self.auto_pasres = True
                 if self._nsplits < 16: 
-                    _sem = True
-                if self.n_parts != self._nsplits:
-                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: change nparts [{self.n_parts} -> {self._nsplits}]")
-                    self.n_parts = min(self.n_parts, self._nsplits)
+                    _sem = True                
+
             else: 
-                self._decor, self._nsplits = transp, self.n_parts
+                self._decor, self._nsplits = limiter_non.ratelimit("transp", delay=True), self.n_parts
 
             self._NUM_WORKERS = self.n_parts 
 

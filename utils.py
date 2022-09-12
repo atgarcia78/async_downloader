@@ -401,6 +401,17 @@ if _SUPPORT_YTDL:
 
     class AsyncYTDL(YoutubeDL):
         
+        def __init__(self, opts=None, proxy=None):
+            if not opts: opts = {}
+            opts['quiet'] = True
+            opts['verbose'] = False
+            opts['verboseplus'] = False
+            opts['logger'] = MyLogger(logging.getLogger("async-ytdl"),
+                                             quiet=True, verbose=False, superverbose=False)
+            opts['proxy'] = proxy
+            
+            super().__init__(params=opts)
+        
         async def __aenter__(self):
             return self
         
