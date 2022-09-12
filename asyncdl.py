@@ -975,7 +975,7 @@ class AsyncDL():
                     file_aldl.symlink_to(vid_path)
                     try:
                         mtime = int(vid_path.stat().st_mtime)
-                        file_aldl._accessor.utime(file_aldl, (int(datetime.now().timestamp()), mtime), follow_symlinks=False)
+                        file_aldl._accessor.utime(file_aldl, (int(datetime.timestamp(datetime.now())), mtime), follow_symlinks=False)
                     except Exception as e:
                         logger.debug(f'[check_if_aldl] [{str(file_aldl)}] -> [{str(vid_path)}] error when copying times {repr(e)}')
                 

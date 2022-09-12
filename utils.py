@@ -175,6 +175,27 @@ class MyLogger(logging.LoggerAdapter):
             else:                
                 self.log(logging.INFO, msg, *args, **kwargs)
 
+class OutputLogger:
+    def __init__(self, name="root", level="INFO"):
+        self.logger = logging.getLogger(name)
+        self.name = self.logger.name
+        self.level = getattr(logging, level)
+        self._redirector = contextlib.redirect_stdout(self)
+
+    def write(self, msg):
+        if msg and not msg.isspace():
+            self.logger.log(self.level, msg)
+
+    def flush(self): pass
+
+    def __enter__(self):
+        self._redirector.__enter__()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        # let contextlib do any exception handling here
+        self._redirector.__exit__(exc_type, exc_value, traceback)
+
 def init_logging(file_path=None):
 
 
@@ -220,6 +241,7 @@ def init_argparser():
     parser.add_argument("--headers", default="", type=str)  
     parser.add_argument("-u", action="append", dest="collection", default=[])   
     parser.add_argument("--nodlcaching", help="dont get new cache videos dl, use previous", action="store_true", default=False)
+    parser.add_argument("--dlcaching", help="force to check external storage", action="store_true", default=False)
     parser.add_argument("--path", default=None, type=str)    
     parser.add_argument("--caplinks", action="store_true", default=False)    
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
@@ -256,6 +278,9 @@ def init_argparser():
         
     if args.proxy == 'no':
         args.proxy = 0
+        
+    if args.dlcaching:
+        args.nodlcaching = False
         
             
     return args

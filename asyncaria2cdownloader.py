@@ -125,7 +125,7 @@ class AsyncARIA2CDownloader():
         self._mode = "simple"
         if _extractor and _extractor.lower() != 'generic':
             self._decor, self._nsplits = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.nworkers)
-            if self._nsplits < 16: 
+            if self._nsplits < 16 or _extractor in ['boyfriendtv']: 
                 _sem = True
             if _extractor in ['doodstream', 'vidoza', 'tubeload', 'redload']:
                 #self.auto_pasres = True #ojo review
@@ -140,7 +140,15 @@ class AsyncARIA2CDownloader():
             self._mode = "simple"
             
         #self.nworkers = min(self._nsplits, self.nworkers)
+                
         self.nworkers = self._nsplits
+        if self.filesize:
+            _nsplits = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
+            if _nsplits < self.nworkers:
+                self.nworkers = _nsplits
+                
+            
+                
         
         #if self._mode == "group":
         #    self.nworkers = CONF_PROXIES_N_GR_VIDEO*self.nworkers 
@@ -226,7 +234,7 @@ class AsyncARIA2CDownloader():
                     
                     self.video_url = proxy_info.get('url')
                     self.uris = [unquote(self.video_url)]
-                    self.opts.set("header", [f"{key}: {value}" for key,value in self.headers.items()])
+                    #self.opts.set("header", [f"{key}: {value}" for key,value in self.headers.items()])
                     self.opts.set("split", self.nworkers)
                     await asyncio.sleep(0)
                     
@@ -299,11 +307,11 @@ class AsyncARIA2CDownloader():
             while not self.video_downloader.reset_event.is_set():
                 await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.dl_cont.update)
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {self.dl_cont._struct}")
-                if self.dl_cont.total_length or self.dl_cont.status in ('complete'):
+                if self.dl_cont and (self.dl_cont.total_length or self.dl_cont.status in ('complete')):
                     break
-                if ((self.dl_cont.status in ('error')) or (time.monotonic() - _tstart > 30)):
+                if ((self.dl_cont and self.dl_cont.status in ('error')) or (time.monotonic() - _tstart > 30)):
                     
-                    if self.dl_cont.status in ('error'):
+                    if self.dl_cont and self.dl_cont.status in ('error'):
                         _msg_error = self.dl_cont.error_message
                     else:
                         _msg_error = 'timeout'
@@ -319,7 +327,7 @@ class AsyncARIA2CDownloader():
             if self.video_downloader.reset_event.is_set():
                 return
                 
-            elif self.dl_cont.status in ('complete'):
+            elif self.dl_cont and self.dl_cont.status in ('complete'):
                 self.status = "done"
                                     
             if self.dl_cont.total_length:
@@ -368,10 +376,10 @@ class AsyncARIA2CDownloader():
         _speed = []
         try: 
                          
-            if self.dl_cont.status in ('active'):        
+            if self.dl_cont and self.dl_cont.status in ('active'):        
                 self.status = 'downloading'
                 _no_dl = False
-                while (self.dl_cont.status in ('active') and not self.video_downloader.reset_event.is_set()):                    
+                while (self.dl_cont and self.dl_cont.status in ('active') and not self.video_downloader.reset_event.is_set()):                    
                    
                     try:                
                         _incsize = self.dl_cont.completed_length - self.down_size
@@ -425,10 +433,10 @@ class AsyncARIA2CDownloader():
                         raise
                 
                 await asyncio.sleep(0)
-                if self.dl_cont.status == "complete":
+                if self.dl_cont and self.dl_cont.status == "complete":
                     self.status = "done"
                     return
-                if self.dl_cont.status == "error":
+                if self.dl_cont and self.dl_cont.status == "error":
                     raise AsyncARIA2CDLError("error")
         
         except BaseException as e:            
