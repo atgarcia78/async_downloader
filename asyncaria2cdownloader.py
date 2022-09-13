@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -35,22 +34,18 @@ from threading import Lock
 logger = logging.getLogger("async_ARIA2C_DL")
 
 class AsyncARIA2CDLErrorFatal(Exception):
-    """Error during info extraction."""
-
-    def __init__(self, msg):
+    def __init__(self, msg, exc_info=None):
         
-        super(AsyncARIA2CDLErrorFatal, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info()  
 
 class AsyncARIA2CDLError(Exception):
-    """Error during info extraction."""
-
-    def __init__(self, msg):
+   def __init__(self, msg, exc_info=None):
         
-        super(AsyncARIA2CDLError, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info()
 
 class AsyncARIA2CDownloader():
     
@@ -66,15 +61,7 @@ class AsyncARIA2CDownloader():
         
         self.ytdl = traverse_obj(self.video_downloader.info_dl, ('ytdl'))
        
-       
         self.proxies = [i for i in range(CONF_PROXIES_MAX_N_GR_HOST)]
-        
-        self._ytdl_opts = self.ytdl.params.copy()        
-        # self._ytdl_opts['quiet'] = True
-        # self._ytdl_opts['verbose'] = False
-        # self._ytdl_opts['verboseplus'] = False
-        # self._ytdl_opts['logger'] = MyLogger(logging.getLogger("proxy_yt_dlp"),
-        #                                      quiet=True, verbose=False, superverbose=False)
 
         self.video_url = self.info_dict.get('url')
         self.uris = [unquote(self.video_url)]        
@@ -213,7 +200,7 @@ class AsyncARIA2CDownloader():
                     self._proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index*100}'
                     self.opts.set("all-proxy", self._proxy) 
                 
-                    _ytdl_opts = self._ytdl_opts.copy()
+                    _ytdl_opts = self.ytdl.params.copy().copy()
                     #_ytdl_opts['proxy'] = self._proxy
                     async with AsyncYTDL(opts=_ytdl_opts, proxy=self._proxy) as proxy_ytdl:
                         proxy_info = get_format_id(
@@ -250,7 +237,7 @@ class AsyncARIA2CDownloader():
 
                     async def get_uri(i):
                         try:
-                            _ytdl_opts = self._ytdl_opts.copy()
+                            _ytdl_opts = self.ytdl.params.copy().copy()
                             _proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index*100+i}'
                             #_ytdl_opts['proxy'] = _proxy
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_proxy}")

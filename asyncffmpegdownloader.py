@@ -1,5 +1,4 @@
 import logging
-import sys
 import re
 import datetime
 import os
@@ -307,20 +306,20 @@ class AsyncFFmpegFD(FFmpegFD):
 class AsyncFFMPEGDLErrorFatal(Exception):
     """Error during info extraction."""
 
-    def __init__(self, msg):
+    def __init__(self, msg, exc_info=None):
         
-        super(AsyncFFMPEGDLErrorFatal, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info()
 
 class AsyncFFMPEGDLError(Exception):
     """Error during info extraction."""
 
-    def __init__(self, msg):
+    def __init__(self, msg, exc_info=None):
         
-        super(AsyncFFMPEGDLError, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info()
 
 class AsyncFFMPEGDownloader():
     

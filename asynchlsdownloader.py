@@ -26,27 +26,27 @@ logger = logging.getLogger("async_HLS_DL")
 
 class AsyncHLSDLErrorFatal(Exception):    
 
-    def __init__(self, msg):
+   def __init__(self, msg, exc_info=None):
         
-        super(AsyncHLSDLErrorFatal, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info()
 
 class AsyncHLSDLError(Exception):   
 
-    def __init__(self, msg):
+   def __init__(self, msg, exc_info=None):
         
-        super(AsyncHLSDLError, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info()
         
 class AsyncHLSDLReset(Exception):
     
-    def __init__(self, msg):
+   def __init__(self, msg, exc_info=None):
         
-        super(AsyncHLSDLReset, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info()
 
 class AsyncHLSDownloader():
 

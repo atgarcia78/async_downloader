@@ -25,21 +25,18 @@ from urllib.parse import unquote
 logger = logging.getLogger("async_http_DL")
 
 class AsyncHTTPDLErrorFatal(Exception):
-    """Error during info extraction."""
-
-    def __init__(self, msg):
+    def __init__(self, msg, exc_info=None):
         
-        super(AsyncHTTPDLErrorFatal, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info
+
 class AsyncHTTPDLError(Exception):
-    """Error during info extraction."""
-
-    def __init__(self, msg):
+    def __init__(self, msg, exc_info=None):
         
-        super(AsyncHTTPDLError, self).__init__(msg)
+        super().__init__(msg)
 
-        self.exc_info = sys.exc_info()  # preserve original exception
+        self.exc_info = exc_info 
 
 
 class AsyncHTTPDownloader():
