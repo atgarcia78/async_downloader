@@ -30,7 +30,7 @@ class AsyncHLSDLErrorFatal(Exception):
         
         super().__init__(msg)
 
-        self.exc_info = exc_info()
+        self.exc_info = exc_info
 
 class AsyncHLSDLError(Exception):   
 
@@ -38,7 +38,7 @@ class AsyncHLSDLError(Exception):
         
         super().__init__(msg)
 
-        self.exc_info = exc_info()
+        self.exc_info = exc_info
         
 class AsyncHLSDLReset(Exception):
     
@@ -46,7 +46,7 @@ class AsyncHLSDLReset(Exception):
         
         super().__init__(msg)
 
-        self.exc_info = exc_info()
+        self.exc_info = exc_info
 
 class AsyncHLSDownloader():
 
@@ -603,7 +603,8 @@ class AsyncHLSDownloader():
                         self.info_frag[q - 1]['downloaded'] = False
                         lines = traceback.format_exception(*sys.exc_info())
                         if not "httpx" in str(e.__class__) and not "AsyncHLSDLError" in str(e.__class__):
-                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {str(e.__class__)}")
+                            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {str(e.__class__)}")
+                            
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {repr(e)} \n{'!!'.join(lines)}")
                         self.info_frag[q - 1]['n_retries'] += 1
                         if await os.path.exists(filename):

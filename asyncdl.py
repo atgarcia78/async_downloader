@@ -778,7 +778,7 @@ class AsyncDL():
                         elif _info:                                
                                 
                             if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
-                                
+                                _info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))
                                 if not _info.get('original_url'): _info.update({'original_url': _url})
                                 
                                 self._prepare_entry_pl_for_dl(_info)

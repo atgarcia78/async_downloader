@@ -139,57 +139,65 @@ class VideoDownloader():
             
     def _get_dl(self, info): 
         
-        if not (_info:=info.get('requested_formats')):
-            _info = [info]
-        else:
-            for f in _info:
-                f.update({'id': self.info_dl['id'], 'title': self.info_dl['title'],
-                            '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
-                            'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')}) 
-        res_dl = []
+        try:
         
-        for info in _info:        
-        
-            dl = None
-            protocol = determine_protocol(info)
-                        
-            if protocol in ('http', 'https'):
-                if self.info_dl['rpcport'] and (info.get('extractor') not in FORCE_TO_HTTP):
-                                    
-                    try:
-                                    
-                        dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
-                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
-                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
-                    except Exception as e:
-                        if self.info_dl['backup_http']:
-                            logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
-                            dl = AsyncHTTPDownloader(info, self)
-                            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                            if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
-                        else: raise
-                
-                else: #--aria2c 0 or extractor is doodstream
-                    
-                    dl = AsyncHTTPDownloader(info, self)
-                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
-                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
-                                    
-            elif protocol in ('m3u8', 'm3u8_native'):
-                dl = AsyncHLSDownloader(info, self)
-                logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
-                            
-            elif protocol in ('http_dash_segments', 'dash'):
-                dl = AsyncDASHDownloader(info, self)
-                logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
+            if not (_info:=info.get('requested_formats')):
+                _info = [info]
             else:
-                logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
-                raise NotImplementedError("protocol not supported")
+                for f in _info:
+                    f.update({'id': self.info_dl['id'], 'title': self.info_dl['title'],
+                                '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
+                                'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')}) 
+            res_dl = []
+            
+            
+            
+            for info in _info:        
+            
+                dl = None
+                
+                protocol = determine_protocol(info)
                             
-            if dl:
-                res_dl.append(dl)
-       
-        return dl 
+                if protocol in ('http', 'https'):
+                    if self.info_dl['rpcport'] and (info.get('extractor') not in FORCE_TO_HTTP):
+                                        
+                        try:
+                                        
+                            dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                            logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
+                            if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
+                        except Exception as e:
+                            if self.info_dl['backup_http']:
+                                logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
+                                dl = AsyncHTTPDownloader(info, self)
+                                logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                                if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                            else: raise
+                    
+                    else: #--aria2c 0 or extractor is doodstream
+                        
+                        dl = AsyncHTTPDownloader(info, self)
+                        logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
+                        if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
+                                        
+                elif protocol in ('m3u8', 'm3u8_native'):
+                    dl = AsyncHLSDownloader(info, self)
+                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
+                                
+                elif protocol in ('http_dash_segments', 'dash'):
+                    dl = AsyncDASHDownloader(info, self)
+                    logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
+                else:
+                    logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
+                    raise NotImplementedError("protocol not supported")
+                                
+                if dl:
+                    res_dl.append(dl)
+        
+            return dl 
+
+        except Exception as e:
+            logger.exception(repr(e))
 
     def change_numvidworkers(self, n):
         for dl in self.info_dl['downloaders']:

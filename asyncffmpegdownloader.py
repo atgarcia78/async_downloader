@@ -310,7 +310,7 @@ class AsyncFFMPEGDLErrorFatal(Exception):
         
         super().__init__(msg)
 
-        self.exc_info = exc_info()
+        self.exc_info = exc_info
 
 class AsyncFFMPEGDLError(Exception):
     """Error during info extraction."""
@@ -319,7 +319,7 @@ class AsyncFFMPEGDLError(Exception):
         
         super().__init__(msg)
 
-        self.exc_info = exc_info()
+        self.exc_info = exc_info
 
 class AsyncFFMPEGDownloader():
     

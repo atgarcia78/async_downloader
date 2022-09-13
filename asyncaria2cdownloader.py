@@ -38,14 +38,14 @@ class AsyncARIA2CDLErrorFatal(Exception):
         
         super().__init__(msg)
 
-        self.exc_info = exc_info()  
+        self.exc_info = exc_info  
 
 class AsyncARIA2CDLError(Exception):
    def __init__(self, msg, exc_info=None):
         
         super().__init__(msg)
 
-        self.exc_info = exc_info()
+        self.exc_info = exc_info
 
 class AsyncARIA2CDownloader():
     
