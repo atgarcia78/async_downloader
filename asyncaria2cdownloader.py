@@ -64,7 +64,7 @@ class AsyncARIA2CDownloader():
         
         self.aria2_client = aria2p.API(aria2p.Client(port=port))
         
-        self.ytdl = traverse_obj(self.video_downloader, ('info_dl', 'ytdl'))
+        self.ytdl = traverse_obj(self.video_downloader.info_dl, ('ytdl'))
        
        
         self.proxies = [i for i in range(CONF_PROXIES_MAX_N_GR_HOST)]
@@ -164,7 +164,7 @@ class AsyncARIA2CDownloader():
         if _sem:
             
             with self.ytdl.params['lock']:                
-                if not (_sem:=traverse_obj(self.ytdl.params.get('sem'), self._host)):
+                if not (_sem:=traverse_obj(self.ytdl.params, ('sem', self._host))):
                     _sem = Lock()
                     self.ytdl.params['sem'].update({self._host: _sem})
                     

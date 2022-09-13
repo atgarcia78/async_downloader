@@ -62,7 +62,7 @@ class AsyncHTTPDownloader():
 
         self.uris = [unquote(self.video_url)]
 
-        self.ytdl = traverse_obj(self.video_downloader, ('info_dl', 'ytdl'))
+        self.ytdl = traverse_obj(self.video_downloader.info_dl, ('ytdl'))
 
         self.proxies = None
 
@@ -119,7 +119,7 @@ class AsyncHTTPDownloader():
                 if value:
                     return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
 
-            self.n_parts = traverse_obj(self.video_downloader, ('info_dl', 'n_workers'), default=16)
+            self.n_parts = traverse_obj(self.video_downloader.info_dl, ('n_workers'), default=16)
             
             _extractor = self.info_dict.get('extractor')            
             self.auto_pasres = False            
@@ -141,7 +141,7 @@ class AsyncHTTPDownloader():
             if _sem:
                 
                 with self.ytdl.params['lock']:                
-                    if not (_temp:=traverse_obj(self.ytdl.params['sem'], self._host)):
+                    if not (_temp:=traverse_obj(self.ytdl.params, ('sem', self._host))):
                         _temp = Lock()
                         self.ytdl.params['sem'].update({self._host: _temp})
                         
