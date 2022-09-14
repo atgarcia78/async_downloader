@@ -131,8 +131,7 @@ class VideoDownloader():
                     res = [self.syncpostffmpeg(f"ffmpeg -i {_url}").stderr for _url in urls]
                     if any(".mp4" in _ for _ in res):
                         return(AsyncFFMPEGDownloader(info, self))
-                        
-        
+
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]check if apple failed - {repr(e)}\n{info}")
             
@@ -149,8 +148,6 @@ class VideoDownloader():
                                 '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
                                 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')}) 
             res_dl = []
-            
-            
             
             for info in _info:        
             

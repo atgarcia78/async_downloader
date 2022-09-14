@@ -18,7 +18,6 @@ from utils import (
     limiter_non, 
     AsyncYTDL, 
     get_format_id,
-    MyLogger,
     get_domain,
     CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO,
