@@ -217,10 +217,8 @@ def init_logging(file_path=None):
             logger = logging.getLogger(log_name)
             logger.setLevel(logging.INFO)
             
-
 def init_argparser():
     
- 
     UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:104.0) Gecko/20100101 Firefox/104.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
@@ -530,7 +528,7 @@ if _SUPPORT_YTDL:
     
         logger = logging.getLogger('check')
         
-        config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos")}
+        config_folders = {'local': Path(Path.home(), "testing"), 'pandaext4': Path("/Volumes/Pandaext4/videos"), 'datostoni': Path("/Volumes/DatosToni/videos"), 'wd1b': Path("/Volumes/WD1B/videos"), 'wd5': Path("/Volumes/WD5/videos"), 'wd8_1': Path("/Volumes/WD8_1/videos")}
 
         list_folders = []
 
@@ -587,7 +585,7 @@ if _SUPPORT_FILELOCK:
         
         config_folders = {"local": Path(Path.home(), "testing"), "pandaext4": Path("/Volumes/Pandaext4/videos"), 
                         "datostoni": Path("/Volumes/DatosToni/videos"), "wd1b": Path("/Volumes/WD1B/videos"),
-                        "wd5": Path("/Volumes/WD5/videos")}
+                        "wd5": Path("/Volumes/WD5/videos"), "wd8_1": Path("/Volumes/WD8_1/videos")}
         
         def __init__(self, paths=None):
             
@@ -625,13 +623,14 @@ if _SUPPORT_FILELOCK:
                 elif 'WD1B/videos' in x: return 'wd1b'
                 elif 'antoniotorres/testing' in x: return 'local'
                 elif 'DatosToni/videos' in x: return 'datostoni'
+                elif 'WD8_1/videos' in x: return 'wd8_1'
 
             if videos_cached:
                 self._data_for_scan = videos_cached.copy()
             if last_time_sync:
                 self._last_time_sync = last_time_sync.copy()
             
-            _temp = {"last_time_sync": {}, "local": {}, "wd5": {}, "wd1b": {}, "pandaext4": {}, "datostoni": {}}
+            _temp = {"last_time_sync": {}, "local": {}, "wd5": {}, "wd1b": {}, "pandaext4": {}, "datostoni": {},  "wd8_1": {}}
             
             _temp.update({"last_time_sync": last_time_sync})                    
     
@@ -1019,54 +1018,44 @@ if _SUPPORT_PYSIMP:
             logger.exception(f'[init_gui] error {repr(e)}')
     
 
-    def _init_gui():
+    def init_gui_rclone():
     
         try:
             
-            logger = logging.getLogger("asyncDL")
+            logger = logging.getLogger("rclone-san")
             
             sg.theme("SystemDefaultForReal")
             
+            col_00 = sg.Column([                                 
+                                [sg.Text("Waiting for info", size=(150, 2), font='Any 10', key='ST')]
+            ])
+            
             col_0 = sg.Column([
-                                [sg.Text("WAITING TO DL", font='Any 14')], 
+                                [sg.Text("NOW RCLONE", font='Any 14')], 
                                 [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
-            ], element_justification='l', expand_x=True, expand_y=True)
+            ], element_justification='c', expand_x=True, expand_y=True)
             
             col_1 = sg.Column([
-                                [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
+                                [sg.Text("NOW MOVING", font='Any 14')], 
+                                [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
             ], element_justification='c', expand_x=True, expand_y=True)
             
             col_2 = sg.Column([
-                                [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
+                                [sg.Text("FINISHED", font='Any 14')], 
                                 [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
-            ], element_justification='r', expand_x=True, expand_y=True)
+            ], element_justification='c', expand_x=True, expand_y=True)
             
-            layout_root = [ [col_0, col_1, col_2] ]
+            layout_root = [ [col_00],
+                           [col_0, col_1, col_2] ]
             
-            window_root = sg.Window('async_downloader', layout_root, location=(0, 0), finalize=True, resizable=True)
+            window_root = sg.Window('rclone', layout_root, alpha_channel=0.99, location=(0, 0), finalize=True, resizable=True)
             window_root.set_min_size(window_root.size)
             
             window_root['-ML0-'].expand(True, True, True)
             window_root['-ML1-'].expand(True, True, True)
             window_root['-ML2-'].expand(True, True, True)
-            
-            col_pygui = sg.Column([
-                                    [sg.Text('Select DL', font='Any 14')],
-                                    [sg.Input(key='-IN-', font='Any 10', focus=True)],
-                                    [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, auto_refresh=True, autoscroll=True)],
-                                    [sg.Checkbox('PasRes', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
-            ], element_justification='c', expand_x=True, expand_y=True)
-            
-            layout_pygui = [ [col_pygui] ]
 
-            window_console = sg.Window('Console', layout_pygui, location=(0, 500), finalize=True, resizable=True)
-            window_console.set_min_size(window_console.size)
-            window_console['-ML-'].expand(True, True, True)
-            
-            window_console.bring_to_front()
-            
-            return(window_root, window_console)
+            return(window_root)
         
         except Exception as e:
             logger.exception(f'[init_gui] error {repr(e)}')

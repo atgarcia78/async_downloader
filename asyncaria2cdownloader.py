@@ -268,7 +268,7 @@ class AsyncARIA2CDownloader():
                             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] host: {self._host} init uris proxy[{_tasks_get_uri[_task]}] {repr(e)}")
                             
                     
-                    self.uris = _uris
+                    self.uris = _uris * self._nsplits
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy {self._proxy} count_init: {self.count_init} uris:\n{_uris}")
                     
             
