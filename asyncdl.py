@@ -363,9 +363,7 @@ class AsyncDL():
             logger.info(f"[run_vid] {self.queue_run._queue}")
             logger.info(f"[manip_vid] {self.queue_manip._queue}")
       
-    
-    
-        
+
     async def gui_console(self):
         
         try:

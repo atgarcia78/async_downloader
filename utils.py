@@ -24,10 +24,10 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 6
 CONF_PROXIES_BASE_PORT = 12000
-CONF_ARIA2C_MIN_SIZE_SPLIT = 10485760 #10MB
-CONF_ARIA2C_SPEED_PER_CONNECTION = 102400
-CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 150
-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 30
+CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576 #1MB 10485760 #10MB
+CONF_ARIA2C_SPEED_PER_CONNECTION = 102400 * 1.5# 102400
+CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 80
+CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 20
 
 
 
@@ -874,17 +874,17 @@ if _SUPPORT_PYSIMP:
             
             col_0 = sg.Column([
                                 [sg.Text("WAITING TO DL", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
             ], element_justification='l', expand_x=True, expand_y=True)
             
             col_1 = sg.Column([
                                 [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(80, 40), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
             ], element_justification='c', expand_x=True, expand_y=True)
             
             col_2 = sg.Column([
                                 [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
             ], element_justification='r', expand_x=True, expand_y=True)
             
             layout_root = [ [col_0, col_1, col_2] ]

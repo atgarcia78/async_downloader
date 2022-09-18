@@ -90,6 +90,8 @@ class AsyncARIA2CDownloader():
         
         self.count_init = 0
         
+        self.last_progress_str = "--"
+        
         self.prep_init()
         
 
@@ -159,12 +161,15 @@ class AsyncARIA2CDownloader():
         else: 
             self.sem = None
 
+        self.block_init = True
                     
 
     async def init(self):
 
         
         try:
+
+            
             if self.sem:
                 
                 while not self.video_downloader.reset_event.is_set():
@@ -188,7 +193,7 @@ class AsyncARIA2CDownloader():
                         await asyncio.sleep(1)
                         continue
                 
-                await asyncio.sleep(0)
+                #await asyncio.sleep(0)
                 if self.video_downloader.reset_event.is_set():
                     return
                 
@@ -262,7 +267,7 @@ class AsyncARIA2CDownloader():
                     await asyncio.wait(_tasks_get_uri)                        
                     for _task in _tasks_get_uri:
                         try:
-                            if _uri:=_task.result():
+                            if (_uri:=_task.result()):
                                 _uris.append(_uri)
                         except Exception as e:                                
                             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] host: {self._host} init uris proxy[{_tasks_get_uri[_task]}] {repr(e)}")
@@ -294,10 +299,10 @@ class AsyncARIA2CDownloader():
                                         
                     raise AsyncARIA2CDLError(f"init error {_msg_error}")
                 
-                await asyncio.sleep(0)                   
+                await asyncio.sleep(0.2)                   
                     
 
-            await asyncio.sleep(0)
+            #await asyncio.sleep(0)
             
             if self.video_downloader.reset_event.is_set():
                 return
@@ -348,71 +353,78 @@ class AsyncARIA2CDownloader():
                                 # 204800 1 error, 524seg
                                 # 256000,150,30: no working
         self.count_init = 0
-        _speed = []
+        _speed = []        
+        _no_dl = False        
+        
         try: 
                          
-            if self.dl_cont and self.dl_cont.status in ('active'):        
-                self.status = 'downloading'
-                _no_dl = False
-                while (self.dl_cont and self.dl_cont.status in ('active') and not self.video_downloader.reset_event.is_set()):                    
-                   
-                    try:                
-                        _incsize = self.dl_cont.completed_length - self.down_size
-                        self.down_size = self.dl_cont.completed_length
-                               
-                        async with self.video_downloader.alock: 
-                            self.video_downloader.info_dl['down_size'] += _incsize
-                        
-                        if _incsize == 0:
-                            if not _no_dl:
-                                _no_dl = True
-                                _timer_no_dl = time.monotonic()
-                            else:
-                                if time.monotonic() - _timer_no_dl > 5:
-                                    self.video_downloader.reset_event.set()
-                                    return
-                                    
-                        else: _no_dl = False
-                        _speed.append((self.dl_cont.connections, self.dl_cont.download_speed)) 
-                        
-                        if len(_speed) > CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED and all([el[1] < getter(el[0]) for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]]):
-                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch] speed reset: n_el_speed[{len(_speed)}]\n{_speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]}")
-                            self.video_downloader.reset_event.set()
-                            return
+            while (self.dl_cont and self.dl_cont.status in ('active')):                    
+                
+                try:                
+                    self.block_init = False                    
+                    await asyncio.sleep(0.2)
+                    await async_ex_in_executor(
+                        AsyncARIA2CDownloader._EX_ARIA2DL, 
+                        self.dl_cont.update)                       
+                    
+                    
+                    _incsize = self.dl_cont.completed_length - self.down_size
+                    self.down_size = self.dl_cont.completed_length
                             
-                        if self.video_downloader.pause_event.is_set():
-                            _no_dl = False
-                            await async_ex_in_executor(
-                                AsyncARIA2CDownloader._EX_ARIA2DL, 
-                                self.aria2_client.pause,[self.dl_cont])                        
-                            await asyncio.wait([self.video_downloader.resume_event.wait(),
-                                                self.video_downloader.reset_event.wait()],
-                                               return_when=asyncio.FIRST_COMPLETED)
-                            self.video_downloader.pause_event.clear()
-                            self.video_downloader.resume_event.clear()
-                            if self.video_downloader.reset_event.is_set():                                
-                                return                                 
+                    async with self.video_downloader.alock: 
+                        self.video_downloader.info_dl['down_size'] += _incsize
+                    
+                    # if _incsize == 0:
+                    #     if not _no_dl:
+                    #         _no_dl = True
+                    #         _timer_no_dl = time.monotonic()
+                    #     else:
+                    #         if time.monotonic() - _timer_no_dl > 5:
+                    #             self.video_downloader.reset_event.set()
+                    #             return
                                 
-                            async with self._decor: 
-                                await async_ex_in_executor(
-                                    AsyncARIA2CDownloader._EX_ARIA2DL, 
-                                    self.aria2_client.resume,[self.dl_cont]) 
+                    # else: 
+                    #     _no_dl = False
+                    
+                    _speed.append((self.dl_cont.connections, self.dl_cont.download_speed)) 
+                    
+                    if len(_speed) > CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED and all([el[1] < getter(el[0]) for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]]):
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch] speed reset: n_el_speed[{len(_speed)}]\n{_speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]}")
+                        self.video_downloader.reset_event.set()
+                        return
                         
-                        #async with self.video_downloader.alock: 
+                    if self.video_downloader.pause_event.is_set():
+                        _no_dl = False
                         await async_ex_in_executor(
                             AsyncARIA2CDownloader._EX_ARIA2DL, 
-                            self.dl_cont.update)
+                            self.aria2_client.pause,[self.dl_cont])                        
+                        await asyncio.wait([self.video_downloader.resume_event.wait(),
+                                            self.video_downloader.reset_event.wait(),
+                                            self.video_downloader.stop_event.wait()],
+                                            return_when=asyncio.FIRST_COMPLETED)
+                        self.video_downloader.pause_event.clear()
+                        self.video_downloader.resume_event.clear()
+                        async with self._decor: 
+                            await async_ex_in_executor(
+                                AsyncARIA2CDownloader._EX_ARIA2DL, 
+                                self.aria2_client.resume,[self.dl_cont])
+                    
+                    if self.video_downloader.reset_event.is_set():
+                        return
+                    
+                    if self.video_downloader.stop_event.is_set():
+                        return
 
-                        await asyncio.sleep(0.2)
-                    except BaseException as e:
-                        raise
-                
-                await asyncio.sleep(0)
-                if self.dl_cont and self.dl_cont.status == "complete":
-                    self.status = "done"
-                    return
-                if self.dl_cont and self.dl_cont.status == "error":
-                    raise AsyncARIA2CDLError("error")
+                    
+                except BaseException as e:
+                    raise
+            
+            #await asyncio.sleep(0)
+            if self.dl_cont and self.dl_cont.status == "complete":
+                self.status = "done"
+                return
+            if self.dl_cont and self.dl_cont.status == "error":
+                raise AsyncARIA2CDLError("error")
         
         except BaseException as e:            
             if isinstance(e, KeyboardInterrupt):
@@ -431,6 +443,8 @@ class AsyncARIA2CDownloader():
 
     async def fetch_async(self):
         
+        self.status = 'downloading'
+        
         while True:
             
             try:
@@ -440,33 +454,41 @@ class AsyncARIA2CDownloader():
                     return                
                 elif self.video_downloader.reset_event.is_set():
                     self.video_downloader.reset_event.clear()
+                    self.block_init = True
                     if self.dl_cont:
                         await async_ex_in_executor(
                             AsyncARIA2CDownloader._EX_ARIA2DL, 
                             self.aria2_client.remove, [self.dl_cont], clean=False)
                         continue
-                elif self.status in ("error"):
-                    return                            
-                await self.fetch()
-                if self.status == "done":
-                    return                
                 elif self.video_downloader.stop_event.is_set():
                     self.status = "stop"
+                    return
+                elif self.status in ("error"):
+                    return                            
+                
+                await asyncio.sleep(0)
+                
+                await self.fetch()
+                if self.status == "done":
                     return
                 elif self.video_downloader.reset_event.is_set():
                     try:
                         self.video_downloader.reset_event.clear()
-                        await async_ex_in_executor(
-                            AsyncARIA2CDownloader._EX_ARIA2DL, 
-                            self.aria2_client.remove, [self.dl_cont], clean=False)
-                        continue
+                        self.block_init = True
+                        if self.dl_cont:
+                            await async_ex_in_executor(
+                                AsyncARIA2CDownloader._EX_ARIA2DL, 
+                                self.aria2_client.remove, [self.dl_cont], clean=False)
+                            continue
                     except BaseException as e:
                         if isinstance(e, KeyboardInterrupt):
                             raise
+                elif self.video_downloader.stop_event.is_set():
+                    self.status = "stop"
+                    return
                 elif self.status in ('error'): 
                     return
-                
-                await asyncio.sleep(0)
+
             
             except BaseException as e:
                 if isinstance(e, KeyboardInterrupt):
@@ -485,11 +507,11 @@ class AsyncARIA2CDownloader():
                 if self.sem:
                     async with self.video_downloader.master_hosts_alock:
                         self.video_downloader.hosts_dl[self._host]['count'] -= 1
-                        self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
-                        self._proxy = None
+                    self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
+                    self._proxy = None
                         
                             
-                    await asyncio.sleep(0)
+                await asyncio.sleep(0)
                 
 
     def print_hookup(self):
@@ -506,14 +528,22 @@ class AsyncARIA2CDownloader():
             msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host}] STOPPED {naturalsize(self.down_size, format_='.2f')} [{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]\n"
         elif self.status == "downloading":
             
-            _temp = copy.deepcopy(self.dl_cont)    #mientras calculamos strings progreso no puede haber update de dl_cont, así que deepcopy de la instancia      
-            
-            _speed_str = f'{naturalsize(_temp.download_speed,binary=True,format_="6.2f")}ps'
-            _progress_str = f'{_temp.progress:.0f}%'
-            _connections = _temp.connections
-            _eta_str = _temp.eta_string()
-                       
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] CONN[{_connections:2d}/{self.nworkers:2d}] DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+            if not self.block_init:
+                _temp = copy.deepcopy(self.dl_cont)    #mientras calculamos strings progreso no puede haber update de dl_cont, así que deepcopy de la instancia      
+                
+                _speed_str = f'{naturalsize(_temp.download_speed,binary=True,format_="6.2f")}ps'
+                _progress_str = f'{_temp.progress:.0f}%'
+                self.last_progress_str = _progress_str
+                _connections = _temp.connections
+                _eta_str = _temp.eta_string()
+                        
+                msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] CONN[{_connections:2d}/{self.nworkers:2d}] DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+            else:
+                
+                msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] INIT DL PR[{self.last_progress_str}]"
+                
+                
+                
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         
