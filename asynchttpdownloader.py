@@ -118,7 +118,7 @@ class AsyncHTTPDownloader():
 
             self.n_parts = traverse_obj(self.video_downloader.info_dl, ('n_workers'), default=16)
             
-            _extractor = self.info_dict.get('extractor')            
+            _extractor = self.info_dict.get('extractor_key').lower()            
             self.auto_pasres = False            
             _sem = False
             if _extractor and _extractor.lower() != 'generic':

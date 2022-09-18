@@ -804,7 +804,7 @@ class AsyncDL():
                                             _ent.update({'original_url': _url})
                                         elif _ent['original_url'] != _url:
                                             _ent['initial_url'] = _url
-                                        if ((_ent.get('extractor') == 'generic') or (_ent.get('ie_key') == 'Generic'))  and (_ent.get('n_entries',0) <= 1):
+                                        if ((_ent.get('extractor_key') == 'Generic') or (_ent.get('ie_key') == 'Generic'))  and (_ent.get('n_entries',0) <= 1):
                                                 _ent.pop("playlist","")
                                                 _ent.pop("playlist_index","")
                                                 _ent.pop("n_entries","")
@@ -1531,6 +1531,7 @@ class AsyncDL():
             tasks_gui = []
             self.extra_tasks_run = []
             self.proc_gost = []
+            self.routing_table = {}
             self.stop_proxy = None
             
             tasks_to_wait = {}
@@ -1545,7 +1546,8 @@ class AsyncDL():
                 if self.args.aria2c:             
                     init_aria2c(self.args)
                     if self.args.proxy != 0:
-                        self.proc_gost = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)                
+                        self.proc_gost, self.routing_table = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)
+                        self.ytdl.params['routing_table'] = self.routing_table                
                         self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
                 
                 self.task_gui_root = asyncio.create_task(self.gui_root())

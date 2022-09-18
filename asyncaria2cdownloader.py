@@ -105,11 +105,11 @@ class AsyncARIA2CDownloader():
             if value:
                 return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
         
-        _extractor = self.info_dict.get('extractor')
+        _extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
         self.auto_pasres = False
         _sem = False
         self._mode = "simple"
-        if _extractor and _extractor.lower() != 'generic':
+        if _extractor and _extractor != 'generic':
             self._decor, self._nsplits = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.nworkers)
             if self._nsplits < 16 or _extractor in ['boyfriendtv']: 
                 _sem = True

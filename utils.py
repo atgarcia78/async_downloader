@@ -29,6 +29,8 @@ CONF_ARIA2C_SPEED_PER_CONNECTION = 102400
 CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 150
 CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 30
 
+
+
 try:
     import proxy
     _SUPPORT_PROXY = True
@@ -138,7 +140,7 @@ class MyLogger(logging.LoggerAdapter):
     _debug_phr = [  'Falling back on generic information extractor','Extracting URL:',
                     'The information of all playlist entries will be held in memory', 'Looking for video embeds',
                     'Identified a HTML5 media', 'Identified a KWS Player', ' unable to extract', 'Looking for embeds',
-                    'Looking for Brightcove embeds', 'Identified a html5 embed']
+                    'Looking for Brightcove embeds', 'Identified a html5 embed', 'mainjs from cache', 'mainjs to cache']
     
     _skip_phr = ['Downloading', 'Extracting information', 'Checking', 'Logging']
     
@@ -374,9 +376,15 @@ def init_proxies(num, size):
     
     cmd_gost_s = []
     
+    routing_table = {}
+    
     for j in range(size + 1):
             
         cmd_gost_s.extend([f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:7070" for i, ip in enumerate(FINAL_IPS)])
+        
+        routing_table.update({(CONF_PROXIES_BASE_PORT + 100*i + j):ip[j] for i, ip in enumerate(FINAL_IPS)})
+        
+      
     
 
     cmd_gost_group =  [f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)] 
@@ -384,6 +392,7 @@ def init_proxies(num, size):
     cmd_gost = cmd_gost_s + cmd_gost_group
     
     logger.debug(f"[init_proxies] {cmd_gost}")
+    logger.debug(f"[init_proxies] {routing_table}")
 
     proc_gost = []
     
@@ -394,7 +403,7 @@ def init_proxies(num, size):
         time.sleep(0.05)
         
     logger.info("[init_proxies] done")
-    return proc_gost
+    return proc_gost, routing_table
         
 
 
@@ -408,7 +417,7 @@ if _SUPPORT_YTDL:
             opts['verbose'] = False
             opts['verboseplus'] = False
             opts['logger'] = MyLogger(logging.getLogger("async-ytdl"),
-                                             quiet=True, verbose=False, superverbose=False)
+                                             quiet=opts['quiet'], verbose=opts['verbose'], superverbose=opts['verboseplus'])
             opts['proxy'] = proxy
             
             super().__init__(params=opts)

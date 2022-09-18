@@ -156,7 +156,7 @@ class VideoDownloader():
                 protocol = determine_protocol(info)
                             
                 if protocol in ('http', 'https'):
-                    if self.info_dl['rpcport'] and (info.get('extractor') not in FORCE_TO_HTTP):
+                    if self.info_dl['rpcport'] and (info.get('extractor_key').lower() not in FORCE_TO_HTTP):
                                         
                         try:
                                         
@@ -165,7 +165,7 @@ class VideoDownloader():
                             if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                         except Exception as e:
                             if self.info_dl['backup_http']:
-                                logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor')}]: aria2c init failed, swap to HTTP DL")
+                                logger.warning(f"[{info['id']}][{info['title']}][{info['format_id']}][{info.get('extractor_key').lower()}]: aria2c init failed, swap to HTTP DL")
                                 dl = AsyncHTTPDownloader(info, self)
                                 logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HTTP")
                                 if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
