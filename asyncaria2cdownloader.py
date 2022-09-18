@@ -11,7 +11,7 @@ import aria2p
 from utils import (
     async_ex_in_executor, 
     naturalsize, 
-    none_to_cero, 
+    none_to_zero, 
     try_get, 
     CONFIG_EXTRACTORS, 
     traverse_obj, 
@@ -78,7 +78,7 @@ class AsyncARIA2CDownloader():
             _filename = self.info_dict.get('filename')            
             self.filename = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "aria2."  + self.info_dict['ext'])
 
-        self.filesize = none_to_cero((self.info_dict.get('filesize', 0)))
+        self.filesize = none_to_zero((self.info_dict.get('filesize', 0)))
         self.down_size = 0
                 
         self.status = 'init'
@@ -281,7 +281,7 @@ class AsyncARIA2CDownloader():
 
             while not self.video_downloader.reset_event.is_set():
                 await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.dl_cont.update)
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {self.dl_cont._struct}")
+                #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {self.dl_cont._struct}")
                 if self.dl_cont and (self.dl_cont.total_length or self.dl_cont.status in ('complete')):
                     break
                 if ((self.dl_cont and self.dl_cont.status in ('error')) or (time.monotonic() - _tstart > 30)):
@@ -508,12 +508,12 @@ class AsyncARIA2CDownloader():
             
             _temp = copy.deepcopy(self.dl_cont)    #mientras calculamos strings progreso no puede haber update de dl_cont, así que deepcopy de la instancia      
             
-            _speed_str = _temp.download_speed_string()
-            _progress_str = _temp.progress_string()
+            _speed_str = f'{naturalsize(_temp.download_speed,binary=True,format_="6.2f")}ps'
+            _progress_str = f'{_temp.progress:.0f}%'
             _connections = _temp.connections
             _eta_str = _temp.eta_string()
                        
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host}] CONN[{_connections:2d}/{self.nworkers:2d}] DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+            msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] CONN[{_connections:2d}/{self.nworkers:2d}] DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
         elif self.status == "manipulating":  
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0         

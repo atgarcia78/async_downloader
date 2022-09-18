@@ -489,7 +489,7 @@ class VideoDownloader():
         elif self.info_dl['status'] == "downloading":
             if self.pause_event and self.pause_event.is_set(): status = "PAUSED"
             else: status ="Downloading"            
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: {status} [{naturalsize(self.info_dl['down_size'])}/{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: {status} [{naturalsize(self.info_dl['down_size'], format_='6.2f')}/{naturalsize(self.info_dl['filesize'], format_='6.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "manipulating": 
             if self.info_dl['filename'].exists(): _size = self.info_dl['filename'].stat().st_size
             else: _size = 0

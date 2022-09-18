@@ -28,7 +28,6 @@ MAPPING = {
 PREFIX = '\033['
 SUFFIX = '\033[0m'
 
-from utils import init_gui_log
 
 class Wintxt(logging.StreamHandler):
     

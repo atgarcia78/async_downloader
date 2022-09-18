@@ -110,6 +110,9 @@ class Rclonesan():
             stream = proc.stdout
             list_rclone = {}            
             while not proc.returncode:
+                
+                await asyncio.sleep(0)
+                
                 try:                        
                     line = await stream.readline()
                 except (asyncio.LimitOverrunError, ValueError):
@@ -118,16 +121,19 @@ class Rclonesan():
                     _line = re.sub('[\t\n]', '', line.decode('utf-8'))
                     #logger.debug(_line)
                     _file_rcl = try_get(re.search(_rclone, _line), lambda x: x.group('file').split('…')[0])
-                    if _file_rcl and _file_rcl not in list(list_rclone.keys()):
-                        async with self.alock:
-                            self.count += 1
-                            _index = self.count
-                            list_rclone.update({_file_rcl: _index})
-                        self.window_root.write_event_value("rclone", {_index: f'{_file_rcl}:[{_index}/{self.num}]'})  
+                    if _file_rcl:
+                        if _file_rcl not in list(list_rclone.keys()):
+                            async with self.alock:
+                                self.count += 1
+                                _index = self.count
+                                list_rclone.update({_file_rcl: _index})
+                            self.window_root.write_event_value("rclone", {_index: f'{_file_rcl}:[{_index}/{self.num}]'})
+                        continue
                     _prog, _speed, _eta = try_get(re.search(_status, _line), lambda x: x.group('prog', 'speed', 'eta') if x else ("", "", ""))                    # type: ignore
                     if _prog:
                         mens = f"[{_prog}] DL[{_speed}] ETA[{_eta}]"
                         self.window_root.write_event_value("status", mens)
+                        continue
                     _file = try_get(re.search(_pattern, _line), lambda x: x.group('file').split('…')[0])
                     if _file:                        
                         file = Path(self._dest, _file)
@@ -136,9 +142,13 @@ class Rclonesan():
                             if key in _file:
                                 _index = ind
                                 break
-                        self._tasks.append(asyncio.create_task(self.worker(_index, file)))
+                        if not _index:
+                            logger.warning(f"{file} not registered in rclone\n{list_rclone}")
+                        else:
+                            self._tasks.append(asyncio.create_task(self.worker(_index, file)))
+                        continue
   
-                    await asyncio.sleep(0)                                          
+                                                              
                     
                 else: break
             

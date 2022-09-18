@@ -13,7 +13,7 @@ from statistics import median
 import aiofiles
 import httpx
 
-from utils import (EMA, int_or_none, naturalsize, none_to_cero, try_get, 
+from utils import (EMA, int_or_none, naturalsize, none_to_zero, try_get, 
                    async_ex_in_executor, limiter_non,
                    dec_retry_error, traverse_obj, CONFIG_EXTRACTORS, get_domain)
 
@@ -82,7 +82,7 @@ class AsyncHTTPDownloader():
             self.download_path.mkdir(parents=True, exist_ok=True)
             self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
 
-        self.filesize = none_to_cero(self.info_dict.get('filesize', 0))
+        #self.filesize = none_to_zero(self.info_dict.get('filesize', 0))
         self.down_size = 0
         self.down_temp = 0
         
@@ -122,14 +122,14 @@ class AsyncHTTPDownloader():
             self.auto_pasres = False            
             _sem = False
             if _extractor and _extractor.lower() != 'generic':
-                self._decor, self._nsplits = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.n_parts)
+                self._decor, self.n_parts = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.n_parts)
                 if _extractor in ['doodstream', 'vidoza']:
                     self.auto_pasres = True
-                if self._nsplits < 16: 
+                if self.n_parts < 16: 
                     _sem = True                
 
             else: 
-                self._decor, self._nsplits = limiter_non.ratelimit("transp", delay=True), self.n_parts
+                self._decor, self.n_parts = limiter_non.ratelimit("transp", delay=True), self.n_parts
 
             self._NUM_WORKERS = self.n_parts 
 
@@ -158,7 +158,7 @@ class AsyncHTTPDownloader():
                 self._NUM_WORKERS = 1
             
             if _filesize: 
-                self.filesize = _filesize
+                self.filesize = none_to_zero(_filesize)
                 
             if self.filesize:
                 
@@ -194,7 +194,10 @@ class AsyncHTTPDownloader():
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)} \n{'!!'.join(lines)}")
                 raise
             
-        return (_check_server() or (None,None))
+        if (_ar:=self.info_dict.get('accept_ranges')) and (_fs:=self.info_dict.get('filesize')):
+            return((_ar, _fs))
+        else:
+            return (_check_server() or (None,None))
         
     def upt_hsize(self, i, offset=None):
 
