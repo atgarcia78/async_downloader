@@ -293,15 +293,18 @@ if _SUPPORT_PROXY:
     def long_operation_in_thread(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
-            stop_event = threading.Event()          
-            thread = threading.Thread(target=func, args=(stop_event, *args), kwargs=kwargs, daemon=True)
+            stop_event = threading.Event()
+            kwargs['stop_event'] = stop_event          
+            thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
             thread.start()
             return stop_event
         return wrapper  
 
     @long_operation_in_thread
-    def run_proxy_http(stop_event, log_level="INFO"):
+    def run_proxy_http(*args, **kwargs):
         #with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
+        log_level = kwargs.get("log_level", "INFO")
+        stop_event = kwargs.get("stop_event")
         with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
             try:
                 logger = logging.getLogger("proxy")

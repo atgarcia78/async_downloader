@@ -367,6 +367,7 @@ class AsyncARIA2CDownloader():
                         AsyncARIA2CDownloader._EX_ARIA2DL, 
                         self.dl_cont.update)                       
                     
+                    #self.video_downloader.write_window()
                     
                     _incsize = self.dl_cont.completed_length - self.down_size
                     self.down_size = self.dl_cont.completed_length
@@ -443,13 +444,13 @@ class AsyncARIA2CDownloader():
 
     async def fetch_async(self):
         
-        self.status = 'downloading'
+        self.status = "downloading"
         
         while True:
             
             try:
                 
-                await self.init()
+                await self.init()                
                 if self.status in ("done"):
                     return                
                 elif self.video_downloader.reset_event.is_set():
@@ -466,6 +467,7 @@ class AsyncARIA2CDownloader():
                 elif self.status in ("error"):
                     return                            
                 
+                #self.video_downloader.write_window()
                 await asyncio.sleep(0)
                 
                 await self.fetch()
@@ -510,7 +512,7 @@ class AsyncARIA2CDownloader():
                     self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
                     self._proxy = None
                         
-                            
+                #self.video_downloader.write_window()           
                 await asyncio.sleep(0)
                 
 
@@ -538,9 +540,10 @@ class AsyncARIA2CDownloader():
                 _eta_str = _temp.eta_string()
                         
                 msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] CONN[{_connections:2d}/{self.nworkers:2d}] DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+            
             else:
                 
-                msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] INIT DL PR[{self.last_progress_str}]"
+                msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] INIT DL PR[{self.last_progress_str}]\n"
                 
                 
                 

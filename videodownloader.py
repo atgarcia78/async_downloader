@@ -29,7 +29,7 @@ FORCE_TO_HTTP = ['doodstream']
 logger = logging.getLogger("video_DL")
 class VideoDownloader():
     
-    def __init__(self, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
+    def __init__(self, window_root, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
         
         try:
             
@@ -37,6 +37,9 @@ class VideoDownloader():
             self.master_alock = alock
             self.master_hosts_alock = hosts_alock
             self.args = args
+            
+            self.index = None #for printing
+            self.window_root = window_root
             
             self.info_dict = video_dict
             
@@ -97,6 +100,8 @@ class VideoDownloader():
                 'status': _status,
                 'error_message': ""             
             })
+            
+            
             
             self.pause_event = None
             self.resume_event = None
@@ -225,6 +230,12 @@ class VideoDownloader():
             if self.pause_event.is_set(): 
                 self.resume_event.set()
 
+    
+    def write_window(self):
+        mens = {self.index: self.print_hookup()}
+        self.window_root.write_event_value(self.info_dl['status'], mens)
+        
+
     async def run_dl(self):
 
         self.info_dl['status'] = "downloading"
@@ -238,7 +249,9 @@ class VideoDownloader():
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
             tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
+            
             if tasks_run:
+                
                 done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
                         
                 if done:
@@ -263,11 +276,14 @@ class VideoDownloader():
                 
                 else: 
                     self.info_dl['status'] = "init_manipulating"
+            
+            
         
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL {repr(e)}")
             self.info_dl['status'] = 'error'
-        finally:    
+        finally:  
+            self.write_window()  
             for t in tasks_run: t.cancel()
             await asyncio.wait(tasks_run)
              
@@ -363,7 +379,7 @@ class VideoDownloader():
                 if dl.status == 'init_manipulating':
                     dl.status = 'manipulating'
                 
-
+            self.write_window()
             blocking_tasks = [async_ex_in_executor(self.ex_videodl, dl.ensamble_file) for dl in self.info_dl['downloaders'] if (not any(_ in str(type(dl)).lower() for _ in ('aria2', 'ffmpeg')) and dl.status == 'manipulating')]
             if self.info_dl.get('requested_subtitles'):
                 blocking_tasks += [async_ex_in_executor(self.ex_videodl, self._get_subs_files)]
@@ -461,7 +477,10 @@ class VideoDownloader():
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
             for t in blocking_tasks: t.cancel()
             await asyncio.wait(blocking_tasks)
-            raise 
+            raise
+        finally:
+            self.write_window()
+            await asyncio.sleep(0) 
 
     @staticmethod
     def syncpostffmpeg(cmd):
@@ -477,20 +496,20 @@ class VideoDownloader():
         msg += "\n" 
         
         if self.info_dl['status'] == "done":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}]\n")
+            return (f"[{self.index}][{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Completed [{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}]\n")
         elif self.info_dl['status'] == "init":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Waiting to DL [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")  
+            return (f"[{self.index}][{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Waiting to DL [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")  
         elif self.info_dl['status'] == "init_manipulating":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Waiting to create file [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n")           
+            return (f"[{self.index}][{self.info_dict['id']}][{self.info_dict['title'][:40]}]: Waiting to create file [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n")           
         elif self.info_dl['status'] == "error":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: ERROR {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+            return (f"[{self.index}][{self.info_dict['id']}][{self.info_dict['title'][:40]}]: ERROR {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "stop":
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: STOPPED {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+            return (f"[{self.index}][{self.info_dict['id']}][{self.info_dict['title'][:40]}]: STOPPED {naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "downloading":
             if self.pause_event and self.pause_event.is_set(): status = "PAUSED"
             else: status ="Downloading"            
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]: {status} [{naturalsize(self.info_dl['down_size'], format_='6.2f')}/{naturalsize(self.info_dl['filesize'], format_='6.2f')}]\n {msg}\n")
+            return (f"[{self.index}][{self.info_dict['id']}][{self.info_dict['title'][:40]}]: {status} [{naturalsize(self.info_dl['down_size'], format_='6.2f')}/{naturalsize(self.info_dl['filesize'], format_='6.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "manipulating": 
             if self.info_dl['filename'].exists(): _size = self.info_dl['filename'].stat().st_size
             else: _size = 0
-            return (f"[{self.info_dict['id']}][{self.info_dict['title'][:40]}]:  Ensambling/Merging {naturalsize(_size, format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
+            return (f"[{self.index}][{self.info_dict['id']}][{self.info_dict['title'][:40]}]:  Ensambling/Merging {naturalsize(_size, format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
