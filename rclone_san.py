@@ -92,7 +92,7 @@ class Rclonesan():
             
             self.window_root.write_event_value("move", mens)
             if not self.direct:                
-                await async_ex_in_executor(ex, shutil.move, str(file), f'/Volumes/WD8_2/videos/{self.folder}')
+                await async_ex_in_executor(ex, shutil.move, str(file), f'/Users/antoniotorres/testing/{self.folder}')
             
             file2 = Path(f'{self.orig_path}/{self.folder}', file.name)
             if file2.exists():
@@ -176,11 +176,11 @@ class Rclonesan():
         
         try:
             if not self.direct: self._dest =  f'{self.orig_path}/{self.folder}'
-            else: self._dest = f'/Volumes/WD8_2/videos/{self.folder}'
+            else: self._dest = f'/Users/antoniotorres/testing/{self.folder}'
             cmd = f"rclone -Pv --no-traverse --no-check-dest --retries 1 --transfers {self.transfers} copy {self.orig_path}/{self.folder} {self._dest}"
             logger.info(cmd)
             
-            Path(f'/Volumes/WD8_2/videos/{folder}').mkdir(parents=True, exist_ok=True)
+            Path(f'/Users/antoniotorres/testing/{folder}').mkdir(parents=True, exist_ok=True)
             files = [file for file in Path(f'{self.orig_path}/{self.folder}').iterdir()]
             _final = []
             for f in files:
@@ -223,6 +223,6 @@ if __name__ == "__main__":
     asyncio.set_event_loop(loop:=asyncio.new_event_loop())
     for folder in folders:
         logger.info("************* " + folder)
-        rclonesan = Rclonesan('/Volumes/WD8_1/videos', folder, transfers, direct)
+        rclonesan = Rclonesan('/Volumes/WD5/videos', folder, transfers, direct)
         main_task = loop.create_task(rclonesan.main())                  
         loop.run_until_complete(main_task)
