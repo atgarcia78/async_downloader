@@ -887,7 +887,8 @@ if _SUPPORT_PYSIMP:
             
             col_1 = sg.Column([
                                 [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(80, 40), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(80, 40), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)],
+                                [sg.Multiline(default_text = "Waiting for info", size=(80, 10), font='Any 10', write_only=True, key='-ML3-', autoscroll=True, auto_refresh=True)]
             ], element_justification='c', expand_x=True, expand_y=True)
             
             col_2 = sg.Column([
@@ -903,6 +904,7 @@ if _SUPPORT_PYSIMP:
             window_root['-ML0-'].expand(True, True, True)
             window_root['-ML1-'].expand(True, True, True)
             window_root['-ML2-'].expand(True, True, True)
+            window_root['-ML3-'].expand(True, True, True)
             
             return window_root
             

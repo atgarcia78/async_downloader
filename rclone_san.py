@@ -19,9 +19,10 @@ class Rclonesan():
     
     _INTERVAL_GUI = 0.2
     
-    def __init__(self, folder, transfers, direct):
+    def __init__(self, orig_path, folder, transfers, direct):
         self.count = 0
         self.folder = folder
+        self.orig_path = orig_path
         if not transfers or not transfers.isdecimal(): self.transfers = 6
         else:
             self.transfers = int(transfers)
@@ -29,6 +30,7 @@ class Rclonesan():
         else:
             self.direct = direct
             
+        
         logger.info(f"folder: {self.folder} transfers: {self.transfers} direct: {self.direct}")
         
     
@@ -90,25 +92,63 @@ class Rclonesan():
             
             self.window_root.write_event_value("move", mens)
             if not self.direct:                
-                await async_ex_in_executor(ex, shutil.move, str(file), f'/Volumes/WD8_1/videos/{self.folder}')
+                await async_ex_in_executor(ex, shutil.move, str(file), f'/Volumes/WD8_2/videos/{self.folder}')
             
-            file2 = Path(f'/Volumes/WD5/videos/{self.folder}', file.name)
+            file2 = Path(f'{self.orig_path}/{self.folder}', file.name)
             if file2.exists():
                 mens = {index: f"{_text} Borramos en WD5"}
-                self.window_root.write_event_value("del", mens)
+                await async_ex_in_executor(ex, self.window_root.write_event_value, "del", mens)
                 file2.unlink()
         except Exception as e:
             logger.exception(repr(e))
                 
+    async def parser(self, data):
+                    
+        try:
+        
+            _file_rc, _prog, _speed, _eta, _file_cp = data.values()
+
+            logger.debug(f"{_file_rc}, {_prog}, {_speed}, {_eta}, {_file_cp}")
+            
+            if _file_rc:
+                _file_rc = _file_rc.split('…')[0]
+                if _file_rc not in list(self.list_rclone.keys()):
+                    async with self.alock:
+                        self.count += 1
+                        _index = self.count
+                        self.list_rclone.update({_file_rc: _index})
+                    await async_ex_in_executor(ex, self.window_root.write_event_value,"rclone", {_index: f'{_file_rc}:[{_index}/{self.num}]'})
+                            
+            if _prog:
+                mens = f"[{_prog}] DL[{_speed}] ETA[{_eta}]"
+                await async_ex_in_executor(ex, self.window_root.write_event_value, "status", mens)
+            
+        
+            if _file_cp:                        
+                _file_cp = _file_cp.split('…')[0]
+                _index = None
+                for key,ind in self.list_rclone.items():
+                    if key in _file_cp:
+                        _index = ind
+                        break
+                if not _index:
+                    logger.warning(f"{_file_cp} not registered in rclone\n{self.list_rclone}")
+                else:
+                    file = Path(self._dest, _file_cp)
+                    self._tasks.append(asyncio.create_task(self.worker(_index, file)))
+        except Exception as e:
+            logger.exception(repr(e))
+    
     async def read_stream(self, proc):    
         
-        _pattern = r'INFO\s*\:\s*(?P<file>[^\:]+)\:'
-        _status = r'Transferred:\s*(?P<prog>[^%]+%),\s*(?P<speed>[^,]+),\sETA\s*(?P<eta>[^\s$]+)\s*'
-        _rclone = r'\*\s*(?P<file>[^\:]+)\:'
+        
+        pat = r'(?:(?:(\*\s*(?P<file_rc>[^\:]+)\:[^T\$]+)|^)(?:$|(Transferred:\s*(?P<prog>[^%]+%),\s*(?P<speed>[^,]+),\sETA\s*(?P<eta>[^\s$]+)\s*)))|(?:INFO\s*\:\s*(?P<file_cp>[^\:]+)\:)'
+        
+        comp = re.compile(pat)
         
         try:            
             stream = proc.stdout
-            list_rclone = {}            
+         
             while not proc.returncode:
                 
                 await asyncio.sleep(0)
@@ -118,39 +158,16 @@ class Rclonesan():
                 except (asyncio.LimitOverrunError, ValueError):
                     continue                
                 if line: 
-                    _line = re.sub('[\t\n]', '', line.decode('utf-8'))
-                    #logger.debug(_line)
-                    _file_rcl = try_get(re.search(_rclone, _line), lambda x: x.group('file').split('…')[0])
-                    if _file_rcl:
-                        if _file_rcl not in list(list_rclone.keys()):
-                            async with self.alock:
-                                self.count += 1
-                                _index = self.count
-                                list_rclone.update({_file_rcl: _index})
-                            self.window_root.write_event_value("rclone", {_index: f'{_file_rcl}:[{_index}/{self.num}]'})
-                        continue
-                    _prog, _speed, _eta = try_get(re.search(_status, _line), lambda x: x.group('prog', 'speed', 'eta') if x else ("", "", ""))                    # type: ignore
-                    if _prog:
-                        mens = f"[{_prog}] DL[{_speed}] ETA[{_eta}]"
-                        self.window_root.write_event_value("status", mens)
-                        continue
-                    _file = try_get(re.search(_pattern, _line), lambda x: x.group('file').split('…')[0])
-                    if _file:                        
-                        file = Path(self._dest, _file)
-                        _index = None
-                        for key,ind in list_rclone.items():
-                            if key in _file:
-                                _index = ind
-                                break
-                        if not _index:
-                            logger.warning(f"{file} not registered in rclone\n{list_rclone}")
-                        else:
-                            self._tasks.append(asyncio.create_task(self.worker(_index, file)))
-                        continue
-  
-                                                              
+
+                    _line = line.decode('utf-8').strip()
+                    logger.debug(_line)
                     
+                    data = try_get(comp.search(_line), lambda x: x.groupdict())
+                    logger.debug(data)
+                    if data: self._tasks.append(asyncio.create_task(self.parser(data)))
+                
                 else: break
+
             
         except Exception as e:
             logger.exception(repr(e))
@@ -158,13 +175,13 @@ class Rclonesan():
     async def main(self):
         
         try:
-            if not self.direct: self._dest =  f'/Users/antoniotorres/testing/{self.folder}'
-            else: self._dest = f'/Volumes/WD8_1/videos/{self.folder}'
-            cmd = f"rclone -Pv --no-traverse --no-check-dest --retries 1 --transfers {self.transfers} copy /Volumes/WD5/videos/{self.folder} {self._dest}"
+            if not self.direct: self._dest =  f'{self.orig_path}/{self.folder}'
+            else: self._dest = f'/Volumes/WD8_2/videos/{self.folder}'
+            cmd = f"rclone -Pv --no-traverse --no-check-dest --retries 1 --transfers {self.transfers} copy {self.orig_path}/{self.folder} {self._dest}"
             logger.info(cmd)
             
-            Path(f'/Volumes/WD8_1/videos/{folder}').mkdir(parents=True, exist_ok=True)
-            files = [file for file in Path(f'/Volumes/WD5/videos/{self.folder}').iterdir()]
+            Path(f'/Volumes/WD8_2/videos/{folder}').mkdir(parents=True, exist_ok=True)
+            files = [file for file in Path(f'{self.orig_path}/{self.folder}').iterdir()]
             _final = []
             for f in files:
                 if f.name.startswith('.'): f.unlink()
@@ -175,6 +192,8 @@ class Rclonesan():
             self.alock = asyncio.Lock()
         
             self._tasks = [] 
+            
+            self.list_rclone = {}    
             
             task_gui = asyncio.create_task(self.gui())
             
@@ -194,13 +213,16 @@ class Rclonesan():
         
     
 if __name__ == "__main__":
-    folder = traverse_obj(sys.argv, (1))
-    if not folder:
+    folders = traverse_obj(sys.argv, (1))
+    if not folders:
         sys.exit()
+    folders = folders.split(',')
     transfers = traverse_obj(sys.argv, (2))
     direct = traverse_obj(sys.argv, (3))
     uvloop.install()
     asyncio.set_event_loop(loop:=asyncio.new_event_loop())
-    rclonesan = Rclonesan(folder, transfers, direct)
-    main_task = loop.create_task(rclonesan.main())                  
-    loop.run_until_complete(main_task)
+    for folder in folders:
+        logger.info("************* " + folder)
+        rclonesan = Rclonesan('/Volumes/WD5/videos', folder, transfers, direct)
+        main_task = loop.create_task(rclonesan.main())                  
+        loop.run_until_complete(main_task)

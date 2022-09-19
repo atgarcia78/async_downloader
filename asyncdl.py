@@ -304,11 +304,13 @@ class AsyncDL():
       
     def update_window(self, status, list_old):
         list_upt = {}
+        if isinstance(status, str): _status = (status,)
+        else: _status = status
         for dl in self.list_dl:
-            if dl.info_dl['status'] == status:                
+            if dl.info_dl['status'] in _status:                
                 list_upt.update({dl.index: dl.print_hookup()})
         if list_upt != list_old:
-            self.window_root.write_event_value(status, list_upt)
+            self.window_root.write_event_value(_status[0], list_upt)
         return list_upt
     
     @long_operation_in_thread
@@ -320,11 +322,13 @@ class AsyncDL():
             
             list_init_old = {}
             list_dl_old = {}
+            list_manip_old = {}
             
             while not stop_event.is_set():
                 if self.list_dl:
                     list_init_old = self.update_window("init", list_init_old)
-                    list_dl_old = self.update_window("downloading", list_dl_old)                
+                    list_dl_old = self.update_window("downloading", list_dl_old)
+                    list_manip_old = self.update_window(("manipulating", "init_manipulating"), list_manip_old)                
                 
                 wait_time(CONF_INTERVAL_GUI)
                 
@@ -563,9 +567,7 @@ class AsyncDL():
                     _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
                     if list_downloading:
                         _text.extend(list(list_downloading.values()))
-                    #if list_manipulating:
-                    #    _text.extend(["\n\n-------CREATING FILE------------\n\n"])
-                    #    _text.extend(list(list_manipulating.values()))                    
+                 
                     _upt = ''.join(_text)                        
                     self.window_root['-ML1-'].update(_upt)
                     
@@ -577,7 +579,7 @@ class AsyncDL():
                     
                 elif event in ("manipulating", "init_manipulating"):
                     #logger.info(f"{event}:{value}")
-                    list_manipulating.update(value[event])
+                    list_manipulating = value[event]
                     
                     _text = []    
 
@@ -586,21 +588,11 @@ class AsyncDL():
                         _text.extend(list(list_manipulating.values()))                    
                     if _text: _upt = ''.join(_text)
                     else: _upt = ''
-                    #self.window_root['-ML1-'].update(_upt)
+                    self.window_root['-ML3-'].update(_upt)
                 elif event in ("error", "done", "stop"):
                     #logger.info(f"{event}:{value}")
                     list_finish.update(value[event])
-                    index, _ = value[event].copy().popitem()
-
-                    if list_manipulating.pop(index, None):
-                        _text = []    
-
-                        if list_manipulating:
-                            _text.extend(["\n\n-------CREATING FILE------------\n\n"])
-                            _text.extend(list(list_manipulating.values()))                    
-                        if _text: _upt = ''.join(_text)
-                        else: _upt = ''
-                        #self.window_root['-ML1-'].update(_upt)
+                    
                     if list_finish:
                         _upt = "\n\n" + ''.join(list(list_finish.values()))
                     else:
