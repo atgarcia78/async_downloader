@@ -223,6 +223,6 @@ if __name__ == "__main__":
     asyncio.set_event_loop(loop:=asyncio.new_event_loop())
     for folder in folders:
         logger.info("************* " + folder)
-        rclonesan = Rclonesan('/Volumes/WD5/videos', folder, transfers, direct)
+        rclonesan = Rclonesan('/Volumes/WD8_1/videos', folder, transfers, direct)
         main_task = loop.create_task(rclonesan.main())                  
         loop.run_until_complete(main_task)

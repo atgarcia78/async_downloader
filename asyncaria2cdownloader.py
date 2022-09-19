@@ -95,7 +95,6 @@ class AsyncARIA2CDownloader():
         
         self.prep_init()
         
-
     def prep_init(self):        
         
         
@@ -164,7 +163,6 @@ class AsyncARIA2CDownloader():
 
         self.block_init = True
                     
-
     async def init(self):
 
         
@@ -342,8 +340,6 @@ class AsyncARIA2CDownloader():
                 self.status = "error"
                 logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][init] {_msg} error: {_msg_error} count_init: {self.count_init}") 
                 
-
-
     async def fetch(self):        
 
         def getter(x):
@@ -427,7 +423,6 @@ class AsyncARIA2CDownloader():
             self.status = "error" 
             self.error_message = _msg_error
             
-
     async def fetch_async(self):
         
         self.status = "downloading"
@@ -499,7 +494,6 @@ class AsyncARIA2CDownloader():
    
                 await asyncio.sleep(0)
                 
-
     def print_hookup(self):
         
         msg = ""

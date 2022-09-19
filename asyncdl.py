@@ -64,8 +64,6 @@ logger = logging.getLogger("asyncDL")
 
 class AsyncDL():
 
-    
-   
     def __init__(self, args):
     
         #args
@@ -131,7 +129,6 @@ class AsyncDL():
         
         self.get_videos_cached()        
         
-    
     def get_videos_cached(self):                
         self.queue = MPQueue()
         self.p1 = MPProcess(target=self.load_videos_cached, args=(self.queue,))

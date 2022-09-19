@@ -259,7 +259,6 @@ class AsyncHLSDownloader():
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][get_info_fragments] - {repr(e)}")
             raise AsyncHLSDLErrorFatal(repr(e))
  
-
     def get_m3u8_obj(self):  
             
         m3u8_doc = try_get(self.init_client.get(self.video_url, headers=self.headers), 
