@@ -28,6 +28,7 @@ CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576 #1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400 * 1.5# 102400
 CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 80
 CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 20
+CONF_INTERVAL_GUI = 0.2
 
 
 
@@ -89,6 +90,69 @@ try:
     _SUPPORT_FILELOCK = True
 except Exception:
     _SUPPORT_FILELOCK = False
+
+
+def perform_long_operation(_func, *args, **kwargs):
+
+    stop_event = kwargs.get('event', threading.Event())
+    _kwargs = {k:v for k,v in kwargs.items() if k != 'event'}
+    thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=_kwargs, daemon=True)
+    thread.start()
+    return(thread, stop_event)
+
+async def async_ex_in_executor(executor, func, /, *args, **kwargs):
+    loop = kwargs.get('loop', asyncio.get_running_loop())
+    ctx = contextvars.copy_context()
+    _kwargs = {k:v for k,v in kwargs.items() if k != 'loop'}
+    func_call = functools.partial(ctx.run, func, *args, **_kwargs)        
+    return await loop.run_in_executor(executor, func_call)
+    
+async def async_ex_in_thread(prefix, func, /, *args, **kwargs):        
+    loop = asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    func_call = functools.partial(ctx.run, func, *args, **kwargs)
+    ex = ThreadPoolExecutor(thread_name_prefix=prefix)    
+    #return await asyncio.to_thread(func_call)
+    return await loop.run_in_executor(ex, func_call)
+
+def long_operation_in_thread(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        stop_event = threading.Event()
+        kwargs['stop_event'] = stop_event          
+        thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
+        thread.start()
+        return stop_event
+    return wrapper 
+
+@contextlib.asynccontextmanager
+async def async_lock(executor, lock):
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(executor, lock.acquire)
+    try:
+        yield  # the lock is held
+    finally:
+        lock.release()
+
+async def async_wait_time(n):   
+    _started = time.monotonic()
+    while True:
+        if (_t:=(time.monotonic() - _started)) >= n:
+            return _t
+        else:
+            await asyncio.sleep(0)
+            
+def wait_time(n, event=None):
+    _started = time.monotonic()
+    if not event: 
+        event = threading.Event() #dummy  
+    
+    while not event.is_set():
+        if (_t:=(time.monotonic() - _started)) >= n:
+            return _t
+        else:
+            time.sleep(CONF_INTERVAL_GUI)
+
 
 class SignalHandler:
     
@@ -287,19 +351,10 @@ def init_argparser():
             
     return args
 
+
+
 if _SUPPORT_PROXY:
     
-        
-    def long_operation_in_thread(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            stop_event = threading.Event()
-            kwargs['stop_event'] = stop_event          
-            thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
-            thread.start()
-            return stop_event
-        return wrapper  
-
     @long_operation_in_thread
     def run_proxy_http(*args, **kwargs):
         #with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
@@ -408,7 +463,6 @@ def init_proxies(num, size):
     logger.info("[init_proxies] done")
     return proc_gost, routing_table
         
-
 
 if _SUPPORT_YTDL:
 
@@ -671,54 +725,6 @@ def print_tasks(tasks):
    #return [f"{task.get_name()} : {str(task.get_coro()).split(' ')[0]}\n" for task in tasks]
    return "\n".join([f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks])
 
-def perform_long_operation(_func, *args, **kwargs):
-
-    stop_event = kwargs.get('event', threading.Event())
-    _kwargs = {k:v for k,v in kwargs.items() if k != 'event'}
-    thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=_kwargs, daemon=True)
-    thread.start()
-    return(thread, stop_event)
-
-async def async_ex_in_executor(executor, func, /, *args, **kwargs):
-    loop = kwargs.get('loop', asyncio.get_running_loop())
-    ctx = contextvars.copy_context()
-    _kwargs = {k:v for k,v in kwargs.items() if k != 'loop'}
-    func_call = functools.partial(ctx.run, func, *args, **_kwargs)        
-    return await loop.run_in_executor(executor, func_call)
-    
-async def async_ex_in_thread(prefix, func, /, *args, **kwargs):        
-    loop = asyncio.get_running_loop()
-    ctx = contextvars.copy_context()
-    func_call = functools.partial(ctx.run, func, *args, **kwargs)
-    ex = ThreadPoolExecutor(thread_name_prefix=prefix)    
-    #return await asyncio.to_thread(func_call)
-    return await loop.run_in_executor(ex, func_call)
-    
-
-@contextlib.asynccontextmanager
-async def async_lock(executor, lock):
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(executor, lock.acquire)
-    try:
-        yield  # the lock is held
-    finally:
-        lock.release()
-
-async def async_wait_time(n):   
-    _started = time.monotonic()
-    while True:
-        if (_t:=(time.monotonic() - _started)) >= n:
-            return _t
-        else:
-            await asyncio.sleep(0)
-            
-def wait_time(n):
-    _started = time.monotonic()
-    while True:
-        if (_t:=(time.monotonic() - _started)) >= n:
-            return _t
-        else:
-            time.sleep(n/2)
 
 def none_to_zero(item):
     return(0 if not item else item)
@@ -772,7 +778,6 @@ def folderfiles(folder):
 
 def int_or_none(res):
     return int(res) if res else None
-
 
 
 def naturalsize(value, binary=False, gnu=False, format_="6.2f"):

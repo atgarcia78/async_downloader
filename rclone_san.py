@@ -1,4 +1,4 @@
-from utils import try_get, init_logging, async_ex_in_executor, traverse_obj, init_gui_rclone, sg, async_wait_time, perform_long_operation
+from utils import try_get, init_logging, async_ex_in_executor, traverse_obj, init_gui_rclone, sg, async_wait_time
 import re
 from pathlib import Path
 import asyncio

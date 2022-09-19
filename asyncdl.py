@@ -17,7 +17,6 @@ from textwrap import fill
 from tabulate import tabulate
 
 from utils import (
-    perform_long_operation,
     async_ex_in_executor,
     async_wait_time,
     get_chain_links,
@@ -43,6 +42,7 @@ from utils import (
     run_proxy_http,
     CONF_PROXIES_MAX_N_GR_HOST, 
     CONF_PROXIES_N_GR_VIDEO,
+    CONF_INTERVAL_GUI,
     long_operation_in_thread    
 )
 
@@ -64,7 +64,6 @@ logger = logging.getLogger("asyncDL")
 
 class AsyncDL():
 
-    _INTERVAL_GUI = 0.2
     
    
     def __init__(self, args):
@@ -108,7 +107,7 @@ class AsyncDL():
         
         self.list_pasres = set()
         self.pasres_time_from_resume_to_pause = 5
-        self.pasres_active = False
+        #self.pasres_active = False
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -132,9 +131,6 @@ class AsyncDL():
         
         self.get_videos_cached()        
         
-        
-    
-                
     
     def get_videos_cached(self):                
         self.queue = MPQueue()
@@ -306,16 +302,14 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[videos_cached] {repr(e)}")
       
-    
-    
-    
-    def update_window(self, status):
+    def update_window(self, status, list_old):
         list_upt = {}
         for dl in self.list_dl:
             if dl.info_dl['status'] == status:                
                 list_upt.update({dl.index: dl.print_hookup()})
-        
-        self.window_root.write_event_value(status, list_upt)
+        if list_upt != list_old:
+            self.window_root.write_event_value(status, list_upt)
+        return list_upt
     
     @long_operation_in_thread
     def upt_window_periodic(self, *args, **kwargs):
@@ -324,12 +318,15 @@ class AsyncDL():
 
         try:
             
+            list_init_old = {}
+            list_dl_old = {}
+            
             while not stop_event.is_set():
                 if self.list_dl:
-                    self.update_window("init")
-                    self.update_window("downloading")                
+                    list_init_old = self.update_window("init", list_init_old)
+                    list_dl_old = self.update_window("downloading", list_dl_old)                
                 
-                wait_time(self._INTERVAL_GUI)
+                wait_time(CONF_INTERVAL_GUI)
                 
             
                 
@@ -338,41 +335,35 @@ class AsyncDL():
         finally:
             logger.info("[upt_window_periodic] BYE")
         
-               
-    def pasres_periodic(self, event):
+    @long_operation_in_thread          
+    def pasres_periodic(self, *args, **kwargs):
         
         logger.debug('[pasres_periodic] START')
         
-        try:        
-            
-            self.pasres_active = True
-            
-            while not event.is_set():
+        stop_event = kwargs["stop_event"]
+        
+        try:
+            while not stop_event.is_set():
                 
                 if self.pasres_repeat and (_list:= list(self.list_pasres)):
                     for _index in _list:
                         self.list_dl[_index-1].pause()
-                    wait_time(0.5)
+                    
+                    wait_time(1)
             
                     for _index in _list:
                         self.list_dl[_index-1].resume()
                 
-                    wait_time(self.pasres_time_from_resume_to_pause)
+                    wait_time(self.pasres_time_from_resume_to_pause, stop_event)
                 
                 else:
-                    wait_time(self._INTERVAL_GUI)
-                    
-                if self.stop_console:
-                    break
+                    wait_time(CONF_INTERVAL_GUI)
 
         except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[pasres_periodic]: error: {repr(e)}\n{'!!'.join(lines)}")
-        finally:
-            self.pasres_active = False
-            logger.info('[pasres_periodic] END')
+            logger.exception(f"[pasres_periodic]: error: {repr(e)}")
+        finally:            
+            logger.info('[pasres_periodic] BYE')
       
-            
     async def cancel_all_tasks(self):
         
         if self.loop:
@@ -387,7 +378,6 @@ class AsyncDL():
                     task.cancel()
             await asyncio.wait(pending_tasks)
         
-            
     async def print_pending_tasks(self):
         if self.loop:
             pending_tasks = asyncio.all_tasks(loop=self.loop)
@@ -399,7 +389,6 @@ class AsyncDL():
             logger.info(f"[run_vid] {self.queue_run._queue}")
             logger.info(f"[manip_vid] {self.queue_manip._queue}")
       
-
     async def gui_console(self):
         
         try:
@@ -408,33 +397,22 @@ class AsyncDL():
             
             self.window_console = init_gui_console()
             
-            await async_wait_time(self._INTERVAL_GUI)
+            await async_wait_time(CONF_INTERVAL_GUI)
                         
-            sg.cprint(f"[pause-resume autom] {self.list_pasres}")
-            
-            daemon, stop_event = perform_long_operation(self.pasres_periodic)
-            
-            while(not self.pasres_active):
-                await asyncio.sleep(0)
-            
             while True:             
                 
-                await async_wait_time(self._INTERVAL_GUI/2)
+                await async_wait_time(CONF_INTERVAL_GUI/2)
                 if self.stop_console:
-                    self.pasres_repeat = False
                     break                    
                 event, values = self.window_console.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
                 sg.cprint(event, values)
                 if event  == sg.WIN_CLOSED:
-                    self.pasres_repeat = False
                     break
                 elif event in ['Exit']:
-                    self.pasres_repeat = False
                     await self.cancel_all_tasks()
                 elif event in ['-EXIT-']:
-                    self.pasres_repeat = False
                     logger.info(f'[windows_console] event -exit-') 
                     break      
                 elif event in ['-WKINIT-']:
@@ -538,17 +516,12 @@ class AsyncDL():
                 logger.error(f"[gui_console] Error:{repr(e)}")
             if isinstance(e, KeyboardInterrupt):
                 raise
-            
         finally:           
             logger.info("[gui_console] BYE")
-            self.pasres_repeat = False
-            stop_event.set()
-            daemon.join()        
+            #self.pasres_repeat = False        
             self.window_console.close()  
             self.stop_root = True
                 
-            
-
     async def gui_root(self):
         '''
         Run a tkinter app in an asyncio event loop.
@@ -568,7 +541,7 @@ class AsyncDL():
                 
             while True:                
                 
-                await async_wait_time(self._INTERVAL_GUI/2)
+                await async_wait_time(CONF_INTERVAL_GUI/2)
                 if self.stop_root:
                     break
                 event, value = self.window_root.read(timeout=0)
@@ -578,26 +551,15 @@ class AsyncDL():
             
                 if "kill" in event or event == sg.WIN_CLOSED: break
                 elif event == "init":
-                    logger.info(f"{event}:{value}")
+                    #logger.info(f"{event}:{value}")
                     list_init = value['init']
-                    if list_init: upt = ''.join(list(list_init.values()))
+                    if list_init: 
+                        upt = "\n\n" + ''.join(list(list_init.values()))
                     else: upt = ""
                     self.window_root['-ML0-'].update(upt)
                 elif event == "downloading":
                     list_downloading = value['downloading']
-                    # list_indexes = list(value['downloading'].keys())
-                    # if list_indexes and list_init:
-                    #     update = False
-                    #     for _index in list_indexes:
-                    #         if _index in list_init:
-                    #             update = True
-                    #             list_init.pop(_index, None)
-                    #     if update:                    
-                    #         if list_init: 
-                    #             upt = ''.join(list(list_init.values()))
-                    #         else: upt = ""
-                    #         self.window_root['-ML0-'].update(upt)
-                    
+                   
                     _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
                     if list_downloading:
                         _text.extend(list(list_downloading.values()))
@@ -616,17 +578,9 @@ class AsyncDL():
                 elif event in ("manipulating", "init_manipulating"):
                     #logger.info(f"{event}:{value}")
                     list_manipulating.update(value[event])
-                    # index, _ = value[event].copy().popitem()
-                    # if list_init:
-                    #     if list_init.pop(index, None):
-                    #         if list_init: upt = ''.join(list(list_init.values()))
-                    #         else: upt = ""
-                    #         self.window_root['-ML0-'].update(upt)
                     
                     _text = []    
-                    #if list_downloading:                            
-                    #    _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
-                    #    _text.extend(list(list_downloading.values()))
+
                     if list_manipulating:
                         _text.extend(["\n\n-------CREATING FILE------------\n\n"])
                         _text.extend(list(list_manipulating.values()))                    
@@ -637,16 +591,10 @@ class AsyncDL():
                     #logger.info(f"{event}:{value}")
                     list_finish.update(value[event])
                     index, _ = value[event].copy().popitem()
-                    # if list_init.pop(index, None):
-                    #     if list_init: upt = ''.join(list(list_init.values()))
-                    #     else: upt = ""
-                    #     self.window_root['-ML0-'].update(upt)
-                    #list_downloading.pop(index, None)
+
                     if list_manipulating.pop(index, None):
                         _text = []    
-                        #if list_downloading:                            
-                        #    _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
-                        #    _text.extend(list(list_downloading.values()))
+
                         if list_manipulating:
                             _text.extend(["\n\n-------CREATING FILE------------\n\n"])
                             _text.extend(list(list_manipulating.values()))                    
@@ -654,7 +602,7 @@ class AsyncDL():
                         else: _upt = ''
                         #self.window_root['-ML1-'].update(_upt)
                     if list_finish:
-                        _upt = ''.join(list(list_finish.values()))
+                        _upt = "\n\n" + ''.join(list(list_finish.values()))
                     else:
                         _upt = ''                        
                     
@@ -670,7 +618,6 @@ class AsyncDL():
             logger.info("[gui_root] BYE")                       
             self.window_root.close()
                 
-
     def get_list_videos(self):
         
         
@@ -978,7 +925,6 @@ class AsyncDL():
             self.getlistvid_done = True
             self.t1.stop()
                 
- 
     def _check_if_aldl(self, info_dict, test=False):  
                     
 
@@ -1017,7 +963,6 @@ class AsyncDL():
                 
                 
             return vid_path_str
-    
     
     def _check_if_same_video(self, url_to_check):
         
@@ -1425,7 +1370,6 @@ class AsyncDL():
             logger.debug(f"[worker_init][{i}]: BYE")
             await asyncio.sleep(0)
     
-    
     async def worker_run(self, i):
 
         logger.debug(f"[worker_run][{i}]: launched")       
@@ -1597,6 +1541,9 @@ class AsyncDL():
             self.proc_gost = []
             self.routing_table = {}
             self.stop_proxy = None
+            self.stop_upt_window = None
+            self.stop_pasres = None
+            
             
             tasks_to_wait = {}
 
@@ -1609,7 +1556,8 @@ class AsyncDL():
                             
             if not self.args.nodl:                
 
-                self.stop_upt_window = self.upt_window_periodic()                
+                self.stop_upt_window = self.upt_window_periodic()
+                self.stop_pasres = self.pasres_periodic()
                 if self.args.aria2c:             
                     init_aria2c(self.args)
                     if self.args.proxy != 0:
@@ -1652,6 +1600,7 @@ class AsyncDL():
                 raise
         finally:
             self.stop_upt_window.set()
+            self.stop_pasres.set()
             await asyncio.sleep(1)
             self.stop_console = True
             await asyncio.sleep(0)
@@ -1878,20 +1827,20 @@ class AsyncDL():
                 except Exception as e:
                     logger.exception(f"[close] {repr(e)}")
         
-        if self.stop_proxy:
+        stops = [self.stop_proxy, self.stop_pasres, self.stop_upt_window]
+        for _stop in stops:
             try:                
-                self.stop_proxy.set()
-                time.sleep(2)
+                if _stop:
+                    _stop.set()
+                    wait_time(2)
             except Exception as e:
-                logger.exception(f"[close] {repr(e)}")       
+                logger.exception(f"[close] {_stop} {repr(e)}")       
             
         try:
             kill_processes(logger=logger, rpcport=self.args.rpcport) 
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
             
-        
-
     def clean(self):
         
         self.p1.join()
@@ -1903,4 +1852,3 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[clean] {repr(e)}")
           
-    
