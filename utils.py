@@ -285,6 +285,20 @@ def init_logging(file_path=None):
             logger = logging.getLogger(log_name)
             logger.setLevel(logging.INFO)
             
+
+def rclone_init_args():
+    
+    parser = argparse.ArgumentParser(description="wrapper reclone")
+    parser.add_argument("--orig", help="orig dirs", action="append", dest="origfolders", default=[])
+    parser.add_argument("--dest", help="dest dir", default="", type=str)
+    parser.add_argument("--transfers", default=4, type=int)
+    parser.add_argument("--direct", action="store_true", default=False)
+    
+    args = parser.parse_args()
+    
+    return args
+    
+
 def init_argparser():
     
     UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:104.0) Gecko/20100101 Firefox/104.0"]

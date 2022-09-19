@@ -1,4 +1,4 @@
-from utils import try_get, init_logging, async_ex_in_executor, traverse_obj, init_gui_rclone, sg, async_wait_time
+from utils import try_get, init_logging, async_ex_in_executor, traverse_obj, init_gui_rclone, sg, async_wait_time, rclone_init_args
 import re
 from pathlib import Path
 import asyncio
@@ -19,37 +19,29 @@ class Rclonesan():
     
     _INTERVAL_GUI = 0.2
     
-    def __init__(self, orig_path, folder, transfers, direct):
+    def __init__(self, origfolder, args):
         self.count = 0
-        self.folder = folder
-        self.orig_path = orig_path
-        if not transfers or not transfers.isdecimal(): self.transfers = 6
-        else:
-            self.transfers = int(transfers)
-        if direct and direct != "direct": self.direct = None
-        else:
-            self.direct = direct
-            
-        
+        self.orig_path = origfolder
+        self.folder = self.orig_path.split('/')[-1]
+        self.transfers = args.transfers
+        self.direct = args.direct
+        self.dest = args.dest
+
         logger.info(f"folder: {self.folder} transfers: {self.transfers} direct: {self.direct}")
-        
-    
+
     async def gui(self):
         
         self.window_root = init_gui_rclone()
-        
         try:
             list_del = []
             list_mov = {}
             list_rcl = {}
-            while True:
-                
+            while True:                
                 await async_wait_time(self._INTERVAL_GUI/2)
                 event, value = self.window_root.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
-                logger.debug(f"{event}:{value}")
-                
+                logger.debug(f"{event}:{value}")                
                 if "kill" in event or event == sg.WIN_CLOSED: break
                 elif "status" in event:
                     self.window_root['ST'].update(value['status'])                        
@@ -92,11 +84,11 @@ class Rclonesan():
             
             self.window_root.write_event_value("move", mens)
             if not self.direct:                
-                await async_ex_in_executor(ex, shutil.move, str(file), f'/Users/antoniotorres/testing/{self.folder}')
+                await async_ex_in_executor(ex, shutil.move, str(file), self.dest)
             
-            file2 = Path(f'{self.orig_path}/{self.folder}', file.name)
+            file2 = Path(f'{self.orig_path}', file.name)
             if file2.exists():
-                mens = {index: f"{_text} Borramos en WD5"}
+                mens = {index: f"{_text} Borramos en orig"}
                 await async_ex_in_executor(ex, self.window_root.write_event_value, "del", mens)
                 file2.unlink()
         except Exception as e:
@@ -104,10 +96,8 @@ class Rclonesan():
                 
     async def parser(self, data):
                     
-        try:
-        
+        try:        
             _file_rc, _prog, _speed, _eta, _file_cp = data.values()
-
             logger.debug(f"{_file_rc}, {_prog}, {_speed}, {_eta}, {_file_cp}")
             
             if _file_rc:
@@ -160,7 +150,7 @@ class Rclonesan():
                 if line: 
 
                     _line = line.decode('utf-8').strip()
-                    logger.debug(_line)
+                    #logger.debug(_line)
                     
                     data = try_get(comp.search(_line), lambda x: x.groupdict())
                     logger.debug(data)
@@ -175,13 +165,16 @@ class Rclonesan():
     async def main(self):
         
         try:
-            if not self.direct: self._dest =  f'{self.orig_path}/{self.folder}'
-            else: self._dest = f'/Users/antoniotorres/testing/{self.folder}'
-            cmd = f"rclone -Pv --no-traverse --no-check-dest --retries 1 --transfers {self.transfers} copy {self.orig_path}/{self.folder} {self._dest}"
-            logger.info(cmd)
+            if not self.direct:               
+                self._dest =   f'/Users/antoniotorres/testing/{self.folder}'
+                Path(self._dest).mkdir(parents=True, exist_ok=True)
+            else:
+                self._dest = self.dest
             
-            Path(f'/Users/antoniotorres/testing/{folder}').mkdir(parents=True, exist_ok=True)
-            files = [file for file in Path(f'{self.orig_path}/{self.folder}').iterdir()]
+            cmd = f"rclone -Pv --no-traverse --no-check-dest --retries 1 --transfers {self.transfers} copy {self.orig_path} {self._dest}"
+            logger.info(cmd)            
+            
+            files = [file for file in Path(f'{self.orig_path}').iterdir()]
             _final = []
             for f in files:
                 if f.name.startswith('.'): f.unlink()
@@ -213,16 +206,13 @@ class Rclonesan():
         
     
 if __name__ == "__main__":
-    folders = traverse_obj(sys.argv, (1))
-    if not folders:
-        sys.exit()
-    folders = folders.split(',')
-    transfers = traverse_obj(sys.argv, (2))
-    direct = traverse_obj(sys.argv, (3))
+    
+    args = rclone_init_args()
+
     uvloop.install()
     asyncio.set_event_loop(loop:=asyncio.new_event_loop())
-    for folder in folders:
+    for folder in args.origfolders:
         logger.info("************* " + folder)
-        rclonesan = Rclonesan('/Volumes/WD5/videos', folder, transfers, direct)
+        rclonesan = Rclonesan(folder, args)
         main_task = loop.create_task(rclonesan.main())                  
         loop.run_until_complete(main_task)
