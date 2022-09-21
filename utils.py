@@ -115,6 +115,28 @@ async def async_ex_in_thread(prefix, func, /, *args, **kwargs):
     #return await asyncio.to_thread(func_call)
     return await loop.run_in_executor(ex, func_call)
 
+from multiprocess import (
+    Process as MPProcess,
+    Queue as MPQueue
+)
+
+
+def long_operation_in_process(func):            
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        queue = MPQueue()
+        kwargs['queue'] = queue
+        proc = MPProcess(target=func, args=args, kwargs=kwargs)
+        proc.start()
+        try:
+            res = queue.get(timeout=60)
+            proc.join()
+            proc.close()
+            return res
+        except Exception as e:
+            logging.getLogger('op_in_proc').exception(repr(r))
+    return wrapper 
+
 def long_operation_in_thread(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
@@ -134,9 +156,11 @@ async def async_lock(executor, lock):
     finally:
         lock.release()
 
-async def async_wait_time(n):   
+async def async_wait_time(n, event=None):   
     _started = time.monotonic()
-    while True:
+    if not event: event = asyncio.Event() #dummy
+    
+    while not event.is_set():
         if (_t:=(time.monotonic() - _started)) >= n:
             return _t
         else:
@@ -153,6 +177,35 @@ def wait_time(n, event=None):
         else:
             time.sleep(CONF_INTERVAL_GUI)
 
+async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
+    _started = time.monotonic()
+     
+    if not cor: 
+        async def _cor(*args, **kwargs):
+            return True
+    else: _cor = cor
+
+    while not (await _cor(*args, **kwargs)):
+        if (_t:=(time.monotonic() - _started)) >= timeout:
+            raise TimeoutError()
+        else:
+            await async_wait_time(interv)
+    
+
+def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
+     _started = time.monotonic()
+     
+     if not statement: 
+        def func(*args, **kwargs):
+            return True
+     else: func = statement
+
+     while not func(*args, **kwargs):
+        if (_t:=(time.monotonic() - _started)) >= timeout:
+            raise TimeoutError()
+        else:
+            time.sleep(interv)
+    
 
 class SignalHandler:
     
@@ -285,7 +338,6 @@ def init_logging(file_path=None):
             logger = logging.getLogger(log_name)
             logger.setLevel(logging.INFO)
             
-
 def rclone_init_args():
     
     parser = argparse.ArgumentParser(description="wrapper reclone")
@@ -298,7 +350,6 @@ def rclone_init_args():
     
     return args
     
-
 def init_argparser():
     
     UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:104.0) Gecko/20100101 Firefox/104.0"]
@@ -365,8 +416,6 @@ def init_argparser():
             
     return args
 
-
-
 if _SUPPORT_PROXY:
     
     @long_operation_in_thread
@@ -383,8 +432,6 @@ if _SUPPORT_PROXY:
             except BaseException:
                 logger.error("context manager proxy")    
             
-            
-
 if _SUPPORT_ARIA2P:
 
     
@@ -406,7 +453,6 @@ if _SUPPORT_ARIA2P:
         del opts
         del cl
         
-
 def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
     args = [iter(iterable)] * n
     if incomplete == 'fill':
@@ -417,8 +463,7 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
         return zip(*args)
     else:
         raise ValueError('Expected fill, strict, or ignore')      
-        
-    
+          
 def init_proxies(num, size):
         
     #SP
@@ -477,7 +522,6 @@ def init_proxies(num, size):
     logger.info("[init_proxies] done")
     return proc_gost, routing_table
         
-
 if _SUPPORT_YTDL:
 
     class AsyncYTDL(YoutubeDL):
@@ -656,7 +700,6 @@ if _SUPPORT_YTDL:
         _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
         return _ord_res_dict
 
-
 if _SUPPORT_FILELOCK:
     
     class LocalStorage:           
@@ -734,11 +777,9 @@ if _SUPPORT_FILELOCK:
                 
             self._data_from_file = _temp
             
-
 def print_tasks(tasks):
    #return [f"{task.get_name()} : {str(task.get_coro()).split(' ')[0]}\n" for task in tasks]
    return "\n".join([f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks])
-
 
 def none_to_zero(item):
     return(0 if not item else item)
@@ -755,7 +796,6 @@ def get_chain_links(f):
         else:
             break
     return _links
-
 
 def kill_processes(logger=None, rpcport=None):
     
@@ -792,7 +832,6 @@ def folderfiles(folder):
 
 def int_or_none(res):
     return int(res) if res else None
-
 
 def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
     """Format a number of bytes like a human readable filesize (e.g. 10 kB).
@@ -882,7 +921,6 @@ def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
             return res
         
     return not_found
-
 
 if _SUPPORT_PYSIMP:
 
@@ -1071,8 +1109,6 @@ if _SUPPORT_PYSIMP:
     #     except Exception as e:
     #         logger.exception(f'[init_gui] error {repr(e)}')
     
-
-
 def patch_http_connection_pool(**constructor_kwargs):
     """
     This allows to override the default parameters of the 
@@ -1191,7 +1227,6 @@ if _SUPPORT_HTTPX:
         print(json.dumps(list_final))
         return(list_ord)
 
-
 def parse_ffmpeg_time_string(time_string):
     time = 0
     reg1 = re.match(r"((?P<H>\d\d?):)?((?P<M>\d\d?):)?(?P<S>\d\d?)(\.(?P<f>\d{1,3}))?", time_string)
@@ -1211,7 +1246,6 @@ def parse_ffmpeg_time_string(time_string):
         elif reg2.group('U') == 'us':
             time /= 1_000_000
     return time
-
 
 def compute_prefix(match):
     res = int(match.group('E'))

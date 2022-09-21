@@ -40,7 +40,9 @@ def main():
                 logger.info(repr(e))
             
                 try:
-                    asyncDL.reset = True
+                    asyncDL.stop_upt_window.set()
+                    asyncDL.stop_pasres.set()
+                    asyncDL.STOP = True
                     asyncDL.stop_console = True
                     asyncDL.pasres_repeat = False        
                     pending_tasks = asyncio.all_tasks(loop=asyncDL.loop)
@@ -81,7 +83,6 @@ def main():
     
 
 if __name__ == "__main__":    
-    
     try:
         main()
     except BaseException as e:

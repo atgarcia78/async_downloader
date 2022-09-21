@@ -43,7 +43,8 @@ from utils import (
     CONF_PROXIES_MAX_N_GR_HOST, 
     CONF_PROXIES_N_GR_VIDEO,
     CONF_INTERVAL_GUI,
-    long_operation_in_thread    
+    long_operation_in_thread,
+    long_operation_in_process  
 )
 
 from videodownloader import VideoDownloader
@@ -51,10 +52,7 @@ from videodownloader import VideoDownloader
 from threading import Lock
 from codetiming import Timer
 
-from multiprocess import (
-    Process as MPProcess,
-    Queue as MPQueue
-)
+
 
 from itertools import zip_longest
 
@@ -125,33 +123,22 @@ class AsyncDL():
         self.t2 = Timer("execution", text="Time spent with DL: {:.2f}", logger=logger.info)
         self.t3 = Timer("execution", text="Time spent by init workers: {:.2f}", logger=logger.info)
         
-        self.reset = False
+        self.STOP = False
         
-        self.get_videos_cached()        
+        self.videos_cached = self.get_videos_cached()        
         
-    def get_videos_cached(self):                
-        self.queue = MPQueue()
-        self.p1 = MPProcess(target=self.load_videos_cached, args=(self.queue,))
-        self.p1.start()
-        self.videos_cached = self.queue.get()
-        
-        logger.info(f"[videos_cached] Total cached videos: [{len(self.videos_cached )}]")        
-        
-        try:        
-            self.p1.join()
-            self.p1.close()
-        except Exception as e:
-            pass
     
-    #run in process
-    def load_videos_cached(self, _queue):
-        
+    
+    @long_operation_in_process
+    def get_videos_cached(self, *args, **kwargs):        
         ''' 
         
         In local storage, files aee saved wihtin the file files.cached.json in 5 groups each in different volumnes.
         If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.    
         
         '''
+
+        queue = kwargs.get('queue')
 
         local_storage = LocalStorage()       
 
@@ -293,7 +280,7 @@ class AsyncDL():
                 except Exception as e:
                     logger.exception(f"[videos_cached] {repr(e)}")
                 finally:
-                        _queue.put_nowait(videos_cached)
+                        queue.put_nowait(videos_cached)
 
     
         except Exception as e:
@@ -726,8 +713,8 @@ class AsyncDL():
                     
                     try:
                         
-                        if self.reset: 
-                            raise Exception("reset")
+                        if self.STOP: 
+                            raise Exception("STOP")
                         with self.lock:
                             self._count_pl += 1
                             logger.info(f"[url_playlist_list][{self._count_pl}/{len(self.futures) + len(self.futures2)}] processing {_url}")
@@ -834,12 +821,12 @@ class AsyncDL():
                         if isinstance(e, KeyboardInterrupt):
                             raise
                 
-                if self.reset: raise Exception("reset")
+                if self.STOP: raise Exception("STOP")
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers) as self.ex_pl:
                 
                     for url in self.url_pl_list:    
-                        if self.reset: raise Exception("reset")
+                        if self.STOP: raise Exception("STOP")
                         self.futures.update({self.ex_pl.submit(process_playlist, url, _get_name): url}) 
                 
                     logger.info(f"[url_playlist_list] initial playlists: {len(self.futures)}")
@@ -848,13 +835,13 @@ class AsyncDL():
                 
                     logger.info(f"[url_playlist_list] playlists from initial playlists: {len(self.futures2)}")
                 
-                    if self.reset: raise Exception("reset")
+                    if self.STOP: raise Exception("STOP")
                     
                     if self.futures2:
                         wait(list(self.futures2))
                 
                 
-                if self.reset: raise Exception("reset")
+                if self.STOP: raise Exception("STOP")
                 
                 logger.info(f"[url_playlist_list] entries from playlists: {len(self._url_pl_entries)}")
                 logger.debug(f"[url_playlist_list] {self._url_pl_entries}")
@@ -1523,8 +1510,7 @@ class AsyncDL():
             self.t2.start()
             self.t3.start()
             self.loop  =  asyncio.get_running_loop()
-            self.loop.call_soon_threadsafe
-            
+                        
             tasks_gui = []
             self.extra_tasks_run = []
             self.proc_gost = []
@@ -1585,6 +1571,9 @@ class AsyncDL():
 
         except BaseException as e:                            
             logger.exception(f"[async_ex] {repr(e)}")
+            if self.list_dl:
+                for dl in self.list_dl:
+                    dl.stop_event.set()
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
