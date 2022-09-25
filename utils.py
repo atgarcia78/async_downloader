@@ -802,7 +802,7 @@ def get_chain_links(f):
 def kill_processes(logger=None, rpcport=None):
     
     def _log(msg):
-        logger.debug(msg) if logger else print(msg)
+        logger.info(msg) if logger else print(msg)
         
     term = (subprocess.run(["tty"], encoding='utf-8', capture_output=True).stdout).splitlines()[0].replace("/dev/", "")
     res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,tty,command"], encoding='utf-8', capture_output=True).stdout
@@ -810,13 +810,21 @@ def kill_processes(logger=None, rpcport=None):
     else: _aria2cstr = f"aria2cDUMMY"
     mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox.app/Contents/MacOS/firefox-bin.+))', res)
     mobj2 = re.findall(rf'\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ', res)
+    mobj3 = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+async_all\.py))', res)
     if mobj:
         proc_to_kill = list(set(mobj))                    
         results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
         _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
         _log("[kill_processes]\n" + '\n'.join(_debugstr))
     else: 
-        _log("[kill_processes] No processes found to kill") 
+        _log("[kill_processes] No processes found to kill")
+    #_log(f"[kill_processes_proxy]\n{mobj3}")
+    if len(mobj3) > 1:
+        proc_to_kill = mobj3[1:]                    
+        results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
+        _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
+        _log("[kill_processes_proxy]\n" + '\n'.join(_debugstr))
+        
     if mobj2:
         for el in mobj2:
             shutil.rmtree(el, ignore_errors=True)

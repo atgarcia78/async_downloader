@@ -1788,6 +1788,8 @@ class AsyncDL():
     
     def close(self):
         
+        logger.info("[close] start to close")
+        
         try:
             self.t2.stop()
         except Exception as e:
@@ -1804,17 +1806,19 @@ class AsyncDL():
                 except Exception as e:
                     logger.exception(f"[close] {repr(e)}")
         
-        stops = [self.stop_proxy, self.stop_pasres, self.stop_upt_window]
+        stops = [self.stop_proxy]
         for _stop in stops:
             try:                
                 if _stop:
                     _stop.set()
-                    wait_time(2)
+                    wait_time(5)
             except Exception as e:
                 logger.exception(f"[close] {_stop} {repr(e)}")       
             
         try:
-            kill_processes(logger=logger, rpcport=self.args.rpcport) 
+            kill_processes(logger=logger, rpcport=self.args.rpcport)
+            logger.info("[close] end of close")
+            
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
             
