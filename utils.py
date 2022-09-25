@@ -248,12 +248,14 @@ class EMA(object):
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
 
+
 class MyLogger(logging.LoggerAdapter):
-    #para ser compatible con el logging de yt_dlp: yt_dlp usa debug para enviar los debug y
-    #los info. Los debug llevan '[debug] ' antes.
-    #se pasa un logger de logging al crear la instancia 
-    # mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
-    
+    """
+    para ser compatible con el logging de yt_dlp: yt_dlp usa debug para enviar los debug y
+    los info. Los debug llevan '[debug] ' antes.
+    se pasa un logger de logging al crear la instancia 
+    mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
+    """
     _debug_phr = [  'Falling back on generic information extractor','Extracting URL:',
                     'The information of all playlist entries will be held in memory', 'Looking for video embeds',
                     'Identified a HTML5 media', 'Identified a KWS Player', ' unable to extract', 'Looking for embeds',

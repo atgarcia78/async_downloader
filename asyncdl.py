@@ -131,12 +131,11 @@ class AsyncDL():
     
     @long_operation_in_process
     def get_videos_cached(self, *args, **kwargs):        
-        ''' 
         
-        In local storage, files aee saved wihtin the file files.cached.json in 5 groups each in different volumnes.
+        """
+        In local storage, files are saved wihtin the file files.cached.json in 5 groups each in different volumnes.
         If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.    
-        
-        '''
+        """
 
         queue = kwargs.get('queue')
 
