@@ -123,8 +123,7 @@ class AsyncDL():
         self.t2 = Timer("execution", text="Time spent with DL: {:.2f}", logger=logger.info)
         self.t3 = Timer("execution", text="Time spent by init workers: {:.2f}", logger=logger.info)
         
-        self.STOP = False
-        
+                
         self.videos_cached = self.get_videos_cached()        
         
     
@@ -353,17 +352,23 @@ class AsyncDL():
       
     async def cancel_all_tasks(self):
         
-        if self.loop:
-            pending_tasks = asyncio.all_tasks(loop=self.loop)
-            logger.debug(f"[cancell_all_tasks] {pending_tasks}")
-            logger.info(f"[cancel_all_tasks]\n{print_tasks(pending_tasks)}")
-            if pending_tasks:
-                pending_tasks.remove(self.main_task)
-                pending_tasks.remove(self.console_task)
-                pending_tasks.remove(self.task_gui_root)
-                for task in pending_tasks:
-                    task.cancel()
-            await asyncio.wait(pending_tasks)
+        self.STOP.set()
+        if self.list_dl:
+            for dl in self.list_dl:
+                dl.stop()
+        await asyncio.sleep(0)
+        # if self.loop:
+        #     pending_tasks = asyncio.all_tasks(loop=self.loop)
+        #     logger.debug(f"[cancel_all_tasks] {pending_tasks}")
+        #     logger.info(f"[cancel_all_tasks]\n{print_tasks(pending_tasks)}")
+        #     if pending_tasks:
+        #         pending_tasks.remove(self.main_task)
+        #         if self.console_task in pending_tasks: pending_tasks.remove(self.console_task)
+        #         if self.task_gui_root in pending_tasks: pending_tasks.remove(self.task_gui_root)
+        #         if pending_tasks:
+        #             for task in pending_tasks:
+        #                 task.cancel()
+        #             await asyncio.wait(pending_tasks)
         
     async def print_pending_tasks(self):
         if self.loop:
@@ -398,6 +403,7 @@ class AsyncDL():
                 if event  == sg.WIN_CLOSED:
                     break
                 elif event in ['Exit']:
+                    logger.info(f'[gui_console] event Exit')
                     await self.cancel_all_tasks()
                 elif event in ['-EXIT-']:
                     logger.info(f'[windows_console] event -exit-') 
@@ -712,7 +718,7 @@ class AsyncDL():
                     
                     try:
                         
-                        if self.STOP: 
+                        if self.STOP.is_set(): 
                             raise Exception("STOP")
                         with self.lock:
                             self._count_pl += 1
@@ -820,12 +826,12 @@ class AsyncDL():
                         if isinstance(e, KeyboardInterrupt):
                             raise
                 
-                if self.STOP: raise Exception("STOP")
+                if self.STOP.is_set(): raise Exception("STOP")
                 
                 with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers) as self.ex_pl:
                 
                     for url in self.url_pl_list:    
-                        if self.STOP: raise Exception("STOP")
+                        if self.STOP.is_set(): raise Exception("STOP")
                         self.futures.update({self.ex_pl.submit(process_playlist, url, _get_name): url}) 
                 
                     logger.info(f"[url_playlist_list] initial playlists: {len(self.futures)}")
@@ -834,13 +840,13 @@ class AsyncDL():
                 
                     logger.info(f"[url_playlist_list] playlists from initial playlists: {len(self.futures2)}")
                 
-                    if self.STOP: raise Exception("STOP")
+                    if self.STOP.is_set(): raise Exception("STOP")
                     
                     if self.futures2:
                         wait(list(self.futures2))
                 
                 
-                if self.STOP: raise Exception("STOP")
+                if self.STOP.is_set(): raise Exception("STOP")
                 
                 logger.info(f"[url_playlist_list] entries from playlists: {len(self._url_pl_entries)}")
                 logger.debug(f"[url_playlist_list] {self._url_pl_entries}")
@@ -1036,7 +1042,7 @@ class AsyncDL():
                     await asyncio.sleep(0)
                 else: break
 
-            while True:
+            while not self.STOP.is_set():
 
                 
                 url_key = await self.queue_vid.get()
@@ -1246,7 +1252,7 @@ class AsyncDL():
                                 
                                 logger.info(f"[worker_init][{i}]: UNBLOCKED")
                                 
-                            await get_dl(url_key, infdict=info, extradict=vid)
+                            if not self.STOP.is_set(): await get_dl(url_key, infdict=info, extradict=vid)
 
                         
                         elif _type == 'playlist':
@@ -1293,7 +1299,7 @@ class AsyncDL():
                                                             logger.debug(f"[worker_init][{i}]: BLOCKED")
                                     
                                                         logger.info(f"[worker_init][{i}]: UNBLOCKED")
-                                                    await get_dl(_url, infdict=_entry)
+                                                    if not self.STOP.is_set(): await get_dl(_url, infdict=_entry)
                                                     
                                                     
                                                 except Exception as e:
@@ -1348,14 +1354,18 @@ class AsyncDL():
     async def worker_run(self, i):
 
         logger.debug(f"[worker_run][{i}]: launched")       
-
+        await asyncio.sleep(0)
         try:
             
-            while True:
-                await asyncio.sleep(0)
-                url_key, video_dl = await self.queue_run.get()
-                logger.debug(f"[worker_run][{i}]: get for a video_DL")
+            while not self.STOP.is_set():
+               
+                done, pending = await asyncio.wait([self.STOP.wait(), self.queue_run.get()], return_when=asyncio.FIRST_COMPLETED)
+                try_get(list(pending), lambda x: x[0].cancel())
+                if self.STOP.is_set(): break
+                #url_key, video_dl = await self.queue_run.get()                
                 
+                url_key, video_dl = try_get(list(done), lambda x: x[0].result())
+                 
                 if video_dl == "KILL":
                     logger.debug(f"[worker_run][{i}]: get KILL, bye")                    
                     break
@@ -1421,7 +1431,7 @@ class AsyncDL():
 
                     if video_dl.info_dl['status'] == "init_manipulating": self.queue_manip.put_nowait((url_key, video_dl))
                     elif video_dl.info_dl['status'] == "stop":
-                        logger.info(f"[worker_run][{i}][{url_key}]: STOPPED")
+                        logger.debug(f"[worker_run][{i}][{url_key}]: STOPPED")
                         self.info_videos[url_key]['error'].append(f"dl stopped")
                         self.info_videos[url_key]['status'] = 'nok'
                         
@@ -1457,11 +1467,17 @@ class AsyncDL():
 
         try:
             
-            while True:
+            while not self.STOP.is_set():
 
-                url_key, video_dl = await self.queue_manip.get()                              
-                logger.debug(f"[worker_manip][{i}]: get for a video_DL")
-                await asyncio.sleep(0)
+                done, pending = await asyncio.wait([self.STOP.wait(), self.queue_manip.get()], return_when=asyncio.FIRST_COMPLETED)
+                try_get(list(pending), lambda x: x[0].cancel())
+                if self.STOP.is_set(): break
+                #url_key, video_dl = await self.queue_run.get()                
+                
+                url_key, video_dl = try_get(list(done), lambda x: x[0].result())
+                #url_key, video_dl = await self.queue_manip.get()                              
+                #logger.debug(f"[worker_manip][{i}]: get for a video_DL")
+                #await asyncio.sleep(0)
                 
                 if video_dl == "KILL":
                     logger.debug(f"[worker_manip][{i}]: get KILL, bye")                    
@@ -1496,6 +1512,7 @@ class AsyncDL():
 
     async def async_ex(self):
     
+        self.STOP = asyncio.Event()
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
         self.alock = asyncio.Lock()

@@ -18,12 +18,12 @@ from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asyncdashdownloader import AsyncDASHDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import async_ex_in_executor, naturalsize, traverse_obj
+from utils import async_ex_in_executor, naturalsize, traverse_obj, try_get
 
 import os
 from concurrent.futures import ThreadPoolExecutor
 
-FORCE_TO_HTTP = ['doodstream']
+FORCE_TO_HTTP = [''] #['doodstream']
 
 
 logger = logging.getLogger("video_DL")
@@ -217,9 +217,12 @@ class VideoDownloader():
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
     
     def stop(self):
+        self.info_dl['status'] = "stop"
+        try_get(self.info_dl['ytdl'].params.get('stop'), lambda x: x.set())
         if self.stop_event:
             self.stop_event.set()
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event stop")
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
+        
         
     def pause(self):
         if self.pause_event:
@@ -238,7 +241,7 @@ class VideoDownloader():
 
     async def run_dl(self):
 
-        self.info_dl['status'] = "downloading"
+        
         self.pause_event = asyncio.Event()
         self.resume_event = asyncio.Event()
         self.stop_event = asyncio.Event()
@@ -246,36 +249,39 @@ class VideoDownloader():
         self.alock = asyncio.Lock()
         
         try:
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
-            tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
-            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
+            tasks_run = []
+            if self.info_dl['status'] != "stop":
+                self.info_dl['status'] = "downloading"
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
+                tasks_run = [asyncio.create_task(dl.fetch_async()) for dl in self.info_dl['downloaders'] if dl.status not in ("init_manipulating", "done")]
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run)}")
             
-            if tasks_run:
-                
-                done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
-                        
-                if done:
-                    for d in done:
-                        try:                        
-                            d.result()  
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())                
-                            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
+                if tasks_run:
+                    
+                    done, _ = await asyncio.wait(tasks_run, return_when=asyncio.ALL_COMPLETED)
                             
-           
-            if self.stop_event.is_set():
-                self.info_dl['status'] = "stop"
+                    if done:
+                        for d in done:
+                            try:                        
+                                d.result()  
+                            except Exception as e:
+                                lines = traceback.format_exception(*sys.exc_info())                
+                                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
+                                
             
-            else:
+                if self.stop_event.is_set():
+                    self.info_dl['status'] = "stop"
                 
-                res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
+                else:
+                    
+                    res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
 
-                if 'error' in res:
-                    self.info_dl['status'] = 'error'
-                    self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
-                
-                else: 
-                    self.info_dl['status'] = "init_manipulating"
+                    if 'error' in res:
+                        self.info_dl['status'] = 'error'
+                        self.info_dl['error_message'] = '\n'.join([dl.error_message for dl in self.info_dl['downloaders']])
+                    
+                    else: 
+                        self.info_dl['status'] = "init_manipulating"
             
             
         
