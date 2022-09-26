@@ -43,7 +43,7 @@ def main():
                     asyncDL.stop_upt_window.set()
                     asyncDL.stop_pasres.set()
                     asyncDL.STOP.set()
-                    asyncDL.stop_console = True
+                    asyncDL.stop_console.set()
                     asyncDL.pasres_repeat = False        
                     pending_tasks = asyncio.all_tasks(loop=asyncDL.loop)
                     if pending_tasks:

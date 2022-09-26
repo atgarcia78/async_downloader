@@ -14,7 +14,7 @@ import aiofiles
 import httpx
 
 from utils import (EMA, int_or_none, naturalsize, none_to_zero, try_get, 
-                   async_ex_in_executor, limiter_non,
+                   async_ex_in_executor, limiter_non, async_wait_time,
                    dec_retry_error, traverse_obj, CONFIG_EXTRACTORS, get_domain)
 
 
@@ -335,14 +335,7 @@ class AsyncHTTPDownloader():
         if not self.parts_to_dl:
             self.status = "manipulating"      
 
-    async def wait_time(self, n):
-   
-        _started = time.monotonic()
-        while True:
-            if (_t:=(time.monotonic() - _started)) >= n:
-                return _t
-            else:
-                await asyncio.sleep(0)
+
         
     async def rate_limit(self):
         
@@ -390,7 +383,7 @@ class AsyncHTTPDownloader():
                                         raise AsyncHTTPDLError(f"error[{res.status_code}] part[{part}]")
                                     else:
                                         self.parts[part-1]['n_retries'] += 1
-                                        await self.wait_time(5) 
+                                        await async_wait_time(5) 
                                         continue
                                 else:
                                     if (len(self.parts[part-1]['headers']) == 1) and (not self.parts[part-1]['headersize']):

@@ -16,11 +16,13 @@ import aiofiles.os as os
 import httpx
 import m3u8
 from Cryptodome.Cipher import AES
+import random
 from queue import Queue
 
 from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
                    naturalsize, print_norm_time, get_format_id, dec_retry_error,
-                   try_get, get_format_id, get_domain)
+                   try_get, get_format_id, get_domain, CONF_PROXIES_MAX_N_GR_HOST,
+                   CONF_PROXIES_BASE_PORT)
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -71,7 +73,8 @@ class AsyncHLSDownloader():
             self.id = self.info_dict['id']
             
             self.ytdl = vid_dl.info_dl['ytdl']
-            self.proxies = [{'http://': f"http://127.0.0.1:{1234 + i}", 'https://': f"http://127.0.0.1:{1234 + i}"} for i in range(10)]
+            #self.proxies = [{'http://': f"http://127.0.0.1:{1234 + i}", 'https://': f"http://127.0.0.1:{1234 + i}"} for i in range(10)]
+            self.proxies = [i for i in range(CONF_PROXIES_MAX_N_GR_HOST)]
             self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
             self.timeout = httpx.Timeout(30, connect=30)
@@ -105,32 +108,37 @@ class AsyncHLSDownloader():
             self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
 
             self._proxy = None
+            self._index = None
             
             self._host = get_domain(self.video_url)  
             
             with self.ytdl.params['lock']: 
                 if not self.video_downloader.hosts_dl.get(self._host):
                     self.video_downloader.hosts_dl.update({self._host: {'count': 1, 'queue': Queue()}})
-                    for el in self.proxies:
+                    for el in random.sample(self.proxies, len(self.proxies)):
                         self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(el)
                     #self._proxy = "get_one"
                 else:
-                    if self.video_downloader.hosts_dl[self._host]['count'] < len(self.proxies):
+                    if self.video_downloader.hosts_dl[self._host]['count'] < CONF_PROXIES_MAX_N_GR_HOST:
                         self.video_downloader.hosts_dl[self._host]['count'] += 1
-                        # if not self.video_downloader.hosts_dl[self._host]['count'] % 2:
+                        #self._proxy = "get_one"
+                        #if not self.video_downloader.hosts_dl[self._host]['count'] % 2:
                         #     self._proxy = "get_one"
             
             if self._proxy == "get_one":
-                self._proxy = self.video_downloader.hosts_dl[self._host]['queue'].get()
+                self._index = self.video_downloader.hosts_dl[self._host]['queue'].get()
+                self._proxy = {"http://": f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index*100}', "https://": f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index*100}'}
             
             self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, limits=self.limits, timeout=self.timeout, verify=False)
+            
+            self.filesize = None
             
             self.init()
         
         except Exception as e:
             logger.exception(repr(e))
-            if self._proxy:
-                self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._proxy)
+            if self._index:
+                self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
             self.video_downloader.hosts_dl[self._host]['count'] -= 1
             self.init_client.close()
             
@@ -771,8 +779,8 @@ class AsyncHLSDownloader():
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
         finally:
-            if self._proxy:
-                self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._proxy)
+            if self._index:
+                self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
             self.video_downloader.hosts_dl[self._host]['count'] -= 1
             self.init_client.close()            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")

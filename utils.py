@@ -25,9 +25,10 @@ CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 6
 CONF_PROXIES_BASE_PORT = 12000
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576 #1MB 10485760 #10MB
-CONF_ARIA2C_SPEED_PER_CONNECTION = 102400 * 1.5# 102400
-CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 80
-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 20
+CONF_ARIA2C_SPEED_PER_CONNECTION = 102400 # 102400 * 1.5# 102400
+CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 40
+CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 10
+CONF_ARIA2C_TIMEOUT_INIT = 30
 CONF_INTERVAL_GUI = 0.2
 
 
@@ -156,15 +157,16 @@ async def async_lock(executor, lock):
     finally:
         lock.release()
 
-async def async_wait_time(n, event=None):   
-    _started = time.monotonic()
-    if not event: event = asyncio.Event() #dummy
+async def async_wait_time(n, events=None):   
     
-    while not event.is_set():
+    if not events: events = [asyncio.Event()] #dummy
+    _started = time.monotonic()
+    while not any([_ev.is_set() for _ev in events]):
         if (_t:=(time.monotonic() - _started)) >= n:
             return _t
         else:
             await asyncio.sleep(0)
+    return 
             
 def wait_time(n, event=None):
     _started = time.monotonic()
@@ -176,6 +178,7 @@ def wait_time(n, event=None):
             return _t
         else:
             time.sleep(CONF_INTERVAL_GUI)
+    return
 
 async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
@@ -430,7 +433,7 @@ if _SUPPORT_PROXY:
                 logger = logging.getLogger("proxy")
                 logger.info(p.flags)
                 while not stop_event.is_set():
-                    time.sleep(1)
+                    time.sleep(CONF_INTERVAL_GUI)
             except BaseException:
                 logger.error("context manager proxy")    
             
@@ -466,29 +469,109 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
     else:
         raise ValueError('Expected fill, strict, or ignore')      
           
-def init_proxies(num, size):
+
+def get_myip(key):
+    proc_curl = subprocess.Popen(f"curl -x http://127.0.0.1:{key} -s https://api.ipify.org?format=json".split(' '), stdout=subprocess.PIPE,)
+    return(subprocess.run(['jq', '-r', '.ip'], stdin=proc_curl.stdout, encoding='utf-8', capture_output=True).stdout.strip())
+
+def test_proxies_rt(routing_table):
+    logger = logging.getLogger("asyncdl")
         
+    with ThreadPoolExecutor() as exe:
+        futures = {exe.submit(get_myip, _key): _key for _key in list(routing_table.keys())}
+    
+    bad_pr = []    
+    for fut in futures:
+        _ip = fut.result()
+        #logger.debug(f"[{futures[fut]} test: {_ip} expect res: {routing_table[futures[fut]]} > {_ip == routing_table[futures[fut]]}")
+        if _ip != routing_table[futures[fut]]: 
+            logger.info(f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}")
+            bad_pr.append(routing_table[futures[fut]])
+                                
+    return(bad_pr)
+     
+def test_proxies_raw(list_ips, port=7070):
+    logger = logging.getLogger("asyncdl")
+    cmd_gost = [f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}" for i, ip in enumerate(list_ips)]
+    routing_table = {CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)} 
+    proc_gost = []
+    for cmd in cmd_gost:
+            
+        #logger.info(cmd)
+        _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        _proc.poll()
+        if _proc.returncode:
+            logger.error(f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
+            raise Exception("init proxies error")
+        else: proc_gost.append(_proc)
+        time.sleep(0.05)
+    _res_ps = subprocess.run(['ps'], encoding='utf-8', capture_output=True).stdout
+    logger.debug(f"%no%\n\n{_res_ps}")    
+    _res_bad = test_proxies_rt(routing_table)
+    for _ip in _res_bad:
+        _line_ps_pr = re.search(rf'.+{_ip}\:\d+', _res_ps).group()
+        logger.info(f"check in ps print: {_line_ps_pr}")        
+    for proc in proc_gost:
+        proc.kill()
+     
+    cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
+    with open(cached_res, "w") as f:
+        _test = '\n'.join(_res_bad)
+        f.write(_test)
+           
+    return _res_bad
+        
+def get_ips(name):
+    res = subprocess.run(f"dscacheutil -q host -a name {name}".split(' '), encoding='utf-8', capture_output=True).stdout
+    return(re.findall(r"ip_address: (.+)", res))    
+           
+
+def init_proxies(num, size, port=7070):
+    
+
+    
+    logger = logging.getLogger("asyncDL")  
     #SP
-    IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', 
-               '192.145.124.174', '192.145.124.190', '192.145.124.186', '192.145.124.238', '192.145.124.226'] 
+    #IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', 
+    #           '192.145.124.174', '192.145.124.190', '192.145.124.186', '192.145.124.238', '192.145.124.226']
+    
+    subprocess.run(["flush-dns"])
+    
+    IPS_SSL = []
+    #NL
+    IPS_SSL += get_ips('nl.secureconnect.me')
+    #SWE
+    IPS_SSL += get_ips('swe.secureconnect.me')
+    #NO    
+    IPS_SSL += get_ips('no.secureconnect.me')
+    #BG
+    IPS_SSL += get_ips('bg.secureconnect.me')
+    #PG
+    #IPS_SSL += get_ips('pg.secureconnect.me')
+    #IT
+    #IPS_SSL += get_ips('it.secureconnect.me')
     #FR
-    IPS_SSL += ['93.177.75.90', '93.177.75.18', '93.177.75.26', '93.177.75.122', '93.177.75.138', '93.177.75.2', 
-                '93.177.75.146', '93.177.75.42', '93.177.75.50', '93.177.75.154', '93.177.75.34', '93.177.75.98', 
-                '93.177.75.202', '93.177.75.218', '93.177.75.106', '37.120.158.138', '93.177.75.10', '93.177.75.210', 
-                '93.177.75.130', '93.177.75.162', '93.177.75.82', '93.177.75.74', '93.177.75.58', '93.177.75.66', '93.177.75.114']    
+    IPS_SSL += get_ips('fr.secureconnect.me') 
     #UK
-    IPS_SSL += ['146.70.83.170', '146.70.95.34', '37.120.198.162', '146.70.95.18', '146.70.83.130', '146.70.83.162', 
-                '146.70.83.178', '146.70.83.210', '146.70.83.250', '146.70.95.58', '146.70.95.66', '146.70.83.202', 
-                '146.70.83.194', '146.70.83.154', '146.70.83.242', '146.70.83.186', '146.70.95.50', '146.70.83.146', 
-                '146.70.83.234', '146.70.95.42', '146.70.83.218', '146.70.83.226', '185.253.98.42']
+    #IPS_SSL += get_ips('uk.secureconnect.me') + get_ips('uk.man.secureconnect.me')
     #DE
-    IPS_SSL += ['93.177.73.210', '93.177.73.234', '93.177.73.130', '93.177.73.114', '93.177.73.154', '93.177.73.98', '93.177.73.202', 
-                '93.177.73.138', '93.177.73.90', '93.177.73.218', '93.177.73.74', '93.177.73.146', '93.177.73.66', '93.177.73.194', 
-                '93.177.73.106', '93.177.73.122', '93.177.73.226', '93.177.73.82']
+    #IPS_SSL += get_ips('ger.secureconnect.me')
     
+    cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
+    if cached_res.exists():
+        with open(cached_res, "r") as f:
+            _content = f.read()
+        _bad_ips = [_ip for _ip in _content.split('\n') if _ip]
+    else:
+        _bad_ips = test_proxies_raw(IPS_SSL,port)
+
+    for _ip in _bad_ips:
+        if _ip in IPS_SSL: IPS_SSL.remove(_ip)
     
-    logger = logging.getLogger("asyncDL")
+    _ip_main = random.choice(IPS_SSL)
     
+    IPS_SSL.remove(_ip_main)
+
     _ips = random.sample(IPS_SSL, num * (size + 1))
     
     FINAL_IPS = list(grouper(_ips, (size + 1)))
@@ -499,30 +582,47 @@ def init_proxies(num, size):
     
     for j in range(size + 1):
             
-        cmd_gost_s.extend([f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:7070" for i, ip in enumerate(FINAL_IPS)])
+        cmd_gost_s.extend([f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}" for i, ip in enumerate(FINAL_IPS)])
         
         routing_table.update({(CONF_PROXIES_BASE_PORT + 100*i + j):ip[j] for i, ip in enumerate(FINAL_IPS)})
-        
-      
+    
+    cmd_gost_main = [f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:7070"]    
+    routing_table.update({CONF_PROXIES_BASE_PORT + 100*num + 99:_ip_main})
     
 
     cmd_gost_group =  [f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)] 
 
-    cmd_gost = cmd_gost_s + cmd_gost_group
+    cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
     
     logger.debug(f"[init_proxies] {cmd_gost}")
     logger.debug(f"[init_proxies] {routing_table}")
 
     proc_gost = []
     
-    for cmd in cmd_gost:
+    try:
+    
+        for cmd in cmd_gost:
+            
+            logger.debug(cmd)
+            _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            _proc.poll()
+            if _proc.returncode:
+                logger.error(f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
+                raise Exception("init proxies error")
+            else: proc_gost.append(_proc)
+            time.sleep(0.05)
+            
+        logger.info("[init_proxies] done")
+        return proc_gost, routing_table
+    except Exception:
+        if proc_gost:
+            for proc in proc_gost:
+                try:
+                    proc.kill()
+                except Exception as e:
+                    pass
+        raise
         
-        logger.debug(cmd)
-        proc_gost.append(subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True))
-        time.sleep(0.05)
-        
-    logger.info("[init_proxies] done")
-    return proc_gost, routing_table
         
 if _SUPPORT_YTDL:
 
@@ -960,6 +1060,9 @@ if _SUPPORT_PYSIMP:
                                 [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
             ], element_justification='l', expand_x=True, expand_y=True)
             
+            col_00 = sg.Column([                                 
+                                [sg.Text("Waiting for info", size=(80, 2), font='Any 10', key='ST')]
+            ])
             col_1 = sg.Column([
                                 [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
                                 [sg.Multiline(default_text = "Waiting for info", size=(80, 40), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)],
@@ -971,7 +1074,8 @@ if _SUPPORT_PYSIMP:
                                 [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
             ], element_justification='r', expand_x=True, expand_y=True)
             
-            layout_root = [ [col_0, col_1, col_2] ]
+            layout_root = [ [col_00], 
+                            [col_0, col_1, col_2] ]
             
             window_root = sg.Window('async_downloader', layout_root, alpha_channel=0.99, location=(0, 0), finalize=True, resizable=True)
             window_root.set_min_size(window_root.size)

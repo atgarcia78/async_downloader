@@ -38,7 +38,7 @@ class VideoDownloader():
             self.master_hosts_alock = hosts_alock
             self.args = args
             
-            self.index = None #for printing
+            self._index = None #for printing
             self.window_root = window_root
             
             self.info_dict = video_dict
@@ -117,6 +117,19 @@ class VideoDownloader():
         finally:
             if self.info_dl['status'] == "error":
                 rmtree(self.info_dl['download_path'], ignore_errors=True)
+    
+    @property
+    def index(self):
+        return self._index
+
+    @index.setter
+    def index(self, value):
+        self._index = value
+      
+    @index.deleter
+    def index(self):
+        del self._index 
+    
     
     def _check_if_apple(self, info):
         
@@ -235,8 +248,9 @@ class VideoDownloader():
 
     
     def write_window(self):
-        mens = {self.index: self.print_hookup()}
-        self.window_root.write_event_value(self.info_dl['status'], mens)
+        if self.info_dl['status'] not in ("init", "downloading", "manipulating", "init_manipulating"):
+            mens = {self.index: self.print_hookup()}
+            self.window_root.write_event_value(self.info_dl['status'], mens)
         
 
     async def run_dl(self):

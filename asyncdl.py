@@ -17,6 +17,7 @@ from textwrap import fill
 from tabulate import tabulate
 
 from utils import (
+    EMA,
     async_ex_in_executor,
     async_wait_time,
     get_chain_links,
@@ -52,6 +53,8 @@ from videodownloader import VideoDownloader
 from threading import Lock
 from codetiming import Timer
 
+import psutil
+from statistics import median
 
 
 from itertools import zip_longest
@@ -94,8 +97,8 @@ class AsyncDL():
         #tk control
         self.window_console = None
         self.window_root = None      
-        self.stop_root = False        
-        self.stop_console = False
+        #self.stop_root = False        
+        #self.stop_console = False
         
         self.wkinit_stop = False
         self.pasres_repeat = True
@@ -288,9 +291,12 @@ class AsyncDL():
         list_upt = {}
         if isinstance(status, str): _status = (status,)
         else: _status = status
-        for dl in self.list_dl:
+        for i,dl in enumerate(self.list_dl):
+            if not dl.index:
+                dl.index = i
             if dl.info_dl['status'] in _status:                
-                list_upt.update({dl.index: dl.print_hookup()})
+                list_upt.update({i: dl.print_hookup()})
+            
         if list_upt != list_old:
             self.window_root.write_event_value(_status[0], list_upt)
         return list_upt
@@ -305,20 +311,36 @@ class AsyncDL():
             list_init_old = {}
             list_dl_old = {}
             list_manip_old = {}
-            
+            self.list_nwmon = []
+            #io = psutil.net_io_counters(pernic=True)['en1']
+            io = psutil.net_io_counters()
+            init_bytes_recv = io.bytes_recv
+            bytes_recv = io.bytes_recv
+            wait_time(CONF_INTERVAL_GUI)
+            self.ema_s = EMA(smoothing=0.0001)
             while not stop_event.is_set():
                 if self.list_dl:
                     list_init_old = self.update_window("init", list_init_old)
                     list_dl_old = self.update_window("downloading", list_dl_old)
-                    list_manip_old = self.update_window(("manipulating", "init_manipulating"), list_manip_old)                
+                    list_manip_old = self.update_window(("manipulating", "init_manipulating"), list_manip_old)
+                    #io_2 = psutil.net_io_counters(pernic=True)['en1']
+                    io_2 = psutil.net_io_counters()
+                    ds = (io_2.bytes_recv - bytes_recv) / CONF_INTERVAL_GUI
+                    self.list_nwmon.append(ds)                    
+                    if self.window_root:
+                        msg = f"RECV: {naturalsize(io_2.bytes_recv - init_bytes_recv,True)}  DL: {naturalsize(self.ema_s(ds),True)}ps"
+                        self.window_root.write_event_value("nwmon", msg)
+                    bytes_recv = io_2.bytes_recv                
                 
-                wait_time(CONF_INTERVAL_GUI)
+                if not wait_time(CONF_INTERVAL_GUI, event=stop_event):
+                    break
                 
-            
+                
                 
         except Exception as e:
             logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
         finally:
+            logger.info(f"[upt_window_periodic] DL MEDIA: {naturalsize(median(self.list_nwmon),True)}ps")
             logger.info("[upt_window_periodic] BYE")
         
     @long_operation_in_thread          
@@ -343,7 +365,7 @@ class AsyncDL():
                     wait_time(self.pasres_time_from_resume_to_pause, stop_event)
                 
                 else:
-                    wait_time(CONF_INTERVAL_GUI)
+                    wait_time(CONF_INTERVAL_GUI, event=stop_event)
 
         except Exception as e:
             logger.exception(f"[pasres_periodic]: error: {repr(e)}")
@@ -385,7 +407,6 @@ class AsyncDL():
         
         try:
                         
-            logger.debug(f"[gui_console] End waiting. Signal stop_console[{self.stop_console}] stop_root[{self.stop_root}]")
             
             self.window_console = init_gui_console()
             
@@ -393,9 +414,10 @@ class AsyncDL():
                         
             while True:             
                 
-                await async_wait_time(CONF_INTERVAL_GUI/2)
-                if self.stop_console:
-                    break                    
+                if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.stop_console]):
+                    break
+                #if self.stop_console:
+                #    break                    
                 event, values = self.window_console.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
@@ -513,7 +535,7 @@ class AsyncDL():
             logger.info("[gui_console] BYE")
             #self.pasres_repeat = False        
             self.window_console.close()  
-            self.stop_root = True
+            self.stop_root.set()
                 
     async def gui_root(self):
         '''
@@ -534,15 +556,19 @@ class AsyncDL():
                 
             while True:                
                 
-                await async_wait_time(CONF_INTERVAL_GUI/2)
-                if self.stop_root:
+                #await async_wait_time(CONF_INTERVAL_GUI/2)
+                if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.stop_root]):
                     break
+                #if self.stop_root.is_set():
+                #    break
                 event, value = self.window_root.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
                 logger.debug(f"{event}:{value}")
             
                 if "kill" in event or event == sg.WIN_CLOSED: break
+                elif event == "nwmon":
+                    self.window_root['ST'].update(value['nwmon'])
                 elif event == "init":
                     #logger.info(f"{event}:{value}")
                     list_init = value['init']
@@ -1072,10 +1098,10 @@ class AsyncDL():
                     self.t3.stop()          
                     
                     if not self.list_dl: 
-                        #self.stop_root = True
-                        self.stop_console = False
+                        
+                        #self.stop_console = False
                         self.pasres_repeat = False
-                        #await asyncio.sleep(0)
+                        
                     
  
                     break
@@ -1209,7 +1235,7 @@ class AsyncDL():
                                     self.info_videos[urlkey].update({'status': 'initok', 'filename': str(dl.info_dl.get('filename')), 'dl': str(dl)})
 
                                     async with self.alock:
-                                        dl.index = len(self.list_dl)
+                                        #dl.index = len(self.list_dl)
                                         self.list_dl.append(dl)
                                     
                                     #dl.write_window()
@@ -1226,11 +1252,11 @@ class AsyncDL():
                                         _msg = ''
                                         async with self.alock:
                                             if dl.info_dl.get('auto_pasres'):
-                                                #_index_in_dl = len(self.list_dl)
-                                                #self.list_pasres.add(_index_in_dl)
-                                                self.list_pasres.add(dl.index)
-                                                _msg = f', add this dl[{dl.index}] to auto_pasres{list(self.list_pasres)}'
-                                                if self.window_console and not self.stop_root: sg.cprint(f"[pause-resume autom] {self.list_pasres}")
+                                                _index_in_dl = self.list_dl.index(dl)
+                                                self.list_pasres.add(_index_in_dl)
+                                                #self.list_pasres.add(dl.index)
+                                                _msg = f', add this dl[{_index_in_dl}] to auto_pasres{list(self.list_pasres)}'
+                                                if self.window_console: sg.cprint(f"[pause-resume autom] {self.list_pasres}")
                                                                             
                                         logger.debug(f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, ready to DL{_msg}")
                                 
@@ -1513,6 +1539,8 @@ class AsyncDL():
     async def async_ex(self):
     
         self.STOP = asyncio.Event()
+        self.stop_console = asyncio.Event()
+        self.stop_root = asyncio.Event()
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
         self.alock = asyncio.Lock()
@@ -1553,7 +1581,9 @@ class AsyncDL():
                     init_aria2c(self.args)
                     if self.args.proxy != 0:
                         self.proc_gost, self.routing_table = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)
-                        self.ytdl.params['routing_table'] = self.routing_table                
+                        self.ytdl.params['routing_table'] = self.routing_table
+                        if not self.ytdl.params.get('proxy'): self.ytdl.params['proxy'] = f'http://127.0.0.1:{list(self.routing_table)[-1]}'
+                        logger.debug(f"[async_ex] ytdl_params:\n{self.ytdl.params}")                
                         self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
                 
 
@@ -1596,9 +1626,9 @@ class AsyncDL():
             self.stop_upt_window.set()
             self.stop_pasres.set()
             await asyncio.sleep(1)
-            self.stop_console = True
+            self.stop_console.set()
             await asyncio.sleep(0)
-            self.stop_root = True 
+            self.stop_root.set() 
             await asyncio.sleep(0)          
             done, _ = await asyncio.wait(tasks_gui)
             if any(isinstance(_e, KeyboardInterrupt) for _e in [d.exception() for d in done]):
