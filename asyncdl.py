@@ -340,7 +340,8 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
         finally:
-            logger.info(f"[upt_window_periodic] DL MEDIA: {naturalsize(median(self.list_nwmon),True)}ps")
+            if self.list_nwmon: 
+                logger.info(f"[upt_window_periodic] DL MEDIA: {naturalsize(median(self.list_nwmon),True)}ps")
             logger.info("[upt_window_periodic] BYE")
         
     @long_operation_in_thread          
