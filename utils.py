@@ -357,7 +357,7 @@ def rclone_init_args():
     
 def init_argparser():
     
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:104.0) Gecko/20100101 Firefox/104.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:105.0) Gecko/20100101 Firefox/105.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
@@ -734,7 +734,7 @@ if _SUPPORT_YTDL:
         if args.use_cookies:
             ytdl_opts.update(
                 {
-                    "cookiesfrombrowser": ('firefox', '/Users/antoniotorres/Library/Application Support/Firefox/Profiles/c3nsqmmt.default-1637669918519', None)
+                    "cookiesfrombrowser": ('firefox', '/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium', None)
                 })
         
         if args.ytdlopts: 

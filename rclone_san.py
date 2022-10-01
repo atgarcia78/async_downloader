@@ -237,7 +237,7 @@ class Rclonesan():
                     else:
                         logger.info(f"[{self.orig_path}] rclone returncode error {self.proc.returncode}. Reset[{n}]")
                         await async_ex_in_executor(ex, self.window_root.write_event_value, "init", {})
-                        await async_wait_until(30, cor=os.path.exists, args=('/Volumes/WD5',), interv=5)
+                        #await async_wait_until(30, cor=os.path.exists, args=('/Volumes/WD5',), interv=5)
                         continue
                     
         except Exception as e:
@@ -258,7 +258,7 @@ if __name__ == "__main__":
     for folder in args.origfolders:
         try:
             logger.info("************* " + folder)
-            wait_until(60, statement=lambda x: Path(x).exists(), args=('/Volumes/WD5',), interv=5)
+            #wait_until(60, statement=lambda x: Path(x).exists(), args=('/Volumes/WD5',), interv=5)
             rclonesan = Rclonesan(folder, args)
             main_task = loop.create_task(rclonesan.main())                  
             loop.run_until_complete(main_task)
