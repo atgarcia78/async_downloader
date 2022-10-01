@@ -38,23 +38,19 @@ logger = logging.getLogger("async_ARIA2C_DL")
 
 class AsyncARIA2CDLErrorFatal(Exception):
     def __init__(self, msg, exc_info=None):
-        
         super().__init__(msg)
-
-        self.exc_info = exc_info  
-
-class AsyncARIA2CDLError(Exception):
-   def __init__(self, msg, exc_info=None):
-        
-        super().__init__(msg)
-
         self.exc_info = exc_info
 
-class AsyncARIA2CDownloader():
-    
+
+class AsyncARIA2CDLError(Exception):
+    def __init__(self, msg, exc_info=None):
+        super().__init__(msg)
+        self.exc_info = exc_info
+
+class AsyncARIA2CDownloader(object):    
     _CONFIG = CONFIG_EXTRACTORS.copy()  
     _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
-
+    
     def __init__(self, port, video_dict, vid_dl):
 
         self.info_dict = video_dict.copy()
@@ -517,10 +513,7 @@ class AsyncARIA2CDownloader():
                         await async_ex_in_executor(
                             AsyncARIA2CDownloader._EX_ARIA2DL, 
                             self.aria2_client.remove, [self.dl_cont], clean=False)
-                        continue
- 
-
-            
+                        continue            
             except BaseException as e:
                 if isinstance(e, KeyboardInterrupt):
                     raise
@@ -539,8 +532,7 @@ class AsyncARIA2CDownloader():
                     async with self.video_downloader.master_hosts_alock:
                         self.video_downloader.hosts_dl[self._host]['count'] -= 1
                         self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
-                    self._proxy = None
-   
+                    self._proxy = None   
                 await asyncio.sleep(0)
                 
     def print_hookup(self):

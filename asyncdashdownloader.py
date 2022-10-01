@@ -193,7 +193,7 @@ class AsyncDASHDownloader():
 
                     _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
                     info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\{info_reset}")
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\n{info_reset}")
                     
                 except Exception as e:
                     raise AsyncDASHDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:fails no descriptor {e}")
