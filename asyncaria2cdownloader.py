@@ -51,11 +51,11 @@ class AsyncARIA2CDownloader(object):
     _CONFIG = CONFIG_EXTRACTORS.copy()  
     _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
     
-    def __init__(self, port, video_dict, vid_dl):
+    def __init__(self, port, enproxy, video_dict, vid_dl):
 
         self.info_dict = video_dict.copy()
         self.video_downloader = vid_dl                
-        
+        self.enproxy = enproxy
         self.aria2_client = aria2p.API(aria2p.Client(port=port))
         
         self.ytdl = traverse_obj(self.video_downloader.info_dl, ('ytdl'))
@@ -119,7 +119,7 @@ class AsyncARIA2CDownloader(object):
         else: 
             self._decor, self._nsplits = limiter_non.ratelimit("transp", delay=True), self.nworkers
             
-        if self.ytdl.params.get('proxy') == 0:
+        if self.enproxy == 0:
             _sem = False
             self._mode = "simple"
                 

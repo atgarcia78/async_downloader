@@ -136,7 +136,8 @@ class VideoDownloader():
         try:
         
             if not (_info:=info.get('requested_formats')):
-                _info = [info]
+                #_info = [info]
+                return
                 
             prots, urls = list(map(list, zip(*[(determine_protocol(f), f['url']) for f in _info])))
             
@@ -178,7 +179,7 @@ class VideoDownloader():
                                         
                         try:
                                         
-                            dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], info, self)
+                            dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], self.args.proxy, info, self)
                             logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                             if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                         except Exception as e:

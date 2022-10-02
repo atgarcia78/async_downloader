@@ -164,10 +164,15 @@ class AsyncHLSDownloader():
             self.info_dict['fragments'] = self.get_info_fragments()
             self.info_dict['init_section'] = self.info_dict['fragments'][0].init_section
             
+            logger.debug(f"fragments: \n{self.info_dict['fragments']}")
+            logger.debug(f"init_section: \n{self.info_dict['init_section']}")
+
             if (_frag:=self.info_dict['init_section']):
                 _file_path =  Path(str(self.fragments_base_path) + ".Frag0")
-                self.get_init_section(_frag.absolute_uri, _file_path)
-                self.info_init_section.update({"frag": 0, "url": _frag.absolute_uri, "file": _file_path, "downloaded": True})
+                _url = _frag.absolute_uri
+                if '&hash=' in _url and _url.endswith('&='): _url += '&='
+                self.get_init_section(_url, _file_path)
+                self.info_init_section.update({"frag": 0, "url": _url, "file": _file_path, "downloaded": True})
             
                
 
@@ -195,16 +200,19 @@ class AsyncHLSDownloader():
                     byte_range = {}
 
                 est_size = int(_br * fragment.duration * 1000 / 8)
+
+                _url = fragment.absolute_uri
+                if '&hash=' in _url and _url.endswith('&='): _url += '&=' 
                 
                 if _file_path.exists():
                     size = _file_path.stat().st_size
-                    self.info_frag.append({"frag" : i+1, "url" : fragment.absolute_uri, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : True, "estsize" : est_size, "headersize" : None, "size": size, "n_retries": 0, "error" : ["AlreadyDL"]})                
+                    self.info_frag.append({"frag" : i+1, "url" : _url, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : True, "estsize" : est_size, "headersize" : None, "size": size, "n_retries": 0, "error" : ["AlreadyDL"]})                
                     self.n_dl_fragments += 1
                     self.down_size += size
                     self.frags_to_dl.append(i+1)
                     
                 else:
-                    self.info_frag.append({"frag" : i+1, "url" : fragment.absolute_uri, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : False, "estsize" : est_size, "headersize": None, "size": None, "n_retries": 0, "error" : []})
+                    self.info_frag.append({"frag" : i+1, "url" : _url, "key": fragment.key, "file" : _file_path, "byterange" : byte_range, "downloaded" : False, "estsize" : est_size, "headersize": None, "size": None, "n_retries": 0, "error" : []})
                     self.frags_to_dl.append(i+1)
     
                     
@@ -384,7 +392,7 @@ class AsyncHLSDownloader():
                     if fragment.key.absolute_uri not in self.key_cache:
                         self.key_cache[fragment.key.absolute_uri] = httpx.get(fragment.key.absolute_uri, headers=self.headers).content
                         
-        #logger.info(f"frags_to_dl\{self.frags_to_dl}")
+        logger.debug(f"frags_to_dl\n{self.frags_to_dl}")
         
         if not self.frags_to_dl:
             self.status = "init_manipulating"
@@ -404,7 +412,7 @@ class AsyncHLSDownloader():
                 if self.reset_event.is_set(): 
                     return
                 
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]")
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]\n{self.info_frag[q - 1]}")
                 
                 
                 if q == "KILL":
