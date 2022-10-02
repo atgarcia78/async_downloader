@@ -101,8 +101,7 @@ class VideoDownloader():
                 'error_message': ""             
             })
             
-            
-            
+
             self.pause_event = None
             self.resume_event = None
             self.stop_event = None
@@ -129,8 +128,7 @@ class VideoDownloader():
     @index.deleter
     def index(self):
         del self._index 
-    
-    
+
     def _check_if_apple(self, info):
         
         try:
@@ -236,8 +234,7 @@ class VideoDownloader():
         if self.stop_event:
             self.stop_event.set()
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
-        
-        
+
     def pause(self):
         if self.pause_event:
             self.pause_event.set()

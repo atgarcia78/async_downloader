@@ -97,8 +97,7 @@ class AsyncDL():
         #tk control
         self.window_console = None
         self.window_root = None      
-        #self.stop_root = False        
-        #self.stop_console = False
+
         
         self.wkinit_stop = False
         self.pasres_repeat = True
@@ -106,7 +105,7 @@ class AsyncDL():
         
         self.list_pasres = set()
         self.pasres_time_from_resume_to_pause = 5
-        #self.pasres_active = False
+
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -297,8 +296,9 @@ class AsyncDL():
             if dl.info_dl['status'] in _status:                
                 list_upt.update({i: dl.print_hookup()})
             
-        if list_upt != list_old:
+        if list_upt != list_old and self.window_root:
             self.window_root.write_event_value(_status[0], list_upt)
+        
         return list_upt
     
     @long_operation_in_thread
@@ -374,24 +374,12 @@ class AsyncDL():
             logger.info('[pasres_periodic] BYE')
       
     async def cancel_all_tasks(self):
-        
         self.STOP.set()
         if self.list_dl:
             for dl in self.list_dl:
                 dl.stop()
         await asyncio.sleep(0)
-        # if self.loop:
-        #     pending_tasks = asyncio.all_tasks(loop=self.loop)
-        #     logger.debug(f"[cancel_all_tasks] {pending_tasks}")
-        #     logger.info(f"[cancel_all_tasks]\n{print_tasks(pending_tasks)}")
-        #     if pending_tasks:
-        #         pending_tasks.remove(self.main_task)
-        #         if self.console_task in pending_tasks: pending_tasks.remove(self.console_task)
-        #         if self.task_gui_root in pending_tasks: pending_tasks.remove(self.task_gui_root)
-        #         if pending_tasks:
-        #             for task in pending_tasks:
-        #                 task.cancel()
-        #             await asyncio.wait(pending_tasks)
+
         
     async def print_pending_tasks(self):
         if self.loop:
@@ -417,9 +405,9 @@ class AsyncDL():
                 
                 if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.stop_console]):
                     break
-                #if self.stop_console:
-                #    break                    
+
                 event, values = self.window_console.read(timeout=0)
+
                 if event == sg.TIMEOUT_KEY:
                     continue
                 sg.cprint(event, values)
@@ -428,6 +416,7 @@ class AsyncDL():
                 elif event in ['Exit']:
                     logger.info(f'[gui_console] event Exit')
                     await self.cancel_all_tasks()
+                    break
                 elif event in ['-EXIT-']:
                     logger.info(f'[windows_console] event -exit-') 
                     break      
@@ -534,21 +523,15 @@ class AsyncDL():
                 raise
         finally:           
             logger.info("[gui_console] BYE")
-            #self.pasres_repeat = False        
             self.window_console.close()  
             self.stop_root.set()
                 
     async def gui_root(self):
-        '''
-        Run a tkinter app in an asyncio event loop.
-        '''
                     
         try:
             self.window_root = init_gui_root()
 
-                
             await asyncio.sleep(0)
-            
 
             list_init = {}
             list_downloading = {}
@@ -557,11 +540,9 @@ class AsyncDL():
                 
             while True:                
                 
-                #await async_wait_time(CONF_INTERVAL_GUI/2)
                 if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.stop_root]):
                     break
-                #if self.stop_root.is_set():
-                #    break
+
                 event, value = self.window_root.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
@@ -571,7 +552,6 @@ class AsyncDL():
                 elif event == "nwmon":
                     self.window_root['ST'].update(value['nwmon'])
                 elif event == "init":
-                    #logger.info(f"{event}:{value}")
                     list_init = value['init']
                     if list_init: 
                         upt = "\n\n" + ''.join(list(list_init.values()))
@@ -594,7 +574,6 @@ class AsyncDL():
                         self.console_dl_status = False                           
                     
                 elif event in ("manipulating", "init_manipulating"):
-                    #logger.info(f"{event}:{value}")
                     list_manipulating = value[event]
                     
                     _text = []    
@@ -606,7 +585,6 @@ class AsyncDL():
                     else: _upt = ''
                     self.window_root['-ML3-'].update(_upt)
                 elif event in ("error", "done", "stop"):
-                    #logger.info(f"{event}:{value}")
                     list_finish.update(value[event])
                     
                     if list_finish:
@@ -625,10 +603,10 @@ class AsyncDL():
         finally:           
             logger.info("[gui_root] BYE")                       
             self.window_root.close()
+            self.window_root = None
                 
     def get_list_videos(self):
-        
-        
+
         try:
          
             url_list = []
@@ -1071,8 +1049,10 @@ class AsyncDL():
 
             while not self.STOP.is_set():
 
-                
-                url_key = await self.queue_vid.get()
+                done, pending = await asyncio.wait([self.STOP.wait(), self.queue_vid.get()], return_when=asyncio.FIRST_COMPLETED)
+                try_get(list(pending), lambda x: x[0].cancel())
+                if self.STOP.is_set(): break
+                url_key = try_get(list(done), lambda x: x[0].result())
 
                 if url_key == "KILL":
                     logger.debug(f"[worker_init][{i}]: finds KILL")
@@ -1098,12 +1078,10 @@ class AsyncDL():
                     
                     self.t3.stop()          
                     
-                    if not self.list_dl: 
+                    #if not self.list_dl: 
                         
                         #self.stop_console = False
-                        self.pasres_repeat = False
-                        
-                    
+                        #self.pasres_repeat = False
  
                     break
                 
@@ -1586,9 +1564,7 @@ class AsyncDL():
                         if not self.ytdl.params.get('proxy'): self.ytdl.params['proxy'] = f'http://127.0.0.1:{list(self.routing_table)[-1]}'
                         logger.debug(f"[async_ex] ytdl_params:\n{self.ytdl.params}")                
                         self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
-                
 
-                                
                 tasks_to_wait.update({asyncio.create_task(self.worker_run(i)):f'task_worker_run_{i}' for i in range(self.workers)})   
                 tasks_to_wait.update({asyncio.create_task(self.worker_manip(i)): f'task_worker_manip_{i}' for i in range(self.workers)})
                 
@@ -1628,9 +1604,9 @@ class AsyncDL():
             self.stop_pasres.set()
             await asyncio.sleep(1)
             self.stop_console.set()
-            await asyncio.sleep(0)
+            await asyncio.sleep(1)
             self.stop_root.set() 
-            await asyncio.sleep(0)          
+            await asyncio.sleep(1)          
             done, _ = await asyncio.wait(tasks_gui)
             if any(isinstance(_e, KeyboardInterrupt) for _e in [d.exception() for d in done]):
                 raise KeyboardInterrupt

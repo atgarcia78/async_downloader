@@ -73,7 +73,7 @@ class AsyncHLSDownloader():
             self.id = self.info_dict['id']
             
             self.ytdl = vid_dl.info_dl['ytdl']
-            #self.proxies = [{'http://': f"http://127.0.0.1:{1234 + i}", 'https://': f"http://127.0.0.1:{1234 + i}"} for i in range(10)]
+
             self.proxies = [i for i in range(CONF_PROXIES_MAX_N_GR_HOST)]
             self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
@@ -405,11 +405,11 @@ class AsyncHLSDownloader():
 
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
             
-            while not self.reset_event.is_set():
+            while not any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
 
                 q = await self.frags_queue.get()
                 
-                if self.reset_event.is_set(): 
+                if any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                     return
                 
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]\n{self.info_frag[q - 1]}")
@@ -417,9 +417,7 @@ class AsyncHLSDownloader():
                 
                 if q == "KILL":
                     break  
-                                
-                if self.video_downloader.stop_event.is_set():
-                    return
+
                 if self.video_downloader.pause_event.is_set():
                     await asyncio.wait([self.video_downloader.resume_event.wait(), self.reset_event.wait(), self.video_downloader.stop_event.wait()], return_when=asyncio.FIRST_COMPLETED)
                     self.video_downloader.pause_event.clear()
@@ -428,15 +426,15 @@ class AsyncHLSDownloader():
                     self.ema_s = EMA(smoothing=0.0001)
                     self.ema_t = EMA(smoothing=0.0001)
                     
-                    if self.reset_event.is_set():                                
-                        return  
+                    if any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
+                        return
                     
-                    async with self._LOCK:
-                        if self.video_downloader.stop_event.is_set():
-                            if not self.reset_event.is_set():
-                                self.reset_event.set()
-                                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: reset event set")
-                            self.video_downloader.stop_event.clear()
+                    # async with self._LOCK:
+                    #     if self.video_downloader.stop_event.is_set():
+                    #         if not self.reset_event.is_set():
+                    #             self.reset_event.set()
+                    #             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: reset event set")
+                    #         self.video_downloader.stop_event.clear()
 
 
                 url = self.info_frag[q - 1]['url']
@@ -454,7 +452,7 @@ class AsyncHLSDownloader():
 
                 await asyncio.sleep(0)        
                 
-                while ((self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES) and not self.reset_event.is_set()):
+                while ((self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES) and not any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()])):
     
                     try: 
                         
@@ -522,8 +520,8 @@ class AsyncHLSDownloader():
                                     
                                     _started = time.monotonic()
                                     async for chunk in res.aiter_bytes(chunk_size=_chunk_size): 
-                                        if self.reset_event.is_set(): 
-                                            raise AsyncHLSDLErrorFatal("reset event")
+                                        if any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
+                                            raise AsyncHLSDLErrorFatal("event")
                                                                                     
                                         _timechunk = time.monotonic() - _started
                                         self.info_frag[q - 1]['time2dlchunks'].append(_timechunk)                             
@@ -575,7 +573,7 @@ class AsyncHLSDownloader():
                                                        
                     except AsyncHLSDLErrorFatal as e:
                         async with self._LOCK:
-                            if not self.reset_event.is_set() and not self.video_downloader.stop_event.is_set():
+                            if not any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                                 self.reset_event.set()
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: reset event set")
                         self.info_frag[q - 1]['error'].append(repr(e))
@@ -633,7 +631,7 @@ class AsyncHLSDownloader():
                                 async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                         
-                        if self.reset_event.is_set():
+                        if any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                             return
                         
                         if self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES:
@@ -689,7 +687,8 @@ class AsyncHLSDownloader():
                     self.down_temp = self.down_size
                     self.started = time.monotonic()
                     self.status = "downloading"
-                    self.reset_event.clear() 
+                    self.reset_event.clear()
+                    self.video_downloader.reset_event.clear()
 
                     tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.n_workers)]
                     
@@ -708,16 +707,14 @@ class AsyncHLSDownloader():
                     
                     else:
                         
-                        if self.reset_event.is_set():
+                        if self.reset_event.is_set() or self.video_downloader.reset_event.is_set():
                             
                             if self.n_reset < self._MAX_RESETS:
 
                                 logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]")
-                                
-                                
+
                                 try:
-                                    
-                                    #await asyncio.to_thread(self.reset)
+
                                     await async_ex_in_executor(self.ex_hlsdl, self.reset)
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
@@ -735,7 +732,6 @@ class AsyncHLSDownloader():
                                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}")
                                     self.status = "error"
                                     await self.clean_when_error()
-                                    #await asyncio.sleep(0)
                                     raise AsyncHLSDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: ERROR reset couldnt progress")
                             
                             else:
@@ -752,7 +748,6 @@ class AsyncHLSDownloader():
                                 
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                                 try:
-                                    #await asyncio.to_thread(self.reset)
                                     await async_ex_in_executor(self.ex_hlsdl, self.reset)
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
