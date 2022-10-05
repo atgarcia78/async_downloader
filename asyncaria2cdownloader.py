@@ -63,7 +63,7 @@ class AsyncARIA2CDownloader(object):
         self.proxies = [i for i in range(CONF_PROXIES_MAX_N_GR_HOST)]
 
         self.video_url = self.info_dict.get('url')
-        self.uris = [unquote(self.video_url)]        
+        self.uris = [self.video_url]        
         self._host = get_domain(self.video_url)        
         
         self.headers = self.info_dict.get('http_headers')  
