@@ -727,7 +727,7 @@ if _SUPPORT_YTDL:
             "verboseplus": args.vv,
             "sem": {},
             "stop": threading.Event(),
-            "external_downloader": "test"
+            "embed": True
                     
         }
         
