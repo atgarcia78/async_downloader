@@ -733,7 +733,8 @@ class AsyncDL():
                             #_info = self.ytdl.extract_info(_url, download=False, process=False)
                             _info = self.ytdl.extract_info(_url, download=False)
                         except Exception as e:
-                            logger.error(repr(e))
+                            logger.warning(f"[url_playlist_list] {_url} {type(e).__name__}")
+                            logger.debug(f"[url_playlist_list] {_url} {repr(e)}")
                             _info = None
                             _errormsg = repr(e)
                         if not _info:
@@ -753,7 +754,7 @@ class AsyncDL():
                                 if _get and not self.args.path:                             
                                     _name = f"{_info.get('title')}{_info.get('extractor_key')}{_info.get('id')}"
                                     self.args.path = str(Path(Path.home(), 'testing', _name))
-                                    logger.info(f"[path for pl] {self.args.path}")
+                                    logger.info(f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}")
                                 
                                 if isinstance(_info.get('entries'), list):
                                     #_info = self.ytdl.process_ie_result(_info, download=False)
