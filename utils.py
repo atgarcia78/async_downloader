@@ -1057,21 +1057,21 @@ if _SUPPORT_PYSIMP:
             
             col_0 = sg.Column([
                                 [sg.Text("WAITING TO DL", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font=("Courier New Bold", 10), write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
             ], element_justification='l', expand_x=True, expand_y=True)
             
             col_00 = sg.Column([                                 
-                                [sg.Text("Waiting for info", size=(80, 2), font='Any 10', key='ST')]
+                                [sg.Text("Waiting for info", size=(80, 2), font=("Courier New Bold", 12), key='ST')]
             ])
             col_1 = sg.Column([
                                 [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(80, 40), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)],
-                                [sg.Multiline(default_text = "Waiting for info", size=(80, 10), font='Any 10', write_only=True, key='-ML3-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(80, 35), font=("Courier New Bold", 12), write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)],
+                                [sg.Multiline(default_text = "Waiting for info", size=(80, 5), font=("Courier New Bold", 10), write_only=True, key='-ML3-', autoscroll=True, auto_refresh=True)]
             ], element_justification='c', expand_x=True, expand_y=True)
             
             col_2 = sg.Column([
                                 [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font=("Courier New Bold", 10), write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
             ], element_justification='r', expand_x=True, expand_y=True)
             
             layout_root = [ [col_00], 
