@@ -171,7 +171,12 @@ class AsyncHLSDownloader():
                 _file_path =  Path(str(self.fragments_base_path) + ".Frag0")
                 _url = _frag.absolute_uri
                 if '&hash=' in _url and _url.endswith('&='): _url += '&='
-                self.get_init_section(_url, _file_path)
+                if _frag.key is not None and _frag.key.method == 'AES-128':
+                    if _frag.key.absolute_uri not in self.key_cache:
+                        self.key_cache.update({_frag.key.absolute_uri : httpx.get(_frag.key.absolute_uri, headers=self.headers).content})
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{self.key_cache[_frag.key.absolute_uri]}")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:{_frag.key.iv}")
+                self.get_init_section(_url, _file_path, _frag.key)
                 self.info_init_section.update({"frag": 0, "url": _url, "file": _file_path, "downloaded": True})
             
                
@@ -187,7 +192,7 @@ class AsyncHLSDownloader():
                     uri_ant = fragment.uri
                     
                     _file_path =  Path(f"{str(self.fragments_base_path)}.Frag{i}.part.{part}")
-                    _file_path = str(self.filename)
+                    #_file_path = str(self.filename)
                     splitted_byte_range = fragment.byterange.split('@')
                     sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
                     byte_range = {
@@ -283,13 +288,17 @@ class AsyncHLSDownloader():
         return(m3u8.loads(m3u8_doc, self.video_url))
         
     @dec_retry_error
-    def get_init_section(self, uri, file):
+    def get_init_section(self, uri, file, key):
         try:  
-
+            cipher = None
+            if key is not None and key.method == 'AES-128':
+                iv = binascii.unhexlify(key.iv[2:])
+                cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
             res = self.init_client.get(uri)
             res.raise_for_status()
+            _frag = res.content if not cipher else cipher.decrypt(res.content)
             with open(file, "wb") as f:
-                f.write(res.content)            
+                f.write(_frag)            
 
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())
@@ -298,8 +307,7 @@ class AsyncHLSDownloader():
         
     def reset(self):
 
-        self.ema_s = EMA(smoothing=0.0001)
-        self.ema_t = EMA(smoothing=0.0001)
+
         count = 0
         
         while (count < 5):
@@ -325,8 +333,10 @@ class AsyncHLSDownloader():
                     #     self.prep_reset(info_format[0])
                     # else: self.prep_reset(info_reset)
                     if not info_format: raise AsyncHLSDLError("couldnt get format_id")
-                    self.prep_reset(info_format) 
+                    self.prep_reset(info_format)
                     self.n_reset += 1
+                    self.ema_s = EMA(smoothing=0.0001)
+                    self.ema_t = EMA(smoothing=0.0001)
                     break
                 except Exception as e:
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
@@ -364,7 +374,8 @@ class AsyncHLSDownloader():
                     
                 uri_ant = fragment.uri
                 
-                _file_path =  Path(self.download_path, f"{Path(urlparse(fragment.uri).path).name}_part_{part}")
+                #_file_path =  Path(self.download_path, f"{Path(urlparse(fragment.uri).path).name}_part_{part}")
+                _file_path =  Path(f"{str(self.fragments_base_path)}.Frag{i}.part.{part}")
                 splitted_byte_range = fragment.byterange.split('@')
                 sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
                 byte_range = {
@@ -373,14 +384,18 @@ class AsyncHLSDownloader():
                 }
 
             else:
-                _file_path =  Path(self.download_path,Path(urlparse(fragment.uri).path).name)
+                #_file_path =  Path(self.download_path,Path(urlparse(fragment.uri).path).name)
+                _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i}")
                 byte_range = {}
+
+            _url = fragment.absolute_uri
+            if '&hash=' in _url and _url.endswith('&='): _url += '&=' 
 
 
 
             if not self.info_frag[i]['downloaded'] or (self.info_frag[i]['downloaded'] and not self.info_frag[i]['headersize']):
                 self.frags_to_dl.append(i+1)                        
-                self.info_frag[i]['url'] = fragment.absolute_uri
+                self.info_frag[i]['url'] = _url
                 self.info_frag[i]['file'] = _file_path
                 if not self.info_frag[i]['downloaded'] and self.info_frag[i]['file'].exists(): 
                     self.info_frag[i]['file'].unlink()
@@ -411,12 +426,12 @@ class AsyncHLSDownloader():
                 
                 if any([self.reset_event.is_set(), self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                     return
-                
-                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]\n{self.info_frag[q - 1]}")
-                
-                
+
                 if q == "KILL":
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: KILL")
                     break  
+
+                logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]\n{self.info_frag[q - 1]}")
 
                 if self.video_downloader.pause_event.is_set():
                     await asyncio.wait([self.video_downloader.resume_event.wait(), self.reset_event.wait(), self.video_downloader.stop_event.wait()], return_when=asyncio.FIRST_COMPLETED)
@@ -499,7 +514,7 @@ class AsyncHLSDownloader():
                                                     async with self.video_downloader.alock:
                                                         self.video_downloader.info_dl['down_size'] -= _size                                                            
                                         else:
-                                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}:] frag with mark downloaded but file doesnt exists")
+                                            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}] frag with mark downloaded but file [{filename}] doesnt exists")
                                             self.info_frag[q-1]['downloaded'] = False
                                             async with self._LOCK:
                                                 self.n_dl_fragments -= 1
@@ -773,8 +788,8 @@ class AsyncHLSDownloader():
                 except Exception as e:
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
                 finally:                    
-                    for t in tasks: t.cancel()
-                    await asyncio.wait(tasks)            
+                    #for t in tasks: t.cancel()
+                    #await asyncio.wait(tasks)            
                     await self.client.aclose()
                     await asyncio.sleep(0)
 
@@ -856,14 +871,16 @@ class AsyncHLSDownloader():
         res = []
         for frag in self.info_frag:
             if (frag['downloaded'] == False) and not frag.get('skipped', False):
-                res.append(frag['frag'])
+                #res.append(frag['frag'])
+                res.append(frag)
         return res
     
     def fragsdl(self):
         res = []
         for frag in self.info_frag:
             if (frag['downloaded'] == True) or frag.get('skipped', False):
-                res.append({'frag': frag['frag'], 'headersize': frag['headersize'], 'size': frag['size']})
+                #res.append({'frag': frag['frag'], 'headersize': frag['headersize'], 'size': frag['size']})
+                res.append(frag)
         return res
 
     def format_frags(self):
