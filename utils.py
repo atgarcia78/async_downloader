@@ -388,6 +388,7 @@ def init_argparser():
     parser.add_argument("--use-http-failover", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies",action="store_true", default=False)
+    parser.add_argument("--no-embed",action="store_true", default=False)
  
 
     args = parser.parse_args()
@@ -727,7 +728,7 @@ if _SUPPORT_YTDL:
             "verboseplus": args.vv,
             "sem": {},
             "stop": threading.Event(),
-            "embed": True
+            "embed": not args.no_embed
                     
         }
         
@@ -1065,8 +1066,8 @@ if _SUPPORT_PYSIMP:
             ])
             col_1 = sg.Column([
                                 [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(80, 35), font=("Courier New Bold", 12), write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)],
-                                [sg.Multiline(default_text = "Waiting for info", size=(80, 5), font=("Courier New Bold", 10), write_only=True, key='-ML3-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(90, 35), font=("Courier New Bold", 11), write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)],
+                                [sg.Multiline(default_text = "Waiting for info", size=(90, 5), font=("Courier New Bold", 10), write_only=True, key='-ML3-', autoscroll=True, auto_refresh=True)]
             ], element_justification='c', expand_x=True, expand_y=True)
             
             col_2 = sg.Column([

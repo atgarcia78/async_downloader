@@ -1562,7 +1562,7 @@ class AsyncDL():
                     if self.args.proxy != 0:
                         self.proc_gost, self.routing_table = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)
                         self.ytdl.params['routing_table'] = self.routing_table
-                        if not self.ytdl.params.get('proxy'): self.ytdl.params['proxy'] = f'http://127.0.0.1:{list(self.routing_table)[-1]}'
+                        #if not self.ytdl.params.get('proxy'): self.ytdl.params['proxy'] = f'http://127.0.0.1:{list(self.routing_table)[-1]}'
                         logger.debug(f"[async_ex] ytdl_params:\n{self.ytdl.params}")                
                         self.stop_proxy = run_proxy_http() #launch as thread daemon proxy helper in dl of aria2
 

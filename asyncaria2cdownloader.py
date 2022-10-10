@@ -113,7 +113,7 @@ class AsyncARIA2CDownloader(object):
             self._decor, self._nsplits = getter(_extractor) or (limiter_non.ratelimit("transp", delay=True), self.nworkers)
             if self._nsplits < 16 or _extractor in ['boyfriendtv']: 
                 _sem = True
-                if _extractor in ['tubeload', 'redload']:#['doodstream', 'vidoza', 'tubeload', 'redload']:
+                if _extractor in ['tubeload', 'redload', 'tubeload+cache']:#['doodstream', 'vidoza', 'tubeload', 'redload']:
                     self._mode = "group"
 
         else: 
