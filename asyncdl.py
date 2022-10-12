@@ -500,8 +500,7 @@ class AsyncDL():
                             if self.list_dl:
                                 for el in values['-IN-'].split(','):
                                     _index = int(el)
-                                    if 0 < _index <= len(self.list_dl):                               
-                                        
+                                    if 0 < _index <= len(self.list_dl):
                                         if event == '+PasRes': 
                                             self.list_pasres.add(_index)
                                             sg.cprint(f"[pause-resume autom] {self.list_pasres}")
@@ -1233,8 +1232,7 @@ class AsyncDL():
                                         async with self.alock:
                                             if dl.info_dl.get('auto_pasres'):
                                                 _index_in_dl = self.list_dl.index(dl)
-                                                self.list_pasres.add(_index_in_dl)
-                                                #self.list_pasres.add(dl.index)
+                                                self.list_pasres.add(_index_in_dl+1)
                                                 _msg = f', add this dl[{_index_in_dl}] to auto_pasres{list(self.list_pasres)}'
                                                 if self.window_console: sg.cprint(f"[pause-resume autom] {self.list_pasres}")
                                                                             
