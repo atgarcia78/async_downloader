@@ -18,6 +18,8 @@ from queue import Queue
 import contextlib
 from itertools import zip_longest
 from datetime import datetime, timedelta
+import socket
+
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
@@ -262,7 +264,8 @@ class MyLogger(logging.LoggerAdapter):
     _debug_phr = [  'Falling back on generic information extractor','Extracting URL:',
                     'The information of all playlist entries will be held in memory', 'Looking for video embeds',
                     'Identified a HTML5 media', 'Identified a KWS Player', ' unable to extract', 'Looking for embeds',
-                    'Looking for Brightcove embeds', 'Identified a html5 embed', 'mainjs from cache', 'mainjs to cache']
+                    'Looking for Brightcove embeds', 'Identified a html5 embed', 'mainjs from cache', 'mainjs to cache',
+                    'jscode from cache', 'jscode to cache']
     
     _skip_phr = ['Downloading', 'Extracting information', 'Checking', 'Logging']
     
