@@ -34,7 +34,6 @@ CONF_ARIA2C_TIMEOUT_INIT = 30
 CONF_INTERVAL_GUI = 0.2
 
 
-
 try:
     import proxy
     _SUPPORT_PROXY = True
@@ -1164,82 +1163,7 @@ if _SUPPORT_PYSIMP:
         except Exception as e:
             logger.exception(f'[init_gui] error {repr(e)}')
 
-
-    # def init_gui_result():
-        
-    #     try:
-            
-    #         logger = logging.getLogger("asyncDL")
-            
-    #         sg.theme("SystemDefaultForReal")
-            
-    #         col = sg.Column([
-    #                             [sg.Text("RESULTS", font='Any 14')], 
-    #                             [sg.Multiline(default_text = "Waiting for info", size=(160, 50), font='Any 10', write_only=True, key='-MLRES-', reroute_cprint=True, autoscroll=True, auto_refresh=True)]
-    #         ], element_justification='c', expand_x=True, expand_y=True)
-            
-    #         layout = [ [col] ]
-            
-    #         window = sg.Window('Console', layout, alpha_channel=0.99, location=(0, 500), finalize=True, resizable=True)
-    #         window.set_min_size(window.size)
-    #         window['-MLRES-'].expand(True, True, True)
-            
-    #         window.bring_to_front()
-            
-    #         return window
-        
-    #     except Exception as e:
-    #         logger.exception(f'[init_gui_result] error {repr(e)}')
-            
-
-    # def init_gui():
-        
-    #     try:
-            
-    #         logger = logging.getLogger("asyncDL")
-            
-    #         sg.theme("SystemDefaultForReal")
-            
-    #         col_0 = sg.Column([
-    #                             [sg.Text("WAITING TO DL", font='Any 14')], 
-    #                             [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
-    #         ], element_justification='l', expand_x=True, expand_y=True)
-            
-    #         col_1 = sg.Column([
-    #                             [sg.Text("NOW DOWNLOADING/CREATING FILE", font='Any 14')], 
-    #                             [sg.Multiline(default_text = "Waiting for info", size=(80, 25), font='Any 10', write_only=True, key='-ML1-', autoscroll=True, auto_refresh=True)]
-    #         ], element_justification='c', expand_x=True, expand_y=True)
-            
-    #         col_2 = sg.Column([
-    #                             [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
-    #                             [sg.Multiline(default_text = "Waiting for info", size=(50, 25), font='Any 10', write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
-    #         ], element_justification='r', expand_x=True, expand_y=True)
-            
-            
-    #         col_pygui = sg.Column([
-    #                                 [sg.Text('Select DL', font='Any 14')],
-    #                                 [sg.Input(key='-IN-', font='Any 10', focus=True)],
-    #                                 [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, auto_refresh=True, autoscroll=True)],
-    #                                 [sg.Checkbox('PasRes', key='-PASRES-', default=True, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('+PasRes'), sg.Button('-PasRes'), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('+runwk', key='IncWorkerRun'), sg.Button('#vidwk', key='NumVideoWorkers'), sg.Button('TimePasRes'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
-    #         ], element_justification='c', expand_x=True, expand_y=True)
-            
-    #         layout_single = [   [col_0, col_1, col_2], 
-    #                             [col_pygui] ]
-
-
-    #         window_single = sg.Window('async_downloader', layout_single,  alpha_channel=0.99, location=(0, 0), finalize=True, resizable=True)
-    #         window_single.set_min_size(window_single.size)
-            
-    #         window_single['-ML0-'].expand(True, True, True)
-    #         window_single['-ML1-'].expand(True, True, True)
-    #         window_single['-ML2-'].expand(True, True, True)
-    #         window_single['-ML-'].expand(True, True, True)
-            
-    #         return window_single
-        
-    #     except Exception as e:
-    #         logger.exception(f'[init_gui] error {repr(e)}')
-    
+ 
 def patch_http_connection_pool(**constructor_kwargs):
     """
     This allows to override the default parameters of the 

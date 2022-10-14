@@ -6,7 +6,10 @@ import random
 import sys
 import time
 import traceback
-from concurrent.futures import CancelledError, ThreadPoolExecutor
+from concurrent.futures import (
+    CancelledError,
+    ThreadPoolExecutor)
+
 from pathlib import Path
 from statistics import median
 from urllib.parse import urlparse
@@ -58,7 +61,6 @@ class AsyncHLSDownloader():
     _MIN_TIME_RESETS = 15
        
     def __init__(self, video_dict, vid_dl):
-
 
         try:
         
