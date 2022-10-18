@@ -1,63 +1,78 @@
 {
-  "version": 1,
-  "disable_existing_loggers": false, 
-  "objects": {
-    
-  },
-  "formatters": {
-    "simple": {
-        "format": "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"     
+    "version": 1,
+    "disable_existing_loggers": false,
+    "objects": {},
+    "formatters": {
+        "simple": {
+            "format": "%(asctime)s - %(threadName)s - %(name)s - %(levelname)s - %(message)s"
+        },
+        "colored": {
+            "()": "supportlogging.ColoredFormatter",
+            "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s",
+            "datefmt": "%H:%M:%S"
+        },
+        "file_format": {
+            "()": "supportlogging.FileFormatter",
+            "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s"
+        }
     },
-    "colored":{
-        "()": "supportlogging.ColoredFormatter",
-        "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s",
-        "datefmt": "%H:%M:%S"
+    "filters": {
+        "filtermodules": {
+            "()": "supportlogging.FilterModule",
+            "patterns": [
+                "urllib3.connectionpool",
+                "httpx._client",
+                "PIL.TiffImagePlugin",
+                "img2pdf",
+                "hpack",
+                "remote_connection",
+                "passlib",
+                "backoff",
+                "googleapiclient.discovery_cache",
+                "charset_normalizer",
+                "blib2to3.pgen2.driver",
+                "pyrate_limiter.limit_context_decorator",
+                "oauth2client.client",
+                "parso.python.diff"
+            ]
+        }
     },
-    "file_format":{
-        "()": "supportlogging.FileFormatter",
-        "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s"
-    }
-  },
-  "filters": {
-    "filtermodules": {
-        "()": "supportlogging.FilterModule",
-        "patterns": ["urllib3.connectionpool","httpx._client", "PIL.TiffImagePlugin","img2pdf", "hpack", "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache", "charset_normalizer", "blib2to3.pgen2.driver", "pyrate_limiter.limit_context_decorator", "oauth2client.client", "parso.python.diff"]
-    }     
-  },
-  "handlers": {
-    
-    "console": {
-        "class": "logging.StreamHandler",
-        "level": "INFO",
-        "formatter": "colored",
-        "filters": ["filtermodules"],      
-        "stream": "ext://sys.stdout"
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+            "level": "INFO",
+            "formatter": "colored",
+            "filters": [
+                "filtermodules"
+            ],
+            "stream": "ext://sys.stdout"
+        },
+        "info_file_handler": {
+            "class": "logging.handlers.RotatingFileHandler",
+            "level": "DEBUG",
+            "formatter": "file_format",
+            "filename": "{path_logs}/asyncdl.log",
+            "filters": [
+                "filtermodules"
+            ],
+            "maxBytes": 6310720,
+            "backupCount": 24,
+            "encoding": "utf8"
+        },
+        "queue_listener": {
+            "class": "supportlogging.QueueListenerHandler",
+            "handlers": [
+                "cfg://handlers.console",
+                "cfg://handlers.info_file_handler"
+            ],
+            "respect_handler_level": "True"
+        }
     },
-
-    "info_file_handler": {
-        "class": "logging.handlers.RotatingFileHandler",
+    "loggers": {},
+    "root": {
         "level": "DEBUG",
-        "formatter": "file_format",
-        "filename": "{path_logs}/asyncdl.log",
-        "filters": ["filtermodules"],
-        "maxBytes": 6310720,
-        "backupCount": 24,
-        "encoding": "utf8"
-    },
-
-    "queue_listener": {
-        "class" : "supportlogging.QueueListenerHandler",
-        "handlers": ["cfg://handlers.console", "cfg://handlers.info_file_handler"],
-        "respect_handler_level" : "True"
+        "handlers": [
+            "queue_listener"
+        ]
     }
-  },
-
-  "loggers": {
-    
-  },
-
-  "root": {
-    "level": "DEBUG",
-    "handlers": ["queue_listener"]
-  }
 }
