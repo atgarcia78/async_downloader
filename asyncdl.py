@@ -1600,13 +1600,15 @@ class AsyncDL():
                 raise
         finally:
             self.stop_upt_window.set()
+            await asyncio.sleep(2)
             self.stop_pasres.set()
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             self.stop_console.set()
-            await asyncio.sleep(1)
+            await asyncio.sleep(2)
             self.stop_root.set() 
-            await asyncio.sleep(1)          
+            await asyncio.sleep(2)          
             done, _ = await asyncio.wait(tasks_gui)
+            logger.info(f"[async_ex] bye")
             if any(isinstance(_e, KeyboardInterrupt) for _e in [d.exception() for d in done]):
                 raise KeyboardInterrupt
             

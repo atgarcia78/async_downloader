@@ -232,6 +232,7 @@ class VideoDownloader():
         self.info_dl['status'] = "stop"
         try_get(self.info_dl['ytdl'].params.get('stop'), lambda x: x.set())
         if self.stop_event:
+            self.resume()
             self.stop_event.set()
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
 

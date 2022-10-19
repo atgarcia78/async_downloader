@@ -35,31 +35,14 @@ def main():
                 asyncDL.main_task = asyncDL.loop.create_task(asyncDL.async_ex())                  
                 asyncDL.loop.run_until_complete(asyncDL.main_task)
             except BaseException as e:
-                logger.info(repr(e))
-            
-                try:
-                    asyncDL.stop_upt_window.set()
-                    asyncDL.stop_pasres.set()
-                    asyncDL.STOP.set()
-                    asyncDL.stop_console.set()
-                    asyncDL.pasres_repeat = False        
-                    pending_tasks = asyncio.all_tasks(loop=asyncDL.loop)
-                    if pending_tasks:
-                        pending_tasks.remove(asyncDL.main_task)
-                        pending_tasks.remove(asyncDL.console_task)
-                        pending_tasks.remove(asyncDL.task_gui_root)
-                        logger.debug(f"pending tasks: {pending_tasks}")
-                        for task in pending_tasks:
-                            task.cancel()
-                    
-                        asyncDL.loop.run_until_complete(asyncio.gather(*asyncio.all_tasks(loop=asyncDL.loop), return_exceptions=True))
-                        logger.debug(f"[async_ex] tasks after cancellation: {asyncio.all_tasks(loop=asyncDL.loop)}")
-                    else: logger.debug(f"pending tasks: []")
-                finally:
-                    asyncio.set_event_loop(None)
-                    
+                logger.info(repr(e))            
+
                 if isinstance(e, KeyboardInterrupt):
                     raise
+            finally:
+                asyncio.set_event_loop(None)
+                    
+                
         
         except BaseException as e:
             asyncDL.clean()
@@ -70,6 +53,7 @@ def main():
         finally:
             asyncDL.get_results_info()
             asyncDL.close()
+            return
             
     
     except BaseException as e:

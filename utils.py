@@ -23,6 +23,7 @@ import socket
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
+CONF_HLS_SPEED_PER_WORKER = 102400
 CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 6
 CONF_PROXIES_BASE_PORT = 12000
@@ -32,6 +33,7 @@ CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 40
 CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 10
 CONF_ARIA2C_TIMEOUT_INIT = 30
 CONF_INTERVAL_GUI = 0.2
+
 
 
 try:
@@ -321,7 +323,7 @@ def init_argparser():
     parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:mp4a", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
-    parser.add_argument("--nocheckcert", help="nocheckcertificate", action="store_true", default=False)
+    parser.add_argument("--checkcert", help="checkcertificate", action="store_true", default=False)
     parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
     parser.add_argument("--proxy", default=None, type=str)
     parser.add_argument("--useragent", default=UA_LIST[0], type=str)
@@ -372,7 +374,12 @@ def init_argparser():
         
     if args.dlcaching:
         args.nodlcaching = False
-        
+    else:
+        args.nodlcaching = True
+
+    if args.checkcert:
+        args.nocheckcert = False
+    else: args.nocheckcert = True
             
     return args
 
