@@ -5,6 +5,7 @@ import contextvars
 import functools
 import json
 import logging
+import logging.config
 import random
 import re
 import shutil
@@ -580,19 +581,38 @@ def init_proxies(num, size, port=7070):
         
 if _SUPPORT_YTDL:
 
-    class AsyncYTDL(YoutubeDL):
+    class ProxyYTDL(YoutubeDL):
         
-        def __init__(self, opts=None, proxy=None):
-            if not opts: opts = {}
-            opts['quiet'] = True
-            opts['verbose'] = False
-            opts['verboseplus'] = False
+        def __init__(self, **kwargs):
+            opts=kwargs.get('opts', {})
+            proxy=kwargs.get('proxy', None)
+            quiet=kwargs.get('quiet', True)
+            verbose=kwargs.get('verbose', False)            
+            verboseplus=kwargs.get('verboseplus', False)
+            self.close=kwargs.get('close', True)
+            opts['quiet'] = quiet
+            opts['verbose'] = verbose
+            opts['verboseplus'] = verboseplus
             opts['logger'] = MyLogger(logging.getLogger("async-ytdl"),
                                              quiet=opts['quiet'], verbose=opts['verbose'], superverbose=opts['verboseplus'])
             opts['proxy'] = proxy
             
             super().__init__(params=opts)
         
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args, **kwargs):
+            if self.close:
+                ies = self._ies_instances            
+                if not ies: return                    
+                for ie, ins in ies.items():                
+                    if (close:=getattr(ins, 'close', None)):
+                        try:
+                            close()                                        
+                        except Exception as e:
+                            pass
+
         async def __aenter__(self):
             return self
         

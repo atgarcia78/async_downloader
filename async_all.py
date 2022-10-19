@@ -1,10 +1,8 @@
 #!/usr/bin/env python
 import asyncio
-import logging
 import os
-
 import uvloop
-
+import logging
 from asyncdl import AsyncDL
 from utils import (init_argparser, init_logging, patch_http_connection_pool,
                    patch_https_connection_pool)

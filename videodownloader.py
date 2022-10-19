@@ -195,7 +195,7 @@ class VideoDownloader():
                         if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
                                         
                 elif protocol in ('m3u8', 'm3u8_native'):
-                    dl = AsyncHLSDownloader(info, self)
+                    dl = AsyncHLSDownloader(self.args.proxy, info, self)
                     logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
                                 
                 elif protocol in ('http_dash_segments', 'dash'):

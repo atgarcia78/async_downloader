@@ -18,7 +18,7 @@ from utils import (
     CONFIG_EXTRACTORS, 
     traverse_obj, 
     limiter_non, 
-    AsyncYTDL, 
+    ProxyYTDL, 
     get_format_id,
     get_domain,
     CONF_PROXIES_MAX_N_GR_HOST,
@@ -212,7 +212,7 @@ class AsyncARIA2CDownloader(object):
                     try:
                         _ytdl_opts = self.ytdl.params.copy()
                         
-                        async with AsyncYTDL(opts=_ytdl_opts, proxy=self._proxy) as proxy_ytdl:
+                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy) as proxy_ytdl:
                             proxy_info = get_format_id(
                                 proxy_ytdl.sanitize_info(
                                     await proxy_ytdl.async_extract_info(
@@ -257,7 +257,7 @@ class AsyncARIA2CDownloader(object):
                             if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                                 return
                             
-                            async with AsyncYTDL(opts=_ytdl_opts, proxy=_proxy) as proxy_ytdl:
+                            async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy) as proxy_ytdl:
                                 proxy_info = get_format_id(
                                     proxy_ytdl.sanitize_info(
                                         await proxy_ytdl.async_extract_info(
