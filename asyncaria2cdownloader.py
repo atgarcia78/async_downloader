@@ -47,7 +47,7 @@ class AsyncARIA2CDLError(Exception):
         super().__init__(msg)
         self.exc_info = exc_info
 
-class AsyncARIA2CDownloader(object):    
+class AsyncARIA2CDownloader:    
     _CONFIG = CONFIG_EXTRACTORS.copy()  
     _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
     

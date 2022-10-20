@@ -11,7 +11,6 @@ from concurrent.futures import (
     ThreadPoolExecutor)
 
 from pathlib import Path
-#from statistics import median
 from urllib.parse import urlparse
 
 import aiofiles
@@ -648,16 +647,6 @@ class AsyncHLSDownloader():
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                         self.info_frag[q - 1]['nchunks_dl'] += 1
                                         self.info_frag[q - 1]['sizechunks'].append(_iter_bytes)
-                                        # _median = median(self.info_frag[q-1]['time2dlchunks'])
-                                        # self.info_frag[q - 1]['statistics'].append(_median)
-                                        # # if self.info_frag[q -1]['nchunks_dl'] > 5:
-                            
-                                        #     _time = self.info_frag[q -1]['time2dlchunks'][-5:]
-                                        #     _max = [10*_el for _el in self.info_frag[q -1]['statistics'][-5:]]
-                                        #     if set([_el1>_el2 for _el1,_el2 in zip(_time, _max)]) == {True}:
-                                            
-                                        #         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] timechunk [{_time}] > [{_max}]=2*mean time accumulated for 5 consecutives chunks, nchunks[{self.info_frag[q -1]['nchunks_dl']}]")
-                                        #         raise AsyncHLSDLError(f"timechunk [{_time}] > [{_max}]=2*mean time accumulated for 5 consecutives chunks, nchunks[{self.info_frag[q -1]['nchunks_dl']}]")
                                                                                
                                         await asyncio.sleep(0)
                                         _started = time.monotonic()

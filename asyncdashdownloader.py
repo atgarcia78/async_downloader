@@ -53,7 +53,7 @@ class AsyncDASHDLReset(Exception):
 
         self.exc_info = sys.exc_info()  # preserve original exception
 
-class AsyncDASHDownloader():
+class AsyncDASHDownloader:
 
     _CHUNK_SIZE = 102400
     _MAX_RETRIES = 5

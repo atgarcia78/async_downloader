@@ -27,7 +27,8 @@ FORCE_TO_HTTP = [''] #['doodstream']
 
 
 logger = logging.getLogger("video_DL")
-class VideoDownloader():
+
+class VideoDownloader:
     
     def __init__(self, window_root, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
         

@@ -18,7 +18,7 @@ from queue import Queue
 import contextlib
 from itertools import zip_longest
 from datetime import datetime, timedelta
-import socket
+import threading
 
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
@@ -88,7 +88,7 @@ try:
 except Exception:
     _SUPPORT_YTDL = False
 
-import threading
+
 
 try:    
     from filelock import FileLock
@@ -112,19 +112,11 @@ async def async_ex_in_executor(executor, func, /, *args, **kwargs):
     func_call = functools.partial(ctx.run, func, *args, **_kwargs)        
     return await loop.run_in_executor(executor, func_call)
     
-async def async_ex_in_thread(prefix, func, /, *args, **kwargs):        
-    loop = asyncio.get_running_loop()
-    ctx = contextvars.copy_context()
-    func_call = functools.partial(ctx.run, func, *args, **kwargs)
-    ex = ThreadPoolExecutor(thread_name_prefix=prefix)    
-    #return await asyncio.to_thread(func_call)
-    return await loop.run_in_executor(ex, func_call)
 
 from multiprocess import (
     Process as MPProcess,
     Queue as MPQueue
 )
-
 
 def long_operation_in_process(func):            
     @functools.wraps(func)
@@ -225,7 +217,7 @@ class SignalHandler:
         print("Exiting gracefully")
         self.KEEP_PROCESSING = False
  
-class EMA(object):
+class EMA:
     """
     Exponential moving average: smoothing to give progressively lower
     weights to older values.
@@ -490,12 +482,7 @@ def get_ips(name):
 
 def init_proxies(num, size, port=7070):
     
-
-    
     logger = logging.getLogger("asyncDL")  
-    #SP
-    #IPS_SSL = ['89.238.178.206', '192.145.124.242', '89.238.178.234', '192.145.124.234', '192.145.124.230', 
-    #           '192.145.124.174', '192.145.124.190', '192.145.124.186', '192.145.124.238', '192.145.124.226']
     
     subprocess.run(["flush-dns"])
     

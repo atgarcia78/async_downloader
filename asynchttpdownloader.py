@@ -39,7 +39,7 @@ class AsyncHTTPDLError(Exception):
         self.exc_info = exc_info 
 
 
-class AsyncHTTPDownloader():
+class AsyncHTTPDownloader:
     
     _MIN_SIZE = 10485760 #10MB
     _CHUNK_SIZE = 102400 #100KB
