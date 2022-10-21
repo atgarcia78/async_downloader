@@ -110,7 +110,7 @@ class AsyncHLSDownloader():
             self.down_temp = 0
             self.status = "init"
             self.error_message = ""
-            
+            self._qspeed = None
             
             self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
 
@@ -476,12 +476,12 @@ class AsyncHLSDownloader():
         
         try:
             while True:
-                done, pending = await asyncio.wait([asyncio.create_task(self.video_downloader.reset_event.wait()), asyncio.create_task(self.video_downloader.stop_event.wait()), asyncio.create_task(async_ex_in_executor(self.ex_hlsdl, self._qspeed.get))], return_when=asyncio.FIRST_COMPLETED)
+                done, pending = await asyncio.wait([asyncio.create_task(self.video_downloader.reset_event.wait()), asyncio.create_task(self.video_downloader.stop_event.wait()), asyncio.create_task(self._qspeed.get())], return_when=asyncio.FIRST_COMPLETED)
                 for _el in pending: _el.cancel()
                 await asyncio.wait(pending)
                 if any([self.video_downloader.reset_event.is_set(), self.video_downloader.stop_event.is_set()]):
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] event detected")
-                    self._speed = []
+                    
                     break
                 _speed = try_get(list(done), lambda x: x[0].result())
                 if _speed == "KILL":
@@ -492,11 +492,13 @@ class AsyncHLSDownloader():
                     if any([all([el == 0 for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]]), (self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:] == sorted(self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in self._speed[-self._CONF_HLS_MIN_N_TO_CHECK_SPEED:]])]):
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[-self._CONF_HLS_MIN_N_TO_CHECK_SPEED:]}")
                         self.video_downloader.reset_event.set()
-                        self._speed = []
+                        
                         break
                     
                     else: self._speed = self._speed[1:]
+                
                 await asyncio.sleep(0)
+            
             await asyncio.sleep(0)
         
         except Exception as e:
@@ -560,7 +562,7 @@ class AsyncHLSDownloader():
 
                         async with aiofiles.open(filename, mode='ab') as f:                            
 
-                            async with self.client.stream("GET", url, headers=headers, timeout=30) as res:
+                            async with self.client.stream("GET", url, headers=headers, timeout=5) as res:
                                                  
                             
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: {res.status_code} {res.reason_phrase}")
@@ -797,7 +799,7 @@ class AsyncHLSDownloader():
                     self.status = "downloading"                    
                     self.video_downloader.reset_event.clear()
                     self._speed = []
-                    self._qspeed = Queue()
+                    self._qspeed = asyncio.Queue()
 
                     check_task = [asyncio.create_task(self.check_speed())]
                     tasks = [asyncio.create_task(self.fetch(i), name=f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{i}]") for i in range(self.n_workers)]
@@ -807,7 +809,8 @@ class AsyncHLSDownloader():
 
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch_async]: done[{len(list(done))}] pending[{len(list(pending))}]")
 
-                    inc_frags_dl = (_nfragsdl:=len(await async_ex_in_executor(self.ex_hlsdl, self.fragsdl))) - n_frags_dl
+                    _nfragsdl = len(self.fragsdl())
+                    inc_frags_dl = _nfragsdl - n_frags_dl
                     n_frags_dl = _nfragsdl
                     
                     if n_frags_dl == len(self.info_dict['fragments']):
@@ -912,6 +915,7 @@ class AsyncHLSDownloader():
             self.init_client.close()            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
             self.status = "init_manipulating"
+            self.ex_hlsdl.shutdown(wait=False, cancel_futures=True)
 
     async def clean_when_error(self):
         
@@ -1019,7 +1023,7 @@ class AsyncHLSDownloader():
             _speed_ema = (_diff_size_ema:=self.ema_s(_down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started))
             
             if not any([self.video_downloader.reset_event and self.video_downloader.reset_event.is_set(), self.video_downloader.stop_event and self.video_downloader.stop_event.is_set(), self.video_downloader.pause_event and self.video_downloader.pause_event.is_set()]):
-                self._qspeed.put_nowait(_speed)
+                if self._qspeed: self._qspeed.put_nowait(_speed)
 
             if self.video_downloader.pause_event and self.video_downloader.pause_event.is_set():
                 _speed_str = "--" 

@@ -97,14 +97,6 @@ except Exception:
     _SUPPORT_FILELOCK = False
 
 
-def perform_long_operation(_func, *args, **kwargs):
-
-    stop_event = kwargs.get('event', threading.Event())
-    _kwargs = {k:v for k,v in kwargs.items() if k != 'event'}
-    thread = threading.Thread(target=_func, args=(stop_event, *args), kwargs=_kwargs, daemon=True)
-    thread.start()
-    return(thread, stop_event)
-
 async def async_ex_in_executor(executor, func, /, *args, **kwargs):
     loop = kwargs.get('loop', asyncio.get_running_loop())
     ctx = contextvars.copy_context()
@@ -385,7 +377,7 @@ if _SUPPORT_PROXY:
         with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
             try:
                 logger = logging.getLogger("proxy")
-                logger.info(p.flags)
+                logger.debug(p.flags)
                 while not stop_event.is_set():
                     time.sleep(CONF_INTERVAL_GUI)
             except BaseException:
@@ -708,9 +700,9 @@ if _SUPPORT_YTDL:
         if args.ytdlopts: 
             ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
             
-        ytdl = YoutubeDL(ytdl_opts)
+        ytdl = YoutubeDL(ytdl_opts, auto_init="no_verbose_header")
         
-        logger.info(f"ytdl opts:\n{ytdl.params}")   
+        logger.debug(f"ytdl opts:\n{ytdl.params}")   
         
         return ytdl
 
@@ -861,8 +853,11 @@ if _SUPPORT_FILELOCK:
             self._data_from_file = _temp
             
 def print_tasks(tasks):
-   #return [f"{task.get_name()} : {str(task.get_coro()).split(' ')[0]}\n" for task in tasks]
-   return "\n".join([f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks])
+    #return [f"{task.get_name()} : {str(task.get_coro()).split(' ')[0]}\n" for task in tasks]
+    return "\n".join([f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks])
+
+def print_threads(threads):
+    return "\n".join([f"{thread.getName()} : {repr(thread._target)}" for thread in threads])
 
 def none_to_zero(item):
     return(0 if not item else item)
@@ -908,7 +903,10 @@ def kill_processes(logger=None, rpcport=None):
         
     if mobj2:
         for el in mobj2:
-            shutil.rmtree(el, ignore_errors=True)
+            try:
+                shutil.rmtree(el, ignore_errors=True)
+            except Exception as e:
+                _log(f"[kill_processes] error: {repr(e)}")
             
 def foldersize(folder):
     #devuelve en bytes size folder

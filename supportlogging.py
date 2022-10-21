@@ -55,8 +55,8 @@ class ColoredFormatter(logging.Formatter):
         colored_levelname = ('{0}{1}m{2}{3}') \
             .format(PREFIX, seq, levelname, SUFFIX)
         colored_record.levelname = colored_levelname
-        if 'proxy.' in colored_record.name:
-            colored_record.name = colored_record.name.split('.')[0]
+        #if 'proxy.' in colored_record.name:
+        #    colored_record.name = colored_record.name.split('.')[0]
         if colored_record.msg.startswith("%no%"): 
             colored_record.msg = colored_record.msg[4:]
         else:
@@ -79,6 +79,21 @@ class FilterModule(logging.Filter):
     def filter(self, record):
         for pattern in self._patterns:
             if pattern in record.name: return False
+        else: return True
+
+class FilterMsg(logging.Filter):
+    
+    def __init__(self, patterns):
+        super().__init__()
+        self._patterns = patterns
+        
+
+    def filter(self, record):
+        for pattern in self._patterns:
+            if pattern['name'] in record.name:
+                for text in pattern['text']:
+                    if text in record.msg:
+                        return False
         else: return True
         
         

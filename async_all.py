@@ -5,8 +5,9 @@ import uvloop
 import logging
 from asyncdl import AsyncDL
 from utils import (init_argparser, init_logging, patch_http_connection_pool,
-                   patch_https_connection_pool)
+                   patch_https_connection_pool, print_threads)
 
+import threading
 init_logging()
 logger = logging.getLogger("async_all")
 
@@ -34,44 +35,41 @@ def main():
                 asyncio.set_event_loop(asyncDL.loop)
                 asyncDL.main_task = asyncDL.loop.create_task(asyncDL.async_ex())                  
                 asyncDL.loop.run_until_complete(asyncDL.main_task)
+                asyncDL.get_results_info()
             except BaseException as e:
-                logger.info(repr(e))            
+                logger.error(f"[main] {repr(e)}")
+                #asyncDL.STOP.set()
+                #if isinstance(e, KeyboardInterrupt):
+                #    raise
 
-                if isinstance(e, KeyboardInterrupt):
-                    raise
-            finally:
-                asyncio.set_event_loop(None)
                     
                 
         
         except BaseException as e:
             asyncDL.clean()
-            logger.info(f"{repr(e)}")            
-            
-            if isinstance(e, KeyboardInterrupt):
-                raise
+            logger.error(f"[main] {repr(e)}")
+            #if isinstance(e, KeyboardInterrupt):
+            #    raise
         finally:
-            asyncDL.get_results_info()
+            #asyncDL.loop.run_until_complete(asyncDL.print_pending_tasks())            
             asyncDL.close()
-            return
             
     
     except BaseException as e:
-        if not isinstance(e, SystemExit):
-            logger.exception(f"[asyncdl bye] {repr(e)}")
-            if isinstance(e, KeyboardInterrupt):
-                raise
+        logger.error(f"[main] {repr(e)}")
+        #if isinstance(e, KeyboardInterrupt):
+        #    raise
 
     
 
 if __name__ == "__main__":    
     try:
-        main()
+        main()        
+        #logger.debug(f"[main] pending threads:\n{print_threads(threading.enumerate())}")
     except BaseException as e:
-        if not isinstance(e, SystemExit):
-            logger.exception(f"[main] {repr(e)}")
-            if isinstance(e, KeyboardInterrupt):
-                raise
+        logger.error(f"[main] {repr(e)}")
+        #if isinstance(e, KeyboardInterrupt):
+        #    raise
         
     
    

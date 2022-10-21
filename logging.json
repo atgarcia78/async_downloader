@@ -35,6 +35,16 @@
                 "oauth2client.client",
                 "parso.python.diff"
             ]
+        },
+        "filtermsg": {
+            "()": "supportlogging.FilterMsg",
+            "patterns": [
+                {"name": "proxy.common.plugins", "text": ["Loaded plugin"]},
+                {"name": "proxy.core.listener.tcp", "text": ["Listening on"]},
+                {"name": "proxy.core.acceptor.pool", "text": ["Started", "Shutting down"]}                
+
+            ]
+
         }
     },
     "handlers": {
@@ -43,7 +53,8 @@
             "level": "INFO",
             "formatter": "colored",
             "filters": [
-                "filtermodules"
+                "filtermodules",
+                "filtermsg"
             ],
             "stream": "ext://sys.stdout"
         },
