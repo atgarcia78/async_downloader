@@ -300,7 +300,7 @@ def rclone_init_args():
     
 def init_argparser():
     
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:105.0) Gecko/20100101 Firefox/105.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:106.0) Gecko/20100101 Firefox/106.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
