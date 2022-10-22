@@ -38,18 +38,13 @@ def main():
                 asyncDL.get_results_info()
             except BaseException as e:
                 logger.error(f"[main] {repr(e)}")
-                #asyncDL.STOP.set()
-                #if isinstance(e, KeyboardInterrupt):
-                #    raise
-
                     
                 
         
         except BaseException as e:
             asyncDL.clean()
             logger.error(f"[main] {repr(e)}")
-            #if isinstance(e, KeyboardInterrupt):
-            #    raise
+
         finally:
             #asyncDL.loop.run_until_complete(asyncDL.print_pending_tasks())            
             asyncDL.close()
@@ -57,8 +52,7 @@ def main():
     
     except BaseException as e:
         logger.error(f"[main] {repr(e)}")
-        #if isinstance(e, KeyboardInterrupt):
-        #    raise
+
 
     
 
@@ -68,8 +62,7 @@ if __name__ == "__main__":
         #logger.debug(f"[main] pending threads:\n{print_threads(threading.enumerate())}")
     except BaseException as e:
         logger.error(f"[main] {repr(e)}")
-        #if isinstance(e, KeyboardInterrupt):
-        #    raise
+
         
     
    

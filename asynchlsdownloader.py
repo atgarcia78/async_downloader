@@ -75,12 +75,10 @@ class AsyncHLSDownloader():
             self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
             self.video_url = self.info_dict.get('url') #url del format
             self.webpage_url = self.info_dict.get('webpage_url') #url oioginal de la web
-            #self.manifest_url = self.info_dict.get('manifest_url') #url del manifiesto de donde salen todos los formatos
 
             self.id = self.info_dict['id']
             
             self.ytdl = vid_dl.info_dl['ytdl']
-
             
             self.verifycert = not self.ytdl.params.get('nocheckcertificate')
 
@@ -231,7 +229,6 @@ class AsyncHLSDownloader():
                     uri_ant = fragment.uri
                     
                     _file_path =  Path(f"{str(self.fragments_base_path)}.Frag{i}.part.{part}")
-                    #_file_path = str(self.filename)
                     splitted_byte_range = fragment.byterange.split('@')
                     sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
                     byte_range = {
@@ -382,10 +379,6 @@ class AsyncHLSDownloader():
 
                 try: 
                     info_format = get_format_id(info_reset, self.info_dict['format_id'])
-                    # if info_reset.get('requested_formats'):
-                    #     info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
-                    #     self.prep_reset(info_format[0])
-                    # else: self.prep_reset(info_reset)
                     if not info_format: raise AsyncHLSDLError("couldnt get format_id")
                     self.prep_reset(info_format)
                     self.n_reset += 1
@@ -406,7 +399,6 @@ class AsyncHLSDownloader():
         self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
         self.video_url = self.info_dict['url'] = info_reset.get('url')
         self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
-        #self.manifest_url = self.info_dict['manifest_url'] = info_reset.get('manifest_url')
         
         self.frags_to_dl = []
 
@@ -427,7 +419,6 @@ class AsyncHLSDownloader():
                     
                 uri_ant = fragment.uri
                 
-                #_file_path =  Path(self.download_path, f"{Path(urlparse(fragment.uri).path).name}_part_{part}")
                 _file_path =  Path(f"{str(self.fragments_base_path)}.Frag{i}.part.{part}")
                 splitted_byte_range = fragment.byterange.split('@')
                 sub_range_start = int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range['end']
@@ -437,14 +428,11 @@ class AsyncHLSDownloader():
                 }
 
             else:
-                #_file_path =  Path(self.download_path,Path(urlparse(fragment.uri).path).name)
                 _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i}")
                 byte_range = {}
 
             _url = fragment.absolute_uri
             if '&hash=' in _url and _url.endswith('&='): _url += '&=' 
-
-
 
             if not self.info_frag[i]['downloaded'] or (self.info_frag[i]['downloaded'] and not self.info_frag[i]['headersize']):
                 self.frags_to_dl.append(i+1)                        
@@ -588,9 +576,8 @@ class AsyncHLSDownloader():
                                     
                                     if self.info_frag[q-1]['downloaded']:                                    
                                         
-                                        #if (await asyncio.to_thread(filename.exists)):
                                         if filename_exists:
-                                            _size = self.info_frag[q-1]['size'] = (await os.stat(filename)).st_size #(await asyncio.to_thread(filename.stat)).st_size 
+                                            _size = self.info_frag[q-1]['size'] = (await os.stat(filename)).st_size 
                                             if _size and  (_hsize - 100 <= _size <= _hsize + 100):                            
                                     
                                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 100 <=_size <= _hsize + 100}]")                                    
@@ -675,7 +662,6 @@ class AsyncHLSDownloader():
                         self.info_frag[q - 1]['downloaded'] = False
                         if await os.path.exists(filename):
                             _size = (await os.stat(filename)).st_size                           
-                            #await asyncio.to_thread(filename.unlink)
                             await os.remove(filename)
                         
                             async with self._LOCK:
@@ -694,7 +680,6 @@ class AsyncHLSDownloader():
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: CancelledError: \n{'!!'.join(lines)}")
                         if await os.path.exists(filename):
                             _size = (await os.stat(filename)).st_size                           
-                            #await asyncio.to_thread(filename.unlink)
                             await os.remove(filename)
                             
                             async with self._LOCK:
@@ -710,7 +695,6 @@ class AsyncHLSDownloader():
                         
                         if await os.path.exists(filename):
                             _size = (await os.stat(filename)).st_size                           
-                            #await asyncio.to_thread(filename.unlink)
                             await os.remove(filename)
                             
                             async with self._LOCK:
@@ -733,7 +717,6 @@ class AsyncHLSDownloader():
                         self.info_frag[q - 1]['n_retries'] += 1
                         if await os.path.exists(filename):
                             _size = (await os.stat(filename)).st_size                           
-                            #await asyncio.to_thread(filename.unlink)
                             await os.remove(filename)
                         
                             async with self._LOCK:
@@ -895,9 +878,7 @@ class AsyncHLSDownloader():
                             
                 except Exception as e:
                     logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch_async] error {repr(e)}")
-                finally:                    
-                    #for t in tasks: t.cancel()
-                    #await asyncio.wait(tasks)            
+                finally:                   
                     await self.client.aclose()                    
                     await asyncio.sleep(0)
 

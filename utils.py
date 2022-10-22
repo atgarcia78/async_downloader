@@ -282,6 +282,9 @@ def init_logging(file_path=None):
         if log_name.startswith('proxy'):
             logger = logging.getLogger(log_name)
             logger.setLevel(logging.INFO)
+    
+    logger = logging.getLogger('proxy.http.proxy.server')
+    logger.setLevel(logging.WARNING)
             
 def rclone_init_args():
     

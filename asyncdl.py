@@ -1491,12 +1491,11 @@ class AsyncDL():
                 done, pending = await asyncio.wait([asyncio.create_task(self.STOP.wait()), asyncio.create_task(self.queue_manip.get())], return_when=asyncio.FIRST_COMPLETED)
                 try_get(list(pending), lambda x: x[0].cancel())
                 if self.STOP.is_set(): break
-                #url_key, video_dl = await self.queue_run.get()                
                 
                 url_key, video_dl = try_get(list(done), lambda x: x[0].result())
-                #url_key, video_dl = await self.queue_manip.get()                              
                 #logger.debug(f"[worker_manip][{i}]: get for a video_DL")
-                #await asyncio.sleep(0)
+                
+                await asyncio.sleep(0)
                 
                 if video_dl == "KILL":
                     logger.debug(f"[worker_manip][{i}]: get KILL, bye")                    
