@@ -141,7 +141,8 @@ class VideoDownloader:
             prots, urls = list(map(list, zip(*[(determine_protocol(f), f['url']) for f in _info])))
             
             if any("dash" in _ for _ in prots):
-                 return(AsyncFFMPEGDownloader(info, self))
+                #return(AsyncFFMPEGDownloader(info, self))
+                pass
             elif all("m3u8" in _ for _ in prots):
                 if any("dash" in _ for _ in urls):
                     return(AsyncFFMPEGDownloader(info, self))
@@ -209,7 +210,7 @@ class VideoDownloader:
                 if dl:
                     res_dl.append(dl)
         
-            return dl 
+            return res_dl 
 
         except Exception as e:
             logger.exception(repr(e))

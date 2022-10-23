@@ -45,7 +45,9 @@ from utils import (
     CONF_PROXIES_N_GR_VIDEO,
     CONF_INTERVAL_GUI,
     long_operation_in_thread,
-    long_operation_in_process  
+    long_operation_in_process,
+    _for_print,
+    _for_print_videos
 )
 
 from videodownloader import VideoDownloader
@@ -869,7 +871,7 @@ class AsyncDL():
                 if self.STOP.is_set(): raise Exception("STOP")
                 
                 logger.info(f"[get_videos] entries from playlists: {len(self._url_pl_entries)}")
-                logger.debug(f"[url_playlist_list] {self._url_pl_entries}")
+                logger.debug(f"[url_playlist_list] {_for_print_videos(self._url_pl_entries)}")
                 
 
             if self.args.collection_files:
@@ -912,8 +914,7 @@ class AsyncDL():
                             self.list_videos.append(self.info_videos[_url]['video_info'])
 
 
-            logger.debug(f"[get_list_videos] list videos: \n{self.list_videos}")
-            logger.debug(f"[get_list_videos] status de info_videos: \n{self.info_videos}")
+            logger.debug(f"[get_list_videos] list videos: \n{_for_print_videos(self.list_videos)}")            
             
         
         except BaseException as e:            
@@ -1106,7 +1107,7 @@ class AsyncDL():
                         _to_check = self.num_videos_to_check
                     
                     vid = self.info_videos[url_key]['video_info']
-                    logger.debug(f"[worker_init][{i}]: [{url_key}] extracting info\n{vid}")
+                    logger.debug(f"[worker_init][{i}]: [{url_key}] extracting info")
                     
                     try: 
                         if self.wkinit_stop:
@@ -1127,7 +1128,7 @@ class AsyncDL():
                                 _res = await async_ex_in_executor(self.ex_winit, self.ytdl.extract_info, vid['url'], download=False, extra_info=_ext_info)
                                 if not _res: raise Exception("no info video")
                                 info = self.ytdl.sanitize_info(_res)
-                                logger.debug(f"[worker_init][{i}]: [{url_key}] info extracted\n{info}")
+                                logger.debug(f"[worker_init][{i}]: [{url_key}] info extracted\n{_for_print(info)}")
                             
                             except Exception as e: 
                                 
@@ -1178,7 +1179,7 @@ class AsyncDL():
                                     infdict['release_date'] = extradict.get('release_date')
                                 
                             logger.debug(f"[worker_init][{i}]: [{_pending}/{_to_check}] [{infdict.get('id')}][{infdict.get('title')}] info extracted")                        
-                            logger.debug(f"[worker_init][{i}]: [{urlkey}] info extracted\n{infdict}")
+                            logger.debug(f"[worker_init][{i}]: [{urlkey}] info extracted\n{_for_print(infdict)}")
                             
                             self.info_videos[urlkey].update({'video_info': infdict})
  
@@ -1702,7 +1703,7 @@ class AsyncDL():
         _videos_url_tocheck = [_url for _url, _ in self.list_urls_to_check] if self.list_urls_to_check else []
         _videos_url_tocheck_str = [f"{_url}:{_error}" for _url, _error in self.list_urls_to_check] if self.list_urls_to_check else []       
        
-        logger.debug(f'[get_result_info]\n{self.info_videos}')  
+        #logger.debug(f'[get_result_info]\n{self.info_videos}')  
             
         videos_okdl = []
         videos_kodl = []        
@@ -1805,7 +1806,7 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[get_results] {repr(e)}")
         
-        logger.debug(f'\n{self.info_videos}')
+        logger.debug(f'\n{_for_print_videos(self.info_videos)}')
         
 
         videos_ko = list(set(info_dict['videoskodl']['urls'] + info_dict['videoskoinit']['urls']))

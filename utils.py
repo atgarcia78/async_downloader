@@ -19,6 +19,7 @@ import contextlib
 from itertools import zip_longest
 from datetime import datetime, timedelta
 import threading
+import copy
 
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
@@ -95,6 +96,67 @@ try:
     _SUPPORT_FILELOCK = True
 except Exception:
     _SUPPORT_FILELOCK = False
+
+
+
+def _for_print_entry(entry):
+    _entry = copy.deepcopy(entry)
+
+    if (_formats:=_entry.get('formats')):
+
+        _new_formats = []
+        for _format in _formats:
+            if len(_formats) > 10:
+                _id, _prot = _format['format_id'],  _format['protocol']
+                _format = {'format_id':_id, ...:..., 'protocol': _prot}
+
+            else:
+                if (_frag:=_format.get('fragments')):
+                    _format['fragments'] = [_frag[0], ..., _frag[-1]]
+            _new_formats.append(_format)
+
+
+        _entry['formats'] = _new_formats
+
+    if (_formats:=_entry.get('requested_formats')):
+
+        _new_formats = []
+        for _format in _formats:
+            if (_frag:=_format.get('fragments')):
+                _format['fragments'] = [_frag[0], ..., _frag[-1]]
+            _new_formats.append(_format)
+
+        _entry['requested_formats'] = _new_formats
+
+    if (_frag:=_entry.get('fragments')):
+
+        _entry['fragments'] = [_frag[0], ..., _frag[-1]]
+
+    return _entry
+
+def _for_print(info):
+    _info = copy.deepcopy(info)
+    if (_entries:=_info.get('entries')):
+        _info['entries'] = [_for_print_entry(_el) for _el in _entries]
+        return _info
+    else: 
+        return _for_print_entry(_info)
+
+def _for_print_videos(videos):
+    
+    _videos = copy.deepcopy(videos)
+    
+    if isinstance(videos, dict):
+        
+        for _, _values in _videos.items():
+            if (_info:=traverse_obj(_values, 'video_info')):
+                _values['video_info'] = _for_print(_info)
+                
+        return _videos
+    
+    elif isinstance(videos, list):
+        _videos = [_for_print(_vid) for _vid in _videos]
+        return _videos
 
 
 async def async_ex_in_executor(executor, func, /, *args, **kwargs):
@@ -1280,3 +1342,29 @@ def compute_prefix(match):
         elif match.group('U') == 'k':
             res *= 1_000
     return res
+
+
+def _open_vpn(func):
+    @functools.wraps(func)
+    def wrapper(self, *args, **kwargs):
+        try:
+            _proc = subprocess.run(['pkill', 'TorGuardDesktopQt'])
+            relaunch = (_proc.returncode == 0)
+            cmd = 'sudo openvpn --config /Users/antoniotorres/.config/openvpn/openvpnbrit.conf'
+            _openvpn = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            _openvpn.poll()
+            cont = 0
+            while (_openvpn.returncode == None):
+                _openvpn.poll()
+                time.sleep(1)
+                cont += 1
+                if cont == 15: 
+                    raise ExtractorError("openvpn couldnt get started")
+            _ip = try_get(self._download_json("https://api.ipify.org?format=json", None), lambda x: x.get('ip'))
+            self.to_screen(f"openvpn: ok, IP origen; {_ip}")   
+            return func(self, *args, **kwargs)
+        finally:
+            subprocess.run(['sudo', 'pkill', 'openvpn'])
+            if relaunch:
+                subprocess.run(['open', '/Applications/Torguard.app'])
+    return wrapper
