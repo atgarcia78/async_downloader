@@ -88,7 +88,7 @@ class AsyncDASHDownloader:
         _filename = self.info_dict.get('_filename') or self.info_dict.get('filename')
         self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
         self.download_path.mkdir(parents=True, exist_ok=True) 
-        self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + self.info_dict['ext'])
+        self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + '.' + self.info_dict['ext'])
 
 
         #self.key_cache = dict()
@@ -105,6 +105,11 @@ class AsyncDASHDownloader:
         
         
         self.ex_dashdl = ThreadPoolExecutor(thread_name_prefix="ex_dashdl")
+
+
+        self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
+
+        self.init()
 
 
     def init(self):
@@ -207,11 +212,13 @@ class AsyncDASHDownloader:
             finally:
                 count += 1
                 if count == 5: raise AsyncDASHDLErrorFatal("Reset failed")
+                self.init_client.close()
 
 
     def prep_reset(self, info_reset):       
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
+        self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
         self.video_url = self.info_dict['url'] = info_reset.get('url')
         self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
         self.fragment_base_url = self.info_dict['fragment_base_url'] = info_reset.get('fragment_base_url')
@@ -606,7 +613,7 @@ class AsyncDASHDownloader:
 
                                 try:
 
-                                    await async_ex_in_executor(self.ex_DASHdl, self.reset)
+                                    await async_ex_in_executor(self.ex_dashdl, self.reset)
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
@@ -641,7 +648,7 @@ class AsyncDASHDownloader:
                                 
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                                 try:
-                                    await async_ex_in_executor(self.ex_DASHdl, self.reset)
+                                    await async_ex_in_executor(self.ex_dashdl, self.reset)
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
@@ -683,7 +690,7 @@ class AsyncDASHDownloader:
             self.init_client.close()            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
             self.status = "init_manipulating"
-            self.ex_DASHdl.shutdown(wait=False, cancel_futures=True)
+            self.ex_dashdl.shutdown(wait=False, cancel_futures=True)
     async def clean_when_error(self):
         
         for f in self.info_frag:

@@ -390,6 +390,7 @@ class AsyncHLSDownloader():
             except Exception as e:
                 count += 1
                 if count == 5: raise AsyncHLSDLErrorFatal("Reset failed")
+                self.init_client.close()
 
     def prep_reset(self, info_reset):
        

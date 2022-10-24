@@ -451,8 +451,6 @@ class VideoDownloader:
                         
                 else:
                     
-                    -movflags +faststart 
-
                     cmd = f"ffmpeg -y -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -i file:{str(self.info_dl['downloaders'][1].filename)} -c copy -map 0:v:0 -map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:{str(self.info_dl['filename'])}"
                     
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}")
