@@ -218,7 +218,7 @@ class VideoDownloader:
     def change_numvidworkers(self, n):
         _reset = False
         for dl in self.info_dl['downloaders']:
-            if 'hls' in str(type(dl)).lower():                
+            if any([_ in str(type(dl)).lower() for _ in ('hls', 'dash')]):                
                 dl.n_workers = n
                 _reset = True
         if self.info_dl['status']  == "downloading" and _reset and self.reset_event:
@@ -330,27 +330,15 @@ class VideoDownloader:
         for value in subtitles:
         
             try:
-                if ((_ext:=value.get('ext')) in ('srt', 'vtt')):
+                if ((_ext:=value.get('ext')) in ('srt', 'vtt', 'ttml')):
                     
                     _content = httpx.get(value['url']).text
-                    #reader = detect_format(_srt)
-                
-                    #_ext = SUPPORTED_EXT[reader]
-                    _subs_file = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}.{_ext}"
-                
-                # with open(f'{_subs_file_stem}.{_ext}', "wb") as f:
-                #     f.write(res.content)
-                    
-                # if reader is not SRTReader: 
-                
-                #     _srt = SRTWriter().write(reader().read(_srt))
-                #     _ext = 'srt'                  
+
+                    _subs_file = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}.{_ext}"               
                     
                     with open(_subs_file, "w") as f:
                         f.write(_content)
-                        
-                
-                #value['file'] = f'{_subs_file_stem}.{_ext}' #the srt format will be embed to the video file
+
                     
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloaded in {_ext} format")
                     
@@ -463,6 +451,8 @@ class VideoDownloader:
                         
                 else:
                     
+                    -movflags +faststart 
+
                     cmd = f"ffmpeg -y -loglevel repeat+info -i file:{str(self.info_dl['downloaders'][0].filename)} -i file:{str(self.info_dl['downloaders'][1].filename)} -c copy -map 0:v:0 -map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:{str(self.info_dl['filename'])}"
                     
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}")

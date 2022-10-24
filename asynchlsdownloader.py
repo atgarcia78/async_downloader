@@ -32,7 +32,6 @@ from utils import (
 logger = logging.getLogger("async_HLS_DL")
 
 
-
 class AsyncHLSDLErrorFatal(Exception):    
 
    def __init__(self, msg, exc_info=None):
