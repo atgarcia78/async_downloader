@@ -37,8 +37,6 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 10
 CONF_ARIA2C_TIMEOUT_INIT = 30
 CONF_INTERVAL_GUI = 0.2
 
-
-
 try:
     import proxy
     _SUPPORT_PROXY = True
@@ -1263,12 +1261,8 @@ if _SUPPORT_HTTPX:
         PORTS_SSL = [489, 23, 7070, 465, 993, 282, 778, 592]
 
         queue_ok = Queue()
-        
 
-        
         futures = []
-        
-        
         
         with ThreadPoolExecutor(max_workers=8) as ex:
             for ip in IPS_SSL: 

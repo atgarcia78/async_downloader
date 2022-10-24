@@ -225,14 +225,11 @@ class AsyncDASHDownloader:
 
         self.frags_to_dl = []
 
-
         for i, fragment in enumerate(self.info_dict['fragments']):
 
-            
             if not (_url:=fragment.get('url')):
                 _url = urljoin(self.fragment_base_url, fragment['path'])
             _file_path =  Path(self.download_path, fragment['path'])            
-
 
 
             if not self.info_frag[i]['downloaded'] or (self.info_frag[i]['downloaded'] and not self.info_frag[i]['headersize']):
@@ -257,7 +254,6 @@ class AsyncDASHDownloader:
         def getter(x):
             return x*CONF_DASH_SPEED_PER_WORKER
 
-        
         try:
             while True:
                 done, pending = await asyncio.wait([asyncio.create_task(self.video_downloader.reset_event.wait()), asyncio.create_task(self.video_downloader.stop_event.wait()), asyncio.create_task(self._qspeed.get())], return_when=asyncio.FIRST_COMPLETED)
@@ -291,7 +287,6 @@ class AsyncDASHDownloader:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] bye")
 
 
-                
     async def fetch(self, nco):
 
         try:
@@ -325,15 +320,9 @@ class AsyncDASHDownloader:
                         return
                     
 
-
                 url = self.info_frag[q - 1]['url']
                 filename = Path(self.info_frag[q - 1]['file'])
                 filename_exists = await os.path.exists(filename)
-                # key = self.info_frag[q - 1]['key']
-                # cipher = None
-                # if key is not None and key.method == 'AES-128':
-                #     iv = binascii.unhexlify(key.iv[2:])
-                #     cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
                 byte_range = self.info_frag[q - 1].get('byterange')
                 headers = {}
                 if byte_range:
@@ -393,8 +382,7 @@ class AsyncDASHDownloader:
                                             self.info_frag[q-1]['downloaded'] = False
                                             async with self._LOCK:
                                                 self.n_dl_fragments -= 1
-                        
-        
+
 
                                     if self.info_frag[q-1]['headersize'] < self._CHUNK_SIZE:
                                         _chunk_size = self.info_frag[q-1]['headersize']
@@ -406,19 +394,14 @@ class AsyncDASHDownloader:
                                     self.info_frag[q - 1]['time2dlchunks'] = []
                                     self.info_frag[q - 1]['sizechunks'] = []
                                     self.info_frag[q - 1]['nchunks_dl'] = 0
-                                    # self.info_frag[q - 1]['statistics'] = []
                                     
                                     _started = time.monotonic()
                                     async for chunk in res.aiter_bytes(chunk_size=_chunk_size): 
                                         if any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
-                                        #if any([self.video_downloader.reset_event.is_set(), self.video_downloader.stop_event.is_set()]):
                                             raise AsyncDASHDLErrorFatal("event")
                                                                                     
                                         _timechunk = time.monotonic() - _started
                                         self.info_frag[q - 1]['time2dlchunks'].append(_timechunk)                             
-                                        # #await asyncio.sleep(0)
-                                        # if cipher: data = cipher.decrypt(chunk)
-                                        # else: data = chunk 
                                         await f.write(chunk)
                                         
                                         async with self._LOCK:
@@ -601,7 +584,6 @@ class AsyncDASHDownloader:
                             self.status = "stop"
                             await asyncio.wait(check_task)
                             return
-
                         
                         elif self.video_downloader.reset_event.is_set():
                             
@@ -770,7 +752,6 @@ class AsyncDASHDownloader:
         return f'{(int(math.log(self.n_total_fragments, 10)) + 1)}d'
     
     def print_hookup(self):
-
        
         _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
         
