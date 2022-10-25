@@ -14,7 +14,7 @@ import logging
 import random
 
 from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
-                   naturalsize, print_norm_time, try_get, CONF_DASH_SPEED_PER_WORKER)
+                   naturalsize, print_norm_time, try_get, CONF_DASH_SPEED_PER_WORKER, _for_print_entry)
 
 import aiofiles
 import aiofiles.os as os
@@ -61,11 +61,25 @@ class AsyncDASHDownloader:
     _MAX_RESETS = 10
     _MIN_TIME_RESETS = 15
        
-    def __init__(self, video_dict, vid_dl):
+    def __init__(self, video_dict, vid_dl, stream=None):
 
 
         self.info_dict = video_dict.copy()
+
+        
         self.video_downloader = vid_dl
+
+        self.is_audio = False
+
+        if (stream == None):
+            self.streams = False
+
+        else: 
+            self.streams = True
+            if all([stream == 1, self.info_dict.get('audio_ext') or self.info_dict.get('abr')]):
+                self.is_audio = True
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[init] audio stream")
+
         self.n_workers = vid_dl.info_dl['n_workers'] 
         self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
         self.video_url = self.info_dict.get('url')
@@ -82,7 +96,7 @@ class AsyncDASHDownloader:
         self._proxy = None
         
         self.timeout = httpx.Timeout(30, connect=30)
-        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
+        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None, keepalive_expiry=None)
         self.headers = self.info_dict.get('http_headers')
         self.base_download_path = Path(str(self.info_dict['download_path']))
         _filename = self.info_dict.get('_filename') or self.info_dict.get('filename')
@@ -98,16 +112,16 @@ class AsyncDASHDownloader:
         self.down_temp = 0
         self.status = "init"
         self.error_message = "" 
-        self.init()
+        #self.init()
         
-        self.ema_s = EMA(smoothing=0.0001)
-        self.ema_t = EMA(smoothing=0.0001)
+        self.ema_s = EMA(smoothing=0.1)
+        self.ema_t = EMA(smoothing=0.1)
         
         
         self.ex_dashdl = ThreadPoolExecutor(thread_name_prefix="ex_dashdl")
 
 
-        self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
+        #self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
 
         self.init()
 
@@ -150,8 +164,34 @@ class AsyncDASHDownloader:
         self.calculate_duration() #get total duration
         self.calculate_filesize() #get filesize estimated
         
+        if self.is_audio:            
+            self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 60 
+            self.n_workers = min(self.n_workers, 16)
+
+        else:
+            self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 60
+           
+
+
         if self.filesize == 0: _est_size = "NA"
-        else: _est_size = naturalsize(self.filesize)
+        else: 
+            _est_size = naturalsize(self.filesize)
+
+            if (self.filesize - self.down_size) < 250000000:
+                if not self.is_audio:
+                    self.n_workers = min(self.n_workers, 16)
+            elif 250000000 <= (self.filesize - self.down_size)< 500000000:
+                if not self.is_audio: 
+                    self.n_workers = min(self.n_workers, 32)
+            elif 500000000 <= (self.filesize - self.down_size) < 1250000000:
+                if not self.is_audio: 
+                    self.n_workers = min(self.n_workers, 64)
+                    self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 80
+            else:
+                if not self.is_audio: 
+                    self.n_workers = max(self.n_workers, 256)
+                    self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 100
+        
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
         
         if self.filename.exists() and self.filename.stat().st_size > 0:
@@ -160,7 +200,7 @@ class AsyncDASHDownloader:
         elif not self.frags_to_dl:
             self.status = "init_manipulating"
        
-        self._CONF_DASH_MIN_N_TO_CHECK_SPEED= 30
+        
                                          
     def calculate_duration(self):
         self.totalduration = 0
@@ -175,8 +215,8 @@ class AsyncDASHDownloader:
     def reset(self):         
 
         
-        self.ema_s = EMA(smoothing=0.0001)
-        self.ema_t = EMA(smoothing=0.0001)
+        self.ema_s = EMA(smoothing=0.1)
+        self.ema_t = EMA(smoothing=0.1)
         count = 0
         
         while (count < 5):
@@ -187,11 +227,21 @@ class AsyncDASHDownloader:
                 
                 try:
 
-                    _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
-                    info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\n{info_reset}")
+                    if not self.is_audio:
+                        _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
+                        info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\n{_for_print_entry(info_reset)}")
+                        if self.streams:
+                            self.video_downloader.info_dl['queue_ch'].put_nowait({"reset": info_reset})
+                    else:
+                        _msg = self.video_downloader.info_dl['queue_ch'].get()
+                        info_reset = _msg.get('reset')
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:[audio] from channel new info video\n{_for_print_entry(info_reset)}")
+
                     
                 except Exception as e:
+                    if self.streams:
+                        self.video_downloader.info_dl['queue_ch'].put_nowait({"reset": {}})
                     raise AsyncDASHDLErrorFatal(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:fails no descriptor {e}")
 
                 if not info_reset:
@@ -212,13 +262,13 @@ class AsyncDASHDownloader:
             finally:
                 count += 1
                 if count == 5: raise AsyncDASHDLErrorFatal("Reset failed")
-                self.init_client.close()
+                #self.init_client.close()
 
 
     def prep_reset(self, info_reset):       
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
-        self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
+        #self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
         self.video_url = self.info_dict['url'] = info_reset.get('url')
         self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
         self.fragment_base_url = self.info_dict['fragment_base_url'] = info_reset.get('fragment_base_url')
@@ -269,11 +319,15 @@ class AsyncDASHDownloader:
                 self._speed.append(_speed)
                 if len(self._speed) > self._CONF_DASH_MIN_N_TO_CHECK_SPEED:    
                 
-                    if any([all([el == 0 for el in self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:]]), (self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:] == sorted(self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in self._speed[-self._CONF_DASH_MIN_N_TO_CHECK_SPEED:]])]):
-                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[-self._CONF_DASH_MIN_N_TO_CHECK_SPEED:]}")
-                        self.video_downloader.reset_event.set()
-                        
-                        break
+                    if any([all([el == 0 for el in self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:]]), (self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:] == sorted(self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:]])]):
+                        if not self.is_audio:
+                            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:]}") 
+                            self.video_downloader.reset_event.set()
+                            break
+                        else:
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:]}") 
+                            self._speed = []
+
                     
                     else: self._speed = self._speed[1:]
                 
@@ -313,8 +367,8 @@ class AsyncDASHDownloader:
                     self.video_downloader.pause_event.clear()
                     self.video_downloader.resume_event.clear()
                     
-                    self.ema_s = EMA(smoothing=0.0001)
-                    self.ema_t = EMA(smoothing=0.0001)
+                    self.ema_s = EMA(smoothing=0.1)
+                    self.ema_t = EMA(smoothing=0.1)
                     
                     if any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                         return
@@ -669,7 +723,7 @@ class AsyncDASHDownloader:
                 _proxy = self._proxy['http://']
                 with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, quiet=False) as proxy_ytdl: #logout
                     _info = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(self.webpage_url, download=False))
-            self.init_client.close()            
+            #self.init_client.close()            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
             self.status = "init_manipulating"
             self.ex_dashdl.shutdown(wait=False, cancel_futures=True)
@@ -808,53 +862,4 @@ class AsyncDASHDownloader:
         
         return msg
         
-        _filesize_str = naturalsize(self.filesize) if self.filesize else "--" 
-        if self.status == "done":
-            msg = f"[DASH][{self.info_dict['format_id']}]: Completed \n"
-        elif self.status == "init":
-            msg = f"[DASH][{self.info_dict['format_id']}]: Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"           
-        elif self.status == "error":
-            _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
-            msg = f"[DASH][{self.info_dict['format_id']}]: ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
-        elif self.status == "stop":
-            _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
-            msg = f"[DASH][{self.info_dict['format_id']}]: STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
         
-        elif self.status == "downloading":
-            
-            _down_size = self.down_size
-            _new = time.monotonic()                                  
-            _speed = (_down_size - self.down_temp) / (_new - self.started)
-            _speed_ema = (_diff_size_ema:=self.ema_s(_down_size - self.down_temp)) / (_diff_time_ema:=self.ema_t(_new - self.started))
-            if self.video_downloader.pause_event and self.video_downloader.pause_event.is_set():
-                _speed_str = "--" 
-                _eta_str = "--"
-            else:
-                _speed_str = f'{naturalsize(_speed_ema,True)}ps'
-                if _speed_ema and self.filesize:
-                
-                    if (_est_time:=((self.filesize - _down_size)/_speed_ema)) < 3600:
-                        _eta = datetime.timedelta(seconds=_est_time)                    
-                        _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
-                    else: _eta_str = "--"
-                else: _eta_str = "--"
-            
-            _progress_str = f'{(_down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
-            self.down_temp = _down_size
-            self.started = time.monotonic()   
-                        
-                
-            msg = f"[DASH][{self.info_dict['format_id']}]:(WK[{self.count:2d}]) DL[{_speed_str}] FR[{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] ETA[{_eta_str}]\n"
-            
-            
-        elif self.status == "init_manipulating":                   
-            msg = f"[DASH][{self.info_dict['format_id']}]: Waiting for Ensambling \n"
-        elif self.status == "manipulating":
-            if self.filename.exists(): _size = self.filename.stat().st_size
-            else: _size = 0  
-            _str = f'[{naturalsize(_size)}/{naturalsize(self.filesize)}]({(_size/self.filesize)*100:.2f}%)' if self.filesize else f'[{naturalsize(_size)}]'       
-            msg = f"[DASH][{self.info_dict['format_id']}]: Ensambling {_str} \n"
-        
-        
-        
-        return msg

@@ -100,6 +100,7 @@ except Exception:
 
 
 def _for_print_entry(entry):
+    if not entry: return
     _entry = copy.deepcopy(entry)
 
     if (_formats:=_entry.get('formats')):
@@ -135,6 +136,7 @@ def _for_print_entry(entry):
     return _entry
 
 def _for_print(info):
+    if not info: return
     _info = copy.deepcopy(info)
     if (_entries:=_info.get('entries')):
         _info['entries'] = [_for_print_entry(_el) for _el in _entries]
@@ -143,7 +145,7 @@ def _for_print(info):
         return _for_print_entry(_info)
 
 def _for_print_videos(videos):
-    
+    if not videos: return  
     _videos = copy.deepcopy(videos)
     
     if isinstance(videos, dict):

@@ -23,6 +23,8 @@ from utils import async_ex_in_executor, naturalsize, traverse_obj, try_get
 import os
 from concurrent.futures import ThreadPoolExecutor
 
+from queue import Queue
+
 FORCE_TO_HTTP = [''] #['doodstream']
 
 
@@ -95,7 +97,8 @@ class VideoDownloader:
                 
             self.info_dl.update({
                 'downloaders': downloaders,
-                'requested_subtitles': _req_sub.copy() if (_req_sub:=self.info_dict.get('requested_subtitles')) else {},
+                'queue_ch': Queue(),
+                'downloaded_subtitles': {},
                 'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
                 'down_size': sum([dl.down_size for dl in downloaders]),
                 'status': _status,
@@ -140,10 +143,7 @@ class VideoDownloader:
                 
             prots, urls = list(map(list, zip(*[(determine_protocol(f), f['url']) for f in _info])))
             
-            if any("dash" in _ for _ in prots):
-                #return(AsyncFFMPEGDownloader(info, self))
-                pass
-            elif all("m3u8" in _ for _ in prots):
+            if all("m3u8" in _ for _ in prots):
                 if any("dash" in _ for _ in urls):
                     return(AsyncFFMPEGDownloader(info, self))
                 else:
@@ -161,14 +161,19 @@ class VideoDownloader:
         
             if not (_info:=info.get('requested_formats')):
                 _info = [info]
+                _streams = False
             else:
                 for f in _info:
                     f.update({'id': self.info_dl['id'], 'title': self.info_dl['title'],
                                 '_filename': self.info_dl['filename'], 'download_path': self.info_dl['download_path'],
                                 'webpage_url': self.info_dl['webpage_url'], 'extractor_key': self.info_dict.get('extractor_key')}) 
+                _streams = True
+            
             res_dl = []
             
-            for info in _info:        
+            
+            
+            for n, info in enumerate(_info):        
             
                 dl = None
                 
@@ -201,7 +206,9 @@ class VideoDownloader:
                     logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
                                 
                 elif protocol in ('http_dash_segments', 'dash'):
-                    dl = AsyncDASHDownloader(info, self)
+                    if _streams: _str = n
+                    else: _str = None
+                    dl = AsyncDASHDownloader(info, self, stream=_str)
                     logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type DASH")
                 else:
                     logger.error(f"[{info['id']}][{info['title']}][{info['format_id']}]: protocol not supported")
@@ -310,54 +317,80 @@ class VideoDownloader:
             for t in tasks_run: t.cancel()
             await asyncio.wait(tasks_run)
              
-    def _get_subs_files(self):
+    def _get_subts_files(self):
      
-        key = None
-        for _el in (_keys:=list(self.info_dl['requested_subtitles'].keys())):
-            if _el.startswith('es'): 
-                key = _el
+        _subts = self.info_dict.get('subtitles') or self.info_dict.get('requested_subtitles')
+
+        if not _subts: return
+
+        _langs = {}
+        
+        for key in list(_subts.keys()):
+            if key.startswith('es'): 
+                _langs['es'] = key
+
+        _final_lang = 'es'
+
+        if not _langs:
+
+            for key in list(_subts.keys()):
+                if key.startswith('en'): 
+                    _langs['en'] = key
+
+            if not _langs: return
+
+            _final_lang = 'en'
+
+
+        
+        if any(['srt' in list(el.values()) for el in _subts[_langs[_final_lang ]]]):
+            _format = 'srt'
+        elif any(['ttml' in list(el.values()) for el in _subts[_langs[_final_lang ]]]):
+            _format = 'ttml'
+        elif any(['vtt' in list(el.values()) for el in _subts[_langs[_final_lang ]]]):
+            _format = 'vtt'
+        else: return
+        
+        for el in _subts[_langs[_final_lang]]:
+            if el['ext'] == _format:
+                _content = httpx.get(el['url']).text
+                _subts_file = f"{self.info_dl['filename'].absolute().parent}/{self.info_dl['filename'].stem}.{_final_lang}.{_format}" 
+
+                with open(_subts_file, "w") as f:
+                    f.write(_content)
+
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{_final_lang}] downloaded in {_format} format")
+
+                if _format != 'srt':
+                    _final_subts_file = _subts_file.replace(f".{_format}", ".srt")
+                    cmd = f'tt convert -i {_subts_file} -o {_final_subts_file}'
+                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: convert subt - {cmd}")
+                    res = subprocess.run(cmd.split(' '), encoding='utf-8', capture_output=True)
+                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file conversion result {res.returncode}")
+                    if res.returncode == 0:
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{_final_lang}] in {_format} format converted to srt format")
+                        self.info_dl['downloaded_subtitles'].update({_final_lang: _final_subts_file})
+                    
+                else: 
+                    self.info_dl['downloaded_subtitles'].update({_final_lang: _subts_file})
+
                 break
-            if _el.startswith('en'):
-                key= _el
-        
-        if not key: return            
-      
-        subtitles = traverse_obj(self.info_dl, ('requested_subtitles', key))
-        
-        if isinstance(subtitles, dict):
-            subtitles = [subtitles]
-        
-        for value in subtitles:
-        
-            try:
-                if ((_ext:=value.get('ext')) in ('srt', 'vtt', 'ttml')):
-                    
-                    _content = httpx.get(value['url']).text
 
-                    _subs_file = f"{self.info_dl['filename'].parent}/{self.info_dl['filename'].stem}.{key}.{_ext}"               
-                    
-                    with open(_subs_file, "w") as f:
-                        f.write(_content)
-
-                    
-                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{key}] downloaded in {_ext} format")
-                    
-            except Exception as e:
-                lines = traceback.format_exception(*sys.exc_info())                
-                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when downloading subs file\n{'!!'.join(lines)}")
+        
+ 
            
     @staticmethod
-    def embed_subs(_file_subs_en, _filename, _logger, _menslogger):
+    def embed_subts(_file_subts_en, _filename, _logger, _menslogger):
         
         
-        logger = _logger if _logger else logging.getLogger('embed_subs')
+        logger = _logger if _logger else logging.getLogger('embed_subts')
         mens = _menslogger if _menslogger else ""
          
         
-        if Path(_file_subs_en).exists():
+        if Path(_file_subts_en).exists():
             
             _temp = Path(Path(_filename).parent, f"_temp_{_filename.name}")
-            cmd = f"ffmpeg -y -loglevel repeat+info -i file:{_filename} -i file:{_file_subs_en} -c copy -map 0 -dn -map -0:s -map -0:d -c:s mov_text -map 1:0 -metadata:s:s:0 language=eng file:{_temp}" 
+            cmd = f"ffmpeg -y -loglevel repeat+info -i file:{_filename} -i file:{_file_subts_en} -c copy -map 0 -dn -map -0:s -map -0:d -c:s mov_text -map 1:0 -metadata:s:s:0 language=eng file:{_temp}" 
             
             res = VideoDownloader.syncpostffmpeg(cmd)
             logger.debug(f"{mens} ffmpeg rc[{res.returncode}]\n{res.stdout}\n{res.stderr}")
@@ -394,8 +427,9 @@ class VideoDownloader:
                 
             self.write_window()
             blocking_tasks = [asyncio.create_task(async_ex_in_executor(ex_videodl, dl.ensamble_file)) for dl in self.info_dl['downloaders'] if (not any(_ in str(type(dl)).lower() for _ in ('aria2', 'ffmpeg')) and dl.status == 'manipulating')]
-            if self.info_dl.get('requested_subtitles'):
-                blocking_tasks += [asyncio.create_task(async_ex_in_executor(ex_videodl, self._get_subs_files))]
+            if self.info_dict.get('subtitles') or self.info_dict.get('requested_subtitles'):
+               blocking_tasks += [asyncio.create_task(async_ex_in_executor(ex_videodl, self._get_subts_files))]
+            
             await asyncio.sleep(0)
             if blocking_tasks:
                 done, _ = await asyncio.wait(blocking_tasks)
@@ -478,9 +512,26 @@ class VideoDownloader:
                 
                     
                 if self.info_dl['status'] == "done":
+                    if self.info_dl['downloaded_subtitles']:
+                        if len(self.info_dl['downloaded_subtitles']) > 1:
+                            lang = 'es'
+                            subtfile = self.info_dl['downloaded_subtitles']['es']
+                        else:
+                            lang, subtfile = list(self.info_dl['downloaded_subtitles'].items())[0]
+
+
+                        cmd = f"ffmpeg -y -loglevel repeat+info -i file:{str(self.info_dl['filename'])} -i file:{str(subtfile)} -map 0 -dn -ignore_unknown -c copy -c:s mov_text -map -0:s -map 1:0 -metadata:s:s:0 language={lang} -movflags +faststart file:{self.info_dl['filename'].absolute().parent}/_embed_{self.info_dl['filename'].name}"
+
+
+                        res = await async_ex_in_executor(ex_videodl, self.syncpostffmpeg, cmd)
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
+
+                        
                     await async_ex_in_executor(ex_videodl, rmtree, self.info_dl['download_path'], ignore_errors=True)
                     if (mtime:=self.info_dict.get("release_timestamp")):
                         await async_ex_in_executor(ex_videodl, os.utime, self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
+
+                    
                         
 
             else: self.info_dl['status'] = "error"
