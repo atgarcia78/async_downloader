@@ -147,18 +147,25 @@ class AsyncARIA2CDownloader:
             if not rc:
                 logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] options - couldnt set [{key}] to [{value}]")
 
+        with self.ytdl.params['lock']:
+     
+            if not (_sem:=traverse_obj(self.ytdl.params, ('sem', self._host))):
+                _sem = Lock()
+                self.ytdl.params['sem'].update({self._host: _sem})
+
+
         if _sem:
             
-            with self.ytdl.params['lock']:                
-                if not (_sem:=traverse_obj(self.ytdl.params, ('sem', self._host))):
-                    _sem = Lock()
-                    self.ytdl.params['sem'].update({self._host: _sem})
+            # with self.lock:          
+            #     if not (_sem:=traverse_obj(self.ytdl.params, ('sem', self._host))):
+            #         _sem = Lock()
+            #         self.ytdl.params['sem'].update({self._host: _sem})
             
             if _extractor in ['doodstream']:
                 self.sem = None
                 self.auto_pasres = True   
             else:
-                self.sem = _sem            
+                self.sem = True            
             
         else: 
             self.sem = None
@@ -356,6 +363,17 @@ class AsyncARIA2CDownloader:
                  
             if self.count_init < 3:
                 logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][init] {_msg} error: {_msg_error} count_init: {self.count_init}, will RESET")
+                if 'estado=403' in _msg_error:
+                    if not self.sem:
+                        
+                        self.sem = True
+                        self._index = None
+                        async with self.video_downloader.master_hosts_alock:
+                            if not self.video_downloader.hosts_dl.get(self._host):
+                                self.video_downloader.hosts_dl.update({self._host: {'count': 1, 'queue': asyncio.Queue()}})
+                                for el in random.sample(self.proxies, len(self.proxies)):
+                                    self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(el)
+                        
                 self.video_downloader.reset_event.set()                
             else:
                 self.status = "error"
@@ -509,7 +527,7 @@ class AsyncARIA2CDownloader:
                 if self.sem:
                     async with self.video_downloader.master_hosts_alock:
                         self.video_downloader.hosts_dl[self._host]['count'] -= 1
-                        self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
+                        if self._index: self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
                     self._proxy = None   
                 await asyncio.sleep(0)
                 

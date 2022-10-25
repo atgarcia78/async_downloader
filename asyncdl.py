@@ -380,6 +380,8 @@ class AsyncDL():
       
     async def cancel_all_tasks(self):
         self.STOP.set()
+        await asyncio.sleep(0)
+        try_get(self.ytdl.params['stop'], lambda x: x.set())
         if self.list_dl:
             for dl in self.list_dl:
                 dl.stop()
@@ -1531,7 +1533,8 @@ class AsyncDL():
 
     async def async_ex(self):
     
-        self.STOP = asyncio.Event()
+        self.STOP = asyncio.Event()        
+
         self.stop_console = asyncio.Event()
         self.stop_root = asyncio.Event()
         self.queue_run = asyncio.Queue()
@@ -1612,6 +1615,7 @@ class AsyncDL():
             logger.error(f"[async_ex] {repr(e)}")
             self.STOP.set()
             await asyncio.sleep(0)
+            try_get(self.ytdl.params['stop'], lambda x: x.set())
             if self.list_dl:
                 for dl in self.list_dl:
                     dl.stop_event.set()
