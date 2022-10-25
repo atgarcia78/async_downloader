@@ -9,8 +9,11 @@ import random
 
 import aria2p
 
+from functools import partial
+
 from utils import (
     async_ex_in_executor,
+    sync_to_async,
     async_wait_time,
     naturalsize, 
     none_to_zero, 
@@ -34,6 +37,9 @@ from utils import (
 
 from threading import Lock
 
+
+
+
 logger = logging.getLogger("async_ARIA2C_DL")
 
 class AsyncARIA2CDLErrorFatal(Exception):
@@ -50,6 +56,14 @@ class AsyncARIA2CDLError(Exception):
 class AsyncARIA2CDownloader:    
     _CONFIG = CONFIG_EXTRACTORS.copy()  
     _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
+    
+    
+
+
+    async def async_client(self, func, *args, **kwargs):
+        await sync_to_async(getattr(self.aria2_client, func), AsyncARIA2CDownloader._EX_ARIA2DL)(*args, **kwargs)
+    
+
     
     def __init__(self, port, enproxy, video_dict, vid_dl):
 
@@ -156,10 +170,6 @@ class AsyncARIA2CDownloader:
 
         if _sem:
             
-            # with self.lock:          
-            #     if not (_sem:=traverse_obj(self.ytdl.params, ('sem', self._host))):
-            #         _sem = Lock()
-            #         self.ytdl.params['sem'].update({self._host: _sem})
             
             if _extractor in ['doodstream']:
                 self.sem = None
@@ -314,12 +324,16 @@ class AsyncARIA2CDownloader:
                 self.dl_cont = await async_ex_in_executor(
                     AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.add_uris, self.uris, self.opts)
 
+                self.async_update = sync_to_async(self.dl_cont.update, AsyncARIA2CDownloader._EX_ARIA2DL)
+                self.async_pause = sync_to_async(partial(self.aria2_client.pause, [self.dl_cont]), AsyncARIA2CDownloader._EX_ARIA2DL)
+                self.async_resume = sync_to_async(partial(self.aria2_client.resume, [self.dl_cont]), AsyncARIA2CDownloader._EX_ARIA2DL)
+            
             _tstart = time.monotonic()
 
             while True:
                 if not await async_wait_time(CONF_INTERVAL_GUI, events=[self.video_downloader.stop_event, self.video_downloader.reset_event]):
                     return
-                await async_ex_in_executor(AsyncARIA2CDownloader._EX_ARIA2DL, self.dl_cont.update)
+                await self.async_update()
                 if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                     return
                 if self.dl_cont and (self.dl_cont.total_length or self.dl_cont.status == "complete"):
@@ -402,27 +416,28 @@ class AsyncARIA2CDownloader:
                         return
 
                     if self.video_downloader.pause_event.is_set():                       
-                        await async_ex_in_executor(
-                            AsyncARIA2CDownloader._EX_ARIA2DL, 
-                            self.aria2_client.pause,[self.dl_cont])                        
+                        
+                        await self.async_pause()  
+
                         done, pending = await asyncio.wait([self.video_downloader.resume_event.wait(),
                                             self.video_downloader.reset_event.wait(),
                                             self.video_downloader.stop_event.wait()],
                                             return_when=asyncio.FIRST_COMPLETED)
+                        
                         try_get(list(pending), lambda x: (x[0].cancel(), x[1].cancel()))
+                        
                         self.video_downloader.pause_event.clear()
                         self.video_downloader.resume_event.clear()
+                        
                         _speed = []
+                        
                         if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                             return
+                        
                         async with self._decor: 
-                            await async_ex_in_executor(
-                                AsyncARIA2CDownloader._EX_ARIA2DL, 
-                                self.aria2_client.resume,[self.dl_cont])
-                    
-                    await async_ex_in_executor(
-                        AsyncARIA2CDownloader._EX_ARIA2DL, 
-                        self.dl_cont.update)                       
+                            await self.async_resume()
+
+                    await self.async_update()                       
                     
                     if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                         return
@@ -433,7 +448,6 @@ class AsyncARIA2CDownloader:
                     async with self.video_downloader.alock: 
                         self.video_downloader.info_dl['down_size'] += _incsize
 
-                    
                     _speed.append((self.dl_cont.connections, self.dl_cont.download_speed)) 
                     
                     if len(_speed) > CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED:

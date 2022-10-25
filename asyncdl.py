@@ -768,7 +768,7 @@ class AsyncDL():
                                 self._url_pl_entries += [_info]
                             else:   
                                 if _get and not self.args.path:                             
-                                    _name = f"{_info.get('title')}{_info.get('extractor_key')}{_info.get('id')}"
+                                    _name = f"{sanitize_filename(_info.get('title'), restricted=True)}{_info.get('extractor_key')}{_info.get('id')}"
                                     self.args.path = str(Path(Path.home(), 'testing', _name))
                                     logger.debug(f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}")
                                 

@@ -114,14 +114,12 @@ class AsyncDASHDownloader:
         self.error_message = "" 
         #self.init()
         
-        self.ema_s = EMA(smoothing=0.1)
-        self.ema_t = EMA(smoothing=0.1)
+        self.ema_s = EMA(smoothing=0.01)
+        self.ema_t = EMA(smoothing=0.01)
         
         
         self.ex_dashdl = ThreadPoolExecutor(thread_name_prefix="ex_dashdl")
 
-
-        #self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
 
         self.init()
 
@@ -169,7 +167,7 @@ class AsyncDASHDownloader:
             self.n_workers = min(self.n_workers, 16)
 
         else:
-            self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 60
+            self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 30
            
 
 
@@ -186,11 +184,11 @@ class AsyncDASHDownloader:
             elif 500000000 <= (self.filesize - self.down_size) < 1250000000:
                 if not self.is_audio: 
                     self.n_workers = min(self.n_workers, 64)
-                    self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 80
+                    self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 60
             else:
                 if not self.is_audio: 
-                    self.n_workers = max(self.n_workers, 256)
-                    self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 100
+                    self.n_workers = max(self.n_workers, 64)
+                    self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 90
         
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: total duration {print_norm_time(self.totalduration)} -- estimated filesize {_est_size} -- already downloaded {naturalsize(self.down_size)} -- total fragments {self.n_total_fragments} -- fragments already dl {self.n_dl_fragments}")  
         
@@ -215,8 +213,8 @@ class AsyncDASHDownloader:
     def reset(self):         
 
         
-        self.ema_s = EMA(smoothing=0.1)
-        self.ema_t = EMA(smoothing=0.1)
+        self.ema_s = EMA(smoothing=0.01)
+        self.ema_t = EMA(smoothing=0.01)
         count = 0
         
         while (count < 5):
@@ -346,6 +344,9 @@ class AsyncDASHDownloader:
         try:
 
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
+
+            
+            client = httpx.AsyncClient(proxies=self._proxy, limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
             
             while not any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
 
@@ -367,8 +368,8 @@ class AsyncDASHDownloader:
                     self.video_downloader.pause_event.clear()
                     self.video_downloader.resume_event.clear()
                     
-                    self.ema_s = EMA(smoothing=0.1)
-                    self.ema_t = EMA(smoothing=0.1)
+                    self.ema_s = EMA(smoothing=0.01)
+                    self.ema_t = EMA(smoothing=0.01)
                     
                     if any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                         return
@@ -390,7 +391,7 @@ class AsyncDASHDownloader:
 
                         async with aiofiles.open(filename, mode='ab') as f:                            
 
-                            async with self.client.stream("GET", url, headers=headers, timeout=5) as res:
+                            async with client.stream("GET", url, headers=headers, timeout=5) as res:
                                                  
                             
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: {res.status_code} {res.reason_phrase}")
@@ -580,6 +581,7 @@ class AsyncDASHDownloader:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
             async with self._LOCK:
                 self.count -= 1
+            await client.aclose()
     
     async def fetch_async(self):
         
@@ -604,7 +606,7 @@ class AsyncDASHDownloader:
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] TASKS INIT")
 
                 try:
-                    self.client = httpx.AsyncClient(proxies=self._proxy, limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
+                    #self.client = httpx.AsyncClient(proxies=self._proxy, limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
 
                     
                     self.count = self.n_workers
@@ -656,7 +658,7 @@ class AsyncDASHDownloader:
                                         self.n_workers -= self.n_workers // 4
                                     _tstart = _t
                                     for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
-                                    await self.client.aclose()
+                                    #await self.client.aclose()
                                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
                                     await asyncio.sleep(0)
                                     continue 
@@ -690,7 +692,7 @@ class AsyncDASHDownloader:
                                     for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
                                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}") 
                                     self.n_reset -= 1
-                                    await self.client.aclose()
+                                    #await self.client.aclose()
                                     continue 
                                     
                                 except Exception as e:
@@ -709,7 +711,7 @@ class AsyncDASHDownloader:
                 except Exception as e:
                     logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch_async] error {repr(e)}")
                 finally:                   
-                    await self.client.aclose()                    
+                    #await self.client.aclose()                    
                     await asyncio.sleep(0)
 
 

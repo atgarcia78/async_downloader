@@ -71,7 +71,8 @@ try:
         try_get, 
         sanitize_filename, 
         traverse_obj,
-        get_domain
+        get_domain,
+        prepend_extension
     )
 
     from yt_dlp.extractor.commonwebdriver import (
@@ -159,6 +160,15 @@ def _for_print_videos(videos):
     elif isinstance(videos, list):
         _videos = [_for_print(_vid) for _vid in _videos]
         return _videos
+
+def sync_to_async(func, executor=None):
+    @functools.wraps(func)
+    async def run_in_executor(*args, **kwargs):
+        loop = asyncio.get_event_loop()
+        pfunc = functools.partial(func, *args, **kwargs)
+        return await loop.run_in_executor(executor, pfunc)
+
+    return run_in_executor
 
 
 async def async_ex_in_executor(executor, func, /, *args, **kwargs):

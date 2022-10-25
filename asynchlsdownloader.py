@@ -21,6 +21,8 @@ from Cryptodome.Cipher import AES
 import random
 from queue import Queue
 
+from shutil import rmtree
+
 from utils import (
     EMA, async_ex_in_executor, async_wait_time, int_or_none,
     naturalsize, print_norm_time, get_format_id, dec_retry_error,
@@ -100,8 +102,8 @@ class AsyncHLSDownloader():
             
             self.n_reset = 0
 
-            self.ema_s = EMA(smoothing=0.0001)
-            self.ema_t = EMA(smoothing=0.0001)
+            self.ema_s = EMA(smoothing=0.01)
+            self.ema_t = EMA(smoothing=0.01)
 
             self.down_size = 0
             self.down_temp = 0
@@ -284,9 +286,10 @@ class AsyncHLSDownloader():
                     self.n_workers = min(self.n_workers, 32)
                 elif 500000000 <= self.filesize < 1250000000:
                     self.n_workers = min(self.n_workers, 32)
+                    self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 60
                 else:
                     self.n_workers = max(self.n_workers, 64)
-                    self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 60
+                    self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 90
 
                 _est_size = naturalsize(self.filesize)
 
@@ -381,8 +384,8 @@ class AsyncHLSDownloader():
                     if not info_format: raise AsyncHLSDLError("couldnt get format_id")
                     self.prep_reset(info_format)
                     self.n_reset += 1
-                    self.ema_s = EMA(smoothing=0.0001)
-                    self.ema_t = EMA(smoothing=0.0001)
+                    self.ema_s = EMA(smoothing=0.01)
+                    self.ema_t = EMA(smoothing=0.01)
                     break
                 except Exception as e:
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
@@ -477,8 +480,8 @@ class AsyncHLSDownloader():
                 self._speed.append(_speed)
                 if len(self._speed) > self._CONF_HLS_MIN_N_TO_CHECK_SPEED:    
                 
-                    if any([all([el == 0 for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]]), (self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:] == sorted(self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in self._speed[-self._CONF_HLS_MIN_N_TO_CHECK_SPEED:]])]):
-                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[-self._CONF_HLS_MIN_N_TO_CHECK_SPEED:]}")
+                    if any([all([el == 0 for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]]), (self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:] == sorted(self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]])]):
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]}")
                         self.video_downloader.reset_event.set()
                         
                         break
@@ -521,8 +524,8 @@ class AsyncHLSDownloader():
                     self.video_downloader.pause_event.clear()
                     self.video_downloader.resume_event.clear()
                     
-                    self.ema_s = EMA(smoothing=0.0001)
-                    self.ema_t = EMA(smoothing=0.0001)
+                    self.ema_s = EMA(smoothing=0.01)
+                    self.ema_t = EMA(smoothing=0.01)
                     
                     if any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                         return
@@ -951,7 +954,7 @@ class AsyncHLSDownloader():
             raise
         finally:
             if self.filename.exists():
-                #rmtree(str(self.download_path),ignore_errors=True)
+                rmtree(str(self.download_path),ignore_errors=True)
                 self.status = "done" 
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")
                 if _skipped:
