@@ -398,6 +398,7 @@ class VideoDownloader:
                         cmd = f'ffmpeg -y -loglevel repeat+info -i file:\"{_subts_file}\" -f srt -movflags +faststart file:\"{_final_subts_file}\"'
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: convert subt - {cmd}")
                         res = self.syncpostffmpeg(cmd)
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file conversion result {res.returncode}")
                         if (res.returncode == 0) and _final_subts_file.exists():
                             _subts_file.unlink()
                             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{_final_lang}] in {_format} format converted to srt format")

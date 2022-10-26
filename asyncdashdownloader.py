@@ -63,17 +63,11 @@ class AsyncDASHDownloader:
        
     def __init__(self, video_dict, vid_dl, stream=None):
 
-
         self.info_dict = video_dict.copy()
-
-        
         self.video_downloader = vid_dl
-
         self.is_audio = False
-
         if (stream == None):
             self.streams = False
-
         else: 
             self.streams = True
             if all([stream == 1, self.info_dict.get('audio_ext') or self.info_dict.get('abr')]):
@@ -92,7 +86,6 @@ class AsyncDASHDownloader:
 
         self.verifycert = not self.ytdl.params.get('nocheckcertificate')
         
-
         self._proxy = None
         
         self.timeout = httpx.Timeout(30, connect=30)
@@ -104,25 +97,18 @@ class AsyncDASHDownloader:
         self.download_path.mkdir(parents=True, exist_ok=True) 
         self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + '.' + self.info_dict['ext'])
 
-
-        #self.key_cache = dict()
-        
         self.n_reset = 0
         self.down_size = 0
         self.down_temp = 0
         self.status = "init"
         self.error_message = "" 
-        #self.init()
-        
+ 
         self.ema_s = EMA(smoothing=0.01)
         self.ema_t = EMA(smoothing=0.01)
         
-        
         self.ex_dashdl = ThreadPoolExecutor(thread_name_prefix="ex_dashdl")
 
-
         self.init()
-
 
     def init(self):
 
@@ -157,7 +143,6 @@ class AsyncDASHDownloader:
 
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
         
-          
         self.n_total_fragments = len(self.info_dict['fragments'])
         self.calculate_duration() #get total duration
         self.calculate_filesize() #get filesize estimated
@@ -168,8 +153,6 @@ class AsyncDASHDownloader:
 
         else:
             self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 30
-           
-
 
         if self.filesize == 0: _est_size = "NA"
         else: 
@@ -197,9 +180,7 @@ class AsyncDASHDownloader:
             
         elif not self.frags_to_dl:
             self.status = "init_manipulating"
-       
-        
-                                         
+
     def calculate_duration(self):
         self.totalduration = 0
         for fragment in self.info_dict['fragments']:
@@ -209,10 +190,8 @@ class AsyncDASHDownloader:
         _bitrate = self.tbr or self.abr                
         self.filesize = int(self.totalduration * 1000 * _bitrate / 8)
         
-    
     def reset(self):         
 
-        
         self.ema_s = EMA(smoothing=0.01)
         self.ema_t = EMA(smoothing=0.01)
         count = 0
@@ -236,7 +215,6 @@ class AsyncDASHDownloader:
                         info_reset = _msg.get('reset')
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:[audio] from channel new info video\n{_for_print_entry(info_reset)}")
 
-                    
                 except Exception as e:
                     if self.streams:
                         self.video_downloader.info_dl['queue_ch'].put_nowait({"reset": {}})
@@ -260,13 +238,11 @@ class AsyncDASHDownloader:
             finally:
                 count += 1
                 if count == 5: raise AsyncDASHDLErrorFatal("Reset failed")
-                #self.init_client.close()
 
 
     def prep_reset(self, info_reset):       
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
-        #self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
         self.video_url = self.info_dict['url'] = info_reset.get('url')
         self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
         self.fragment_base_url = self.info_dict['fragment_base_url'] = info_reset.get('fragment_base_url')
@@ -288,7 +264,6 @@ class AsyncDASHDownloader:
                     self.info_frag[i]['file'].unlink()
                 
                 self.info_frag[i]['n_retries'] = 0
-
 
 
         if not self.frags_to_dl:

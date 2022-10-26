@@ -661,7 +661,7 @@ if _SUPPORT_YTDL:
                                              quiet=opts['quiet'], verbose=opts['verbose'], superverbose=opts['verboseplus'])
             opts['proxy'] = proxy
             
-            super().__init__(params=opts)
+            super().__init__(params=opts, auto_init='no_verbose_header')
         
         def __enter__(self):
             return self
