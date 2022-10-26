@@ -653,6 +653,7 @@ if _SUPPORT_YTDL:
             verbose=kwargs.get('verbose', False)            
             verboseplus=kwargs.get('verboseplus', False)
             self.close=kwargs.get('close', True)
+            self.executor=kwargs.get('executor', ThreadPoolExecutor())
             opts['quiet'] = quiet
             opts['verbose'] = verbose
             opts['verboseplus'] = verboseplus
@@ -689,8 +690,8 @@ if _SUPPORT_YTDL:
                     except Exception as e:
                         pass
         
-        async def async_extract_info(self, executor, url, **kwargs):
-            return await async_ex_in_executor(executor, self.extract_info, url, **kwargs)
+        async def async_extract_info(self, url):
+            return await async_ex_in_executor(self.executor, self.extract_info, url, download=False)
             
     def get_extractor(url, ytdl):
         

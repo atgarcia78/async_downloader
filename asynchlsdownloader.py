@@ -28,7 +28,7 @@ from utils import (
     naturalsize, print_norm_time, get_format_id, dec_retry_error,
     try_get, get_format_id, get_domain, CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO, CONF_PROXIES_BASE_PORT, CONF_HLS_SPEED_PER_WORKER,
-    ProxyYTDL
+    ProxyYTDL, sync_to_async
 )
 
 logger = logging.getLogger("async_HLS_DL")
@@ -761,6 +761,8 @@ class AsyncHLSDownloader():
         for _ in range(self.n_workers):
             self.frags_queue.put_nowait("KILL")
 
+        async_reset = sync_to_async(self.reset, self.ex_hlsdl)
+
         n_frags_dl = 0
 
         
@@ -822,7 +824,8 @@ class AsyncHLSDownloader():
 
                                 try:
 
-                                    await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                    #await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                    await async_reset()
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
@@ -857,7 +860,8 @@ class AsyncHLSDownloader():
                                 
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                                 try:
-                                    await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                    #await async_ex_in_executor(self.ex_hlsdl, self.reset)
+                                    await async_reset()
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")

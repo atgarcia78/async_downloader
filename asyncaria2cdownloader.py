@@ -58,11 +58,7 @@ class AsyncARIA2CDownloader:
     _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
     
     
-
-
-    async def async_client(self, func, *args, **kwargs):
-        await sync_to_async(getattr(self.aria2_client, func), AsyncARIA2CDownloader._EX_ARIA2DL)(*args, **kwargs)
-    
+  
 
     
     def __init__(self, port, enproxy, video_dict, vid_dl):
@@ -229,13 +225,11 @@ class AsyncARIA2CDownloader:
                     try:
                         _ytdl_opts = self.ytdl.params.copy()
                         
-                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy) as proxy_ytdl:
+                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy, executor=AsyncARIA2CDownloader._EX_ARIA2DL) as proxy_ytdl:
                             proxy_info = get_format_id(
                                 proxy_ytdl.sanitize_info(
                                     await proxy_ytdl.async_extract_info(
-                                        AsyncARIA2CDownloader._EX_ARIA2DL,
-                                        self.info_dict.get('webpage_url'),
-                                        download=False)
+                                        self.info_dict.get('webpage_url'))
                                 ), self.info_dict['format_id'])
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] mode simple, proxy ip: {self._proxy} init uri: {proxy_info.get('url')}\n{proxy_info}")
                         self.video_url = proxy_info.get('url')
@@ -274,13 +268,11 @@ class AsyncARIA2CDownloader:
                             if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                                 return
                             
-                            async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy) as proxy_ytdl:
+                            async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, executor=AsyncARIA2CDownloader._EX_ARIA2DL) as proxy_ytdl:
                                 proxy_info = get_format_id(
                                     proxy_ytdl.sanitize_info(
                                         await proxy_ytdl.async_extract_info(
-                                            AsyncARIA2CDownloader._EX_ARIA2DL,
-                                            self.info_dict.get('webpage_url'),
-                                            download=False)
+                                            self.info_dict.get('webpage_url'))
                                     ), self.info_dict['format_id'])
                             
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_proxy} uri{i} {proxy_info.get('url')}")
@@ -327,6 +319,7 @@ class AsyncARIA2CDownloader:
                 self.async_update = sync_to_async(self.dl_cont.update, AsyncARIA2CDownloader._EX_ARIA2DL)
                 self.async_pause = sync_to_async(partial(self.aria2_client.pause, [self.dl_cont]), AsyncARIA2CDownloader._EX_ARIA2DL)
                 self.async_resume = sync_to_async(partial(self.aria2_client.resume, [self.dl_cont]), AsyncARIA2CDownloader._EX_ARIA2DL)
+                self.async_remove = sync_to_async(partial(self.aria2_client.remove, [self.dl_cont], clean=False), AsyncARIA2CDownloader._EX_ARIA2DL)
             
             _tstart = time.monotonic()
 
@@ -503,9 +496,10 @@ class AsyncARIA2CDownloader:
                     self.video_downloader.reset_event.clear()
                     self.block_init = True
                     if self.dl_cont:
-                        await async_ex_in_executor(
-                            AsyncARIA2CDownloader._EX_ARIA2DL, 
-                            self.aria2_client.remove, [self.dl_cont], clean=False)
+                        #await async_ex_in_executor(
+                        #    AsyncARIA2CDownloader._EX_ARIA2DL, 
+                        #    self.aria2_client.remove, [self.dl_cont], clean=False)
+                        await self.async_remove()
                         continue
 
                 await self.fetch()
@@ -520,9 +514,10 @@ class AsyncARIA2CDownloader:
                     self.video_downloader.reset_event.clear()
                     self.block_init = True
                     if self.dl_cont:
-                        await async_ex_in_executor(
-                            AsyncARIA2CDownloader._EX_ARIA2DL, 
-                            self.aria2_client.remove, [self.dl_cont], clean=False)
+                        # await async_ex_in_executor(
+                        #     AsyncARIA2CDownloader._EX_ARIA2DL, 
+                        #     self.aria2_client.remove, [self.dl_cont], clean=False)
+                        await self.async_remove()
                         continue            
             except BaseException as e:
                 if isinstance(e, KeyboardInterrupt):

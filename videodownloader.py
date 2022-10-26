@@ -324,18 +324,20 @@ class VideoDownloader:
             await asyncio.wait(tasks_run)
              
     
-    def _dl_subt(self, url):
-
-        subt_url = url
-        if '.m3u8' in url:
-            m3u8obj = m3u8.load(url, headers = self.info_dict.get('http_headers'))
-            subt_url = urllib.parse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
-        
-        return(httpx.get(subt_url, headers = self.info_dict.get('http_headers')).text)
         
 
     def _get_subts_files(self):
      
+        
+        def _dl_subt(url):
+
+            subt_url = url
+            if '.m3u8' in url:
+                m3u8obj = m3u8.load(url, headers = self.info_dict.get('http_headers'))
+                subt_url = urllib.parse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
+        
+            return(httpx.get(subt_url, headers = self.info_dict.get('http_headers')).text)
+        
         _subts = self.info_dict.get('subtitles') or self.info_dict.get('requested_subtitles')
 
         if not _subts: return
@@ -374,7 +376,7 @@ class VideoDownloader:
 
                     _subts_file = Path(f"{self.info_dl['filename'].absolute().parent}/{self.info_dl['filename'].stem}.{_final_lang}.{_format}")
 
-                    _content = self._dl_subt(el['url'])
+                    _content = _dl_subt(el['url'])
 
                     with open(_subts_file, "w") as f:
                         f.write(_content)
