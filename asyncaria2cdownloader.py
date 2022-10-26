@@ -55,11 +55,7 @@ class AsyncARIA2CDLError(Exception):
 
 class AsyncARIA2CDownloader:    
     _CONFIG = CONFIG_EXTRACTORS.copy()  
-    _EX_ARIA2DL = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
     
-    
-  
-
     
     def __init__(self, port, enproxy, video_dict, vid_dl):
 
@@ -101,6 +97,8 @@ class AsyncARIA2CDownloader:
         self.count_init = 0
         
         self.last_progress_str = "--"
+
+        self._ex_aria2dl = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
         
         self.prep_init()
         
@@ -225,7 +223,7 @@ class AsyncARIA2CDownloader:
                     try:
                         _ytdl_opts = self.ytdl.params.copy()
                         
-                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy, executor=AsyncARIA2CDownloader._EX_ARIA2DL) as proxy_ytdl:
+                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy, executor=self._ex_aria2dl) as proxy_ytdl:
                             proxy_info = get_format_id(
                                 proxy_ytdl.sanitize_info(
                                     await proxy_ytdl.async_extract_info(
@@ -268,7 +266,7 @@ class AsyncARIA2CDownloader:
                             if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                                 return
                             
-                            async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, executor=AsyncARIA2CDownloader._EX_ARIA2DL) as proxy_ytdl:
+                            async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, executor=self._ex_aria2dl) as proxy_ytdl:
                                 proxy_info = get_format_id(
                                     proxy_ytdl.sanitize_info(
                                         await proxy_ytdl.async_extract_info(
@@ -314,12 +312,12 @@ class AsyncARIA2CDownloader:
 
             async with self._decor: 
                 self.dl_cont = await async_ex_in_executor(
-                    AsyncARIA2CDownloader._EX_ARIA2DL, self.aria2_client.add_uris, self.uris, self.opts)
+                    self._ex_aria2dl, self.aria2_client.add_uris, self.uris, self.opts)
 
-                self.async_update = sync_to_async(self.dl_cont.update, AsyncARIA2CDownloader._EX_ARIA2DL)
-                self.async_pause = sync_to_async(partial(self.aria2_client.pause, [self.dl_cont]), AsyncARIA2CDownloader._EX_ARIA2DL)
-                self.async_resume = sync_to_async(partial(self.aria2_client.resume, [self.dl_cont]), AsyncARIA2CDownloader._EX_ARIA2DL)
-                self.async_remove = sync_to_async(partial(self.aria2_client.remove, [self.dl_cont], clean=False), AsyncARIA2CDownloader._EX_ARIA2DL)
+                self.async_update = sync_to_async(self.dl_cont.update, self._ex_aria2dl)
+                self.async_pause = sync_to_async(partial(self.aria2_client.pause, [self.dl_cont]), self._ex_aria2dl)
+                self.async_resume = sync_to_async(partial(self.aria2_client.resume, [self.dl_cont]), self._ex_aria2dl)
+                self.async_remove = sync_to_async(partial(self.aria2_client.remove, [self.dl_cont], clean=False), self._ex_aria2dl)
             
             _tstart = time.monotonic()
 
@@ -496,12 +494,8 @@ class AsyncARIA2CDownloader:
                     self.video_downloader.reset_event.clear()
                     self.block_init = True
                     if self.dl_cont:
-                        #await async_ex_in_executor(
-                        #    AsyncARIA2CDownloader._EX_ARIA2DL, 
-                        #    self.aria2_client.remove, [self.dl_cont], clean=False)
                         await self.async_remove()
                         continue
-
                 await self.fetch()
                 if self.status == "done":
                     return
@@ -514,9 +508,6 @@ class AsyncARIA2CDownloader:
                     self.video_downloader.reset_event.clear()
                     self.block_init = True
                     if self.dl_cont:
-                        # await async_ex_in_executor(
-                        #     AsyncARIA2CDownloader._EX_ARIA2DL, 
-                        #     self.aria2_client.remove, [self.dl_cont], clean=False)
                         await self.async_remove()
                         continue            
             except BaseException as e:
