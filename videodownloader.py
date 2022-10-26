@@ -34,6 +34,9 @@ from queue import Queue
 
 import shlex
 
+import m3u8
+import urllib
+
 FORCE_TO_HTTP = [''] #['doodstream']
 
 
@@ -320,6 +323,17 @@ class VideoDownloader:
             for t in tasks_run: t.cancel()
             await asyncio.wait(tasks_run)
              
+    
+    def _dl_subt(self, url):
+
+        subt_url = url
+        if '.m3u8' in url:
+            m3u8obj = m3u8.load(url, headers = self.info_dict.get('http_headers'))
+            subt_url = urllib.parse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
+        
+        return(httpx.get(subt_url, headers = self.info_dict.get('http_headers')).text)
+        
+
     def _get_subts_files(self):
      
         _subts = self.info_dict.get('subtitles') or self.info_dict.get('requested_subtitles')
@@ -358,20 +372,30 @@ class VideoDownloader:
                 
                 try:
 
-                    _content = httpx.get(el['url']).text
                     _subts_file = Path(f"{self.info_dl['filename'].absolute().parent}/{self.info_dl['filename'].stem}.{_final_lang}.{_format}")
+
+                    _content = self._dl_subt(el['url'])
 
                     with open(_subts_file, "w") as f:
                         f.write(_content)
 
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{_final_lang}] downloaded in {_format} format")
 
-                    if _format != 'srt':
+                    if _format == 'ttml':
                         _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
                         cmd = f'tt convert -i "{_subts_file}" -o "{_final_subts_file}"'
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: convert subt - {cmd}")
                         res = subprocess.run(shlex.split(cmd), encoding='utf-8', capture_output=True)
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file conversion result {res.returncode}")
+                        if (res.returncode == 0) and _final_subts_file.exists():
+                            _subts_file.unlink()
+                            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{_final_lang}] in {_format} format converted to srt format")
+                            self.info_dl['downloaded_subtitles'].update({_final_lang: _final_subts_file})
+                    elif _format == 'vtt':
+                        _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
+                        cmd = f'ffmpeg -y -loglevel repeat+info -i file:\"{_subts_file}\" -f srt -movflags +faststart file:\"{_final_subts_file}\"'
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: convert subt - {cmd}")
+                        res = self.syncpostffmpeg(cmd)
                         if (res.returncode == 0) and _final_subts_file.exists():
                             _subts_file.unlink()
                             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: subs file for [{_final_lang}] in {_format} format converted to srt format")
