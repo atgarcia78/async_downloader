@@ -16,6 +16,7 @@ def main():
     
     try:
         
+        asyncDL = None
         patch_http_connection_pool(maxsize=1000)
         patch_https_connection_pool(maxsize=1000)
         os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
@@ -38,21 +39,23 @@ def main():
                 asyncDL.get_results_info()
             except BaseException as e:
                 logger.error(f"[main] {repr(e)}")
-                    
+                                    
                 
         
         except BaseException as e:
-            asyncDL.clean()
             logger.error(f"[main] {repr(e)}")
-
-        finally:
+            
+        #finally:
             #asyncDL.loop.run_until_complete(asyncDL.print_pending_tasks())            
-            asyncDL.close()
+            
             
     
     except BaseException as e:
         logger.error(f"[main] {repr(e)}")
+        
 
+    finally:
+        asyncDL.close()
 
     
 

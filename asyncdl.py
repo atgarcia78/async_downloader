@@ -128,7 +128,12 @@ class AsyncDL():
         self.t3 = Timer("execution", text="[timers] Time spent by init workers: {:.2f}", logger=logger.info)
         
                 
-        self.videos_cached = self.get_videos_cached()        
+        try:
+            self.videos_cached = self.get_videos_cached()        
+        
+        except BaseException as e:
+            logger.exception(f"[init] {repr(e)}")
+
         
     
     
@@ -1554,6 +1559,7 @@ class AsyncDL():
             tasks_gui = []
             self.extra_tasks_run = []
             self.proc_gost = []
+            self.proc_aria2c = None
             self.routing_table = {}
             self.stop_proxy = None
             self.stop_upt_window = None
@@ -1574,7 +1580,7 @@ class AsyncDL():
                 self.stop_upt_window = self.upt_window_periodic()
                 self.stop_pasres = self.pasres_periodic()
                 if self.args.aria2c:             
-                    init_aria2c(self.args)
+                    self.proc_aria2c = init_aria2c(self.args)
                     if self.args.proxy != 0:
                         self.proc_gost, self.routing_table = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)
                         self.ytdl.params['routing_table'] = self.routing_table
@@ -1609,7 +1615,7 @@ class AsyncDL():
             
                                   
 
-        except BaseException as e:                            
+        except BaseException as e:
             if isinstance(e, KeyboardInterrupt):
                 print("")
             logger.error(f"[async_ex] {repr(e)}")
@@ -1635,7 +1641,7 @@ class AsyncDL():
             await asyncio.sleep(0)          
             done, _ = await asyncio.wait(tasks_gui)
             self.ex_winit.shutdown(wait=False, cancel_futures=True)
-            logger.debug(f"[async_ex] BYE")
+            logger.info(f"[async_ex] BYE")
             if any(isinstance(_e, KeyboardInterrupt) for _e in [d.exception() for d in done]):
                 raise KeyboardInterrupt
             
@@ -1840,52 +1846,56 @@ class AsyncDL():
     
     def close(self):
         
-        logger.debug("[close] start to close")
-        
         try:
-            if not self.STOP.is_set(): self.t2.stop()
-        except Exception as e:
-            pass        
-        
-        try:        
-            self.ies_close()
-        except Exception as e:
-            logger.exception(f"[close] {repr(e)}")
-        
-        if self.proc_gost:
-            for proc in self.proc_gost:
-                try:
-                    proc.kill()
-                except Exception as e:
-                    logger.exception(f"[close] {repr(e)}")
-        
-        stops = [self.stop_proxy]
-        for _stop in stops:
-            try:                
-                if _stop:
-                    _stop.set()
-                    wait_time(5)
+
+            logger.info("[close] start to close")
+            
+                       
+            try:
+                if not self.STOP.is_set(): self.t2.stop()
             except Exception as e:
-                logger.exception(f"[close] {_stop} {repr(e)}")       
+                logger.exception(f"[close] {repr(e)}")        
             
-        try:
-            kill_processes(logger=logger, rpcport=self.args.rpcport)
-            logger.debug("[close] end of close")
+            try:        
+                if self.proc_aria2c: 
+                    logger.info("[close] aria2c")
+                    self.proc_aria2c.kill()
+            except Exception as e:
+                logger.exception(f"[close] {repr(e)}")
+
+            try:        
+                self.ies_close()
+            except Exception as e:
+                logger.exception(f"[close] {repr(e)}")
             
+            if self.proc_gost:
+                logger.info("[close] gost")
+                for proc in self.proc_gost:
+                    try:
+                        proc.kill()
+                    except Exception as e:
+                        logger.exception(f"[close] {repr(e)}")
+            
+            stops = [self.stop_proxy]
+            logger.info("[close] proxy")
+            for _stop in stops:
+                try:                
+                    if _stop:
+                        _stop.set()
+                        wait_time(5)
+                except Exception as e:
+                    logger.exception(f"[close] {_stop} {repr(e)}")       
+                
+            try:
+                logger.info("[close] kill processes")
+                kill_processes(logger=logger, rpcport=self.args.rpcport)
+                                
+            except Exception as e:
+                logger.exception(f"[close] {repr(e)}")
+        
         except Exception as e:
             logger.exception(f"[close] {repr(e)}")
+            raise
             
-    def clean(self):
-        
-        try:
-            self.p1.join()
-        except Exception as e:
-            pass
-                
-        try:
-            current_res = Path(Path.home(),"Projects/common/logs/current_res.json")
-            if current_res.exists():
-                current_res.unlink()
-        except Exception as e:
-            logger.exception(f"[clean] {repr(e)}")
+
           

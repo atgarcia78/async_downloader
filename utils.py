@@ -197,7 +197,7 @@ def long_operation_in_process(func):
             proc.join()
             proc.close()
             return res
-        except Exception as e:
+        except BaseException as e:
             logging.getLogger('op_in_proc').exception(repr(r))
     return wrapper 
 
@@ -474,13 +474,32 @@ if _SUPPORT_ARIA2P:
                 mobj.sort()
                 args.rpcport = int(mobj[-1]) + 100
                 
-        subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
-        logger.info(f"aria2c daemon running on port: {args.rpcport} ")
+        #subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
+        _proc = subprocess.Popen(f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc", stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+        sem = True
+        while sem:
+            _proc.poll()
+            for line in _proc.stdout:
+                _line = line.decode('utf-8').strip()
+                if not _line: break
+                else:                   
+                    sem = False
+                    break
+               
+        logger.info(f"aria2c running on port: {args.rpcport} ")
+       
         cl = aria2p.API(aria2p.Client(port=args.rpcport))
         opts = cl.get_global_options()
         logger.debug(f"aria2c options:\n{opts._struct}")
         del opts
         del cl
+
+        return _proc
+
+        # _aria2cstr = f"aria2c.+--rpc-listen-port {args.rpcport}.+"
+        # res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,command"], encoding='utf-8', capture_output=True).stdout
+        # mobj = re.findall(rf'(\d+)\s+({_aria2cstr})', res)
+        # return(mobj[0][0])
         
 def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
     args = [iter(iterable)] * n
@@ -957,36 +976,41 @@ def get_chain_links(f):
 
 def kill_processes(logger=None, rpcport=None):
     
-    def _log(msg):
-        logger.info(msg) if logger else print(msg)
-        
-    term = (subprocess.run(["tty"], encoding='utf-8', capture_output=True).stdout).splitlines()[0].replace("/dev/", "")
-    res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,tty,command"], encoding='utf-8', capture_output=True).stdout
-    if rpcport: _aria2cstr = f"aria2c.+--rpc-listen-port {rpcport}.+"
-    else: _aria2cstr = f"aria2cDUMMY"
-    mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox.app/Contents/MacOS/firefox-bin.+))', res)
-    mobj2 = re.findall(rf'\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ', res)
-    mobj3 = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+async_all\.py))', res)
-    if mobj:
-        proc_to_kill = list(set(mobj))                    
-        results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
-        _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
-        _log("[kill_processes]\n" + '\n'.join(_debugstr))
-    else: 
-        _log("[kill_processes] No processes found to kill")
-    #_log(f"[kill_processes_proxy]\n{mobj3}")
-    if len(mobj3) > 1:
-        proc_to_kill = mobj3[1:]                    
-        results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
-        _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
-        _log("[kill_processes_proxy]\n" + '\n'.join(_debugstr))
-        
-    if mobj2:
-        for el in mobj2:
-            try:
-                shutil.rmtree(el, ignore_errors=True)
-            except Exception as e:
-                _log(f"[kill_processes] error: {repr(e)}")
+    try:
+        def _log(msg):
+            logger.info(msg) if logger else print(msg)
+            
+        term = (subprocess.run(["tty"], encoding='utf-8', capture_output=True).stdout).splitlines()[0].replace("/dev/", "")
+        res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,tty,command"], encoding='utf-8', capture_output=True).stdout
+        if rpcport: _aria2cstr = f"aria2c.+--rpc-listen-port {rpcport}.+"
+        else: _aria2cstr = f"aria2cDUMMY"
+        mobj = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox.app/Contents/MacOS/firefox-bin.+))', res)
+        mobj2 = re.findall(rf'\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ', res)
+        mobj3 = re.findall(rf'(\d+)\s+(?:\?\?|{term})\s+((?:.+async_all\.py))', res)
+        if mobj:
+            proc_to_kill = list(set(mobj))                    
+            results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
+            _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
+            _log("[kill_processes]\n" + '\n'.join(_debugstr))
+        else: 
+            _log("[kill_processes] No processes found to kill")
+        #_log(f"[kill_processes_proxy]\n{mobj3}")
+        if len(mobj3) > 1:
+            proc_to_kill = mobj3[1:]                    
+            results = [subprocess.run(["kill","-9",f"{process[0]}"], encoding='utf-8', capture_output=True) for process in proc_to_kill]
+            _debugstr  = [f"pid: {proc[0]}\n\tcommand: {proc[1]}\n\tres: {res}" for proc, res in zip(proc_to_kill, results)]
+            _log("[kill_processes_proxy]\n" + '\n'.join(_debugstr))
+            
+        if mobj2:
+            for el in mobj2:
+                try:
+                    shutil.rmtree(el, ignore_errors=True)
+                except Exception as e:
+                    _log(f"[kill_processes] error: {repr(e)}")
+    except Exception as e:
+        _log(f"[kill_processes_proxy]: {repr(e)}")
+        raise
+
             
 def foldersize(folder):
     #devuelve en bytes size folder
