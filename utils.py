@@ -20,6 +20,7 @@ from itertools import zip_longest
 from datetime import datetime, timedelta
 import threading
 import copy
+from datetime import datetime
 
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
@@ -561,7 +562,7 @@ def init_proxies(num, size, port=7070):
     #SWE
     IPS_SSL += get_ips('swe.secureconnect.me')
     #NO    
-    IPS_SSL += get_ips('no.secureconnect.me')
+    #IPS_SSL += get_ips('no.secureconnect.me')
     #BG
     IPS_SSL += get_ips('bg.secureconnect.me')
     #PG
@@ -571,12 +572,12 @@ def init_proxies(num, size, port=7070):
     #FR
     IPS_SSL += get_ips('fr.secureconnect.me') 
     #UK
-    #IPS_SSL += get_ips('uk.secureconnect.me') + get_ips('uk.man.secureconnect.me')
+    IPS_SSL += get_ips('uk.secureconnect.me') + get_ips('uk.man.secureconnect.me')
     #DE
     #IPS_SSL += get_ips('ger.secureconnect.me')
     
     cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
-    if cached_res.exists():
+    if cached_res.exists() and ((datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds < 7200): #every 2h we check the proxies
         with open(cached_res, "r") as f:
             _content = f.read()
         _bad_ips = [_ip for _ip in _content.split('\n') if _ip]
