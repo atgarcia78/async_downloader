@@ -128,13 +128,10 @@ class AsyncDL():
         self.t3 = Timer("execution", text="[timers] Time spent by init workers: {:.2f}", logger=logger.info)
         
                 
-        try:
-            self.videos_cached = self.get_videos_cached()        
+    
+        self.p1, self.mpqueue = self.get_videos_cached()        
         
-        except BaseException as e:
-            logger.exception(f"[init] {repr(e)}")
 
-        
     
     
     @long_operation_in_process
@@ -287,9 +284,8 @@ class AsyncDL():
                 except Exception as e:
                     logger.exception(f"[videos_cached] {repr(e)}")
                 finally:
-                        queue.put_nowait(videos_cached)
-
-    
+                    queue.put_nowait(videos_cached)
+                    
         except Exception as e:
             logger.exception(f"[videos_cached] {repr(e)}")
       
@@ -320,11 +316,11 @@ class AsyncDL():
             list_manip_old = {}
             self.list_nwmon = []
             #io = psutil.net_io_counters(pernic=True)['en1']
+            self.ema_s = EMA(smoothing=0.01)
             io = psutil.net_io_counters()
             init_bytes_recv = io.bytes_recv
             bytes_recv = io.bytes_recv
-            wait_time(CONF_INTERVAL_GUI)
-            self.ema_s = EMA(smoothing=0.0001)
+            wait_time(CONF_INTERVAL_GUI/2)            
             while not stop_event.is_set():
                 if self.list_dl:
                     list_init_old = self.update_window("init", list_init_old)
@@ -334,15 +330,15 @@ class AsyncDL():
                     #io_2 = psutil.net_io_counters()
                     _recv = psutil.net_io_counters().bytes_recv
                     #ds = (io_2.bytes_recv - bytes_recv) / CONF_INTERVAL_GUI
-                    ds = (_recv - bytes_recv) / CONF_INTERVAL_GUI
-                    self.list_nwmon.append(ds)                    
+                    ds = (_recv - bytes_recv) / (CONF_INTERVAL_GUI/2)
+                    self.list_nwmon.append((datetime.now(), ds))                    
                     if self.window_root:
                         msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(self.ema_s(ds),True)}ps"
                         self.window_root.write_event_value("nwmon", msg)
                     #bytes_recv = io_2.bytes_recv
                     bytes_recv = _recv  
                 
-                if not wait_time(CONF_INTERVAL_GUI, event=stop_event):
+                if not wait_time(CONF_INTERVAL_GUI/2, event=stop_event):
                     break
                 
                 
@@ -351,7 +347,9 @@ class AsyncDL():
             logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
         finally:
             if self.list_nwmon: 
-                logger.info(f"DL MEDIA: {naturalsize(median(self.list_nwmon),True)}ps")
+                logger.info(f"DL MEDIA: {naturalsize(median([el[1] for el in self.list_nwmon]),True)}ps")
+                _str_nwmon = ', '.join([f'{el[0].strftime("%H:%M:")}{(el[0].second + (el[0].microsecond / 1000000)):06.3f}' for el in self.list_nwmon])
+                logger.debug(f"[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}")
             logger.debug("[upt_window_periodic] BYE")
         
     @long_operation_in_thread          
@@ -625,7 +623,9 @@ class AsyncDL():
     def get_list_videos(self):
 
         try:
-         
+            
+            self.videos_cached = self.mpqueue.get(timeout=60)
+
             url_list = []
             _url_list_caplinks = []
             _url_list_cli = []
@@ -1626,9 +1626,8 @@ class AsyncDL():
                 for dl in self.list_dl:
                     dl.stop_event.set()
             await asyncio.sleep(0)
-            #if isinstance(e, KeyboardInterrupt):
-            #    raise
             raise
+        
         finally:
 
             self.stop_upt_window.set()
@@ -1850,22 +1849,27 @@ class AsyncDL():
 
             logger.info("[close] start to close")
             
+            try:
+                self.p1.join()
+            except BaseException as e:
+                logger.exception(f"[close] {repr(e)}")  
+
                        
             try:
                 if not self.STOP.is_set(): self.t2.stop()
-            except Exception as e:
+            except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")        
             
             try:        
                 if self.proc_aria2c: 
                     logger.info("[close] aria2c")
                     self.proc_aria2c.kill()
-            except Exception as e:
+            except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
 
             try:        
                 self.ies_close()
-            except Exception as e:
+            except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
             
             if self.proc_gost:
@@ -1873,7 +1877,7 @@ class AsyncDL():
                 for proc in self.proc_gost:
                     try:
                         proc.kill()
-                    except Exception as e:
+                    except BaseException as e:
                         logger.exception(f"[close] {repr(e)}")
             
             stops = [self.stop_proxy]
@@ -1883,17 +1887,17 @@ class AsyncDL():
                     if _stop:
                         _stop.set()
                         wait_time(5)
-                except Exception as e:
+                except BaseException as e:
                     logger.exception(f"[close] {_stop} {repr(e)}")       
                 
             try:
                 logger.info("[close] kill processes")
                 kill_processes(logger=logger, rpcport=self.args.rpcport)
                                 
-            except Exception as e:
+            except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
         
-        except Exception as e:
+        except BaseException as e:
             logger.exception(f"[close] {repr(e)}")
             raise
             

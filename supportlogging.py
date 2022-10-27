@@ -57,8 +57,11 @@ class ColoredFormatter(logging.Formatter):
         colored_record.levelname = colored_levelname
         #if 'proxy.' in colored_record.name:
         #    colored_record.name = colored_record.name.split('.')[0]
-        if colored_record.msg.startswith("%no%"): 
-            colored_record.msg = colored_record.msg[4:]
+        # if colored_record.msg.startswith("%no%"): 
+        #     colored_record.msg = colored_record.msg[4:]
+        if '%no%' in colored_record.msg:
+            colored_record.msg = colored_record.msg.replace("%no%", "")
+
         else:
             lines = colored_record.msg.splitlines()
             colored_lines = []

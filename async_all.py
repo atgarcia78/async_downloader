@@ -15,7 +15,7 @@ logger = logging.getLogger("async_all")
 def main():
     
     try:
-        
+
         asyncDL = None
         patch_http_connection_pool(maxsize=1000)
         patch_https_connection_pool(maxsize=1000)
@@ -39,23 +39,17 @@ def main():
                 asyncDL.get_results_info()
             except BaseException as e:
                 logger.error(f"[main] {repr(e)}")
-                                    
-                
-        
+    
         except BaseException as e:
             logger.error(f"[main] {repr(e)}")
-            
-        #finally:
-            #asyncDL.loop.run_until_complete(asyncDL.print_pending_tasks())            
-            
-            
     
     except BaseException as e:
         logger.error(f"[main] {repr(e)}")
         
 
     finally:
-        asyncDL.close()
+        if asyncDL:
+            asyncDL.close()
 
     
 

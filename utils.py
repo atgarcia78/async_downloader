@@ -29,14 +29,16 @@ CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_HLS_SPEED_PER_WORKER = 102400
 CONF_PROXIES_MAX_N_GR_HOST = 10
-CONF_PROXIES_N_GR_VIDEO = 6
+CONF_PROXIES_N_GR_VIDEO = 8
 CONF_PROXIES_BASE_PORT = 12000
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576 #1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400 # 102400 * 1.5# 102400
-CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 40
-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 10
-CONF_ARIA2C_TIMEOUT_INIT = 30
+CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 120
+CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 60
+CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
+
+CONF_ARIA2C_EXTR_GROUP = ['tubeload', 'redload', 'highload', 'embedo']
 
 try:
     import proxy
@@ -192,13 +194,14 @@ def long_operation_in_process(func):
         kwargs['queue'] = queue
         proc = MPProcess(target=func, args=args, kwargs=kwargs)
         proc.start()
-        try:
-            res = queue.get(timeout=60)
-            proc.join()
-            proc.close()
-            return res
-        except BaseException as e:
-            logging.getLogger('op_in_proc').exception(repr(r))
+        return(proc, queue)
+        # try:
+        #     res = queue.get(timeout=60)
+        #     proc.join()
+        #     proc.close()
+        #     return res
+        # except BaseException as e:
+        #     logging.getLogger('op_in_proc').exception(repr(r))
     return wrapper 
 
 def long_operation_in_thread(func):
@@ -520,10 +523,13 @@ def get_myip(key):
 def test_proxies_rt(routing_table):
     logger = logging.getLogger("asyncdl")
         
+    logger.info(f"[init_proxies] starting test proxies")
+    
     with ThreadPoolExecutor() as exe:
         futures = {exe.submit(get_myip, _key): _key for _key in list(routing_table.keys())}
     
-    bad_pr = []    
+    bad_pr = []
+
     for fut in futures:
         _ip = fut.result()
         #logger.debug(f"[{futures[fut]} test: {_ip} expect res: {routing_table[futures[fut]]} > {_ip == routing_table[futures[fut]]}")
@@ -549,11 +555,11 @@ def test_proxies_raw(list_ips, port=7070):
         else: proc_gost.append(_proc)
         time.sleep(0.05)
     _res_ps = subprocess.run(['ps'], encoding='utf-8', capture_output=True).stdout
-    logger.debug(f"%no%\n\n{_res_ps}")    
+    logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")    
     _res_bad = test_proxies_rt(routing_table)
     for _ip in _res_bad:
         _line_ps_pr = re.search(rf'.+{_ip}\:\d+', _res_ps).group()
-        logger.info(f"check in ps print: {_line_ps_pr}")        
+        logger.info(f"[init_proxies] check in ps print: {_line_ps_pr}")        
     for proc in proc_gost:
         proc.kill()
      
@@ -1127,7 +1133,7 @@ if _SUPPORT_PYSIMP:
             
             col_0 = sg.Column([
                                 [sg.Text("WAITING TO DL", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font=("Courier New Bold", 10), write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(70, 40), font=("Courier New Bold", 10), write_only=True, key='-ML0-', autoscroll=True, auto_refresh=True)]
             ], element_justification='l', expand_x=True, expand_y=True)
             
             col_00 = sg.Column([                                 
@@ -1141,7 +1147,7 @@ if _SUPPORT_PYSIMP:
             
             col_2 = sg.Column([
                                 [sg.Text("DOWNLOADED/STOPPED/ERRORS", font='Any 14')], 
-                                [sg.Multiline(default_text = "Waiting for info", size=(50, 40), font=("Courier New Bold", 10), write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
+                                [sg.Multiline(default_text = "Waiting for info", size=(70, 40), font=("Courier New Bold", 10), write_only=True, key='-ML2-', autoscroll=True, auto_refresh=True)]
             ], element_justification='r', expand_x=True, expand_y=True)
             
             layout_root = [ [col_00], 
