@@ -1409,3 +1409,168 @@ def _open_vpn(func):
             if relaunch:
                 subprocess.run(['open', '/Applications/Torguard.app'])
     return wrapper
+
+
+@long_operation_in_process
+def get_videos_cached(*args, **kwargs):        
+        
+        logger = logging.getLogger('test')
+
+        """
+        In local storage, files are saved wihtin the file files.cached.json in 5 groups each in different volumnes.
+        If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.    
+        """
+
+        queue = kwargs.get('queue')
+
+        local_storage = LocalStorage()       
+
+        #logger.info(f"[videos_cached] start scanning - dlnocaching [{self.args.nodlcaching}]")
+        
+        videos_cached = {}        
+        last_time_sync = {}        
+        
+        try:            
+            
+            with local_storage.lock:
+            
+                local_storage.load_info()
+                
+                list_folders_to_scan = {}
+                videos_cached = {}            
+                last_time_sync = local_storage._last_time_sync
+                            
+                 
+                for _vol,_folder in local_storage.config_folders.items():
+                    if not _folder.exists(): #comm failure
+                        logger.error(f"Fail to connect to [{_vol}], will use last info")
+                        videos_cached.update(local_storage._data_from_file.get(_vol))
+                    else:
+                        list_folders_to_scan.update({_folder: _vol})
+
+                _repeated = []
+                _dont_exist = []
+
+                launch_time = datetime.now()
+                    
+                for folder in list_folders_to_scan:
+                    
+                    try:
+                        
+                        files = [file for file in folder.rglob('*') 
+                                if file.is_file() and not file.stem.startswith('.') and (file.suffix.lower() in ('.mp4', '.mkv', '.zip'))]
+                        
+                        for file in files:                        
+
+                            _res = file.stem.split('_', 1)
+                            if len(_res) == 2:
+                                _id = _res[0]
+                                _title = sanitize_filename(_res[1], restricted=True).upper()                                
+                                _name = f"{_id}_{_title}"
+                            else:
+                                _name = sanitize_filename(file.stem, restricted=True).upper()
+
+                            if not (_video_path_str:=videos_cached.get(_name)): 
+                                
+                                videos_cached.update({_name: str(file)})
+                                
+                            else:
+                                _video_path = Path(_video_path_str)
+                                if _video_path != file: 
+                                    
+                                    if not file.is_symlink() and not _video_path.is_symlink(): #only if both are hard files we have to do something, so lets report it in repeated files
+                                        _repeated.append({'title':_name, 'indict': _video_path_str, 'file': str(file)})
+                                    elif not file.is_symlink() and _video_path.is_symlink():
+                                            _links = get_chain_links(_video_path)                                             
+                                            if (_links[-1] == file):
+                                                if len(_links) > 2:
+                                                    logger.debug(f'[videos_cached] \nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
+                                                    for _link in _links[0:-1]:
+                                                        _link.unlink()
+                                                        _link.symlink_to(file)
+                                                        _link._accessor.utime(_link, (int(launch_time().timestamp()), file.stat().st_mtime), follow_symlinks=False)
+                                                
+                                                videos_cached.update({_name: str(file)})
+                                            else:
+                                                logger.warning(f'[videos_cached] \n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}')
+                                                    
+                                    elif file.is_symlink() and not _video_path.is_symlink():
+                                        _links =  get_chain_links(file)
+                                        if (_links[-1] == _video_path):
+                                            if len(_links) > 2:
+                                                logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+                                                for _link in _links[0:-1]:
+                                                    _link.unlink()
+                                                    _link.symlink_to(_video_path)
+                                                    _link._accessor.utime(_link, (int(launch_time().timestamp()), _video_path.stat().st_mtime), follow_symlinks=False)
+                                                
+                                            videos_cached.update({_name: str(_video_path)})
+                                            if not _video_path.exists(): _dont_exist.append({'title': _name, 'file_not_exist': str(_video_path), 'links': [str(_l) for _l in _links[0:-1]]})
+                                        else:
+                                            logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}')
+
+                                    else:
+                                        _links_file = get_chain_links(file) 
+                                        _links_video_path = get_chain_links(_video_path)
+                                        if ((_file:=_links_file[-1]) == _links_video_path[-1]):
+                                            if len(_links_file) > 2:
+                                                logger.debug(f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}')                                                
+                                                for _link in _links_file[0:-1]:
+                                                    _link.unlink()
+                                                    _link.symlink_to(_file)
+                                                    _link._accessor.utime(_link, (int(launch_time().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                            if len(_links_video_path) > 2:
+                                                logger.debug(f'[videos_cached] \nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}')
+                                                for _link in _links_video_path[0:-1]:
+                                                    _link.unlink()
+                                                    _link.symlink_to(_file)
+                                                    _link._accessor.utime(_link, (int(launch_time().timestamp()), _file.stat().st_mtime), follow_symlinks=False)
+                                            
+                                            videos_cached.update({_name: str(_file)})
+                                            if not _file.exists():  _dont_exist.append({'title': _name, 'file_not_exist': str(_file), 'links': [str(_l) for _l in (_links_file[0:-1] + _links_video_path[0:-1])]})
+                                                
+                                        else:
+                                            logger.warning(f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}') 
+
+                    except Exception as e:
+                        logger.error(f"[videos_cached][{list_folders_to_scan[folder]}] {repr(e)}")
+
+                    else:
+                        last_time_sync.update({list_folders_to_scan[folder]: str(launch_time)})
+                    
+                
+                logger.info(f"[videos_cached] Total videos cached: [{len(videos_cached)}]")
+                
+
+                try:
+                    
+                    local_storage.dump_info(videos_cached, last_time_sync)           
+                
+                    if _repeated:                                                
+                        logger.warning("[videos_cached] Please check videos repeated in logs")
+                        logger.debug(f"[videos_cached] videos repeated: \n {_repeated}")
+                    
+                    if _dont_exist:
+                        logger.warning("[videos_cached] Please check videos dont exist in logs")
+                        logger.debug(f"[videos_cached] videos dont exist: \n {_dont_exist}")
+
+                except Exception as e:
+                    logger.exception(f"[videos_cached] {repr(e)}")
+                finally:
+                    queue.put_nowait(videos_cached)
+                    
+        except Exception as e:
+            logger.exception(f"[videos_cached] {repr(e)}")
+
+
+
+
+def check_if_dl(info_dict, videos):
+
+    if not (_id := info_dict.get('id') ) or not ( _title := info_dict.get('title')):
+        return False
+
+    _title = sanitize_filename(_title, restricted=True).upper()
+    vid_name = f"{_id}_{_title}"
+
+    return videos.get(vid_name)
