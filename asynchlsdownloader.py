@@ -146,7 +146,6 @@ class AsyncHLSDownloader():
             self.video_downloader.hosts_dl[self._host]['count'] -= 1
             self.init_client.close()
             
-
     def init(self):
 
         try:
@@ -464,39 +463,40 @@ class AsyncHLSDownloader():
         def getter(x):
             return x*CONF_HLS_SPEED_PER_WORKER
 
+        _speed = []
         
         try:
             while True:
-                done, pending = await asyncio.wait([asyncio.create_task(self.video_downloader.reset_event.wait()), asyncio.create_task(self.video_downloader.stop_event.wait()), asyncio.create_task(self._qspeed.get())], return_when=asyncio.FIRST_COMPLETED)
+                done, pending = await asyncio.wait([_reset:=asyncio.create_task(self.video_downloader.reset_event.wait()), _stop:=asyncio.create_task(self.video_downloader.stop_event.wait()), _qspeed:=asyncio.create_task(self._qspeed.get())], return_when=asyncio.FIRST_COMPLETED)
                 for _el in pending: _el.cancel()
-                await asyncio.wait(pending)
-                if any([self.video_downloader.reset_event.is_set(), self.video_downloader.stop_event.is_set()]):
+                if any([_ in done for _ in [_reset, _stop]]):
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] event detected")
-                    
                     break
-                _speed = try_get(list(done), lambda x: x[0].result())
-                if _speed == "KILL":
+                _input_speed = try_get(list(done), lambda x: x[0].result())
+                if _input_speed == "KILL":
                     break
-                self._speed.append(_speed)
-                if len(self._speed) > self._CONF_HLS_MIN_N_TO_CHECK_SPEED:    
+                _speed.append(_speed)
+                if len(_speed) > self._CONF_HLS_MIN_N_TO_CHECK_SPEED:    
                 
-                    if any([all([el == 0 for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]]), (self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:] == sorted(self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]])]):
-                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]}")
+                    if any([all([el == 0 for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]]), (self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:] == sorted(_speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in self._speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]])]):
+                                               
                         self.video_downloader.reset_event.set()
-                        
+                        _str_speed = ', '.join([f'{el.strftime("%H:%M:")}{(el.second + (el.microsecond / 1000000)):06.3f}' for el in _speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]])
+                        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(_speed)}]")
+                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset\n{_str_speed}")
                         break
-                    
-                    else: self._speed = self._speed[1:]
                 
+                await asyncio.wait(pending)
                 await asyncio.sleep(0)
             
+            await asyncio.wait(pending)
             await asyncio.sleep(0)
         
         except Exception as e:
             logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] {repr(e)}")
         finally:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] bye")
-
+            self._speed.extend(_speed)
 
     async def fetch(self, nco):
 
@@ -761,6 +761,8 @@ class AsyncHLSDownloader():
         for _ in range(self.n_workers):
             self.frags_queue.put_nowait("KILL")
 
+        self._speed  = []
+
         async_reset = sync_to_async(self.reset, self.ex_hlsdl)
 
         n_frags_dl = 0
@@ -786,7 +788,7 @@ class AsyncHLSDownloader():
                     self.started = time.monotonic()
                     self.status = "downloading"                    
                     self.video_downloader.reset_event.clear()
-                    self._speed = []
+                    
                     self._qspeed = asyncio.Queue()
 
                     check_task = [asyncio.create_task(self.check_speed())]
