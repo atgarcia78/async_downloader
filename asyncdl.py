@@ -6,61 +6,28 @@ import shutil
 import sys
 import time
 import traceback
-from concurrent.futures import (
-    ThreadPoolExecutor,
-    wait
-)
+from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
+from itertools import zip_longest
 from pathlib import Path
+from statistics import median
 from textwrap import fill
-
-from tabulate import tabulate
-
-from utils import (
-    EMA,
-    async_ex_in_executor,
-    async_wait_time,
-    get_chain_links,
-    init_aria2c,
-    init_proxies, 
-    init_gui_console,
-    init_gui_root,
-    init_ytdl, 
-    is_playlist_extractor, 
-    kill_processes,
-    naturalsize, 
-    none_to_zero, 
-    sg, 
-    wait_time, 
-    try_get,
-    traverse_obj,
-    js_to_json,
-    sanitize_filename,
-    print_tasks,
-    LocalStorage,
-    PATH_LOGS,
-    get_domain,
-    run_proxy_http,
-    CONF_PROXIES_MAX_N_GR_HOST, 
-    CONF_PROXIES_N_GR_VIDEO,
-    CONF_INTERVAL_GUI,
-    long_operation_in_thread,
-    long_operation_in_process,
-    _for_print,
-    _for_print_videos
-)
-
-from videodownloader import VideoDownloader
-
 from threading import Lock
-from codetiming import Timer
 
 import psutil
-from statistics import median
+from codetiming import Timer
+from tabulate import tabulate
 
-
-from itertools import zip_longest
-
+from utils import (CONF_INTERVAL_GUI, CONF_PROXIES_MAX_N_GR_HOST,
+                   CONF_PROXIES_N_GR_VIDEO, EMA, PATH_LOGS, LocalStorage,
+                   _for_print, _for_print_videos, async_ex_in_executor,
+                   async_wait_time, get_chain_links, get_domain, init_aria2c,
+                   init_gui_console, init_gui_root, init_proxies, init_ytdl,
+                   is_playlist_extractor, js_to_json, kill_processes,
+                   long_operation_in_process, long_operation_in_thread,
+                   naturalsize, none_to_zero, print_tasks, run_proxy_http,
+                   sanitize_filename, sg, traverse_obj, try_get, wait_time)
+from videodownloader import VideoDownloader
 
 logger = logging.getLogger("asyncDL")
 
@@ -107,7 +74,7 @@ class AsyncDL():
         
         self.list_pasres = set()
         self.pasres_time_from_resume_to_pause = 5
-
+        self.pasres_time_in_pause = 5
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -366,12 +333,12 @@ class AsyncDL():
                     for _index in _list:
                         self.list_dl[_index-1].pause()
                     
-                    wait_time(1)
+                    wait_time(self.pasres_time_in_pause, event=stop_event)
             
                     for _index in _list:
                         self.list_dl[_index-1].resume()
                 
-                    wait_time(self.pasres_time_from_resume_to_pause, stop_event)
+                    wait_time(self.pasres_time_from_resume_to_pause, event=stop_event)
                 
                 else:
                     wait_time(CONF_INTERVAL_GUI, event=stop_event)
@@ -456,15 +423,24 @@ class AsyncDL():
                     if not values['-IN-']:
                         sg.cprint('Please enter number')
                     else:
-                        if not values['-IN-'].isdecimal():
-                            sg.cprint('not an integer ')
+                        timers = [timer.strip() for timer in values['-IN-'].split(',')]
+                        if len(timers) > 2:
+                            sg.cprint('max 2 timers')
                         else:
-                            _time = int(values['-IN-'])
-                            if _time <= 0:
-                                sg.cprint('must be > 0')
+
+                            if any([(not timer.isdecimal() or int(timer) < 0) for timer in timers]):
+                                sg.cprint('not an integer, or negative')
                             else:
-                                self.pasres_time_from_resume_to_pause = _time
-                                sg.cprint(f'[pasres time to resume] {self.pasres_time_from_resume_to_pause}')
+                                if len(timers) == 2:
+                                    self.pasres_time_from_resume_to_pause = int(timers[0])
+                                    self.pasres_time_in_pause = int(timers[1])
+                                else:
+                                    self.pasres_time_from_resume_to_pause = int(timers[0])
+                                    self.pasres_time_in_pause = int(timers[0])
+
+                                sg.cprint(f'[time to resume] {self.pasres_time_from_resume_to_pause} [time in pause] {self.pasres_time_in_pause}')
+
+
 
                 elif event in ['NumVideoWorkers']:
                     if not values['-IN-']:

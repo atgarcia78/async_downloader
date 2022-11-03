@@ -1,30 +1,25 @@
 import asyncio
-from concurrent.futures import CancelledError
-
-import httpx
-import sys
-import traceback
-from shutil import rmtree
-
-from pathlib import Path
-
-from urllib.parse import urljoin
+import copy
+import datetime
 import logging
-
 import random
-
-from utils import (EMA, async_ex_in_executor, async_wait_time, int_or_none,
-                   naturalsize, print_norm_time, try_get, CONF_DASH_SPEED_PER_WORKER, _for_print_entry)
+import sys
+import time
+import traceback
+from concurrent.futures import CancelledError, ThreadPoolExecutor
+from pathlib import Path
+from queue import Queue
+from shutil import rmtree
+from statistics import median
+from urllib.parse import urljoin
 
 import aiofiles
 import aiofiles.os as os
-import datetime
-from statistics import median
-import copy
-import time
-from queue import Queue
+import httpx
 
-from concurrent.futures import ThreadPoolExecutor
+from utils import (CONF_DASH_SPEED_PER_WORKER, EMA, _for_print_entry,
+                   async_ex_in_executor, async_wait_time, int_or_none,
+                   naturalsize, print_norm_time, try_get)
 
 logger = logging.getLogger("async_DASH_DL")
 

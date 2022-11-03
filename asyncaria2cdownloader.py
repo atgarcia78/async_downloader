@@ -1,46 +1,28 @@
 import asyncio
+import copy
 import logging
+import random
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from functools import partial
 from pathlib import Path
+from threading import Lock
 from urllib.parse import unquote, urlparse, urlunparse
-import copy
-import random
 
 import aria2p
 
-from functools import partial
-
-from utils import (
-    async_ex_in_executor,
-    sync_to_async,
-    async_wait_time,
-    naturalsize, 
-    none_to_zero, 
-    try_get, 
-    CONFIG_EXTRACTORS, 
-    traverse_obj, 
-    limiter_non, 
-    ProxyYTDL, 
-    get_format_id,
-    get_domain,
-    async_wait_time,
-    CONF_PROXIES_MAX_N_GR_HOST,
-    CONF_PROXIES_N_GR_VIDEO,
-    CONF_PROXIES_BASE_PORT,
-    CONF_ARIA2C_MIN_SIZE_SPLIT,
-    CONF_ARIA2C_SPEED_PER_CONNECTION,
-    CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED,
-    CONF_ARIA2C_N_CHUNKS_CHECK_SPEED,
-    CONF_ARIA2C_TIMEOUT_INIT,
-    CONF_INTERVAL_GUI,
-    CONF_ARIA2C_EXTR_GROUP,
-    CONF_INTERVAL_GUI
-)
-
-from threading import Lock
-
-from datetime import datetime
+from utils import (CONF_ARIA2C_EXTR_GROUP,
+                   CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED,
+                   CONF_ARIA2C_MIN_SIZE_SPLIT,
+                   CONF_ARIA2C_N_CHUNKS_CHECK_SPEED,
+                   CONF_ARIA2C_SPEED_PER_CONNECTION, CONF_ARIA2C_TIMEOUT_INIT,
+                   CONF_INTERVAL_GUI, CONF_PROXIES_BASE_PORT,
+                   CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO,
+                   CONFIG_EXTRACTORS, ProxyYTDL, async_ex_in_executor,
+                   async_wait_time, get_domain, get_format_id, limiter_non,
+                   naturalsize, none_to_zero, sync_to_async, traverse_obj,
+                   try_get)
 
 logger = logging.getLogger("async_ARIA2C_DL")
 

@@ -1,7 +1,8 @@
-#!/usr/bin/env python
 import argparse
 import asyncio
+import contextlib
 import contextvars
+import copy
 import functools
 import json
 import logging
@@ -11,17 +12,13 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
 import time
 from concurrent.futures.thread import ThreadPoolExecutor
+from datetime import datetime, timedelta
+from itertools import zip_longest
 from pathlib import Path
 from queue import Queue
-import contextlib
-from itertools import zip_longest
-from datetime import datetime, timedelta
-import threading
-import copy
-from datetime import datetime
-
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
@@ -68,26 +65,15 @@ except Exception:
 
 try:
     from yt_dlp import YoutubeDL
+    from yt_dlp.extractor.commonwebdriver import (CONFIG_EXTRACTORS,
+                                                  SeleniumInfoExtractor,
+                                                  dec_on_exception,
+                                                  dec_retry_error, limiter_1,
+                                                  limiter_5, limiter_15,
+                                                  limiter_non)
     from yt_dlp.mylogger import MyLogger
-    from yt_dlp.utils import (
-        js_to_json, 
-        try_get, 
-        sanitize_filename, 
-        traverse_obj,
-        get_domain,
-        prepend_extension
-    )
-
-    from yt_dlp.extractor.commonwebdriver import (
-        limiter_15, 
-        limiter_5, 
-        limiter_1, 
-        limiter_non,
-        dec_on_exception, 
-        dec_retry_error,
-        CONFIG_EXTRACTORS,
-        SeleniumInfoExtractor
-    )
+    from yt_dlp.utils import (get_domain, js_to_json, prepend_extension,
+                              sanitize_filename, traverse_obj, try_get)
     
     _SUPPORT_YTDL = True
 except Exception:
@@ -182,10 +168,9 @@ async def async_ex_in_executor(executor, func, /, *args, **kwargs):
     return await loop.run_in_executor(executor, func_call)
     
 
-from multiprocess import (
-    Process as MPProcess,
-    Queue as MPQueue
-)
+from multiprocess import Process as MPProcess
+from multiprocess import Queue as MPQueue
+
 
 def long_operation_in_process(func):            
     @functools.wraps(func)
