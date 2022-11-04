@@ -69,16 +69,13 @@ class AsyncHLSDownloader():
             self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
             self.video_url = self.info_dict.get('url') #url del format
             self.webpage_url = self.info_dict.get('webpage_url') #url oioginal de la web
-
             self.id = self.info_dict['id']
-            
             self.ytdl = vid_dl.info_dl['ytdl']
-            
             self.verifycert = not self.ytdl.params.get('nocheckcertificate')
-
             self.timeout = httpx.Timeout(30, connect=30)
             self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
             self.headers = self.info_dict.get('http_headers')
+            
             self.base_download_path = Path(str(self.info_dict['download_path']))
             if (_filename:=self.info_dict.get('_filename')):
                 self.download_path = Path(self.base_download_path, self.info_dict['format_id'])
@@ -91,6 +88,7 @@ class AsyncHLSDownloader():
                 self.download_path.mkdir(parents=True, exist_ok=True)
                 self.fragments_base_path = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
                 self.filename = Path(self.base_download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + "ts")
+            
             self.key_cache = dict()
             
             self.n_reset = 0
@@ -102,13 +100,11 @@ class AsyncHLSDownloader():
             self.down_temp = 0
             self.status = "init"
             self.error_message = ""
+            
             self._qspeed = None
-            
             self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
-
             self._proxy = None
-            
-            
+
             self._host = get_domain(self.video_url)  
             
             if self.enproxy:

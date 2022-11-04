@@ -54,8 +54,7 @@ class VideoDownloader:
                 _download_path = Path(Path.home(), "testing", _date_file, self.info_dict['id']) 
             else:
                 _download_path = Path(self.args.path, self.info_dict['id'])
-            
-                
+
             self.info_dl = {
                 
                 'id': self.info_dict['id'],
@@ -151,7 +150,6 @@ class VideoDownloader:
 
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]check if apple failed - {repr(e)}\n{info}")
-            
             
     def _get_dl(self, info): 
         
@@ -417,7 +415,10 @@ class VideoDownloader:
             self.write_window()
 
 
-            blocking_tasks = [asyncio.create_task(async_ex_in_executor(ex_videodl, dl.ensamble_file)) for dl in self.info_dl['downloaders'] if (not any(_ in str(type(dl)).lower() for _ in ('aria2', 'ffmpeg')) and dl.status == 'manipulating')]
+            blocking_tasks = [asyncio.create_task(async_ex_in_executor(ex_videodl, dl.ensamble_file)) 
+                                for dl in self.info_dl['downloaders'] if (
+                                    not any(_ in str(type(dl)).lower() for _ in ('aria2', 'ffmpeg')) and dl.status == 'manipulating')]
+            
             if self.info_dict.get('subtitles') or self.info_dict.get('requested_subtitles'):
                blocking_tasks += [asyncio.create_task(get_subts_files())]
             
@@ -455,14 +456,13 @@ class VideoDownloader:
                         rc = res.returncode
                         
                     else:                         
-            
+
                         rc = -1
                         try:
                             
                             res = await move(self.info_dl['downloaders'][0].filename, temp_filename)
                             if (res == temp_filename): rc = 0
-                            
-                            
+
                         except Exception as e:
                             lines = traceback.format_exception(*sys.exc_info())                
                             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
@@ -471,7 +471,7 @@ class VideoDownloader:
                                                                 
                         self.info_dl['status'] = "done"
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
-                        
+
                     else:
                         self.info_dl['status'] = "error"
                         raise Exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error move file: {rc}")
@@ -481,8 +481,7 @@ class VideoDownloader:
                     cmd = f"ffmpeg -y -loglevel repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 -map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:\"{temp_filename}\""
                     
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}")
-                    
-                    
+
                     rc = -1
                     
                     res = await asyncpostffmpeg(cmd)
@@ -503,8 +502,7 @@ class VideoDownloader:
                     else:
                         self.info_dl['status'] = "error"
                         raise Exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error merge, ffmpeg error: {rc}")
-                
-                    
+
                 if self.info_dl['status'] == "done":
                     if self.info_dl['downloaded_subtitles']:
                         if len(self.info_dl['downloaded_subtitles']) > 1:
@@ -530,7 +528,6 @@ class VideoDownloader:
                     if (mtime:=self.info_dict.get("release_timestamp")):
                         await os.utime(self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
 
-                    
             else: self.info_dl['status'] = "error"
                                
         except Exception as e:
@@ -541,7 +538,7 @@ class VideoDownloader:
             raise
         finally:
             self.write_window()
-            ex_videodl.shutdown(wait=False,cancel_futures=True)
+            ex_videodl.shutdown(wait=False, cancel_futures=True)
             await asyncio.sleep(0) 
 
     @staticmethod
@@ -550,7 +547,7 @@ class VideoDownloader:
         res = subprocess.run(shlex.split(cmd), encoding='utf-8', capture_output=True)
         return res
 
-    def print_hookup(self):        
+    def print_hookup(self):
         
         msg = ""
         for dl in self.info_dl['downloaders']:
