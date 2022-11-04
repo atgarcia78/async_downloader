@@ -637,224 +637,226 @@ class AsyncDL():
             
             logger.debug(f"[get_videos] Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\tCAP[{len(_url_list_caplinks)}]")
             
-            for _source, _ulist in _url_list.items():
-                
-                if self.STOP.is_set(): raise Exception("STOP")
-                
-                for _elurl in _ulist:
-                
+            if _url_list:
+
+                for _source, _ulist in _url_list.items():
+                    
                     if self.STOP.is_set(): raise Exception("STOP")
-                    is_pl, ie_key = is_playlist_extractor(_elurl, self.ytdl)
-                
-                    if not is_pl:
-                        
-                        if ie_key == 'NetDNA':
-                            netdna_list.add(_elurl)
-
-                        _entry = {'_type': 'url', 'url': _elurl, 'ie_key': ie_key}
-                        
-                        if not self.info_videos.get(_elurl):
-                                
-                            self.info_videos[_elurl] = {'source' : _source, 
-                                                    'video_info': _entry, 
-                                                    'status': 'init', 
-                                                    'aldl': False,
-                                                    'todl':True,
-                                                    'ie_key': ie_key, 
-                                                    'error': []}
-
-                            self._prepare_for_dl(_elurl)
-                            self.list_videos.append(_entry)
-                
-                    else:
-                        if not self.url_pl_list.get(_elurl):
-                            self.url_pl_list[_elurl] = {'source': _source}
-
-            
-
-            url_list = list(self.info_videos.keys())
-            
-            logger.debug(f"[url_list] Initial number of urls not pl [{len(url_list)}]")
-            logger.debug(f"[url_list] {url_list}")
                     
-            if netdna_list:
-                logger.info(f"[netdna_list]: {netdna_list}")
-                _ies_netdna = self.ytdl.get_info_extractor('NetDNA')
-                 
-                with ThreadPoolExecutor(thread_name_prefix="Get_netdna", max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
-                     
-                    futures = [ex.submit(_ies_netdna.get_entry, _url_netdna) for _url_netdna in netdna_list]
-
-                for fut,_url_netdna in zip(futures, netdna_list):
-                    try:
-                        _entry_netdna = fut.result()                        
-                        
-                        self.info_videos[_url_netdna]['video_info'] = _entry_netdna
-                        self._prepare_for_dl(_url_netdna)
-                        self.list_videos.append(self.info_videos[_url_netdna]['video_info'])
-                       
-                        
-                    except Exception as e:
-                        self.info_videos[_url_netdna]['error'].append(str(e))
-                        self.info_videos[_url_netdna]['status'] = 'prenok'
-                        self.info_videos[_url_netdna]['todl'] = True                        
-                        
-                        logger.error(repr(e))
-                
-                        
-            if self.url_pl_list:
-                
-                logger.debug(f"[url_playlist_list] Initial number of urls that are pl [{len(self.url_pl_list)}]")
-                logger.debug(f"[url_playlist_list]\n{self.url_pl_list}")                 
-                self._url_pl_entries = []                
-                self._count_pl = 0                
-                self.futures = {}
-                self.futures2 = {}
-                
-                if len(self.url_pl_list) == 1 and self.args.use_path_pl:
-                    _get_name = True
-                else:
-                    _get_name = False
-
-                def process_playlist(_url, _get):                        
+                    for _elurl in _ulist:
                     
-                    try:
+                        if self.STOP.is_set(): raise Exception("STOP")
+                        is_pl, ie_key = is_playlist_extractor(_elurl, self.ytdl)
+                    
+                        if not is_pl:
+                            
+                            if ie_key == 'NetDNA':
+                                netdna_list.add(_elurl)
+
+                            _entry = {'_type': 'url', 'url': _elurl, 'ie_key': ie_key}
+                            
+                            if not self.info_videos.get(_elurl):
+                                    
+                                self.info_videos[_elurl] = {'source' : _source, 
+                                                        'video_info': _entry, 
+                                                        'status': 'init', 
+                                                        'aldl': False,
+                                                        'todl':True,
+                                                        'ie_key': ie_key, 
+                                                        'error': []}
+
+                                self._prepare_for_dl(_elurl)
+                                self.list_videos.append(_entry)
+                    
+                        else:
+                            if not self.url_pl_list.get(_elurl):
+                                self.url_pl_list[_elurl] = {'source': _source}
+
+                
+
+                url_list = list(self.info_videos.keys())
+                
+                logger.debug(f"[url_list] Initial number of urls not pl [{len(url_list)}]")
+                logger.debug(f"[url_list] {url_list}")
                         
-                        if self.STOP.is_set(): 
-                            raise Exception("STOP")
-                        with self.lock:
-                            self._count_pl += 1
-                            logger.info(f"[get_videos][url_playlist_list][{self._count_pl}/{len(self.url_pl_list) + len(self.futures2)}] processing {_url}")
+                if netdna_list:
+                    logger.info(f"[netdna_list]: {netdna_list}")
+                    _ies_netdna = self.ytdl.get_info_extractor('NetDNA')
+                    
+                    with ThreadPoolExecutor(thread_name_prefix="Get_netdna", max_workers=min(self.init_nworkers, len(netdna_list))) as ex:
+                        
+                        futures = [ex.submit(_ies_netdna.get_entry, _url_netdna) for _url_netdna in netdna_list]
+
+                    for fut,_url_netdna in zip(futures, netdna_list):
                         try:
-                            _errormsg = None
-                            #_info = self.ytdl.extract_info(_url, download=False, process=False)
-                            _info = self.ytdl.extract_info(_url, download=False)
+                            _entry_netdna = fut.result()                        
+                            
+                            self.info_videos[_url_netdna]['video_info'] = _entry_netdna
+                            self._prepare_for_dl(_url_netdna)
+                            self.list_videos.append(self.info_videos[_url_netdna]['video_info'])
+                        
+                            
                         except Exception as e:
-                            logger.warning(f"[url_playlist_list] {_url} {type(e).__name__}")
-                            logger.debug(f"[url_playlist_list] {_url} {repr(e)}")
-                            _info = None
-                            _errormsg = repr(e)
-                        if not _info:
-                            _info = {'_type': 'error', 'url': _url, 'error': _errormsg or 'no video entry'}
-                            self._prepare_entry_pl_for_dl(_info)
-                            self._url_pl_entries += [_info]
-                        elif _info:                                
-                                
-                            if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
-                                #_info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))
-                                #_info = self.ytdl.sanitize_info(_info)
-                                if not _info.get('original_url'): _info.update({'original_url': _url})
-                                
+                            self.info_videos[_url_netdna]['error'].append(str(e))
+                            self.info_videos[_url_netdna]['status'] = 'prenok'
+                            self.info_videos[_url_netdna]['todl'] = True                        
+                            
+                            logger.error(repr(e))
+                    
+                            
+                if self.url_pl_list:
+                    
+                    logger.debug(f"[url_playlist_list] Initial number of urls that are pl [{len(self.url_pl_list)}]")
+                    logger.debug(f"[url_playlist_list]\n{self.url_pl_list}")                 
+                    self._url_pl_entries = []                
+                    self._count_pl = 0                
+                    self.futures = {}
+                    self.futures2 = {}
+                    
+                    if len(self.url_pl_list) == 1 and self.args.use_path_pl:
+                        _get_name = True
+                    else:
+                        _get_name = False
+
+                    def process_playlist(_url, _get):                        
+                        
+                        try:
+                            
+                            if self.STOP.is_set(): 
+                                raise Exception("STOP")
+                            with self.lock:
+                                self._count_pl += 1
+                                logger.info(f"[get_videos][url_playlist_list][{self._count_pl}/{len(self.url_pl_list) + len(self.futures2)}] processing {_url}")
+                            try:
+                                _errormsg = None
+                                #_info = self.ytdl.extract_info(_url, download=False, process=False)
+                                _info = self.ytdl.extract_info(_url, download=False)
+                            except Exception as e:
+                                logger.warning(f"[url_playlist_list] {_url} {type(e).__name__}")
+                                logger.debug(f"[url_playlist_list] {_url} {repr(e)}")
+                                _info = None
+                                _errormsg = repr(e)
+                            if not _info:
+                                _info = {'_type': 'error', 'url': _url, 'error': _errormsg or 'no video entry'}
                                 self._prepare_entry_pl_for_dl(_info)
                                 self._url_pl_entries += [_info]
-                            else:   
-                                if _get and not self.args.path:                             
-                                    _name = f"{sanitize_filename(_info.get('title'), restricted=True)}{_info.get('extractor_key')}{_info.get('id')}"
-                                    self.args.path = str(Path(Path.home(), 'testing', _name))
-                                    logger.debug(f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}")
-                                
-                                if isinstance(_info.get('entries'), list):
-                                    #_info = self.ytdl.process_ie_result(_info, download=False)
-                                    if (_info.get('extractor_key') in ('GVDBlogPost','GVDBlogPlaylist')):
-                                        _temp_aldl = [] 
-                                        _temp_nodl = []
-                                        for _ent in _info.get('entries'):
-                                            if not self._check_if_aldl(_ent, test=True): 
-                                                _temp_nodl.append(_ent)
-                                            else: _temp_aldl.append(_ent)
+                            elif _info:                                
                                     
-                                        def get_list_interl(res):
-                                            if not res:
-                                                return []
-                                            if len(res) < 3:
-                                                return res
-                                            _dict = {}
-                                            for ent in res:
-                                                _key = get_domain(ent['url'])
-                                                if not _dict.get(_key): _dict[_key] = [ent]
-                                                else: _dict[_key].append(ent)       
-                                            logger.info(f'[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries')                                        
-                                            _interl = []
-                                            for el in list(zip_longest(*list(_dict.values()))):
-                                                _interl.extend([_el for _el in el if _el])
-                                            return _interl 
-                                                                            
-                                        _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl
-                                   
-                                
-                                for _ent in _info.get('entries'):                                    
+                                if _info.get('_type', 'video') != 'playlist': #caso generic que es playlist default, pero luego puede ser url, url_trans
+                                    #_info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))
+                                    #_info = self.ytdl.sanitize_info(_info)
+                                    if not _info.get('original_url'): _info.update({'original_url': _url})
                                     
-                                    #if not isinstance(_info.get('entries'), list):
-                                    #    _ent = self.ytdl.process_ie_result(_ent, download=False)
-                                    if self.STOP.is_set(): 
-                                        raise Exception("STOP")
-                                    _ent = self.ytdl.sanitize_info(_ent)
-                                    if _ent.get('_type', 'video') == 'video':
-                                        if not _ent.get('original_url'): 
-                                            _ent.update({'original_url': _url})
-                                        elif _ent['original_url'] != _url:
-                                            _ent['initial_url'] = _url
-                                        if ((_ent.get('extractor_key') == 'Generic') or (_ent.get('ie_key') == 'Generic'))  and (_ent.get('n_entries',0) <= 1):
-                                                _ent.pop("playlist","")
-                                                _ent.pop("playlist_index","")
-                                                _ent.pop("n_entries","")
-                                                _ent.pop("playlist", "")
-                                                _ent.pop('playlist_id',"")
-                                                _ent.pop('playlist_title','')
+                                    self._prepare_entry_pl_for_dl(_info)
+                                    self._url_pl_entries += [_info]
+                                else:   
+                                    if _get and not self.args.path:                             
+                                        _name = f"{sanitize_filename(_info.get('title'), restricted=True)}{_info.get('extractor_key')}{_info.get('id')}"
+                                        self.args.path = str(Path(Path.home(), 'testing', _name))
+                                        logger.debug(f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}")
+                                    
+                                    if isinstance(_info.get('entries'), list):
+                                        #_info = self.ytdl.process_ie_result(_info, download=False)
+                                        if (_info.get('extractor_key') in ('GVDBlogPost','GVDBlogPlaylist')):
+                                            _temp_aldl = [] 
+                                            _temp_nodl = []
+                                            for _ent in _info.get('entries'):
+                                                if not self._check_if_aldl(_ent, test=True): 
+                                                    _temp_nodl.append(_ent)
+                                                else: _temp_aldl.append(_ent)
                                         
-                                        if ((_wurl:=_ent['webpage_url']) == _ent['original_url']):
-                                            if _ent.get('n_entries', 0) > 1:
-                                                _ent.update({'webpage_url': f"{_wurl}?index={_ent['playlist_index']}"})
-                                                logger.warning(f"[url_playlist_list][{_url}][{_ent['playlist_index']}]: playlist, nentries > 1, webpage_url == original_url: {_wurl}")
-                                                
-                                        self._prepare_entry_pl_for_dl(_ent)
-                                        self._url_pl_entries += [_ent]
-                                    else:    
-                                        try:
-                                            is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
-                                            _error = _ent.get('error')
-                                            if not is_pl or _error:
-                                                if not _ent.get('original_url'): _ent.update({'original_url': _url})
-                                                if _error: _ent['_type'] = "error"
-                                                self._prepare_entry_pl_for_dl(_ent)
-                                                self._url_pl_entries.append(_ent)
-                                            else:
+                                            def get_list_interl(res):
+                                                if not res:
+                                                    return []
+                                                if len(res) < 3:
+                                                    return res
+                                                _dict = {}
+                                                for ent in res:
+                                                    _key = get_domain(ent['url'])
+                                                    if not _dict.get(_key): _dict[_key] = [ent]
+                                                    else: _dict[_key].append(ent)       
+                                                logger.info(f'[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries')                                        
+                                                _interl = []
+                                                for el in list(zip_longest(*list(_dict.values()))):
+                                                    _interl.extend([_el for _el in el if _el])
+                                                return _interl 
+                                                                                
+                                            _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl
+                                    
+                                    
+                                    for _ent in _info.get('entries'):                                    
+                                        
+                                        #if not isinstance(_info.get('entries'), list):
+                                        #    _ent = self.ytdl.process_ie_result(_ent, download=False)
+                                        if self.STOP.is_set(): 
+                                            raise Exception("STOP")
+                                        _ent = self.ytdl.sanitize_info(_ent)
+                                        if _ent.get('_type', 'video') == 'video':
+                                            if not _ent.get('original_url'): 
+                                                _ent.update({'original_url': _url})
+                                            elif _ent['original_url'] != _url:
+                                                _ent['initial_url'] = _url
+                                            if ((_ent.get('extractor_key') == 'Generic') or (_ent.get('ie_key') == 'Generic'))  and (_ent.get('n_entries',0) <= 1):
+                                                    _ent.pop("playlist","")
+                                                    _ent.pop("playlist_index","")
+                                                    _ent.pop("n_entries","")
+                                                    _ent.pop("playlist", "")
+                                                    _ent.pop('playlist_id',"")
+                                                    _ent.pop('playlist_title','')
+                                            
+                                            if ((_wurl:=_ent['webpage_url']) == _ent['original_url']):
+                                                if _ent.get('n_entries', 0) > 1:
+                                                    _ent.update({'webpage_url': f"{_wurl}?index={_ent['playlist_index']}"})
+                                                    logger.warning(f"[url_playlist_list][{_url}][{_ent['playlist_index']}]: playlist, nentries > 1, webpage_url == original_url: {_wurl}")
+                                                    
+                                            self._prepare_entry_pl_for_dl(_ent)
+                                            self._url_pl_entries += [_ent]
+                                        else:    
+                                            try:
+                                                is_pl, ie_key = is_playlist_extractor(_ent['url'], self.ytdl)
+                                                _error = _ent.get('error')
+                                                if not is_pl or _error:
+                                                    if not _ent.get('original_url'): _ent.update({'original_url': _url})
+                                                    if _error: _ent['_type'] = "error"
+                                                    self._prepare_entry_pl_for_dl(_ent)
+                                                    self._url_pl_entries.append(_ent)
+                                                else:
 
-                                                self.futures2.update({self.ex_pl.submit(process_playlist, _ent['url'], False): _ent['url']})
+                                                    self.futures2.update({self.ex_pl.submit(process_playlist, _ent['url'], False): _ent['url']})
 
-                                        except Exception as e:
-                                            logger.error(f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}")
-                   
-                    except BaseException as e:
-                        logger.exception(f"[url_playlist_list] {repr(e)}")
-                        if isinstance(e, KeyboardInterrupt):
-                            raise
-                
-                if self.STOP.is_set(): raise Exception("STOP")
-                
-                with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers) as self.ex_pl:
-                
-                    for url in self.url_pl_list:    
-                        if self.STOP.is_set(): raise Exception("STOP")
-                        self.futures.update({self.ex_pl.submit(process_playlist, url, _get_name): url}) 
-                
-                    logger.debug(f"[url_playlist_list] initial playlists: {len(self.futures)}")
-                
-                    wait(list(self.futures))
-                
-                    logger.debug(f"[url_playlist_list] playlists from initial playlists: {len(self.futures2)}")
-                
+                                            except Exception as e:
+                                                logger.error(f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}")
+                    
+                        except BaseException as e:
+                            logger.exception(f"[url_playlist_list] {repr(e)}")
+                            if isinstance(e, KeyboardInterrupt):
+                                raise
+                    
                     if self.STOP.is_set(): raise Exception("STOP")
                     
-                    if self.futures2:
-                        wait(list(self.futures2))
+                    with ThreadPoolExecutor(thread_name_prefix="GetPlaylist", max_workers=self.init_nworkers) as self.ex_pl:
+                    
+                        for url in self.url_pl_list:    
+                            if self.STOP.is_set(): raise Exception("STOP")
+                            self.futures.update({self.ex_pl.submit(process_playlist, url, _get_name): url}) 
+                    
+                        logger.debug(f"[url_playlist_list] initial playlists: {len(self.futures)}")
+                    
+                        wait(list(self.futures))
+                    
+                        logger.debug(f"[url_playlist_list] playlists from initial playlists: {len(self.futures2)}")
+                    
+                        if self.STOP.is_set(): raise Exception("STOP")
                         
-                
-                
-                if self.STOP.is_set(): raise Exception("STOP")
-                
-                logger.info(f"[get_videos] entries from playlists: {len(self._url_pl_entries)}")
-                logger.debug(f"[url_playlist_list] {_for_print_videos(self._url_pl_entries)}")
+                        if self.futures2:
+                            wait(list(self.futures2))
+                            
+                    
+                    
+                    if self.STOP.is_set(): raise Exception("STOP")
+                    
+                    logger.info(f"[get_videos] entries from playlists: {len(self._url_pl_entries)}")
+                    logger.debug(f"[url_playlist_list] {_for_print_videos(self._url_pl_entries)}")
                 
 
             if self.args.collection_files:
@@ -869,7 +871,14 @@ class AsyncDL():
                         
                 _file_list_videos = []
                 for file in self.args.collection_files:
-                    _file_list_videos += dict(get_info_json(file)).get('entries')
+                    info_video = get_info_json(file)
+                    if info_video.get('_type', 'video') != 'playlist':
+                        _file_list_videos.append(info_video)
+                    else:
+                        _file_list_videos.extend(info_video.get('entries'))
+
+
+                  
                 
                 
                 for _vid in _file_list_videos:
@@ -901,7 +910,7 @@ class AsyncDL():
             
         
         except BaseException as e:            
-            logger.error(f"[get_videos]: Error {repr(e)}")
+            logger.exception(f"[get_videos]: Error {repr(e)}")
             
         finally:            
             for _ in range(self.init_nworkers - 1):
