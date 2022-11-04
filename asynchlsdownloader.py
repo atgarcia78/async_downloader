@@ -280,7 +280,7 @@ class AsyncHLSDownloader():
                     self.n_workers = min(self.n_workers, 16)
                     self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 90
                 else:
-                    self.n_workers = max(self.n_workers, 32)
+                    self.n_workers = min(self.n_workers, 32)
                     self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 120
 
                 _est_size = naturalsize(self.filesize)
@@ -481,10 +481,9 @@ class AsyncHLSDownloader():
                 
                     if any([all([el == 0 for el in _speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]]), (_speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:] == sorted(_speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:], reverse=True)), all([el < getter(self.n_workers) for el in _speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]])]):
                                                
-                        self.video_downloader.reset_event.set()
+                        ## self.video_downloader.reset_event.set()
                         _str_speed = ', '.join([f'{el}' for el in _speed[self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2:]])
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(_speed)}]\n%no%{_str_speed}")
-                        #logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset\n{_str_speed}")
                         break
                 
                 if pending: 
@@ -510,8 +509,7 @@ class AsyncHLSDownloader():
         
         try:
 
-            
-            
+
             while not any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
 
                 q = await self.frags_queue.get()
