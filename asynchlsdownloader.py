@@ -291,7 +291,8 @@ class AsyncHLSDownloader():
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][init] {repr(e)}")
             self.status = "error"
-            
+
+
     def calculate_duration(self):
         self.totalduration = 0
         for fragment in self.info_dict['fragments']:
@@ -348,15 +349,15 @@ class AsyncHLSDownloader():
         
     def reset(self):
 
-
         self.ema_s = EMA(smoothing=0.01)
         self.ema_t = EMA(smoothing=0.01)
+        
         count = 0
         
         while (count < 3):
         
             try:
-            
+
                 if self.video_downloader.stop_event.is_set():
                     break
                 logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:COUNT[{count}]:get video dict: {self.webpage_url}")
