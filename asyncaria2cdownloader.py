@@ -21,8 +21,8 @@ from utils import (CONF_ARIA2C_EXTR_GROUP,
                    CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO,
                    CONFIG_EXTRACTORS, ProxyYTDL, async_ex_in_executor,
                    async_wait_time, get_domain, get_format_id, limiter_non,
-                   naturalsize, none_to_zero, sync_to_async, traverse_obj,
-                   try_get)
+                   naturalsize, none_to_zero, smuggle_url, sync_to_async,
+                   traverse_obj, try_get, unsmuggle_url)
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -197,22 +197,23 @@ class AsyncARIA2CDownloader:
                 if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                     return
                 
-                self._index = try_get(list(done), lambda x: x[0].result())
+                self._index_proxy = try_get(list(done), lambda x: x[0].result())
                 
                 if self._mode == "simple":
                     
-                    self._proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index*100}'
+                    self._proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index_proxy*100}'
                     self.opts.set("all-proxy", self._proxy) 
                 
                     try:
                         _ytdl_opts = self.ytdl.params.copy()
                         
-                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy, executor=self._ex_aria2dl) as proxy_ytdl:
-                            proxy_info = get_format_id(
-                                proxy_ytdl.sanitize_info(
-                                    await proxy_ytdl.async_extract_info(
-                                        self.info_dict.get('webpage_url'))
-                                ), self.info_dict['format_id'])
+                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy, executor=self._ex_aria2dl) as proxy_ytdl:                            
+                                proxy_info = get_format_id(
+                                    proxy_ytdl.sanitize_info(
+                                        await proxy_ytdl.async_extract_info(
+                                            smuggle_url(self.info_dict.get('webpage_url'), {'indexdl': self.video_downloader.index}))
+                                    ), self.info_dict['format_id'])
+
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] mode simple, proxy ip: {self._proxy} init uri: {proxy_info.get('url')}\n{proxy_info}")
                         self.video_url = proxy_info.get('url')
                         self.uris = [unquote(proxy_info.get('url'))]
@@ -226,7 +227,7 @@ class AsyncARIA2CDownloader:
                     
                 elif self._mode == "group":
                     
-                    self._proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index*100+50}'
+                    self._proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index_proxy*100+50}'
                     self.opts.set("all-proxy", self._proxy) 
                     
                     _uris = []
@@ -245,22 +246,22 @@ class AsyncARIA2CDownloader:
                     async def get_uri(i):
                         try:
                             _ytdl_opts = self.ytdl.params.copy()
-                            _proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index*100+i}'
+                            _proxy = f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT+self._index_proxy*100+i}'
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_proxy}")
                             if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
                                 return
                             
-                            async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, executor=self._ex_aria2dl) as proxy_ytdl:
+                            async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, executor=self._ex_aria2dl) as proxy_ytdl:                                
                                 proxy_info = get_format_id(
                                     proxy_ytdl.sanitize_info(
                                         await proxy_ytdl.async_extract_info(
-                                            self.info_dict.get('webpage_url'))
+                                            smuggle_url(self.info_dict.get('webpage_url'), {'indexdl': self.video_downloader.index}))
                                     ), self.info_dict['format_id'])
                             
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_proxy} uri{i} {proxy_info.get('url')}")
                             _url = unquote(proxy_info.get('url'))
                             _url_as_dict = urlparse(_url)._asdict()
-                            _url_as_dict['netloc'] = f"__routing={CONF_PROXIES_BASE_PORT+self._index*100+i}__.{_url_as_dict['netloc']}"
+                            _url_as_dict['netloc'] = f"__routing={CONF_PROXIES_BASE_PORT+self._index_proxy*100+i}__.{_url_as_dict['netloc']}"
                             return urlunparse(list(_url_as_dict.values()))
                         except Exception as e:
                             _msg = f"host: {self._host} proxy[{i}]: {_proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
@@ -358,7 +359,7 @@ class AsyncARIA2CDownloader:
                     if not self.sem:
                         
                         self.sem = True
-                        self._index = None
+                        self._index_proxy = None
                         async with self.video_downloader.master_hosts_alock:
                             if not self.video_downloader.hosts_dl.get(self._host):
                                 self.video_downloader.hosts_dl.update({self._host: {'count': 1, 'queue': asyncio.Queue()}})
@@ -561,7 +562,7 @@ class AsyncARIA2CDownloader:
                     if self.sem:
                         async with self.video_downloader.master_hosts_alock:
                             self.video_downloader.hosts_dl[self._host]['count'] -= 1
-                            if self._index: self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
+                            if self._index_proxy: self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index_proxy)
                         self._proxy = None                
         
         except BaseException as e:

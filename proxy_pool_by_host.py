@@ -9,24 +9,21 @@
     :license: BSD, see LICENSE for more details.
 """
 import base64
-import random
-import logging
 import ipaddress
+import logging
+import random
+import re
 from typing import Any, Dict, List, Optional
 
-from proxy.http import Url, httpHeaders, httpMethods
-from proxy.core.base import TcpUpstreamConnectionHandler
-from proxy.http.proxy import HttpProxyBasePlugin
+from proxy.common.constants import (ANY_INTERFACE_HOSTNAMES, COLON,
+                                    LOCAL_INTERFACE_HOSTNAMES)
 from proxy.common.flag import flags
-from proxy.http.parser import HttpParser
-from proxy.common.utils import text_, bytes_
+from proxy.common.utils import bytes_, text_
+from proxy.core.base import TcpUpstreamConnectionHandler
+from proxy.http import Url, httpHeaders, httpMethods
 from proxy.http.exception import HttpProtocolException
-from proxy.common.constants import (
-    COLON, ANY_INTERFACE_HOSTNAMES, LOCAL_INTERFACE_HOSTNAMES,
-)
-
-import re
-
+from proxy.http.parser import HttpParser
+from proxy.http.proxy import HttpProxyBasePlugin
 
 #logger = logging.getLogger(__name__)
 

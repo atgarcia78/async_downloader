@@ -373,11 +373,9 @@ class AsyncDL():
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
 
-        
     async def gui_console(self):
         
         try:
-                        
             
             self.window_console = init_gui_console()
             
@@ -537,7 +535,7 @@ class AsyncDL():
                 event, value = self.window_root.read(timeout=0)
                 if event == sg.TIMEOUT_KEY:
                     continue
-                logger.debug(f"{event}:{value}")
+                #logger.debug(f"{event}:{value}")
             
                 if "kill" in event or event == sg.WIN_CLOSED: break
                 elif event == "nwmon":
@@ -1222,7 +1220,7 @@ class AsyncDL():
                                     self.info_videos[urlkey].update({'status': 'initok', 'filename': str(dl.info_dl.get('filename')), 'dl': str(dl)})
 
                                     async with self.alock:
-                                        #dl.index = len(self.list_dl)
+                                        dl.index = len(self.list_dl)
                                         self.list_dl.append(dl)
                                     
                                     #dl.write_window()

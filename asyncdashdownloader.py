@@ -19,7 +19,8 @@ import httpx
 
 from utils import (CONF_DASH_SPEED_PER_WORKER, EMA, _for_print_entry,
                    async_ex_in_executor, async_wait_time, int_or_none,
-                   naturalsize, print_norm_time, try_get)
+                   naturalsize, print_norm_time, smuggle_url, try_get,
+                   unsmuggle_url)
 
 logger = logging.getLogger("async_DASH_DL")
 
@@ -200,7 +201,7 @@ class AsyncDASHDownloader:
                 try:
 
                     if not self.is_audio:
-                        _info = self.ytdl.sanitize_info(self.ytdl.extract_info(self.webpage_url, download=False))
+                        _info = self.ytdl.sanitize_info(self.ytdl.extract_info(smuggle_url(self.webpage_url, {'indexdl': self.video_downloader.index}), download=False))
                         info_reset = _info['entries'][0] if (_info.get('_type') == 'playlist') else _info
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:New info video\n{_for_print_entry(info_reset)}")
                         if self.streams:
@@ -234,7 +235,6 @@ class AsyncDASHDownloader:
                 count += 1
                 if count == 5: raise AsyncDASHDLErrorFatal("Reset failed")
 
-
     def prep_reset(self, info_reset):       
        
         self.headers = self.info_dict['http_headers'] = info_reset.get('http_headers')
@@ -265,7 +265,6 @@ class AsyncDASHDownloader:
             self.status = "init_manipulating"
         else:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
-
 
     async def check_speed(self):
         
@@ -689,12 +688,12 @@ class AsyncDASHDownloader:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
         finally:
             if self._proxy:
-                self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
+                #self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
                 #self.video_downloader.hosts_dl[self._host]['count'] -= 1
                 _ytdl_opts = self.ytdl.params.copy()
                 _proxy = self._proxy['http://']
                 with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, quiet=False) as proxy_ytdl: #logout
-                    _info = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(self.webpage_url, download=False))
+                    _info = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(smuggle_url(self.webpage_url, {'indexdl': self.video_downloader.index}), download=False))
             #self.init_client.close()            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
             self.status = "init_manipulating"

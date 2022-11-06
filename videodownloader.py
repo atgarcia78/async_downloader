@@ -235,10 +235,14 @@ class VideoDownloader:
     
     def stop(self):
         self.info_dl['status'] = "stop"
+        for dl in self.info_dl['downloaders']:
+            dl.status = "stop"
         if self.stop_event:
             self.resume()
             self.stop_event.set()
+        self.write_window()
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
+
 
     def pause(self):
         if self.pause_event:
@@ -259,6 +263,8 @@ class VideoDownloader:
         self.pause_event = asyncio.Event()
         self.resume_event = asyncio.Event()
         self.stop_event = asyncio.Event()
+        self.info_dl['ytdl'].params['stop_dl'][str(self.index)] = self.stop_event
+        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] [stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
         self.reset_event = asyncio.Event()
         self.alock = asyncio.Lock()
         

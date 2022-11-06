@@ -67,13 +67,14 @@ try:
     from yt_dlp import YoutubeDL
     from yt_dlp.extractor.commonwebdriver import (CONFIG_EXTRACTORS,
                                                   SeleniumInfoExtractor,
-                                                  dec_on_exception,
+                                                  StatusStop, dec_on_exception,
                                                   dec_retry_error, limiter_1,
                                                   limiter_5, limiter_15,
                                                   limiter_non)
     from yt_dlp.mylogger import MyLogger
     from yt_dlp.utils import (get_domain, js_to_json, prepend_extension,
-                              sanitize_filename, traverse_obj, try_get)
+                              sanitize_filename, smuggle_url, traverse_obj,
+                              try_get, unsmuggle_url)
     
     _SUPPORT_YTDL = True
 except Exception:
@@ -701,6 +702,9 @@ if _SUPPORT_YTDL:
                     except Exception as e:
                         pass
         
+        def extract_info(self, url):
+            return super().extract_info(url, download=False)
+        
         async def async_extract_info(self, url):
             return await async_ex_in_executor(self.executor, self.extract_info, url, download=False)
             
@@ -775,6 +779,7 @@ if _SUPPORT_YTDL:
             "winit": args.winit,
             "verboseplus": args.vv,
             "sem": {},
+            "stop_dl": {},
             "stop": threading.Event(),
             "lock": threading.Lock(),
             "embed": not args.no_embed
