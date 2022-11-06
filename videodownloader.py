@@ -116,8 +116,9 @@ class VideoDownloader:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}] DL constructor failed {repr(e)}")
             self.info_dl['status'] = "error"
         finally:
-            if self.info_dl['status'] == "error":
-                shutil.rmtree(self.info_dl['download_path'], ignore_errors=True)
+            #if self.info_dl['status'] == "error":
+            #    shutil.rmtree(self.info_dl['download_path'], ignore_errors=True)
+            pass
     
     @property
     def index(self):
