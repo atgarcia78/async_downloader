@@ -706,7 +706,7 @@ if _SUPPORT_YTDL:
             return super().extract_info(url, download=False)
         
         async def async_extract_info(self, url):
-            return await async_ex_in_executor(self.executor, self.extract_info, url, download=False)
+            return await async_ex_in_executor(self.executor, self.extract_info, url)
             
     def get_extractor(url, ytdl):
         
