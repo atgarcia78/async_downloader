@@ -95,10 +95,12 @@ class AsyncARIA2CDownloader:
                 lambda y: y[0]) or ("","") 
             
             if value:
+                self.special_extr = True
                 return(value['ratelimit'].ratelimit(key_text, delay=True), value['maxsplits'])
         
         _extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
         self.auto_pasres = False
+        self.special_extr = False
         _sem = False
         self._mode = "simple"
         if _extractor and _extractor != 'generic':
@@ -198,6 +200,8 @@ class AsyncARIA2CDownloader:
                     return
                 
                 self._index_proxy = try_get(list(done), lambda x: x[0].result())
+
+                _webpage_url = smuggle_url(self.info_dict.get('webpage_url'), {'indexdl': self.video_downloader.index}) if self.special_extr else self.info_dict.get('webpage_url')
                 
                 if self._mode == "simple":
                     
@@ -211,7 +215,7 @@ class AsyncARIA2CDownloader:
                                 proxy_info = get_format_id(
                                     proxy_ytdl.sanitize_info(
                                         await proxy_ytdl.async_extract_info(
-                                            smuggle_url(self.info_dict.get('webpage_url'), {'indexdl': self.video_downloader.index}))
+                                            _webpage_url)
                                     ), self.info_dict['format_id'])
 
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] mode simple, proxy ip: {self._proxy} init uri: {proxy_info.get('url')}\n{proxy_info}")
@@ -255,7 +259,7 @@ class AsyncARIA2CDownloader:
                                 proxy_info = get_format_id(
                                     proxy_ytdl.sanitize_info(
                                         await proxy_ytdl.async_extract_info(
-                                            smuggle_url(self.info_dict.get('webpage_url'), {'indexdl': self.video_downloader.index}))
+                                            _webpage_url)
                                     ), self.info_dict['format_id'])
                             
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] proxy ip{i} {_proxy} uri{i} {proxy_info.get('url')}")

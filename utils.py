@@ -801,17 +801,7 @@ if _SUPPORT_YTDL:
         
         return ytdl
 
-    def get_format_id(info_dict, _formatid, _pl_index=None):
-        if _pl_index:
-            if not (_entries:=info_dict.get('entries')): return
-            for _ent in _entries:
-                if int(_ent.get('playlist_index', 0)) == int(_pl_index):
-                    if not (_formats:=_ent.get('formats')): return
-                    for _ft in _formats:
-                        if _ft['format_id'] == _formatid:
-                            return _ft
-            return
-                        
+    def get_format_id(info_dict, _formatid):
                 
         if (_req_fts:=info_dict.get('requested_formats')):
             for _ft in _req_fts:

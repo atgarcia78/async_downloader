@@ -265,7 +265,7 @@ class VideoDownloader:
         self.resume_event = asyncio.Event()
         self.stop_event = asyncio.Event()
         self.info_dl['ytdl'].params['stop_dl'][str(self.index)] = self.stop_event
-        logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] [stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
+        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] [stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
         self.reset_event = asyncio.Event()
         self.alock = asyncio.Lock()
         
