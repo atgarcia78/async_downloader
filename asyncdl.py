@@ -728,7 +728,7 @@ class AsyncDL():
                             try:
                                 _errormsg = None
                                 #_info = self.ytdl.extract_info(_url, download=False, process=False)
-                                _info = self.ytdl.extract_info(_url, download=False)
+                                _info = self.ytdl.extract_info(_url, download=False, process=False)
                             except Exception as e:
                                 logger.warning(f"[url_playlist_list] {_url} {type(e).__name__}")
                                 logger.debug(f"[url_playlist_list] {_url} {repr(e)}")
@@ -787,9 +787,12 @@ class AsyncDL():
                                         #if not isinstance(_info.get('entries'), list):
                                         #    _ent = self.ytdl.process_ie_result(_ent, download=False)
                                         if self.STOP.is_set(): 
-                                            raise Exception("STOP")
-                                        _ent = self.ytdl.sanitize_info(_ent)
-                                        if _ent.get('_type', 'video') == 'video':
+                                            raise Exception("STOP")                                        
+                                        
+                                        if _ent.get('_type', 'video') == 'video' and not _ent.get('error'):
+                                            
+                                            _ent = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_ent, download=False))
+
                                             if not _ent.get('original_url'): 
                                                 _ent.update({'original_url': _url})
                                             elif _ent['original_url'] != _url:
