@@ -116,6 +116,7 @@ class VideoDownloader:
             self.pause_event = None
             self.resume_event = None
             self.stop_event = None
+            self.reset_event = None
             self.alock = None
 
         except Exception as e:            

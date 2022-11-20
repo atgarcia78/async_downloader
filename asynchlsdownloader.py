@@ -56,8 +56,6 @@ class MySem(asyncio.Semaphore):
         self._value = n
 
 
-    
-
 class AsyncHLSDLErrorFatal(Exception):
         
 
@@ -779,7 +777,7 @@ class AsyncHLSDownloader():
                                                     async with self.video_downloader.alock:
                                                         self.video_downloader.info_dl['filesize'] += self.filesize
                                         else:
-                                            self.video_downloader.reset_event.set()
+                                            #self.video_downloader.reset_event.set()
                                             raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} _hsize is None")                                    
                                         
                                         if self.info_frag[q-1]['downloaded']:                                    
@@ -818,6 +816,7 @@ class AsyncHLSDownloader():
                                         # self.info_frag[q - 1]['statistics'] = []
                                         
                                         _started = time.monotonic()
+                                        
                                         async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
                                             
                                             
@@ -993,7 +992,6 @@ class AsyncHLSDownloader():
                 try:
                     
                     self.count = self.n_workers
-                    #self.n_workers_now = self.n_workers
                     self.down_temp = self.down_size
                     self.started = time.monotonic()
                     self.status = "downloading"                    
@@ -1108,7 +1106,7 @@ class AsyncHLSDownloader():
         finally:
             self.init_client.close()            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
-            if not self.video_downloader.stop_event.is_set():
+            if not self.video_downloader.stop_event.is_set() and not self.status == "error":
                 self.status = "init_manipulating"
             await async_ex_in_executor(self.ex_hlsdl, self.dump_init_file)
             self.ex_hlsdl.shutdown(wait=False, cancel_futures=True)
@@ -1137,8 +1135,6 @@ class AsyncHLSDownloader():
                     
     def ensamble_file(self):
 
-
-    
         self.status = "manipulating"
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: Fragments DL \n{self.fragsdl()}")
         

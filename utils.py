@@ -83,16 +83,11 @@ except Exception:
     _SUPPORT_YTDL = False
 
 
-
 try:    
     from filelock import FileLock
     _SUPPORT_FILELOCK = True
 except Exception:
     _SUPPORT_FILELOCK = False
-
-
-
-
 
 
 def _for_print_entry(entry):
@@ -311,8 +306,6 @@ class EMA:
             self.last = self.alpha * x + beta * self.last
             self.calls += 1
         return self.last / (1 - beta ** self.calls) if self.calls else self.last
-
-
 
 class OutputLogger:
     def __init__(self, name="root", level="INFO"):
