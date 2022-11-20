@@ -33,6 +33,10 @@ FORCE_TO_HTTP = [''] #['doodstream']
 logger = logging.getLogger("video_DL")
 
 class VideoDownloader:
+
+    _QUEUE = Queue()
+    _ONGO = {}
+    _PLNS = {}
     
     def __init__(self, window_root, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
         
@@ -69,8 +73,11 @@ class VideoDownloader:
                 'filename': Path(_download_path.parent, str(self.info_dict['id']) + 
                                  "_" + sanitize_filename(self.info_dict['title'], restricted=True) + 
                                  "." + self.info_dict.get('ext', 'mp4')),
-                'backup_http': self.args.use_http_failover
-            } 
+                'backup_http': self.args.use_http_failover,
+                'queue_ch': VideoDownloader._QUEUE,
+                'urls_on_go': VideoDownloader._ONGO,
+                'fromplns': VideoDownloader._PLNS,
+            }
                 
             self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
             
@@ -98,7 +105,6 @@ class VideoDownloader:
                 
             self.info_dl.update({
                 'downloaders': downloaders,
-                'queue_ch': Queue(),
                 'downloaded_subtitles': {},
                 'filesize': sum([dl.filesize for dl in downloaders if dl.filesize]),
                 'down_size': sum([dl.down_size for dl in downloaders]),
@@ -199,6 +205,7 @@ class VideoDownloader:
                 elif protocol in ('m3u8', 'm3u8_native'):
                     dl = AsyncHLSDownloader(self.args.proxy, info, self)
                     logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
+                    if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                                 
                 elif protocol in ('http_dash_segments', 'dash'):
                     if _streams: _str = n
@@ -229,11 +236,15 @@ class VideoDownloader:
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
     def reset(self):
-        if self.reset_event:
-            self.resume()
+        if self.reset_event:            
             self.reset_event.set()                
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
-    
+
+    def reset_plns(self, plid):
+        if plns:=(VideoDownloader._PLNS.get(plid)):
+            for dl in plns:
+                dl.reset()
+
     def stop(self):
         self.info_dl['status'] = "stop"
         for dl in self.info_dl['downloaders']:
@@ -243,7 +254,6 @@ class VideoDownloader:
             self.stop_event.set()
         self.write_window()
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
-
 
     def pause(self):
         if self.pause_event:

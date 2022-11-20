@@ -69,12 +69,12 @@ class AsyncDL():
 
         
         self.wkinit_stop = False
-        self.pasres_repeat = True
+        self.pasres_repeat = False
         self.console_dl_status = False
         
         self.list_pasres = set()
-        self.pasres_time_from_resume_to_pause = 5
-        self.pasres_time_in_pause = 5
+        self.pasres_time_from_resume_to_pause = 50
+        self.pasres_time_in_pause = 10
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -464,6 +464,7 @@ class AsyncDL():
                         if event in ['Reset', 'Stop', '+PasRes', '-PasRes']:
                             sg.cprint('Needs to select a DL')                                                   
                         else:
+                            
                             if self.list_dl:
                                 info = []
                                 for dl in self.list_dl:                            
@@ -474,7 +475,9 @@ class AsyncDL():
                                 
                                 logger.debug(f"[gui_console] info for print\n{info}")
                                 if info:
-                                    sg.cprint(f"[{', '.join(info)}]")                                    
+                                    #sg.cprint(f"[{', '.join(info)}]")                                    
+                                    _thr = getattr(dl.info_dl['downloaders'][0], 'throttle', None)
+                                    sg.cprint(f"throttle [{_thr}]")
                                     if event == 'ToFile':
                                         with open(Path(Path.home(), "testing", _file:=f"{self.launch_time.strftime('%Y%m%d_%H%M')}.json"), "w") as f:
                                             f.write(f'{{"entries": [{", ".join(info)}]}}')
@@ -756,22 +759,31 @@ class AsyncDL():
                                         self.args.path = str(Path(Path.home(), 'testing', _name))
                                         logger.debug(f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}")
                                     
-                                    if isinstance(_info.get('entries'), list):
-                                        #_info = self.ytdl.process_ie_result(_info, download=False)
+                                    if isinstance(_info.get('entries'), list):                                    
+
+
+                                        _temp_error = []
+
+                                        
+                                        for _ent in _info.get('entries'):
+                                            if _ent.get('error'):
+                                                _ent['_type'] = "error"
+                                                self._prepare_entry_pl_for_dl(_ent)
+                                                self._url_pl_entries.append(_ent)                                                    
+                                                _temp.error.append(_ent)
+                                                del _ent
+
+                                        _info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))
+                                        
                                         if (_info.get('extractor_key') in ('GVDBlogPost','GVDBlogPlaylist')):
                                             _temp_aldl = [] 
                                             _temp_nodl = []
-                                            _temp_error = []
 
                                             for _ent in _info.get('entries'):
-                                                if not _ent.get('error'):
-                                                    _ent = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_ent, download=False))
-                                                    if not self._check_if_aldl(_ent, test=True): 
-                                                        _temp_nodl.append(_ent)
-                                                    else: _temp_aldl.append(_ent)
-                                                else:
-                                                    _temp.error.append(_ent)
-                                        
+                                                if not self._check_if_aldl(_ent, test=True): 
+                                                    _temp_nodl.append(_ent)
+                                                else: _temp_aldl.append(_ent)
+
                                             def get_list_interl(res):
                                                 if not res:
                                                     return []
@@ -788,7 +800,7 @@ class AsyncDL():
                                                     _interl.extend([_el for _el in el if _el])
                                                 return _interl 
                                                                                 
-                                            _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl + _temp_error
+                                            _info['entries'] = get_list_interl(_temp_nodl) + _temp_aldl
                                     
                                     
                                     for _ent in _info.get('entries'):                                    
@@ -1012,7 +1024,10 @@ class AsyncDL():
                                             'status': 'prenok',
                                             'todl': True,                                                         
                                             'error': [entry.get('error', 'no video entry')]}
-                if any(_ in str(entry.get('error', 'no video entry')).lower() for _ in ['not found', '404', 'flagged', '403', '410', 'suspended', 'unavailable', 'disabled']): self.list_notvalid_urls.append(_errorurl)                                    
+                
+                if any(_ in str(entry.get('error', 'no video entry')).lower() for _ in ['not found', '404', 'flagged', '403', '410', 'suspended', 'unavailable', 'disabled']): self.list_notvalid_urls.append(_errorurl)  
+                elif 'unsupported url' in str(entry.get('error', 'no video entry')).lower():                                    
+                    self.list_unsup_urls.append(url_key)                                                    
                 else: self.list_urls_to_check.append((_errorurl, entry.get('error', 'no video entry')))
                 self.list_initnok.append((_errorurl, entry.get('error', 'no video entry')))
             return
@@ -1247,9 +1262,8 @@ class AsyncDL():
                                         _msg = ''
                                         async with self.alock:
                                             if dl.info_dl.get('auto_pasres'):
-                                                _index_in_dl = self.list_dl.index(dl)
-                                                self.list_pasres.add(_index_in_dl+1)
-                                                _msg = f', add this dl[{_index_in_dl}] to auto_pasres{list(self.list_pasres)}'
+                                                self.list_pasres.add(dl.index + 1)
+                                                _msg = f', add this dl[{dl.index + 1}] to auto_pasres{list(self.list_pasres)}'
                                                 if self.window_console: sg.cprint(f"[pause-resume autom] {self.list_pasres}")
                                                                             
                                         logger.debug(f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, ready to DL{_msg}")
@@ -1257,8 +1271,7 @@ class AsyncDL():
                                 else:
                                     async with self.alock:
                                         self.totalbytes2dl -= _filesize
-                                    
-                                            
+
                                     raise Exception("no DL init")
 
                         if (_type:=info.get('_type', 'video')) == 'video': 
@@ -1274,7 +1287,6 @@ class AsyncDL():
                                 
                             if not self.STOP.is_set(): await get_dl(url_key, infdict=info, extradict=vid)
 
-                        
                         elif _type == 'playlist':
                             
                             logger.warning(f"[worker_init][{i}]: [{url_key}] playlist en worker_init")
@@ -1699,7 +1711,6 @@ class AsyncDL():
             except Exception as e:
                 logger.exception(repr(e))
 
-        
         _videos_url_notsupported = self.list_unsup_urls
         _videos_url_notvalid = self.list_notvalid_urls
         _videos_url_tocheck = [_url for _url, _ in self.list_urls_to_check] if self.list_urls_to_check else []
@@ -1745,6 +1756,11 @@ class AsyncDL():
         _columnssamevideo = ['ID', 'Title', 'URL', 'Same URL']
         tab_vsamevideo = tabulate(info_dict['videossamevideo']['str'], showindex=True, headers=_columnssamevideo, tablefmt="simple") if info_dict['videossamevideo']['str'] else None
         
+        if self.args.path:
+            _path_str = f"--path {self.args.path} "
+        else:
+            _path_str = ""
+        
         try:
             
             logger.info("******************************************************")
@@ -1786,12 +1802,12 @@ class AsyncDL():
                 logger.info("Videos DL: []")            
             if videos_kodl:  
                 logger.info("Videos TOTAL ERROR DL:")
-                logger.info(f"%no%\n\n{videos_kodl} \n[-u {' -u '.join(videos_kodl)}]")
+                logger.info(f"%no%\n\n{videos_kodl} \n[{_path_str}-u {' -u '.join(videos_kodl)}]")
             else:
                 logger.info(f"Videos TOTAL ERROR DL: []")
             if videos_koinit:            
                 logger.info(f"Videos ERROR INIT DL:")
-                logger.info(f"%no%\n\n{videos_koinit} \n[-u {' -u '.join(videos_koinit)}]")
+                logger.info(f"%no%\n\n{videos_koinit} \n[{_path_str}-u {' -u '.join(videos_koinit)}]")
             if _videos_url_notsupported:
                 logger.info(f"Unsupported URLS:")
                 logger.info(f"%no%\n\n{_videos_url_notsupported}")
@@ -1893,6 +1909,3 @@ class AsyncDL():
         except BaseException as e:
             logger.exception(f"[close] {repr(e)}")
             raise
-            
-
-          

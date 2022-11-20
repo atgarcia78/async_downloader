@@ -24,7 +24,8 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
 
-CONF_HLS_SPEED_PER_WORKER = 102400
+CONF_HLS_MAX_SPEED_PER_DL = 7*1048576 #1048576 #512000 #1048576 #4194304
+CONF_HLS_SPEED_PER_WORKER = 2*102400#512000
 CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 8
 CONF_PROXIES_BASE_PORT = 12000
@@ -36,6 +37,7 @@ CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ['tubeload', 'redload', 'highload', 'embedo']
+
 
 try:
     import proxy
@@ -90,6 +92,9 @@ except Exception:
 
 
 
+
+
+
 def _for_print_entry(entry):
     if not entry: return
     _entry = copy.deepcopy(entry)
@@ -98,7 +103,7 @@ def _for_print_entry(entry):
 
         _new_formats = []
         for _format in _formats:
-            if len(_formats) > 10:
+            if len(_formats) > 5:
                 _id, _prot = _format['format_id'],  _format['protocol']
                 _format = {'format_id':_id, ...:..., 'protocol': _prot}
 
@@ -290,6 +295,10 @@ class EMA:
         self.last = 0
         self.calls = 0
 
+    def reset(self):
+        self.last = 0
+        self.calls = 0
+    
     def __call__(self, x=None):
         """
         Parameters
@@ -1158,7 +1167,7 @@ if _SUPPORT_PYSIMP:
                                     [sg.Text('Select DL', font='Any 14')],
                                     [sg.Input(key='-IN-', font='Any 10', focus=True)],
                                     [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, auto_refresh=True, autoscroll=True)],
-                                    [sg.Checkbox('PasRes', key='-PASRES-', default=True, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('+PasRes'), sg.Button('-PasRes'), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('+runwk', key='IncWorkerRun'), sg.Button('#vidwk', key='NumVideoWorkers'), sg.Button('TimePasRes'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
+                                    [sg.Checkbox('PasRes', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('+PasRes'), sg.Button('-PasRes'), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('+runwk', key='IncWorkerRun'), sg.Button('#vidwk', key='NumVideoWorkers'), sg.Button('TimePasRes'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
             ], element_justification='c', expand_x=True, expand_y=True)
             
             layout_pygui = [ [col_pygui] ]
