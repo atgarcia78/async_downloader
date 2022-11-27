@@ -38,13 +38,13 @@ def main():
                 asyncDL.loop.run_until_complete(asyncDL.main_task)
                 asyncDL.get_results_info()
             except BaseException as e:
-                logger.error(f"[main] {repr(e)}")
+                logger.exception(f"[main] {repr(e)}")
     
         except BaseException as e:
-            logger.error(f"[main] {repr(e)}")
+            logger.exception(f"[main] {repr(e)}")
     
     except BaseException as e:
-        logger.error(f"[main] {repr(e)}")
+        logger.exception(f"[main] {repr(e)}")
         
 
     finally:
@@ -53,12 +53,12 @@ def main():
 
     
 
-if __name__ == "__main__":    
+if __name__ == "__main__":
     try:
         main()        
         #logger.debug(f"[main] pending threads:\n{print_threads(threading.enumerate())}")
     except BaseException as e:
-        logger.error(f"[main] {repr(e)}")
+        logger.exception(f"[main] {repr(e)}")
 
         
     

@@ -22,7 +22,7 @@ from utils import (CONF_ARIA2C_EXTR_GROUP,
                    CONFIG_EXTRACTORS, ProxyYTDL, async_ex_in_executor,
                    async_wait_time, get_domain, get_format_id, limiter_non,
                    naturalsize, none_to_zero, smuggle_url, sync_to_async,
-                   traverse_obj, try_get, unsmuggle_url)
+                   traverse_obj, try_get, unsmuggle_url, ProgressTimer, SpeedometerMA)
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -443,42 +443,31 @@ class AsyncARIA2CDownloader:
                          
             while (self.dl_cont and self.dl_cont.status == "active"):                    
                 
-                try:                
-              
-                    if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.video_downloader.stop_event, self.video_downloader.reset_event]):
-                        return
+                try:
 
-                    if self.video_downloader.pause_event.is_set():                       
-                        
-                        await self.async_pause()  
-
-                        done, pending = await asyncio.wait([self.video_downloader.resume_event.wait(),
-                                            self.video_downloader.reset_event.wait(),
-                                            self.video_downloader.stop_event.wait()],
-                                            return_when=asyncio.FIRST_COMPLETED)
-                        
-                        try_get(list(pending), lambda x: (x[0].cancel(), x[1].cancel()))
-                        
+                    if self.video_downloader.pause_event.is_set():
+                        done, pending = await asyncio.wait([asyncio.create_task(self.video_downloader.resume_event.wait()), asyncio.create_task(self.video_downloader.reset_event.wait()), asyncio.create_task(self.video_downloader.stop_event.wait())], return_when=asyncio.FIRST_COMPLETED)
+                        for _el in pending: _el.cancel()
+                        await asyncio.wait(pending)
                         self.video_downloader.pause_event.clear()
-                        self.video_downloader.resume_event.clear()
-                         
-                        if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
-                            return
-                        
+                        self.video_downloader.resume_event.clear()      
+
                         async with self._decor: 
-                            await self.async_resume()
-
-                    await self.async_update()                       
-                    
-                    if self.video_downloader.stop_event.is_set() or self.video_downloader.reset_event.is_set():
+                            await self.async_resume()       
+              
+                    if any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                         return
-                   
-                    _incsize = self.dl_cont.completed_length - self.down_size
-                    self.down_size = self.dl_cont.completed_length
-                            
-                    async with self.video_downloader.alock: 
-                        self.video_downloader.info_dl['down_size'] += _incsize
+                    
+                    if self.progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI/2):
+                        await self.async_update()                       
 
+                        _incsize = self.dl_cont.completed_length - self.down_size
+                        self.down_size = self.dl_cont.completed_length
+                                
+                        async with self.video_downloader.alock: 
+                            self.video_downloader.info_dl['down_size'] += _incsize
+
+                    await asyncio.sleep(0)
 
                 except BaseException as e:
                     raise
@@ -505,6 +494,7 @@ class AsyncARIA2CDownloader:
             
     async def fetch_async(self):
         
+        self.progress_timer = ProgressTimer()
         self.status = "downloading"
         self._speed = []
         

@@ -19,13 +19,14 @@ from datetime import datetime, timedelta
 from itertools import zip_longest
 from pathlib import Path
 from queue import Queue
+from bisect import bisect
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
 
-CONF_HLS_MAX_SPEED_PER_DL = 7*1048576 #1048576 #512000 #1048576 #4194304
-CONF_HLS_SPEED_PER_WORKER = 2*102400#512000
+ #1048576 #512000 #1048576 #4194304
+CONF_HLS_SPEED_PER_WORKER = 102400#512000
 CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 8
 CONF_PROXIES_BASE_PORT = 12000
@@ -37,6 +38,91 @@ CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ['tubeload', 'redload', 'highload', 'embedo']
+
+
+def cmd_extract_info(url, proxy=None, pl=False):
+    if pl: opt = "-J"
+    else: opt = "-j"
+    if proxy: pr = f"--proxy {proxy} "
+    else: pr = ""
+    cmd = f"yt-dlp {opt} {pr}{url}"
+    print(cmd)
+    res = subprocess.run(cmd.split(" "), encoding='utf-8', capture_output=True)
+    if res.returncode != 0:
+        raise Exception(res.stderr)
+    else: return(json.loads(res.stdout.splitlines()[0]))
+
+class ProgressTimer:
+    TIMER_FUNC = time.monotonic
+
+    def __init__(self):
+        self._last_ts = self.TIMER_FUNC()
+
+    def elapsed_seconds(self) -> float:
+        return self.TIMER_FUNC() - self._last_ts
+
+    def has_elapsed(self, seconds: float) -> bool:
+        assert seconds > 0.0
+        elapsed_seconds = self.elapsed_seconds()
+        if elapsed_seconds < seconds:
+            return False
+
+        self._last_ts += elapsed_seconds - elapsed_seconds % seconds
+        return True
+
+
+class SpeedometerMA:
+    TIMER_FUNC = time.monotonic
+    UPDATE_TIMESPAN_S = 1.0
+    AVERAGE_TIMESPAN_S = 5.0
+
+    def __init__(self, initial_bytes=0):
+        self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
+        self.timer = ProgressTimer()
+        self.last_value = None
+
+    def __call__(self, byte_counter):
+        time_now = self.TIMER_FUNC()
+
+        # only append data older than 50ms
+        if time_now - self.ts_data[-1][0] > 0.05:
+            self.ts_data.append((time_now, byte_counter))
+
+        # remove older entries
+        idx = max(0, bisect(self.ts_data, (time_now - self.AVERAGE_TIMESPAN_S, )) - 1)
+        self.ts_data[0:idx] = ()
+
+        diff_time = time_now - self.ts_data[0][0]
+        speed = (byte_counter - self.ts_data[0][1]) / diff_time if diff_time else None
+        if self.timer.has_elapsed(seconds=self.UPDATE_TIMESPAN_S):
+            self.last_value = speed
+
+        return self.last_value or speed
+
+
+class SmoothETA:
+    def __init__(self):
+        self.last_value = None
+
+    def __call__(self, value):
+        if value <= 0:
+            return 0
+
+        time_now = time.monotonic()
+        if self.last_value:
+            predicted = self.last_value - time_now
+            if predicted <= 0:
+                deviation = float('inf')
+            else:
+                deviation = max(predicted, value) / min(predicted, value)
+
+            if deviation < 1.25:
+                return predicted
+
+        self.last_value = time_now + value
+        return value
+
+
 
 
 try:
@@ -72,7 +158,8 @@ try:
                                                   StatusStop, dec_on_exception,
                                                   dec_retry_error, limiter_1,
                                                   limiter_5, limiter_15,
-                                                  limiter_non)
+                                                  limiter_non, ReExtractInfo, ConnectError,
+                                                  StatusError503)
     from yt_dlp.mylogger import MyLogger
     from yt_dlp.utils import (get_domain, js_to_json, prepend_extension,
                               sanitize_filename, smuggle_url, traverse_obj,
@@ -366,7 +453,7 @@ def rclone_init_args():
     
 def init_argparser():
     
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:106.0) Gecko/20100101 Firefox/106.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:107.0) Gecko/20100101 Firefox/107.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
@@ -756,6 +843,8 @@ if _SUPPORT_YTDL:
         }
         
         ytdl_opts = { 
+            "retries": 1,
+            "extractor_retries": 1,
             "http_headers": headers,
             "proxy" : proxy,        
             "logger" : MyLogger(logger, quiet=args.quiet, 
@@ -784,7 +873,7 @@ if _SUPPORT_YTDL:
             "stop_dl": {},
             "stop": threading.Event(),
             "lock": threading.Lock(),
-            "embed": not args.no_embed
+            "embed": not args.no_embed,
                     
         }
         
@@ -1258,7 +1347,49 @@ def get_ip_proxy():
         return(random.choice(json.load(f)))
 
 if _SUPPORT_HTTPX:
-    
+
+    def send_http_request(url, **kwargs):
+        
+        logger = logging.getLogger("test")
+
+        try:
+            _type = kwargs.get('_type', "GET")
+            headers = kwargs.get('headers', None)
+            data = kwargs.get('data', None)
+            msg = kwargs.get('msg', None)
+            premsg = f'[send_http_request][{(url)}][{_type}]'
+            if msg: 
+                premsg = f'{msg}{premsg}'           
+
+            _CLIENT = kwargs.get('client')
+            res = None
+            _msg_err = ""
+            req = _CLIENT.build_request(_type, url, data=data, headers=headers)
+            res = _CLIENT.send(req)
+            if res:
+                res.raise_for_status()                
+                return res
+            else: return ""
+        except Exception as e:            
+            _msg_err = repr(e)
+            if res and res.status_code == 403:                
+                raise ReExtractInfo(_msg_err)
+            if res and res.status_code == 404:           
+                res.raise_for_status()
+            elif res and res.status_code == 503:
+                raise StatusError503(repr(e))
+            elif isinstance(e, ConnectError):
+                if 'errno 61' in _msg_err.lower():                    
+                    raise
+                else:
+                    raise Exception(_msg_err)   
+            elif not res:
+                raise TimeoutError(_msg_err)
+            else:
+                raise Exception(_msg_err) 
+        finally:                
+            logger.info(f"{premsg} {req}:{res}:{_msg_err}")
+
     def check_proxy(ip, port, queue_ok=None):
         try:
             

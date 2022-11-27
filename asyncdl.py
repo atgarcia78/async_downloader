@@ -26,7 +26,9 @@ from utils import (CONF_INTERVAL_GUI, CONF_PROXIES_MAX_N_GR_HOST,
                    is_playlist_extractor, js_to_json, kill_processes,
                    long_operation_in_process, long_operation_in_thread,
                    naturalsize, none_to_zero, print_tasks, run_proxy_http,
-                   sanitize_filename, sg, traverse_obj, try_get, wait_time)
+                   sanitize_filename, sg, traverse_obj, try_get, wait_time, ProgressTimer,
+                   SpeedometerMA)
+
 from videodownloader import VideoDownloader
 
 logger = logging.getLogger("asyncDL")
@@ -278,38 +280,29 @@ class AsyncDL():
 
         try:
             
+            progress_timer = ProgressTimer()            
             list_init_old = {}
             list_dl_old = {}
             list_manip_old = {}
             self.list_nwmon = []
-            #io = psutil.net_io_counters(pernic=True)['en1']
             self.ema_s = EMA(smoothing=0.01)
             io = psutil.net_io_counters()
-            init_bytes_recv = io.bytes_recv
-            bytes_recv = io.bytes_recv
-            wait_time(CONF_INTERVAL_GUI/2)            
+            init_bytes_recv = io.bytes_recv            
+            speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
             while not stop_event.is_set():
-                if self.list_dl:
+                if self.list_dl and progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                    
                     list_init_old = self.update_window("init", list_init_old)
                     list_dl_old = self.update_window("downloading", list_dl_old)
                     list_manip_old = self.update_window(("manipulating", "init_manipulating"), list_manip_old)
-                    #io_2 = psutil.net_io_counters(pernic=True)['en1']
-                    #io_2 = psutil.net_io_counters()
                     _recv = psutil.net_io_counters().bytes_recv
-                    #ds = (io_2.bytes_recv - bytes_recv) / CONF_INTERVAL_GUI
-                    ds = (_recv - bytes_recv) / (CONF_INTERVAL_GUI/2)
+                    ds = speedometer(_recv)
                     self.list_nwmon.append((datetime.now(), ds))                    
                     if self.window_root:
-                        msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(self.ema_s(ds),True)}ps"
+                        msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(ds,True)}ps"
                         self.window_root.write_event_value("nwmon", msg)
-                    #bytes_recv = io_2.bytes_recv
-                    bytes_recv = _recv  
-                
-                if not wait_time(CONF_INTERVAL_GUI/2, event=stop_event):
-                    break
-                
-                
-                
+                    
+        
         except Exception as e:
             logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
         finally:
@@ -357,7 +350,6 @@ class AsyncDL():
                 dl.stop()
         await asyncio.sleep(0)
 
-        
     async def print_pending_tasks(self):
         try:
             if self.loop:
@@ -383,7 +375,7 @@ class AsyncDL():
                         
             while True:             
                 
-                if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.stop_console]):
+                if not await async_wait_time(CONF_INTERVAL_GUI, events=[self.stop_console]):
                     break
 
                 event, values = self.window_console.read(timeout=0)
@@ -506,7 +498,9 @@ class AsyncDL():
                                         if event == 'Info': sg.cprint(self.list_dl[_index-1].info_dict)
                                     else: sg.cprint('DL index doesnt exist')
                             else: sg.cprint('DL list empty')
-                            
+
+                await asyncio.sleep(0)
+
         except BaseException as e:
             if not isinstance(e, asyncio.CancelledError):           
                 logger.error(f"[gui_console] Error:{repr(e)}")
@@ -532,7 +526,7 @@ class AsyncDL():
                 
             while True:                
                 
-                if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.stop_root]):
+                if not await async_wait_time(CONF_INTERVAL_GUI/5, events=[self.stop_root]):
                     break
 
                 event, value = self.window_root.read(timeout=0)
@@ -556,13 +550,12 @@ class AsyncDL():
                     if list_downloading:
                         _text.extend(list(list_downloading.values()))
                  
-                    _upt = ''.join(_text)                        
-                    self.window_root['-ML1-'].update(_upt)
+                    upt = ''.join(_text)                        
+                    self.window_root['-ML1-'].update(upt)
                     
                     if self.console_dl_status:
-                        sg.cprint('"\n\n-------STATUS DL----------------\n\n"')
-                        sg.cprint('\n'.join(list_downloading.values()))
-                        sg.cprint('"\n\n-------END STATUS DL------------\n\n"')
+                        upt = '\n'.join(list_downloading.values())
+                        sg.cprint(f"\n\n-------STATUS DL----------------\n\n{upt}\n\n-------END STATUS DL------------\n\n")
                         self.console_dl_status = False                           
                     
                 elif event in ("manipulating", "init_manipulating"):
@@ -573,18 +566,20 @@ class AsyncDL():
                     if list_manipulating:
                         _text.extend(["\n\n-------CREATING FILE------------\n\n"])
                         _text.extend(list(list_manipulating.values()))                    
-                    if _text: _upt = ''.join(_text)
-                    else: _upt = ''
-                    self.window_root['-ML3-'].update(_upt)
+                    if _text: upt = ''.join(_text)
+                    else: upt = ''
+                    self.window_root['-ML3-'].update(upt)
                 elif event in ("error", "done", "stop"):
                     list_finish.update(value[event])
                     
                     if list_finish:
-                        _upt = "\n\n" + ''.join(list(list_finish.values()))
+                        upt = "\n\n" + ''.join(list(list_finish.values()))
                     else:
-                        _upt = ''                        
+                        upt = ''                        
                     
-                    self.window_root['-ML2-'].update(_upt)
+                    self.window_root['-ML2-'].update(upt)
+
+                await asyncio.sleep(0)
                         
 
         except BaseException as e:

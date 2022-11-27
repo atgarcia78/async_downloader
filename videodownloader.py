@@ -32,6 +32,21 @@ FORCE_TO_HTTP = [''] #['doodstream']
 
 logger = logging.getLogger("video_DL")
 
+
+class MyEvent(asyncio.Event):
+
+    def set(self, cause="noinfo"):
+        
+        super().set()
+        self._cause = cause
+
+    def is_set(self):
+        """Return True if and only if the internal flag is true."""
+        if self._value: return self._cause
+        else: return self._value
+
+
+
 class VideoDownloader:
 
     _QUEUE = Queue()
@@ -236,15 +251,15 @@ class VideoDownloader:
         
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
-    def reset(self):
+    def reset(self, cause=None):
         if self.reset_event:            
-            self.reset_event.set()                
+            self.reset_event.set(cause)                
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
 
-    def reset_plns(self, plid):
+    def reset_plns(self, plid, cause=None):
         if plns:=(VideoDownloader._PLNS.get(plid)):
             for dl in plns:
-                dl.reset()
+                dl.reset(cause)
 
     def stop(self):
         self.info_dl['status'] = "stop"
@@ -277,7 +292,7 @@ class VideoDownloader:
         self.stop_event = asyncio.Event()
         self.info_dl['ytdl'].params['stop_dl'][str(self.index)] = self.stop_event
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] [stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
-        self.reset_event = asyncio.Event()
+        self.reset_event = MyEvent()
         self.alock = asyncio.Lock()
         
         try:
@@ -313,6 +328,8 @@ class VideoDownloader:
                 else:
                     
                     res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
+
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] salida tasks {res}")
 
                     if 'error' in res:
                         self.info_dl['status'] = 'error'
