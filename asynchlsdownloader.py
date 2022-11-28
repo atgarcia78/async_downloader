@@ -394,7 +394,7 @@ class AsyncHLSDownloader():
 
             try:
                 
-                wait_time(30, event=self.video_downloader.stop_event)
+                #wait_time(15, event=self.video_downloader.stop_event)
 
                 if self.video_downloader.stop_event.is_set():
                     break                    

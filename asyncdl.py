@@ -759,15 +759,18 @@ class AsyncDL():
 
                                         _temp_error = []
 
-                                        
+                                        _entries_ok = []
                                         for _ent in _info.get('entries'):
                                             if _ent.get('error'):
                                                 _ent['_type'] = "error"
+                                                if not _ent.get('original_url'): _ent.update({'original_url': _url})
                                                 self._prepare_entry_pl_for_dl(_ent)
                                                 self._url_pl_entries.append(_ent)                                                    
-                                                _temp.error.append(_ent)
-                                                del _ent
+                                                _temp_error.append(_ent)
+                                                #del _ent
+                                            else: _entries_ok.append(_ent)
 
+                                        _info['entries'] = _entries_ok
                                         _info = self.ytdl.sanitize_info(self.ytdl.process_ie_result(_info, download=False))
                                         
                                         if (_info.get('extractor_key') in ('GVDBlogPost','GVDBlogPlaylist')):

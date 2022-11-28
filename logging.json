@@ -8,7 +8,7 @@
         },
         "colored": {
             "()": "supportlogging.ColoredFormatter",
-            "format": "%(asctime)s - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s",
+            "format": "%(asctime)s.%(msecs)03d - %(threadName)-15s - %(name)-15s - %(levelname)-17s - %(message)s",
             "datefmt": "%H:%M:%S"
         },
         "file_format": {
