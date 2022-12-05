@@ -40,17 +40,92 @@ CONF_INTERVAL_GUI = 0.2
 CONF_ARIA2C_EXTR_GROUP = ['tubeload', 'redload', 'highload', 'embedo']
 
 
-def cmd_extract_info(url, proxy=None, pl=False):
+def wait_for_change_ip(logger):
+    _old_ip = json.loads(subprocess.run(f"curl -s https://httpbin.org/get".split(' '), encoding='utf-8', capture_output=True).stdout).get('origin')
+    logger.info(f"old ip: {_old_ip}")
+    _proc_kill = subprocess.run(['pkill', 'TorGuardDesktopQt'])
+    if _proc_kill.returncode:
+        logger.error(f"error when closing TorGuard {_proc_kill}")
+    else:
+        n = 0
+        while n < 5:
+            time.sleep(2)
+            _new_ip = json.loads(subprocess.run(f"curl -s https://httpbin.org/get".split(' '), encoding='utf-8', capture_output=True).stdout).get('origin')
+            logger.info(f"[{n}] {_new_ip}")
+            if _old_ip != _new_ip: break
+            else: n += 1
+        _old_ip = _new_ip
+        logger.info(f"new old ip: {_old_ip}")
+        _proc_open = subprocess.run(['open', '/Applications/Torguard.app'])
+        time.sleep(5)
+        n = 0
+        while n < 5:
+            logger.info("try to get ip")
+            _proc_ip = subprocess.run(f"curl -s https://httpbin.org/get".split(' '), encoding='utf-8', capture_output=True)
+            _new_ip = json.loads(_proc_ip.stdout).get('origin')
+            logger.info(f"[{n}] {_new_ip}")
+            if _old_ip != _new_ip: return True
+            else:
+                n += 1
+                time.sleep(2)
+
+
+def cmd_extract_info(url, proxy=None, pl=False, upt=False):
     if pl: opt = "-J"
     else: opt = "-j"
     if proxy: pr = f"--proxy {proxy} "
     else: pr = ""
     cmd = f"yt-dlp {opt} {pr}{url}"
     print(cmd)
-    res = subprocess.run(cmd.split(" "), encoding='utf-8', capture_output=True)
-    if res.returncode != 0:
-        raise Exception(res.stderr)
-    else: return(json.loads(res.stdout.splitlines()[0]))
+    if not upt:
+        res = subprocess.run(cmd.split(" "), encoding='utf-8', capture_output=True)
+        if res.returncode != 0:
+            raise Exception(res.stderr)
+        else: return(json.loads(res.stdout.splitlines()[0]))
+
+async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
+    if pl: opt = "-J"
+    else: opt = "-j"
+    if proxy: pr = f"--proxy {proxy} "
+    else: pr = ""
+    cmd = f"yt-dlp -v {opt} {pr}{url}"
+    if not logger:
+        logger = logging.getLogger("test")
+    logger.info(cmd)
+
+    proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            
+    async def read_stream(stream):
+        
+        try:
+            
+            _buffer = ""
+            while not proc.returncode:
+                try:                        
+                    line = await stream.readline()
+                except (asyncio.LimitOverrunError, ValueError):
+                    continue
+
+                if line: 
+                    _line = line.decode('utf-8')                    
+                    logger.info(_line)
+                    _buffer += _line
+
+                else:
+                    break
+
+        except Exception as e:
+            logger.exception(repr(e))
+            
+    await asyncio.gather(read_stream(proc.stderr), proc.wait())
+
+    _info = await proc.stdout.read()
+    return json.loads(_info)
+
+
+
+
+
 
 class ProgressTimer:
     TIMER_FUNC = time.monotonic
@@ -591,8 +666,11 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
         raise ValueError('Expected fill, strict, or ignore')      
           
 
-def get_myip(key):
-    proc_curl = subprocess.Popen(f"curl -x http://127.0.0.1:{key} -s https://api.ipify.org?format=json".split(' '), stdout=subprocess.PIPE,)
+def get_myip(key=None):
+    _proxy = ""
+    if key:
+        _proxy = f"-x http://127.0.0.1:{key} "
+    proc_curl = subprocess.Popen(f"curl {_proxy}-s https://api.ipify.org?format=json".split(' '), stdout=subprocess.PIPE,)
     return(subprocess.run(['jq', '-r', '.ip'], stdin=proc_curl.stdout, encoding='utf-8', capture_output=True).stdout.strip())
 
 def test_proxies_rt(routing_table):
@@ -873,8 +951,7 @@ if _SUPPORT_YTDL:
             "stop_dl": {},
             "stop": threading.Event(),
             "lock": threading.Lock(),
-            "embed": not args.no_embed,
-                    
+            "embed": not args.no_embed                    
         }
         
         if args.use_cookies:

@@ -89,9 +89,10 @@ class VideoDownloader:
                                  "_" + sanitize_filename(self.info_dict['title'], restricted=True) + 
                                  "." + self.info_dict.get('ext', 'mp4')),
                 'backup_http': self.args.use_http_failover,
-                'queue_ch': VideoDownloader._QUEUE,
-                'urls_on_go': VideoDownloader._ONGO,
-                'fromplns': VideoDownloader._PLNS,
+                #'queue_ch': VideoDownloader._QUEUE,
+                #'urls_on_go': VideoDownloader._ONGO,
+                'fromplns': VideoDownloader._PLNS
+                
             }
                 
             self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)  
@@ -132,6 +133,7 @@ class VideoDownloader:
             self.resume_event = None
             self.stop_event = None
             self.reset_event = None
+            self.end_tasks = None
             self.alock = None
 
         except Exception as e:            
@@ -252,14 +254,34 @@ class VideoDownloader:
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
     def reset(self, cause=None):
-        if self.reset_event:            
+        if self.reset_event:                        
             self.reset_event.set(cause)                
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
+            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: event reset")
 
     def reset_plns(self, plid, cause=None):
-        if plns:=(VideoDownloader._PLNS.get(plid)):
-            for dl in plns:
+        dict_dl = traverse_obj(self.info_dl['fromplns'], (plid, 'downloaders'))
+        list_dl = traverse_obj(self.info_dl['fromplns'], (plid, 'downloading'))
+        list_reset = traverse_obj(self.info_dl['fromplns'], (plid, 'in_reset'))
+        list_total = list_dl.union(list_reset)     
+        if list_total and dict_dl:
+            self.info_dl['fromplns'][plid]['reset'].clear()
+            plns = [dl for key,dl in dict_dl.items() if key in list_total]
+            for dl,key in zip(plns, list_dl):
                 dl.reset(cause)
+                list_reset.add(key)
+
+
+    async def back_from_reset_plns(self, plid, logger, premsg):
+        dict_dl = traverse_obj(self.info_dl['fromplns'], (plid, 'downloaders'))
+        list_reset = traverse_obj(self.info_dl['fromplns'], (plid, 'in_reset'))        
+        if list_reset and dict_dl:
+            plns = [dl for key,dl in dict_dl.items() if key in list_reset]
+            _tasks = [asyncio.create_task(dl.end_tasks.wait()) for dl in plns]
+            logger.info(f"{premsg} endtasks {_tasks}")
+            _2tasks = {asyncio.wait(_tasks): 'tasks',  asyncio.create_task(self.stop_event.wait()): 'stop'}
+            done, pending = await asyncio.wait(_2tasks, return_when=asyncio.FIRST_COMPLETED)
+            for _el in pending: _el.cancel()
+
 
     def stop(self):
         self.info_dl['status'] = "stop"
@@ -290,6 +312,7 @@ class VideoDownloader:
         self.pause_event = asyncio.Event()
         self.resume_event = asyncio.Event()
         self.stop_event = asyncio.Event()
+        self.end_tasks = asyncio.Event()
         self.info_dl['ytdl'].params['stop_dl'][str(self.index)] = self.stop_event
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] [stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
         self.reset_event = MyEvent()

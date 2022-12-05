@@ -245,7 +245,6 @@ class AsyncFFmpegFD(FFmpegFD):
             
             proc = await asyncio.create_subprocess_shell(cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE) 
             
-
             async def read_stream(stream):
                 
                 try:

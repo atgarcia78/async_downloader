@@ -631,6 +631,56 @@ class AsyncDL():
                 _url_list['cli'] = _url_list_cli   
             
             
+            if self.args.collection_files:
+                
+                def get_info_json(file):
+                    try:
+                        with open(file, "r") as f:
+                            return json.loads(js_to_json(f.read()))
+                    except Exception as e:
+                        logger.error(f"[get_list_videos] Error:{repr(e)}")
+                        return {}
+                        
+                _file_list_videos = []
+                for file in self.args.collection_files:
+                    info_video = get_info_json(file)
+                    if info_video.get('_type', 'video') != 'playlist':
+                        _file_list_videos.append(info_video)
+                    else:
+                        _file_list_videos.extend(info_video.get('entries'))
+
+
+                for _vid in _file_list_videos:
+                    if not _vid.get('playlist'):
+
+                        _url = _vid.get('webpage_url')
+                        if not self.info_videos.get(_url):
+                            
+                                                    
+                            self.info_videos[_url] = {'source' : 'file_cli', 
+                                                        'video_info': _vid, 
+                                                        'status': 'init', 
+                                                        'aldl': False,
+                                                        'todl': True,
+                                                        'error': []}
+                            
+                            _same_video_url = self._check_if_same_video(_url)
+                            
+                            if _same_video_url:
+                                
+                                self.info_videos[_url].update({'samevideo': _same_video_url})
+                                logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
+                                self._prepare_for_dl(_url)
+                            
+                            else:
+                                self._prepare_for_dl(_url)
+                                self.list_videos.append(self.info_videos[_url]['video_info'])
+                    else:
+                        self._prepare_entry_pl_for_dl(_vid)
+
+
+            logger.debug(f"[get_list_videos] list videos: \n{_for_print_videos(self.list_videos)}")      
+
             logger.debug(f"[get_videos] Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\tCAP[{len(_url_list_caplinks)}]")
             
             if _url_list:
@@ -714,7 +764,7 @@ class AsyncDL():
                     else:
                         _get_name = False
 
-                    def process_playlist(_url, _get):                        
+                    def process_playlist(_url, _get, _info=None):                        
                         
                         try:
                             
@@ -723,15 +773,16 @@ class AsyncDL():
                             with self.lock:
                                 self._count_pl += 1
                                 logger.info(f"[get_videos][url_playlist_list][{self._count_pl}/{len(self.url_pl_list) + len(self.futures2)}] processing {_url}")
-                            try:
-                                _errormsg = None
-                                #_info = self.ytdl.extract_info(_url, download=False, process=False)
-                                _info = self.ytdl.extract_info(_url, download=False, process=False)
-                            except Exception as e:
-                                logger.warning(f"[url_playlist_list] {_url} {type(e).__name__}")
-                                logger.debug(f"[url_playlist_list] {_url} {repr(e)}")
-                                _info = None
-                                _errormsg = repr(e)
+                            if not _info:
+                                try:
+                                    _errormsg = None
+                                    #_info = self.ytdl.extract_info(_url, download=False, process=False)
+                                    _info = self.ytdl.extract_info(_url, download=False, process=False)
+                                except Exception as e:
+                                    logger.warning(f"[url_playlist_list] {_url} {type(e).__name__}")
+                                    logger.debug(f"[url_playlist_list] {_url} {repr(e)}")
+                                    _info = None
+                                    _errormsg = repr(e)
                             if not _info:
                                 _info = {'_type': 'error', 'url': _url, 'error': _errormsg or 'no video entry'}
                                 self._prepare_entry_pl_for_dl(_info)
@@ -877,54 +928,7 @@ class AsyncDL():
                     logger.debug(f"[url_playlist_list] {_for_print_videos(self._url_pl_entries)}")
                 
 
-            if self.args.collection_files:
-                
-                def get_info_json(file):
-                    try:
-                        with open(file, "r") as f:
-                            return json.loads(js_to_json(f.read()))
-                    except Exception as e:
-                        logger.error(f"[get_list_videos] Error:{repr(e)}")
-                        return {}
-                        
-                _file_list_videos = []
-                for file in self.args.collection_files:
-                    info_video = get_info_json(file)
-                    if info_video.get('_type', 'video') != 'playlist':
-                        _file_list_videos.append(info_video)
-                    else:
-                        _file_list_videos.extend(info_video.get('entries'))
-
-
-                  
-                
-                
-                for _vid in _file_list_videos:
-                    _url = _vid.get('webpage_url')
-                    if not self.info_videos.get(_url):
-                        
-                                                
-                        self.info_videos[_url] = {'source' : 'file_cli', 
-                                                    'video_info': _vid, 
-                                                    'status': 'init', 
-                                                    'aldl': False,
-                                                    'todl': True,
-                                                    'error': []}
-                        
-                        _same_video_url = self._check_if_same_video(_url)
-                        
-                        if _same_video_url:
-                            
-                            self.info_videos[_url].update({'samevideo': _same_video_url})
-                            logger.warning(f"{_url}: has not been added to video list because it gets same video than {_same_video_url}")
-                            self._prepare_for_dl(_url)
-                        
-                        else:
-                            self._prepare_for_dl(_url)
-                            self.list_videos.append(self.info_videos[_url]['video_info'])
-
-
-            logger.debug(f"[get_list_videos] list videos: \n{_for_print_videos(self.list_videos)}")            
+      
             
         
         except BaseException as e:            
