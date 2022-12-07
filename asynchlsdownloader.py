@@ -160,11 +160,11 @@ class AsyncHLSDownloader():
         def getter(x):                       
             try:
                 if 'nakedsword' in x:
-                    self._CONF_HLS_MAX_SPEED_PER_DL = 2*10*1048576
+                    self._CONF_HLS_MAX_SPEED_PER_DL = 10*1048576
                     self.auto_pasres = True
-                    self.n_workers = 48
+                    #self.n_workers = 
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {_for_print_entry(self.info_dict)}")
-                    if self.info_dict.get('playlist_title', "") != 'MostWatchedScenes':
+                    if self.info_dict.get('playlist_title', "") not in ('MostWatchedScenes', 'Search'):
                         self.fromplns = self.info_dict.get('playlist_id', False)                    
                     
                     if self.fromplns:
@@ -387,6 +387,9 @@ class AsyncHLSDownloader():
     
     def multi_extract_info(self, url, proxy=None, msg=None):
         
+        premsg = ""
+        if msg: premsg = msg
+
         try:        
             if proxy:
                 with ProxyYTDL(opts=self.ytdl.params.copy(), proxy=proxy) as proxy_ytdl:                        
@@ -397,8 +400,7 @@ class AsyncHLSDownloader():
 
             if not _info_video: raise ExtractorError("no info video")
             
-            premsg = ""
-            if msg: premsg = msg
+            
             #logger.info(f"{premsg} info video reset ok\n%no%{_info_video}")
             
             return _info_video                    
@@ -417,8 +419,8 @@ class AsyncHLSDownloader():
                     
                     if cause and str(cause) == "403":
                         wait_time(75, event=self.video_downloader.stop_event)
-                    if self.video_downloader.stop_event.is_set():
-                        return                
+                        if self.video_downloader.stop_event.is_set():
+                            return                
                     _proxy = None                
                     _wurl = self.info_dict.get('webpage_url')
                     if self.enproxy:
@@ -591,15 +593,15 @@ class AsyncHLSDownloader():
 
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(_speed)}]")
 
-                        if self.fromplns:
-                            self.video_downloader.reset_plns(self.fromplns)
+                        # if self.fromplns:
+                        #     self.video_downloader.reset_plns(self.fromplns)
                             
-                        else:
-                            self.video_downloader.reset_event.set()  
+                        # else:
+                        #     self.video_downloader.reset_event.set()  
                        
-                        self._test.append(("speed reset"))
+                        # self._test.append(("speed reset"))
 
-                        break
+                        # break
 
                     elif self._CONF_HLS_MAX_SPEED_PER_DL and all([el >= self._CONF_HLS_MAX_SPEED_PER_DL for el in _speed[-(self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2):]]) and (not _max_bd_detected or (_max_bd_detected and prog.elapsed_seconds() > nsecs)):
                     
