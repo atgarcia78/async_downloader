@@ -25,26 +25,12 @@ from asyncffmpegdownloader import AsyncFFMPEGDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
 from utils import (async_ex_in_executor, naturalsize, prepend_extension,
-                   sync_to_async, traverse_obj, try_get)
+                   sync_to_async, traverse_obj, try_get, MyEvent)
 
 FORCE_TO_HTTP = [''] #['doodstream']
 
 
 logger = logging.getLogger("video_DL")
-
-
-class MyEvent(asyncio.Event):
-
-    def set(self, cause="noinfo"):
-        
-        super().set()
-        self._cause = cause
-
-    def is_set(self):
-        """Return True if and only if the internal flag is true."""
-        if self._value: return self._cause
-        else: return self._value
-
 
 
 class VideoDownloader:

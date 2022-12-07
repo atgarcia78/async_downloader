@@ -123,6 +123,41 @@ async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
     return json.loads(_info)
 
 
+class MySem(asyncio.Semaphore):
+    
+    def __init__(self, *args, **kwargs):
+        
+        self.dl = kwargs.pop('dl')
+        super().__init__(*args, **kwargs)
+
+    async def __aenter__(self):
+        
+        if self._value <= 0:
+            logger.debug(f"{self.dl.premsg} waiting for SEM")
+            await self.acquire()
+            logger.debug(f"{self.dl.premsg} entry SEM")
+
+        else:
+            await self.acquire()
+
+        return None
+
+    def reset(self, n):
+        for i in range(len(self._waiters)):
+            self._wake_up_next()
+        self._value = n
+
+class MyEvent(asyncio.Event):
+
+    def set(self, cause="noinfo"):
+        
+        super().set()
+        self._cause = cause
+
+    def is_set(self):
+        """Return True if and only if the internal flag is true."""
+        if self._value: return self._cause
+        else: return self._value
 
 
 
