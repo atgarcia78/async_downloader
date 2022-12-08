@@ -26,7 +26,7 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 CONF_DASH_SPEED_PER_WORKER = 102400
 
  #1048576 #512000 #1048576 #4194304
-CONF_HLS_SPEED_PER_WORKER = 102400/2#512000
+CONF_HLS_SPEED_PER_WORKER = 102400/8#512000
 CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 8
 CONF_PROXIES_BASE_PORT = 12000
@@ -147,20 +147,18 @@ class MySem(asyncio.Semaphore):
             self._wake_up_next()
         self._value = n
 
-class MyEvent(asyncio.Event):
+class MyAsyncioEvent(asyncio.Event):
 
     def set(self, cause="noinfo"):
         
         super().set()
+        if not cause: cause = "noinfo"
         self._cause = cause
 
     def is_set(self):
         """Return True if and only if the internal flag is true."""
         if self._value: return self._cause
-        else: return self._value
-
-
-
+        else: return False
 
 class ProgressTimer:
     TIMER_FUNC = time.monotonic
@@ -179,7 +177,6 @@ class ProgressTimer:
 
         self._last_ts += elapsed_seconds - elapsed_seconds % seconds
         return True
-
 
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
@@ -209,7 +206,6 @@ class SpeedometerMA:
 
         return self.last_value or speed
 
-
 class SmoothETA:
     def __init__(self):
         self.last_value = None
@@ -231,8 +227,6 @@ class SmoothETA:
 
         self.last_value = time_now + value
         return value
-
-
 
 
 try:
@@ -269,7 +263,7 @@ try:
                                                   dec_retry_error, limiter_1,
                                                   limiter_5, limiter_15,
                                                   limiter_non, ReExtractInfo, ConnectError,
-                                                  StatusError503)
+                                                  StatusError503, my_dec_on_exception)
     from yt_dlp.mylogger import MyLogger
     from yt_dlp.utils import (get_domain, js_to_json, prepend_extension,
                               sanitize_filename, smuggle_url, traverse_obj,

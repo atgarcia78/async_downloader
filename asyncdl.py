@@ -98,9 +98,9 @@ class AsyncDL():
         
                 
     
-        self.p1, self.mpqueue = self.get_videos_cached()        
+        self.videos_cached_ready = self.get_videos_cached()        
 
-    @long_operation_in_process
+    @long_operation_in_thread
     def get_videos_cached(self, *args, **kwargs):        
         
         """
@@ -108,7 +108,8 @@ class AsyncDL():
         If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.    
         """
 
-        queue = kwargs.get('queue')
+        _ready = kwargs.get('stop_event')
+        #queue = kwargs.get('queue')
 
         local_storage = LocalStorage()       
 
@@ -250,7 +251,9 @@ class AsyncDL():
                 except Exception as e:
                     logger.exception(f"[videos_cached] {repr(e)}")
                 finally:
-                    queue.put_nowait(videos_cached)
+                    #queue.put_nowait(videos_cached)
+                    self.videos_cached = videos_cached
+                    _ready.set()
                     
         except Exception as e:
             logger.exception(f"[videos_cached] {repr(e)}")
@@ -287,7 +290,7 @@ class AsyncDL():
             init_bytes_recv = io.bytes_recv            
             speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
             while not stop_event.is_set():
-                if self.list_dl and progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                if self.list_dl and progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI/2):
                     
                     list_init_old = self.update_window("init", list_init_old)
                     list_dl_old = self.update_window("downloading", list_dl_old)
@@ -479,7 +482,7 @@ class AsyncDL():
                         else:
                             
                             if self.list_dl:
-                                for el in values['-IN-'].split(','):
+                                for el in (values['-IN-'].replace(' ','')).split(','):
                                     _index = int(el)
                                     if 0 < _index <= len(self.list_dl):
                                         if event == '+PasRes': 
@@ -490,9 +493,12 @@ class AsyncDL():
                                             sg.cprint(f"[pause-resume autom] {self.list_pasres}")
                                         if event == 'Pause': self.list_dl[_index-1].pause()
                                         if event == 'Resume': self.list_dl[_index-1].resume()
-                                        if event == 'Reset': self.list_dl[_index-1].reset()
+                                        if event == 'Reset': await self.list_dl[_index-1].reset("manual")
                                         if event == 'Stop': self.list_dl[_index-1].stop()
                                         if event == 'Info': sg.cprint(self.list_dl[_index-1].info_dict)
+
+                                        await asyncio.sleep(0)
+
                                     else: sg.cprint('DL index doesnt exist')
                             else: sg.cprint('DL list empty')
 
@@ -523,11 +529,11 @@ class AsyncDL():
                 
             while True:                
                 
-                if not await async_wait_time(CONF_INTERVAL_GUI/5, events=[self.stop_root]):
+                if not await async_wait_time(CONF_INTERVAL_GUI/4, events=[self.stop_root]):
                     break
 
                 event, value = self.window_root.read(timeout=0)
-                if event == sg.TIMEOUT_KEY:
+                if not event or event == sg.TIMEOUT_KEY:
                     continue
                 #logger.debug(f"{event}:{value}")
             
@@ -576,7 +582,7 @@ class AsyncDL():
                     
                     self.window_root['-ML2-'].update(upt)
 
-                await asyncio.sleep(0)
+                #await asyncio.sleep(0)
                         
 
         except BaseException as e:
@@ -593,7 +599,7 @@ class AsyncDL():
 
         try:
             
-            self.videos_cached = self.mpqueue.get(timeout=60)
+            self.videos_cached_ready.wait()
 
             url_list = []
             _url_list_caplinks = []
@@ -616,6 +622,7 @@ class AsyncDL():
                 
                 shutil.copy("/Users/antoniotorres/Projects/common/logs/captured_links.txt", 
                             "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt")
+               
                 with open(filecaplinks, "w") as file:
                     file.write("")
                     
@@ -1572,13 +1579,14 @@ class AsyncDL():
             
             tasks_to_wait = {}
 
+            
+            tasks_to_wait.update({asyncio.create_task(async_ex_in_executor(self.ex_winit, self.get_list_videos)): 'task_get_videos'})
+            tasks_to_wait.update({asyncio.create_task(self.worker_init(i)): f'task_worker_init_{i}' for i in range(self.init_nworkers)})
+            
             self.task_gui_root = asyncio.create_task(self.gui_root())
             self.console_task = asyncio.create_task(self.gui_console())
             tasks_gui = [self.task_gui_root, self.console_task] 
             
-            tasks_to_wait.update({asyncio.create_task(async_ex_in_executor(self.ex_winit, self.get_list_videos)): 'task_get_videos'})
-            tasks_to_wait.update({asyncio.create_task(self.worker_init(i)): f'task_worker_init_{i}' for i in range(self.init_nworkers)})
-                            
             if not self.args.nodl:                
 
                 self.stop_upt_window = self.upt_window_periodic()
@@ -1857,10 +1865,10 @@ class AsyncDL():
 
             logger.info("[close] start to close")
             
-            try:
-                self.p1.join()
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")  
+            # try:
+            #     self.p1.join()
+            # except BaseException as e:
+            #     logger.exception(f"[close] {repr(e)}")  
 
                        
             try:
