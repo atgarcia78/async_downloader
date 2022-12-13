@@ -178,6 +178,8 @@ class ProgressTimer:
         self._last_ts += elapsed_seconds - elapsed_seconds % seconds
         return True
 
+
+
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
     UPDATE_TIMESPAN_S = 1.0
