@@ -390,7 +390,7 @@ class AsyncHLSDownloader():
             raise
 
     @retry
-    def reset(self, cause=None):
+    def resetdl(self, cause=None):
         
         def get_reset_info():
             logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: get video dict: {_webpage_url}")
@@ -983,7 +983,7 @@ class AsyncHLSDownloader():
         self.kill = asyncio.Event()
         self.frags_queue = asyncio.Queue()
         
-        self.areset = sync_to_async(self.reset, self.ex_hlsdl)
+        self.areset = sync_to_async(self.resetdl, self.ex_hlsdl)
         
         for frag in self.frags_to_dl:
             self.frags_queue.put_nowait(frag)        

@@ -20,7 +20,7 @@ from tabulate import tabulate
 
 from utils import (CONF_INTERVAL_GUI, CONF_PROXIES_MAX_N_GR_HOST,
                    CONF_PROXIES_N_GR_VIDEO, EMA, PATH_LOGS, LocalStorage,
-                   _for_print, _for_print_videos, async_ex_in_executor,
+                   _for_print, _for_print_videos, sync_to_async, async_ex_in_executor,
                    async_wait_time, get_chain_links, get_domain, init_aria2c,
                    init_gui_console, init_gui_root, init_proxies, init_ytdl,
                    is_playlist_extractor, js_to_json, kill_processes,
@@ -72,11 +72,12 @@ class AsyncDL():
         
         self.wkinit_stop = False
         self.pasres_repeat = False
+        self.reset_repeat = False
         self.console_dl_status = False
         
         self.list_pasres = set()
-        self.pasres_time_from_resume_to_pause = 50
-        self.pasres_time_in_pause = 10
+        self.pasres_time_from_resume_to_pause = 20
+        self.pasres_time_in_pause = 1
 
         #contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -97,8 +98,25 @@ class AsyncDL():
         self.t3 = Timer("execution", text="[timers] Time spent by init workers: {:.2f}", logger=logger.info)
         
                 
-    
-        self.videos_cached_ready = self.get_videos_cached()        
+        self.routing_table = {}
+        self.proc_gost = []   
+        if not self.args.nodl and self.args.aria2c and self.args.proxy != 0:    
+            self.init_proxies_ready = self.start_proxies()
+
+        self.videos_cached_ready = self.get_videos_cached()       
+
+    @long_operation_in_thread
+    def start_proxies(self, *args, **kwargs):
+
+        try:
+            _ready = kwargs.get('stop_event')
+            self.proc_gost, self.routing_table = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)
+        
+        except Exception as e:
+            logger.exception(f"[start_proxies] {str(e)}")
+            raise
+        finally:
+            _ready.set()
 
     @long_operation_in_thread
     def get_videos_cached(self, *args, **kwargs):        
@@ -263,8 +281,8 @@ class AsyncDL():
         if isinstance(status, str): _status = (status,)
         else: _status = status
         for i,dl in enumerate(self.list_dl):
-            if not dl.index:
-                dl.index = i
+            # if not dl.index:
+            #     dl.index = i
             if dl.info_dl['status'] in _status:                
                 list_upt.update({i: dl.print_hookup()})
             
@@ -290,7 +308,7 @@ class AsyncDL():
             init_bytes_recv = io.bytes_recv            
             speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
             while not stop_event.is_set():
-                if self.list_dl and progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI/2):
+                if self.list_dl and progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
                     
                     list_init_old = self.update_window("init", list_init_old)
                     list_dl_old = self.update_window("downloading", list_dl_old)
@@ -322,16 +340,23 @@ class AsyncDL():
         try:
             while not stop_event.is_set():
                 
-                if self.pasres_repeat and (_list:= list(self.list_pasres)):
-                    for _index in _list:
-                        self.list_dl[_index-1].pause()
+                if (self.pasres_repeat or self.reset_repeat) and (_list:= list(self.list_pasres)):
+                    if not self.reset_repeat: 
+                        for _index in _list:
+                            asyncio.run(self.list_dl[_index-1].pause())
+                       
                     
-                    wait_time(self.pasres_time_in_pause, event=stop_event)
+                        wait_time(self.pasres_time_in_pause, event=stop_event)
             
-                    for _index in _list:
-                        self.list_dl[_index-1].resume()
+                        for _index in _list:
+                            asyncio.run(self.list_dl[_index-1].resume())
                 
-                    wait_time(self.pasres_time_from_resume_to_pause, event=stop_event)
+                        wait_time(self.pasres_time_from_resume_to_pause, event=stop_event)
+                    else:
+                        for _index in _list:
+                            asyncio.run(self.list_dl[_index-1].reset("manual"))
+                        wait_time(self.pasres_time_from_resume_to_pause, event=stop_event)
+
                 
                 else:
                     wait_time(CONF_INTERVAL_GUI, event=stop_event)
@@ -371,11 +396,11 @@ class AsyncDL():
             
             self.window_console = init_gui_console()
             
-            await async_wait_time(CONF_INTERVAL_GUI)
+            await async_wait_time(CONF_INTERVAL_GUI/2)
                         
             while True:             
                 
-                if not await async_wait_time(CONF_INTERVAL_GUI, events=[self.stop_console]):
+                if not await async_wait_time(CONF_INTERVAL_GUI/2, events=[self.stop_console]):
                     break
 
                 event, values = self.window_console.read(timeout=0)
@@ -400,7 +425,11 @@ class AsyncDL():
                         self.pasres_repeat = False
                     else:
                         self.pasres_repeat = True
-
+                elif event in ['-RESETREP-']:
+                    if not values['-RESETREP-']:
+                        self.reset_repeat = False
+                    else:
+                        self.reset_repeat = True
                 elif event in ['-DL-STATUS']:
                     await self.print_pending_tasks()
                     if not self.console_dl_status:
@@ -447,7 +476,7 @@ class AsyncDL():
                                 self.args.parts = _nvidworkers
                                 if self.list_dl:
                                     for dl in self.list_dl:
-                                        dl.change_numvidworkers(_nvidworkers)
+                                        await dl.change_numvidworkers(_nvidworkers)
                                 else: sg.cprint('DL list empty')
                                 
                                
@@ -460,10 +489,11 @@ class AsyncDL():
                             if self.list_dl:
                                 info = []
                                 for dl in self.list_dl:                            
-                                    if event == 'Pause': dl.pause()
-                                    elif event == 'Resume': dl.resume()
+                                    if event == 'Pause': await dl.pause()
+                                    elif event == 'Resume': await dl.resume()
                                     elif event in ['Info', 'ToFile']: info.append(json.dumps(dl.info_dict))
-                                    
+
+                                await asyncio.sleep(0)    
                                 
                                 logger.debug(f"[gui_console] info for print\n{info}")
                                 if info:
@@ -491,8 +521,8 @@ class AsyncDL():
                                         if event == '-PasRes': 
                                             self.list_pasres.discard(_index)
                                             sg.cprint(f"[pause-resume autom] {self.list_pasres}")
-                                        if event == 'Pause': self.list_dl[_index-1].pause()
-                                        if event == 'Resume': self.list_dl[_index-1].resume()
+                                        if event == 'Pause': await self.list_dl[_index-1].pause()
+                                        if event == 'Resume': await self.list_dl[_index-1].resume()
                                         if event == 'Reset': await self.list_dl[_index-1].reset("manual")
                                         if event == 'Stop': self.list_dl[_index-1].stop()
                                         if event == 'Info': sg.cprint(self.list_dl[_index-1].info_dict)
@@ -529,7 +559,7 @@ class AsyncDL():
                 
             while True:                
                 
-                if not await async_wait_time(CONF_INTERVAL_GUI/4, events=[self.stop_root]):
+                if not await async_wait_time(CONF_INTERVAL_GUI/5, events=[self.stop_root]):
                     break
 
                 event, value = self.window_root.read(timeout=0)
@@ -1560,6 +1590,7 @@ class AsyncDL():
         
         self.queue_vid = asyncio.Queue()
 
+
         try:
 
             self.t1.start()
@@ -1569,9 +1600,9 @@ class AsyncDL():
                         
             tasks_gui = []
             self.extra_tasks_run = []
-            self.proc_gost = []
+            
             self.proc_aria2c = None
-            self.routing_table = {}
+            
             self.stop_proxy = None
             self.stop_upt_window = None
             self.stop_pasres = None
@@ -1594,7 +1625,9 @@ class AsyncDL():
                 if self.args.aria2c:             
                     self.proc_aria2c = init_aria2c(self.args)
                     if self.args.proxy != 0:
-                        self.proc_gost, self.routing_table = init_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO)
+                        await async_ex_in_executor(self.ex_winit, self.init_proxies_ready.wait)
+                        
+                        
                         self.ytdl.params['routing_table'] = self.routing_table
                         #if not self.ytdl.params.get('proxy'): self.ytdl.params['proxy'] = f'http://127.0.0.1:{list(self.routing_table)[-1]}'
                         logger.debug(f"[async_ex] ytdl_params:\n{self.ytdl.params}")                

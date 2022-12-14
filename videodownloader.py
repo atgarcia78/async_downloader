@@ -221,14 +221,14 @@ class VideoDownloader:
         except Exception as e:
             logger.exception(repr(e))
 
-    def change_numvidworkers(self, n):
-        _reset = False
+    async def change_numvidworkers(self, n):
+       
         for dl in self.info_dl['downloaders']:
-            if any([_ in str(type(dl)).lower() for _ in ('hls', 'dash')]):                
-                dl.n_workers = n
-                _reset = True
-        if _reset and self.info_dl['status']  == "downloading":
-            self.reset("manual")
+            dl.n_workers = n
+            if any([_ in str(type(dl)).lower() for _ in ('aria2')]):                
+                dl.opts.set('split', dl.n_workers)
+            
+        if self.info_dl['status']  == "downloading": await self.reset("manual")
         
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
@@ -241,7 +241,8 @@ class VideoDownloader:
                 self.reset_event.set(cause)                      
                 await asyncio.sleep(0)                
                 for dl in self.info_dl['downloaders']:
-                    _wait_tasks.extend(try_get([_task for _task in dl.tasks if not _task.done() and not _task.cancelled() and _task not in [asyncio.current_task()]], lambda x: [_t for _t in x if any([(_res:=_t.cancel()), not _res])]))
+                    if 'hls' in str(type(dl)).lower():
+                        _wait_tasks.extend(try_get([_task for _task in dl.tasks if not _task.done() and not _task.cancelled() and _task not in [asyncio.current_task()]], lambda x: [_t for _t in x if any([(_res:=_t.cancel()), not _res])]))
                 
             else:
                 self.reset_event.set(cause)
@@ -292,19 +293,19 @@ class VideoDownloader:
         for dl in self.info_dl['downloaders']:
             dl.status = "stop"
         if self.stop_event:
-            self.resume()
+            if self.pause_event.is_set():
+                self.resume_event.set()
             self.stop_event.set()
         self.write_window()
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
 
-    def pause(self):
-        if self.pause_event:
+    async def pause(self):
+        if self.pause_event:            
             self.pause_event.set()
 
-    def resume(self):
+    async def resume(self):
         if self.resume_event:
-            if self.pause_event.is_set(): 
-                self.resume_event.set()
+            self.resume_event.set()
     
     def write_window(self):
         if self.info_dl['status'] not in ("init", "downloading", "manipulating", "init_manipulating"):

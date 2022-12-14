@@ -28,7 +28,7 @@ CONF_DASH_SPEED_PER_WORKER = 102400
  #1048576 #512000 #1048576 #4194304
 CONF_HLS_SPEED_PER_WORKER = 102400/8#512000
 CONF_PROXIES_MAX_N_GR_HOST = 10
-CONF_PROXIES_N_GR_VIDEO = 8
+CONF_PROXIES_N_GR_VIDEO = 8 #8
 CONF_PROXIES_BASE_PORT = 12000
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576 #1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400 # 102400 * 1.5# 102400
@@ -402,6 +402,8 @@ async def async_lock(executor, lock):
     finally:
         lock.release()
 
+
+
 async def async_wait_time(n, events=None):   
     
     if not events: events = [asyncio.Event()] #dummy
@@ -697,12 +699,32 @@ def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
         raise ValueError('Expected fill, strict, or ignore')      
           
 
-def get_myip(key=None):
+# def get_myip(key=None):
+#     _proxy = ""
+#     if key:
+#         _proxy = f"-x http://127.0.0.1:{key} "
+#     proc_curl = subprocess.Popen(f"curl {_proxy}-s https://api.ipify.org?format=json".split(' '), stdout=subprocess.PIPE,)
+#     return(subprocess.run(['jq', '-r', '.ip'], stdin=proc_curl.stdout, encoding='utf-8', capture_output=True).stdout.strip())
+
+def get_myip(key=None, timeout=2):
     _proxy = ""
     if key:
         _proxy = f"-x http://127.0.0.1:{key} "
-    proc_curl = subprocess.Popen(f"curl {_proxy}-s https://api.ipify.org?format=json".split(' '), stdout=subprocess.PIPE,)
-    return(subprocess.run(['jq', '-r', '.ip'], stdin=proc_curl.stdout, encoding='utf-8', capture_output=True).stdout.strip())
+    proc_curl = subprocess.Popen(f"curl {_proxy}-s https://httpbin.org/get".split(' '), encoding='utf-8', stdout=subprocess.PIPE,)
+    t0 = time.monotonic()
+    while True:
+        proc_curl.poll()
+
+        if proc_curl.returncode == 0:
+            return(json.loads(proc_curl.stdout.read().replace('\n', '')).get("origin"))
+        elif proc_curl.returncode == None:
+            if time.monotonic() - t0 > timeout:
+
+                proc_curl.kill()
+                return "timeout"
+            time.sleep(0.5)
+            continue
+        else: return f"error: {proc_curl.returncode}"
 
 def test_proxies_rt(routing_table):
     logger = logging.getLogger("asyncdl")
@@ -763,6 +785,8 @@ def init_proxies(num, size, port=7070):
     
     logger = logging.getLogger("asyncDL")  
     
+    logger.info(f"[init_proxies] start")
+
     subprocess.run(["flush-dns"])
     
     IPS_SSL = []
@@ -771,19 +795,19 @@ def init_proxies(num, size, port=7070):
     #SWE
     IPS_SSL += get_ips('swe.secureconnect.me')
     #NO    
-    #IPS_SSL += get_ips('no.secureconnect.me')
+    IPS_SSL += get_ips('no.secureconnect.me')
     #BG
     IPS_SSL += get_ips('bg.secureconnect.me')
     #PG
-    #IPS_SSL += get_ips('pg.secureconnect.me')
+    IPS_SSL += get_ips('pg.secureconnect.me')
     #IT
-    #IPS_SSL += get_ips('it.secureconnect.me')
+    IPS_SSL += get_ips('it.secureconnect.me')
     #FR
     IPS_SSL += get_ips('fr.secureconnect.me') 
     #UK
     IPS_SSL += get_ips('uk.secureconnect.me') + get_ips('uk.man.secureconnect.me')
     #DE
-    #IPS_SSL += get_ips('ger.secureconnect.me')
+    IPS_SSL += get_ips('ger.secureconnect.me')
     
     cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
     if cached_res.exists() and ((datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds < 7200): #every 2h we check the proxies
@@ -1357,7 +1381,7 @@ if _SUPPORT_PYSIMP:
                                     [sg.Text('Select DL', font='Any 14')],
                                     [sg.Input(key='-IN-', font='Any 10', focus=True)],
                                     [sg.Multiline(size=(50, 12), font='Any 10', write_only=True, key='-ML-', reroute_cprint=True, auto_refresh=True, autoscroll=True)],
-                                    [sg.Checkbox('PasRes', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('+PasRes'), sg.Button('-PasRes'), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('+runwk', key='IncWorkerRun'), sg.Button('#vidwk', key='NumVideoWorkers'), sg.Button('TimePasRes'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
+                                    [sg.Checkbox('PauseRep', key='-PASRES-', default=False, enable_events=True), sg.Checkbox('ResRep', key='-RESETREP-', default=False, enable_events=True), sg.Checkbox('WkInit', key='-WKINIT-', default=True, enable_events=True), sg.Button('+PasRes'), sg.Button('-PasRes'), sg.Button('DLStatus', key='-DL-STATUS'), sg.Button('Info'), sg.Button('ToFile'), sg.Button('+runwk', key='IncWorkerRun'), sg.Button('#vidwk', key='NumVideoWorkers'), sg.Button('TimePasRes'), sg.Button('Pause'), sg.Button('Resume'), sg.Button('Reset'), sg.Button('Stop'), sg.Button('Exit')]
             ], element_justification='c', expand_x=True, expand_y=True)
             
             layout_pygui = [ [col_pygui] ]
