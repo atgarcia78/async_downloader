@@ -408,12 +408,13 @@ class AsyncARIA2CDownloader:
                         
                     if any([all([el[0] == 0 for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED // 2:]]), all([(_speed[i][1] == _speed[-1][1]) and (_speed[i+1][0] < _speed[i][0]*0.9) for i in range(len(_speed) - CONF_ARIA2C_N_CHUNKS_CHECK_SPEED, len(_speed) - 1)]), all([el[1] == _speed[-1][1] and el[0] < getter(el[1]) for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]])]):
                         self.video_downloader.reset_event.set()
-                        _str_speed = ', '.join([f'({el[0].strftime("%H:%M:")}{(el[0].second + (el[0].microsecond / 1000000)):06.3f}, {{{"status": el[1].status, "speed": el[1].download_speed}}})' for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]])
+                        _str_speed = ', '.join([f'({el[2].strftime("%H:%M:")}{(el[2].second + (el[2].microsecond / 1000000)):06.3f}, {{"speed": {el[0]}, "connec": {el[1]}}})' for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]])
                         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(_speed)}]")
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset\n{_str_speed}")
                                              
                         break
-                    #else: self._speed = self._speed[1:]
+                    
+                    else: _speed = _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED // 2:]
                 
                 await asyncio.wait(pending)
                 await asyncio.sleep(0)
@@ -422,10 +423,10 @@ class AsyncARIA2CDownloader:
             await asyncio.sleep(0)
 
         except Exception as e:
-            logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] {repr(e)}")
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] {str(e)}")
         finally:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] bye")
-            self._speed.extend(_speed)
+ 
 
 
     async def fetch(self):        
@@ -468,7 +469,7 @@ class AsyncARIA2CDownloader:
                     
                     elif self.progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI/2):
                         await self.async_update()                       
-                        #if self._qspeed: self._qspeed.put_nowait((self.dl_cont.download_speed, self.dl_cont.connections, datetime.now()))
+                        if self._qspeed: self._qspeed.put_nowait((self.dl_cont.download_speed, self.dl_cont.connections, datetime.now()))
                         self._speed.append((datetime.now(), self.dl_cont))
                         _incsize = self.dl_cont.completed_length - self.down_size
                         self.down_size = self.dl_cont.completed_length
@@ -535,7 +536,7 @@ class AsyncARIA2CDownloader:
                             continue
                     try:
                         self._qspeed = asyncio.Queue()
-                        #check_task = [asyncio.create_task(self.check_speed())]
+                        check_task = [asyncio.create_task(self.check_speed())]
                         self._speed.append((datetime.now(), "fetch"))
                         await self.fetch()
                         if self.status == "done":                    
@@ -556,7 +557,7 @@ class AsyncARIA2CDownloader:
                     finally:
                         self._qspeed.put_nowait(("KILL", "KILL"))
                         await asyncio.sleep(0)                    
-                        #await asyncio.wait(check_task)        
+                        await asyncio.wait(check_task)        
                 except BaseException as e:
                     if isinstance(e, KeyboardInterrupt):
                         raise
