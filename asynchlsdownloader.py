@@ -417,8 +417,11 @@ class AsyncHLSDownloader():
 
                 _info = self.ytdl.cache.load('nakedswordmovie', str(plns))
             
+            if plns:
+                info_reset = get_format_id(traverse_obj(_info, ('entries', int(self.video_downloader.info_dict['playlist_index']) - 1)), self.info_dict['format_id'])
 
-            info_reset = get_format_id(traverse_obj(_info, ('entries', int(self.video_downloader.info_dict['playlist_index']) - 1)), self.info_dict['format_id'])
+            else:
+                info_reset = get_format_id(_info, self.info_dict['format_id'])
             
             
             if not info_reset:
@@ -473,7 +476,7 @@ class AsyncHLSDownloader():
                 get_reset_info()
                         
         except Exception as e:
-            logger.error(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: outer Exception occurred when reset: {repr(e)}")
+            logger.exception(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: outer Exception occurred when reset: {repr(e)}")
             raise
         finally:
             if self.fromplns and cause == "403":
@@ -1205,7 +1208,7 @@ class AsyncHLSDownloader():
             if f['downloaded'] == False:
                 
                 if (await os.path.exists(f['file'])):
-                    await os.path.remove(f['file'])
+                    await os.remove(f['file'])
    
     def sync_clean_when_error(self):
             
