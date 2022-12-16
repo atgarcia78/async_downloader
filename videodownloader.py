@@ -225,7 +225,7 @@ class VideoDownloader:
        
         for dl in self.info_dl['downloaders']:
             dl.n_workers = n
-            if any([_ in str(type(dl)).lower() for _ in ('aria2')]):                
+            if 'aria2' in str(type(dl)).lower():
                 dl.opts.set('split', dl.n_workers)
             
         if self.info_dl['status']  == "downloading": await self.reset("manual")

@@ -1,10 +1,14 @@
 import asyncio
 import binascii
+import contextlib
 import datetime
 import json
 import logging
+import os as syncos
 import random
+import re
 import sys
+import threading
 import time
 import traceback
 from concurrent.futures import CancelledError, ThreadPoolExecutor
@@ -12,7 +16,6 @@ from pathlib import Path
 from queue import Queue
 from shutil import rmtree
 from urllib.parse import urlparse
-import threading
 
 import aiofiles
 import aiofiles.os as os
@@ -20,15 +23,17 @@ import httpx
 import m3u8
 from Cryptodome.Cipher import AES
 
-from utils import (CONF_HLS_SPEED_PER_WORKER, CONF_PROXIES_BASE_PORT,
+from utils import (CONF_HLS_RESET_403_TIME, CONF_HLS_SPEED_PER_WORKER,
+                   CONF_INTERVAL_GUI, CONF_PROXIES_BASE_PORT,
                    CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO,
-                   CONFIG_EXTRACTORS, EMA, CONF_INTERVAL_GUI,
-                   ProxyYTDL, StatusStop, _for_print,
-                   _for_print_entry, async_ex_in_executor, async_wait_time, wait_time, dec_retry_error, my_dec_on_exception,
-                   get_domain, get_format_id, int_or_none, limiter_15, limiter_non,
-                   naturalsize, print_norm_time, smuggle_url, sync_to_async,
-                   try_get, unsmuggle_url, traverse_obj, print_tasks,
-                   ProgressTimer, SpeedometerMA, SmoothETA, cmd_extract_info, limiter_15, wait_for_change_ip)
+                   CONFIG_EXTRACTORS, EMA, NakedSwordBaseIE, ProgressTimer,
+                   ProxyYTDL, SmoothETA, SpeedometerMA, StatusStop, _for_print,
+                   _for_print_entry, async_ex_in_executor, async_wait_time,
+                   cmd_extract_info, dec_retry_error, get_domain,
+                   get_format_id, int_or_none, limiter_15, limiter_non,
+                   my_dec_on_exception, naturalsize, print_norm_time,
+                   print_tasks, smuggle_url, sync_to_async, traverse_obj,
+                   try_get, unsmuggle_url, wait_for_change_ip, wait_time)
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -392,17 +397,35 @@ class AsyncHLSDownloader():
     @retry
     def resetdl(self, cause=None):
         
-        def get_reset_info():
+        def get_reset_info(plns=None, first=False):
             logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: get video dict: {_webpage_url}")
 
             _info = None
 
-            _info = self.multi_extract_info(_webpage_url, proxy=_proxy, msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]:") 
-            info_reset = get_format_id(_info, self.info_dict['format_id'])
+            if plns and first:
+                with contextlib.suppress(OSError):
+                    syncos.remove(self.ytdl.cache._get_cache_fn('nakedswordmovie', str(plns), 'json'))
+
+            if not plns or first:                
+
+                _info = self.multi_extract_info(_webpage_url, proxy=_proxy, msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]:")
+
+                if plns:
+                    self.ytdl.cache.store('nakedswordmovie', str(plns), _info)
+
+            else:
+
+                _info = self.ytdl.cache.load('nakedswordmovie', str(plns))
+            
+
+            info_reset = get_format_id(traverse_obj(_info, ('entries', int(self.video_downloader.info_dict['playlist_index']) - 1)), self.info_dict['format_id'])
+            
+            
             if not info_reset:
                 raise AsyncHLSDLErrorFatal(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]:  fails no descriptor")
+            
             logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: format extracted info video ok\n%no%{_for_print(info_reset)}")
-                        
+            
             try: 
                 self.prep_reset(info_reset)
                 self.n_reset += 1
@@ -411,28 +434,42 @@ class AsyncHLSDownloader():
                 logger.exception(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)} {_for_print(info_reset)}")
                 raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
             
-
         try:
+           
             if cause and str(cause) == "403":
-                if not wait_time(90, event=self.video_downloader.stop_event):                    
-                    return                
+               
+                logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] start wait in reset cause 403")
+                if not wait_time(CONF_HLS_RESET_403_TIME, event=self.video_downloader.stop_event):                    
+                    return
+                logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] fin wait in reset cause 403")              
+            
             _proxy = None                
             if self.enproxy:
                 el1, el2 = self._qproxies.get()
                 _proxy =  f'http://127.0.0.1:{CONF_PROXIES_BASE_PORT + el1*100 + el2}'
                 self._proxy = {'http://': _proxy, 'https://': _proxy}
+            
             _wurl = self.info_dict.get('webpage_url')
-            _webpage_url = smuggle_url(_wurl, {'indexdl': self.video_downloader.index}) if self.special_extr else _wurl
+           
             if self.fromplns and cause == "403":               
+                
+                _webpage_url = smuggle_url(re.sub(r'(/scene/\d+)', '', _wurl), {'indexdl': self.video_downloader.index, 'args': {'nakedswordmovie': {'listreset': [int(index) for index in list(self.video_downloader.info_dl['fromplns'][self.fromplns]['in_reset'])]}}})
+                
                 with (_sem:=self.video_downloader.info_dl['fromplns']['ALL']['sem']):
                     if _sem._initial_value == 1:
-                        _st_ip = wait_for_change_ip(logger)
-                        logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] change ip {_st_ip}")
-                    if get_reset_info():
+                        nslt = NakedSwordBaseIE._LONGTERM
+                        with nslt.driver_lock:
+                            nslt.stop_event()
+                            _st_ip = wait_for_change_ip(logger)
+                            logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] change ip {_st_ip}")
+                            nslt.start_driver()
+                        
+                    if get_reset_info(plns=self.fromplns, first=_sem._initial_value == 1):
                         if _sem._initial_value == 1:
                             _sem._initial_value = 100
                             _sem.release(50) 
             else:
+                _webpage_url = smuggle_url(_wurl, {'indexdl': self.video_downloader.index}) if self.special_extr else _wurl
                 get_reset_info()
                         
         except Exception as e:
@@ -469,7 +506,6 @@ class AsyncHLSDownloader():
         self.init_client.close()
         self.init_client = httpx.Client(proxies=self._proxy, follow_redirects=True, headers=self.headers, limits=self.limits, timeout=self.timeout, verify=False)
         
-        #self.webpage_url = self.info_dict['webpage_url'] = info_reset.get('webpage_url')
         
         self.frags_to_dl = []
 
@@ -569,24 +605,16 @@ class AsyncHLSDownloader():
 
                         logger.info(f"{self.premsg}[{self.count}/{self.n_workers}][check_speed] speed reset: n_el_speed[{len(_speed)}]")
 
-                        #if self.fromplns:
-                        #    self.video_downloader.reset_plns(self.fromplns)
-                            
-                        #else:
                         self.video_downloader.reset_event.set("speedreset")  
                        
                         self._test.append(("speed reset"))
 
                         break
-                        #self._test.append(("speed reset"))
-                        #self._speed.extend(_speed)
-                        #_speed = []
 
 
                     elif self._CONF_HLS_MAX_SPEED_PER_DL and all([el >= self._CONF_HLS_MAX_SPEED_PER_DL for el in _speed[-(self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2):]]) and (not _max_bd_detected or (_max_bd_detected and prog.elapsed_seconds() > nsecs)):
                     
                         _old_throttle = self.throttle                      
-                       # async with self._LOCK:
 
                         if  not _max_bd_detected:
                             self.throttle = float(f'{self.throttle + 0.05:.2f}')
@@ -606,9 +634,7 @@ class AsyncHLSDownloader():
                         logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}][check_speed] MAX BD -> decrease speed: throttle[{_old_throttle} -> {self.throttle}] n_el_speed[{len(_speed)}]\n%no%{_str_speed}")
 
                         self._test.append((f"decrease speed: throttle {_old_throttle} -> {self.throttle}]"))
-                       
-                        
-                    
+                  
                     elif self._CONF_HLS_MAX_SPEED_PER_DL and all([0.8*self._CONF_HLS_MAX_SPEED_PER_DL <= el < self._CONF_HLS_MAX_SPEED_PER_DL for el in _speed[-(self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2):]]) and (_max_bd_detected and prog.elapsed_seconds() > nsecs):
                         
                         _str_speed = ', '.join([f'{el}' for el in _speed[-(self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2):]])
@@ -721,7 +747,6 @@ class AsyncHLSDownloader():
                                                             return_when=asyncio.FIRST_COMPLETED)
 
                         for _el in pendin2: _el.cancel()
-                        #await asyncio.wait(pending)
                         self.video_downloader.pause_event.clear()
                         self.video_downloader.resume_event.clear()
 
@@ -754,8 +779,6 @@ class AsyncHLSDownloader():
                             
                             async with aiofiles.open(filename, mode='ab') as f:                            
 
-                                #async with self._limit:
-                                #    pass
 
                                 async with client.stream("GET", url, headers=headers, timeout=15) as res:
                                                     
@@ -771,9 +794,8 @@ class AsyncHLSDownloader():
                                         logger.debug(f"{self._premsg}: wait_tasks\n{_wait_tasks}\n{print_tasks(_wait_tasks)}")
                                         if _wait_tasks:
                                             done, pending = await asyncio.wait(_wait_tasks)
-                                            logger.info(f"{self._premsg}: wait_tasks result\nDONE\n{done}\nPENDING\n{pending}")
+                                            logger.debug(f"{self._premsg}: wait_tasks result\nDONE\n{done}\nPENDING\n{pending}")
 
-                                        #raise AsyncHLSDLErrorFatal(f"Frag:{str(q)} resp code:{str(res)}")
                                         return
                                     
                                     elif res.status_code >= 400:
@@ -825,7 +847,6 @@ class AsyncHLSDownloader():
                                         self.info_frag[q - 1]['time2dlchunks'] = []
                                         self.info_frag[q - 1]['sizechunks'] = []
                                         self.info_frag[q - 1]['nchunks_dl'] = 0
-                                        # self.info_frag[q - 1]['statistics'] = []
 
                                         _started = time.monotonic()
 
@@ -908,7 +929,6 @@ class AsyncHLSDownloader():
                                 
                                 async with self._LOCK:
                                     self.down_size -= _size
-                                    #self.down_temp -= _size
                                 async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                             return                   
@@ -922,7 +942,6 @@ class AsyncHLSDownloader():
                                 
                                 async with self._LOCK:
                                     self.down_size -= _size
-                                    #self.down_temp -= _size
                                 async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                             
@@ -944,7 +963,6 @@ class AsyncHLSDownloader():
                             
                                 async with self._LOCK:
                                     self.down_size -= _size
-                                    #self.down_temp -= _size
                                 async with self.video_downloader.alock:                                       
                                     self.video_downloader.info_dl['down_size'] -= _size
                             
@@ -973,7 +991,7 @@ class AsyncHLSDownloader():
             
             async with self._LOCK:
                 self.count -= 1
-            logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:[worker{nco}]: bye worker")
+            logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:[worker{nco}]: bye worker")
             await client.aclose()
 
     async def fetch_async(self):

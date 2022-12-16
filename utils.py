@@ -27,6 +27,7 @@ CONF_DASH_SPEED_PER_WORKER = 102400
 
  #1048576 #512000 #1048576 #4194304
 CONF_HLS_SPEED_PER_WORKER = 102400/8#512000
+CONF_HLS_RESET_403_TIME = 80
 CONF_PROXIES_MAX_N_GR_HOST = 10
 CONF_PROXIES_N_GR_VIDEO = 8 #8
 CONF_PROXIES_BASE_PORT = 12000
@@ -41,6 +42,7 @@ CONF_ARIA2C_EXTR_GROUP = ['tubeload', 'redload', 'highload', 'embedo']
 
 
 def wait_for_change_ip(logger):
+    
     _old_ip = json.loads(subprocess.run(f"curl -s https://httpbin.org/get".split(' '), encoding='utf-8', capture_output=True).stdout).get('origin')
     logger.info(f"old ip: {_old_ip}")
     _proc_kill = subprocess.run(['pkill', 'TorGuardDesktopQt'])
@@ -266,6 +268,8 @@ try:
                                                   limiter_5, limiter_15,
                                                   limiter_non, ReExtractInfo, ConnectError,
                                                   StatusError503, my_dec_on_exception)
+    
+    from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
     from yt_dlp.mylogger import MyLogger
     from yt_dlp.utils import (get_domain, js_to_json, prepend_extension,
                               sanitize_filename, smuggle_url, traverse_obj,
@@ -561,7 +565,7 @@ def rclone_init_args():
     
 def init_argparser():
     
-    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:107.0) Gecko/20100101 Firefox/107.0"]
+    UA_LIST = ["Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:108.0) Gecko/20100101 Firefox/108.0"]
 
     parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
@@ -991,6 +995,7 @@ if _SUPPORT_YTDL:
             "convertsubtitles": 'srt',
             "continuedl": True,
             "updatetime": False,
+            "ignore_no_formats_error": True,
             "ignoreerrors": False, 
             "no_abort_on_errors": False,        
             "extract_flat": "in_playlist",        

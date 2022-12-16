@@ -19,10 +19,11 @@ from utils import (CONF_ARIA2C_EXTR_GROUP,
                    CONF_ARIA2C_SPEED_PER_CONNECTION, CONF_ARIA2C_TIMEOUT_INIT,
                    CONF_INTERVAL_GUI, CONF_PROXIES_BASE_PORT,
                    CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO,
-                   CONFIG_EXTRACTORS, ProxyYTDL, async_ex_in_executor,
-                   async_wait_time, get_domain, get_format_id, limiter_non,
-                   naturalsize, none_to_zero, smuggle_url, sync_to_async,
-                   traverse_obj, try_get, unsmuggle_url, ProgressTimer, SpeedometerMA)
+                   CONFIG_EXTRACTORS, ProgressTimer, ProxyYTDL, SpeedometerMA,
+                   async_ex_in_executor, async_wait_time, get_domain,
+                   get_format_id, limiter_non, naturalsize, none_to_zero,
+                   smuggle_url, sync_to_async, traverse_obj, try_get,
+                   unsmuggle_url)
 
 logger = logging.getLogger("async_ARIA2C_DL")
 
@@ -427,8 +428,6 @@ class AsyncARIA2CDownloader:
         finally:
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] bye")
  
-
-
     async def fetch(self):        
 
         self.count_init = 0
@@ -588,7 +587,6 @@ class AsyncARIA2CDownloader:
             _str_speed = ', '.join([f'({el[0].strftime("%H:%M:")}{(el[0].second + (el[0].microsecond / 1000000)):06.3f}, {_print_el(el[1])})' for el in self._speed])
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch_async] exiting [{len(self._speed)}]\n{_str_speed}")
 
-                
     def print_hookup(self):
         
         msg = ""
@@ -633,4 +631,4 @@ class AsyncARIA2CDownloader:
             
         return msg
         
-               
+
