@@ -456,8 +456,7 @@ class AsyncDL:
         else:
             _status = status
         for i, dl in enumerate(self.list_dl):
-            # if not dl.index:
-            #     dl.index = i
+
             if dl.info_dl["status"] in _status:
                 list_upt.update({i: dl.print_hookup()})
 

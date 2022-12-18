@@ -1,7 +1,8 @@
 import asyncio
 import binascii
 import contextlib
-import datetime
+from datetime import timedelta 
+from datetime import datetime
 import json
 import logging
 import os as syncos
@@ -16,6 +17,7 @@ from pathlib import Path
 from queue import Queue
 from shutil import rmtree
 from urllib.parse import urlparse
+import copy
 
 import aiofiles
 import aiofiles.os as os
@@ -203,7 +205,6 @@ class AsyncHLSDownloader:
                 if "nakedsword" in x:
                     self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
                     self.auto_pasres = True
-                    # self.n_workers =
                     logger.debug(
                         f"{self.premsg}[{self.count}/{self.n_workers}] {_for_print_entry(self.info_dict)}"
                     )
@@ -431,9 +432,14 @@ class AsyncHLSDownloader:
                             f"{self.premsg}[{self.count}/{self.n_workers}]:{fragment.key.iv}"
                         )
 
+            
+            logger.info(
+                f"{self.premsg}[{self.count}/{self.n_workers}]: Frags already DL: {len(self.fragsdl())}, Frags not DL: {len(self.fragsnotdl())}, Frags to request: {len(self.frags_to_dl)}"
+            )
             logger.debug(
                 f"{self.premsg}[{self.count}/{self.n_workers}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}"
             )
+
 
             self.n_total_fragments = len(self.info_dict["fragments"])
 
@@ -679,7 +685,7 @@ class AsyncHLSDownloader:
 
                 with (_sem := self.video_downloader.info_dl["fromplns"]["ALL"]["sem"]):
                     if _sem._initial_value == 1:
-                        nslt = NakedSwordBaseIE._LONGTERM
+                        nslt = NakedSwordBaseIE._API
                         with nslt.driver_lock:
                             nslt.stop_event()
                             _st_ip = wait_for_change_ip(logger)
@@ -1100,9 +1106,9 @@ class AsyncHLSDownloader:
                         self.upt.update(
                             {"est_time": _est_time, "est_time_smooth": _est_time_smooth}
                         )
-
-                        if self._qspeed:
-                            self._qspeed.put_nowait(_speed_meter)
+                        self._speed.append((datetime.now(), copy.deepcopy(self.upt)))
+                        #if self._qspeed:
+                        #    self._qspeed.put_nowait(_speed_meter)
 
             await asyncio.sleep(0)
 
@@ -1158,7 +1164,7 @@ class AsyncHLSDownloader:
                     )
 
                     if self.video_downloader.pause_event.is_set():
-
+                        self._speed.append((datetime.now(), "pause"))
                         done2, pending2 = await asyncio.wait(
                             [
                                 asyncio.create_task(
@@ -1178,6 +1184,7 @@ class AsyncHLSDownloader:
                             _el.cancel()
                         self.video_downloader.pause_event.clear()
                         self.video_downloader.resume_event.clear()
+                        self._speed.append((datetime.now(), "resume"))
 
                         if any(
                             [
@@ -1221,7 +1228,11 @@ class AsyncHLSDownloader:
                             self._premsg = f"{self.premsg}[{self.count}/{self.n_workers}]:[worker-{nco}]:[frag[{q}] "
 
                             async with aiofiles.open(filename, mode="ab") as f:
-
+                                
+                                async with self._limit:
+                                    logger.debug(
+                                        f"{self._premsg}: limiter speed")
+                                
                                 async with client.stream(
                                     "GET", url, headers=headers, timeout=15
                                 ) as res:
@@ -1346,6 +1357,8 @@ class AsyncHLSDownloader:
                                             if (
                                                 self.video_downloader.pause_event.is_set()
                                             ):
+                                                self._speed.append((datetime.now(), "pause"))
+                                                
                                                 done, pending = await asyncio.wait(
                                                     [
                                                         asyncio.create_task(
@@ -1365,14 +1378,15 @@ class AsyncHLSDownloader:
                                                 await asyncio.wait(pending)
                                                 self.video_downloader.pause_event.clear()
                                                 self.video_downloader.resume_event.clear()
+                                                self._speed.append((datetime.now(), "resume"))
 
-                                            if any(
-                                                [
-                                                    self.video_downloader.stop_event.is_set(),
-                                                    self.video_downloader.reset_event.is_set(),
-                                                ]
-                                            ):
-                                                raise AsyncHLSDLErrorFatal("event")
+                                            # if any(
+                                            #     [
+                                            #         self.video_downloader.stop_event.is_set(),
+                                            #         self.video_downloader.reset_event.is_set(),
+                                            #     ]
+                                            # ):
+                                            #     raise AsyncHLSDLErrorFatal("event")
 
                                             _timechunk = time.monotonic() - _started
                                             self.info_frag[q - 1][
@@ -1544,7 +1558,7 @@ class AsyncHLSDownloader:
                             await asyncio.sleep(0)
 
                 except Exception as e:
-                    logger.exception(f"{self._premsg}: {str(de)}")
+                    logger.exception(f"{self._premsg}: {str(e)}")
 
         finally:
 
@@ -1610,7 +1624,8 @@ class AsyncHLSDownloader:
                     self.status = "downloading"
 
                     upt_task = [asyncio.create_task(self.upt_status())]
-                    check_task = [asyncio.create_task(self.check_speed())]
+                    #check_task = [asyncio.create_task(self.check_speed())]
+                    check_task = []
                     self.tasks = [
                         asyncio.create_task(
                             self.fetch(i),
@@ -1649,7 +1664,9 @@ class AsyncHLSDownloader:
 
                         if _cause := self.video_downloader.reset_event.is_set():
 
-                            await asyncio.wait(check_task + upt_task)
+                            dump_init_task = [asyncio.create_task(async_ex_in_executor(self.ex_hlsdl, self.dump_init_file))]
+                            
+                            await asyncio.wait(dump_init_task + check_task + upt_task)
 
                             if self.n_reset < self._MAX_RESETS:
 
@@ -1694,6 +1711,7 @@ class AsyncHLSDownloader:
                                         return
 
                                     _cause = self.video_downloader.reset_event.is_set()
+                                    self._speed.append((datetime.now(), "speed"))
                                     logger.info(
                                         f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:CAUSE[{_cause}]"
                                     )
@@ -1750,7 +1768,7 @@ class AsyncHLSDownloader:
                         else:
 
                             self._qspeed.put_nowait("KILL")
-                            await asyncio.wait(check_task)
+                            if check_task: await asyncio.wait(check_task)
                             if inc_frags_dl > 0:
 
                                 logger.debug(
@@ -1807,6 +1825,7 @@ class AsyncHLSDownloader:
             )
             self.status = "error"
         finally:
+            await async_ex_in_executor(self.ex_hlsdl, self.dump_init_file)
             if self.fromplns:
                 try:
                     self.video_downloader.info_dl["fromplns"][self.fromplns][
@@ -1836,7 +1855,7 @@ class AsyncHLSDownloader:
                 and not self.status == "error"
             ):
                 self.status = "init_manipulating"
-            await async_ex_in_executor(self.ex_hlsdl, self.dump_init_file)
+            
             self.ex_hlsdl.shutdown(wait=False, cancel_futures=True)
 
     def dump_init_file(self):
@@ -1976,6 +1995,8 @@ class AsyncHLSDownloader:
             _eta_smooth_str = "--"
             _speed_meter_str = "--"
 
+            _temp = copy.deepcopy(self.upt)
+
             if not any(
                 [
                     self.video_downloader.pause_event.is_set(),
@@ -1984,19 +2005,20 @@ class AsyncHLSDownloader:
                 ]
             ):
 
-                if _speed_meter := self.upt.get("speed_meter"):
+
+                if _speed_meter := _temp.get("speed_meter"):
                     _speed_meter_str = f"{naturalsize(_speed_meter)}ps"
                 else:
                     _speed_meter_str = "--"
 
                 if (
-                    _est_time_smooth := self.upt.get("est_time_smooth")
+                    _est_time_smooth := _temp.get("est_time_smooth")
                 ) and _est_time_smooth < 3600:
 
                     _eta_smooth_str = ":".join(
                         [
                             _item.split(".")[0]
-                            for _item in f"{datetime.timedelta(seconds=_est_time_smooth)}".split(
+                            for _item in f"{timedelta(seconds=_est_time_smooth)}".split(
                                 ":"
                             )[
                                 1:
@@ -2007,7 +2029,7 @@ class AsyncHLSDownloader:
                     _eta_smooth_str = "--"
 
             _progress_str = (
-                f'{(self.upt.get("down_size", self.down_size)/self.filesize)*100:5.2f}%'
+                f'{(_temp.get("down_size", self.down_size)/self.filesize)*100:5.2f}%'
                 if self.filesize
                 else "-----"
             )

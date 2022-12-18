@@ -43,13 +43,14 @@ CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
 
 def wait_for_change_ip(logger):
 
-    _old_ip = json.loads(
-        subprocess.run(
-            f"curl -s https://httpbin.org/get".split(" "),
-            encoding="utf-8",
-            capture_output=True,
-        ).stdout
-    ).get("origin")
+    # _old_ip = json.loads(
+    #     subprocess.run(
+    #         f"curl -s https://httpbin.org/get".split(" "),
+    #         encoding="utf-8",
+    #         capture_output=True,
+    #     ).stdout
+    # ).get("origin")
+    _old_ip = get_myip(timeout=10)
     logger.info(f"old ip: {_old_ip}")
     _proc_kill = subprocess.run(["pkill", "TorGuardDesktopQt"])
     if _proc_kill.returncode:
@@ -58,13 +59,14 @@ def wait_for_change_ip(logger):
         n = 0
         while n < 5:
             time.sleep(2)
-            _new_ip = json.loads(
-                subprocess.run(
-                    f"curl -s https://httpbin.org/get".split(" "),
-                    encoding="utf-8",
-                    capture_output=True,
-                ).stdout
-            ).get("origin")
+            # _new_ip = json.loads(
+            #     subprocess.run(
+            #         f"curl -s https://httpbin.org/get".split(" "),
+            #         encoding="utf-8",
+            #         capture_output=True,
+            #     ).stdout
+            # ).get("origin")
+            _new_ip = get_myip(timeout=10)
             logger.info(f"[{n}] {_new_ip}")
             if _old_ip != _new_ip:
                 break
@@ -77,12 +79,13 @@ def wait_for_change_ip(logger):
         n = 0
         while n < 5:
             logger.info("try to get ip")
-            _proc_ip = subprocess.run(
-                f"curl -s https://httpbin.org/get".split(" "),
-                encoding="utf-8",
-                capture_output=True,
-            )
-            _new_ip = json.loads(_proc_ip.stdout).get("origin")
+            # _proc_ip = subprocess.run(
+            #     f"curl -s https://httpbin.org/get".split(" "),
+            #     encoding="utf-8",
+            #     capture_output=True,
+            # )
+            # _new_ip = json.loads(_proc_ip.stdout).get("origin")
+            _new_ip = get_myip(timeout=5)
             logger.info(f"[{n}] {_new_ip}")
             if _old_ip != _new_ip:
                 return True
@@ -879,12 +882,18 @@ URLS_API_GETMYIP = {
 }
 
 
-def get_myip(key=None, timeout=2):
+def get_myip(key=None, timeout=2, api="ipify"):
+
+    _urlapi = URLS_API_GETMYIP[api]['url']
+
+    _keyapi = URLS_API_GETMYIP[api]['key']
+
     _proxy = ""
     if key:
         _proxy = f"-x http://127.0.0.1:{key} "
+    _cmd = f"curl {_proxy}-s {_urlapi}"
     proc_curl = subprocess.Popen(
-        f"curl {_proxy}-s https://httpbin.org/get".split(" "),
+        _cmd.split(" "),
         encoding="utf-8",
         stdout=subprocess.PIPE,
     )
@@ -893,7 +902,7 @@ def get_myip(key=None, timeout=2):
         proc_curl.poll()
 
         if proc_curl.returncode == 0:
-            return json.loads(proc_curl.stdout.read().replace("\n", "")).get("origin")
+            return json.loads(proc_curl.stdout.read().replace("\n", "")).get(_keyapi)
         elif proc_curl.returncode == None:
             if time.monotonic() - t0 > timeout:
 
