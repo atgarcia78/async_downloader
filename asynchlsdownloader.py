@@ -576,8 +576,12 @@ class AsyncHLSDownloader:
         
         def get_reset_info(_reset_url, plns=None, first=False):
 
+            
+            _proxy = self._proxy["http://"] if self._proxy else None
+            _print_proxy = _proxy.split(":")[-1] if _proxy else None
+
             logger.debug(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: get video dict: {_webpage_url}"
+                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_print_proxy}]: get video dict: {_webpage_url}"
             )
 
             _info = None
@@ -595,7 +599,7 @@ class AsyncHLSDownloader:
                 _info = self.multi_extract_info(
                     _reset_url,
                     proxy=_proxy,
-                    msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]:",
+                    msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_print_proxy}]:",
                 )
 
                 if plns:
@@ -621,14 +625,14 @@ class AsyncHLSDownloader:
 
             if not info_reset:
                 raise AsyncHLSDLErrorFatal(
-                    f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]:  fails no descriptor"
+                    f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_print_proxy}]:  fails no descriptor"
                 )
 
             logger.info(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: format extracted info video ok"
+                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_print_proxy}]: format extracted info video ok"
             )
             logger.debug(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: format extracted info video ok\n%no%{_for_print(info_reset)}"
+                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_print_proxy}]: format extracted info video ok\n%no%{_for_print(info_reset)}"
             )
 
             try:
@@ -2014,7 +2018,7 @@ class AsyncHLSDownloader:
     def print_hookup(self):
 
         _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
-        _proxy = self._proxy["http://"].split(":")[-1] if self._proxy else False
+        _proxy = self._proxy["http://"].split(":")[-1] if self._proxy else None
 
         if self.status == "done":
             msg = f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed \n"

@@ -578,36 +578,33 @@ class AsyncDL:
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
 
-    async def gui_console(self):
+    async def gui(self):
 
         try:
 
             self.window_console = init_gui_console()
+            self.window_root = init_gui_root()
 
-            await async_wait_time(CONF_INTERVAL_GUI / 2)
+            await asyncio.sleep(0)
 
-            while True:
+            list_init = {}
+            list_downloading = {}
+            list_manipulating = {}
+            list_finish = {}
+            
 
-                if not await async_wait_time(
-                    CONF_INTERVAL_GUI / 2, events=[self.stop_console]
-                ):
-                    break
-
-                event, values = self.window_console.read(timeout=0)
-
-                if not event or event == sg.TIMEOUT_KEY:
-                    await asyncio.sleep(0)
-                    continue
+            async def gui_console(event, values):
+                
                 sg.cprint(event, values)
                 if event == sg.WIN_CLOSED:
-                    break
+                    return "break"
                 elif event in ["Exit"]:
                     logger.info(f"[gui_console] event Exit")
                     await self.cancel_all_tasks()
-                    break
+                    return "break"
                 elif event in ["-EXIT-"]:
-                    logger.info(f"[windows_console] event -exit-")
-                    break
+                    logger.info(f"[gui] event -exit-")
+                    return "break"
                 elif event in ["-WKINIT-"]:
                     self.wkinit_stop = not self.wkinit_stop
                     sg.cprint(
@@ -775,74 +772,36 @@ class AsyncDL:
                             else:
                                 sg.cprint("DL list empty")
 
-                await asyncio.sleep(0)
+                        await asyncio.sleep(0)
 
-        except BaseException as e:
-            if not isinstance(e, asyncio.CancelledError):
-                logger.error(f"[gui_console] Error:{repr(e)}")
-            if isinstance(e, KeyboardInterrupt):
-                raise
-        finally:
-            logger.debug("[gui_console] BYE")
-            self.window_console.close()
-            # self.stop_root.set()
-            self.window_console = None
-
-    async def gui_root(self):
-
-        try:
-            self.window_root = init_gui_root()
-
-            await asyncio.sleep(0)
-
-            list_init = {}
-            list_downloading = {}
-            list_manipulating = {}
-            list_finish = {}
-
-            while True:
-
-                if not await async_wait_time(
-                    CONF_INTERVAL_GUI / 5, events=[self.stop_root]
-                ):
-                    break
-
-                event, value = self.window_root.read(timeout=0)
-                if not event or event == sg.TIMEOUT_KEY:
-                    await asyncio.sleep(0)
-                    continue
-                # logger.debug(f"{event}:{value}")
+            async def gui_root(event, values):
 
                 if "kill" in event or event == sg.WIN_CLOSED:
-                    break
+                    return "break"
                 elif event == "nwmon":
-                    self.window_root["ST"].update(value["nwmon"])
+                    self.window_root["ST"].update(values["nwmon"])
                 elif event == "init":
-                    list_init = value["init"]
+                    list_init = values["init"]
                     if list_init:
                         upt = "\n\n" + "".join(list(list_init.values()))
                     else:
                         upt = ""
                     self.window_root["-ML0-"].update(upt)
                 elif event == "downloading":
-                    list_downloading = value["downloading"]
-
+                    list_downloading = values["downloading"]
                     _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
                     if list_downloading:
                         _text.extend(list(list_downloading.values()))
-
                     upt = "".join(_text)
                     self.window_root["-ML1-"].update(upt)
-
                     if self.console_dl_status:
                         upt = "\n".join(list_downloading.values())
                         sg.cprint(
                             f"\n\n-------STATUS DL----------------\n\n{upt}\n\n-------END STATUS DL------------\n\n"
                         )
                         self.console_dl_status = False
-
                 elif event in ("manipulating", "init_manipulating"):
-                    list_manipulating = value[event]
+                    list_manipulating = values[event]
 
                     _text = []
 
@@ -855,7 +814,7 @@ class AsyncDL:
                         upt = ""
                     self.window_root["-ML3-"].update(upt)
                 elif event in ("error", "done", "stop"):
-                    list_finish.update(value[event])
+                    list_finish.update(values[event])
 
                     if list_finish:
                         upt = "\n\n" + "".join(list(list_finish.values()))
@@ -864,19 +823,45 @@ class AsyncDL:
 
                     self.window_root["-ML2-"].update(upt)
 
-                # await asyncio.sleep(0)
+
+            while True:
+
+                if not await async_wait_time(
+                    CONF_INTERVAL_GUI / 4, events=[self.stop_root, self.stop_console]
+                ):
+                    break
+
+                window, event, values = sg.read_all_windows(timeout=0)
+
+                if not event or event == sg.TIMEOUT_KEY:
+                    await asyncio.sleep(0)
+                    continue
+
+                if window == self.window_console:
+                    _res = await gui_console(event, values)
+                    if _res: break
+                elif window == self.window_root:
+                    _res = await gui_root(event, values)
+                    if _res: break
+
+                await asyncio.sleep(0)
+
+            await asyncio.sleep(0)
 
         except BaseException as e:
-            if not isinstance(e, asyncio.CancelledError):
+            if not isinstance(e, asyncio.CancelledError):                
                 logger.exception(
-                    f"[gui_root]\nlist_init: {list_init}\nlist_dl: {list_downloading}\nlist_manip: {list_manipulating}\nlist_finish: {list_finish}\nError:{repr(e)} "
+                    f"[gui] {repr(e)}"
                 )
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
-            logger.debug("[gui_root] BYE")
-            self.window_root.close()
-            self.window_root = None
+            logger.debug("[gui] BYE")
+            self.window_console.close()
+            self.gui_root.close()
+            self.window_console = None
+            self.gui_root = None
+
 
     async def get_list_videos(self):
 
@@ -1597,11 +1582,6 @@ class AsyncDL:
 
                     self.t3.stop()
 
-                    # if not self.list_dl:
-
-                    # self.stop_console = False
-                    # self.pasres_repeat = False
-
                     break
 
                 else:
@@ -2089,9 +2069,6 @@ class AsyncDL:
                     for _ in range(self.workers):
                         self.queue_manip.put_nowait(("", "KILL"))
 
-                    # OJO!!!!
-                    # self.stop_console = True OJO
-                    # self.pasres_repeat = False
 
                     break
 
@@ -2269,9 +2246,11 @@ class AsyncDL:
                     )
                 ]
             )
+            
             tasks_to_wait.update(
                 {asyncio.create_task(self.get_list_videos()): "task_get_videos"}
             )
+            
             tasks_to_wait.update(
                 {
                     asyncio.create_task(self.worker_init(i)): f"task_worker_init_{i}"
@@ -2307,9 +2286,9 @@ class AsyncDL:
 
                         logger.debug(f"[async_ex] ytdl_params:\n{self.ytdl.params}")
 
-                self.task_gui_root = asyncio.create_task(self.gui_root())
-                self.console_task = asyncio.create_task(self.gui_console())
-                tasks_gui = [self.task_gui_root, self.console_task]
+                self.gui_task = asyncio.create_task(self.gui())
+                
+                tasks_gui = [self.gui_task]
                 tasks_to_wait.update(
                     {
                         asyncio.create_task(self.worker_run(i)): f"task_worker_run_{i}"
