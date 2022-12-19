@@ -1,7 +1,7 @@
 import asyncio
 import binascii
 import contextlib
-from datetime import timedelta 
+from datetime import timedelta
 from datetime import datetime
 import json
 import logging
@@ -157,7 +157,6 @@ class AsyncHLSDownloader:
 
             self.throttle = 0
             self.down_size = 0
-            # self.down_temp = 0
             self.status = "init"
             self.error_message = ""
             self.upt = {}
@@ -239,6 +238,7 @@ class AsyncHLSDownloader:
                                 "downloading": set(),
                                 "in_reset": set(),
                                 "reset": temp,
+                                "sem": threading.BoundedSemaphore(value=1),
                             }
                         else:
                             self.video_downloader.info_dl["fromplns"][self.fromplns][
@@ -432,14 +432,12 @@ class AsyncHLSDownloader:
                             f"{self.premsg}[{self.count}/{self.n_workers}]:{fragment.key.iv}"
                         )
 
-            
             logger.info(
                 f"{self.premsg}[{self.count}/{self.n_workers}]: Frags already DL: {len(self.fragsdl())}, Frags not DL: {len(self.fragsnotdl())}, Frags to request: {len(self.frags_to_dl)}"
             )
             logger.debug(
                 f"{self.premsg}[{self.count}/{self.n_workers}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}"
             )
-
 
             self.n_total_fragments = len(self.info_dict["fragments"])
 
@@ -575,7 +573,9 @@ class AsyncHLSDownloader:
 
     @retry
     def resetdl(self, cause=None):
-        def get_reset_info(plns=None, first=False):
+        
+        def get_reset_info(_reset_url, plns=None, first=False):
+
             logger.debug(
                 f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: get video dict: {_webpage_url}"
             )
@@ -593,7 +593,7 @@ class AsyncHLSDownloader:
             if not plns or first:
 
                 _info = self.multi_extract_info(
-                    _webpage_url,
+                    _reset_url,
                     proxy=_proxy,
                     msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]:",
                 )
@@ -602,7 +602,6 @@ class AsyncHLSDownloader:
                     self.ytdl.cache.store("nakedswordmovie", str(plns), _info)
 
             else:
-
                 _info = self.ytdl.cache.load("nakedswordmovie", str(plns))
 
             if plns:
@@ -626,12 +625,14 @@ class AsyncHLSDownloader:
                 )
 
             logger.info(
+                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: format extracted info video ok"
+            )
+            logger.debug(
                 f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: proxy [{_proxy}]: format extracted info video ok\n%no%{_for_print(info_reset)}"
             )
 
             try:
                 self.prep_reset(info_reset)
-                self.n_reset += 1
                 return True
             except Exception as e:
                 logger.exception(
@@ -639,6 +640,7 @@ class AsyncHLSDownloader:
                 )
                 raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
+        
         try:
 
             if cause and str(cause) == "403":
@@ -654,7 +656,7 @@ class AsyncHLSDownloader:
                     f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] fin wait in reset cause 403"
                 )
 
-            _proxy = None
+            
             if self.enproxy:
                 el1, el2 = self._qproxies.get()
                 _proxy = f"http://127.0.0.1:{CONF_PROXIES_BASE_PORT + el1*100 + el2}"
@@ -662,7 +664,7 @@ class AsyncHLSDownloader:
 
             _wurl = self.info_dict.get("webpage_url")
 
-            if self.fromplns and cause == "403":
+            if self.fromplns and cause in ("403", "hard"):
 
                 _webpage_url = smuggle_url(
                     re.sub(r"(/scene/\d+)", "", _wurl),
@@ -684,75 +686,83 @@ class AsyncHLSDownloader:
                 )
 
                 with (_sem := self.video_downloader.info_dl["fromplns"]["ALL"]["sem"]):
-                    if _sem._initial_value == 1:
-                        nslt = NakedSwordBaseIE._API
-                        with nslt.driver_lock:
-                            nslt.stop_event()
-                            _st_ip = wait_for_change_ip(logger)
-                            logger.info(
-                                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] change ip {_st_ip}"
-                            )
-                            nslt.start_driver()
 
-                    if get_reset_info(
-                        plns=self.fromplns, first=_sem._initial_value == 1
-                    ):
-                        if _sem._initial_value == 1:
-                            _sem._initial_value = 100
-                            _sem.release(50)
+                    logger.debug(
+                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] in sem"
+                    )
+                    
+                    if _sem._initial_value == 1:
+                        if cause == "403": NakedSwordBaseIE._STATUS = "403"
+                        nslt = NakedSwordBaseIE._API
+                        nslt.close_driver()
+                        _st_ip = wait_for_change_ip(logger)
+                        logger.info(
+                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] change ip {_st_ip}"
+                        )
+                        nslt.start_driver()
+
+                    with (_sem2 := self.video_downloader.info_dl["fromplns"][self.fromplns]["sem"]):
+
+                        logger.debug(
+                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] in sem2"
+                        )
+                        
+                        if get_reset_info(
+                            _webpage_url,
+                            plns=self.fromplns,
+                            first=_sem2._initial_value == 1,
+                        ):
+                            
+                            if _sem._initial_value == 1:
+                                _sem._initial_value = 100
+                                _sem.release(50)
+                            if _sem2._initial_value == 1:
+                                _sem2._initial_value = 100
+                                _sem2.release(50)
+                                
             else:
                 _webpage_url = (
                     smuggle_url(_wurl, {"indexdl": self.video_downloader.index})
                     if self.special_extr
                     else _wurl
                 )
-                get_reset_info()
+                get_reset_info(_webpage_url)
 
         except Exception as e:
             logger.exception(
                 f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: outer Exception occurred when reset: {repr(e)}"
             )
             raise
-        finally:
-            if self.fromplns and cause == "403":
+        else:
+            if self.fromplns and cause in ("403", "hard"):
                 try:
-                    self.video_downloader.info_dl["fromplns"][self.fromplns][
-                        "in_reset"
-                    ].remove(self.video_downloader.info_dict["playlist_index"])
+                    self.video_downloader.info_dl["fromplns"][self.fromplns]["in_reset"].remove(self.video_downloader.info_dict["playlist_index"])
                 except Exception as e:
                     self.warning(
                         f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['downloading']}"
                     )
 
-                if not self.video_downloader.info_dl["fromplns"][self.fromplns][
-                    "in_reset"
-                ]:
+                if not self.video_downloader.info_dl["fromplns"][self.fromplns]["in_reset"]:
 
                     logger.info(
                         f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: end of resets fromplns [{self.fromplns}]"
                     )
 
-                    self.video_downloader.info_dl["fromplns"][self.fromplns][
-                        "reset"
-                    ].set()
-                    self.video_downloader.info_dl["fromplns"]["ALL"]["in_reset"].remove(
-                        self.fromplns
-                    )
+                    self.video_downloader.info_dl["fromplns"][self.fromplns]["reset"].set()
+                    self.video_downloader.info_dl["fromplns"]["ALL"]["in_reset"].remove(self.fromplns)
                     if not self.video_downloader.info_dl["fromplns"]["ALL"]["in_reset"]:
                         self.video_downloader.info_dl["fromplns"]["ALL"]["reset"].set()
-
                 else:
                     logger.info(
                         f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: waits for rest scenes to start DL [{self.fromplns}]"
                     )
-                    self.video_downloader.info_dl["fromplns"][self.fromplns][
-                        "reset"
-                    ].wait()
+                    self.video_downloader.info_dl["fromplns"][self.fromplns]["reset"].wait()
+                    self.video_downloader.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
 
                 self.video_downloader.info_dl["fromplns"]["ALL"]["reset"].wait()
-                self.video_downloader.info_dl["fromplns"]["ALL"][
-                    "sem"
-                ] = threading.BoundedSemaphore(value=1)
+                self.video_downloader.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
+                NakedSwordBaseIE._STATUS = "NORMAL"
+                self.n_reset += 1
 
     def prep_reset(self, info_reset):
 
@@ -1107,7 +1117,7 @@ class AsyncHLSDownloader:
                             {"est_time": _est_time, "est_time_smooth": _est_time_smooth}
                         )
                         self._speed.append((datetime.now(), copy.deepcopy(self.upt)))
-                        #if self._qspeed:
+                        # if self._qspeed:
                         #    self._qspeed.put_nowait(_speed_meter)
 
             await asyncio.sleep(0)
@@ -1180,7 +1190,7 @@ class AsyncHLSDownloader:
                             return_when=asyncio.FIRST_COMPLETED,
                         )
 
-                        for _el in pendin2:
+                        for _el in pending2:
                             _el.cancel()
                         self.video_downloader.pause_event.clear()
                         self.video_downloader.resume_event.clear()
@@ -1228,11 +1238,10 @@ class AsyncHLSDownloader:
                             self._premsg = f"{self.premsg}[{self.count}/{self.n_workers}]:[worker-{nco}]:[frag[{q}] "
 
                             async with aiofiles.open(filename, mode="ab") as f:
-                                
+
                                 async with self._limit:
-                                    logger.debug(
-                                        f"{self._premsg}: limiter speed")
-                                
+                                    logger.debug(f"{self._premsg}: limiter speed")
+
                                 async with client.stream(
                                     "GET", url, headers=headers, timeout=15
                                 ) as res:
@@ -1357,8 +1366,10 @@ class AsyncHLSDownloader:
                                             if (
                                                 self.video_downloader.pause_event.is_set()
                                             ):
-                                                self._speed.append((datetime.now(), "pause"))
-                                                
+                                                self._speed.append(
+                                                    (datetime.now(), "pause")
+                                                )
+
                                                 done, pending = await asyncio.wait(
                                                     [
                                                         asyncio.create_task(
@@ -1378,7 +1389,9 @@ class AsyncHLSDownloader:
                                                 await asyncio.wait(pending)
                                                 self.video_downloader.pause_event.clear()
                                                 self.video_downloader.resume_event.clear()
-                                                self._speed.append((datetime.now(), "resume"))
+                                                self._speed.append(
+                                                    (datetime.now(), "resume")
+                                                )
 
                                             # if any(
                                             #     [
@@ -1624,7 +1637,7 @@ class AsyncHLSDownloader:
                     self.status = "downloading"
 
                     upt_task = [asyncio.create_task(self.upt_status())]
-                    #check_task = [asyncio.create_task(self.check_speed())]
+                    # check_task = [asyncio.create_task(self.check_speed())]
                     check_task = []
                     self.tasks = [
                         asyncio.create_task(
@@ -1638,7 +1651,7 @@ class AsyncHLSDownloader:
                         self.tasks, return_when=asyncio.ALL_COMPLETED
                     )
 
-                    self.video_downloader.end_tasks.set()
+                    # self.video_downloader.end_tasks.set()
 
                     logger.debug(
                         f"{self.premsg}[{self.count}/{self.n_workers}][fetch_async]: done[{len(list(done))}] pending[{len(list(pending))}]"
@@ -1649,6 +1662,9 @@ class AsyncHLSDownloader:
                     n_frags_dl = _nfragsdl
 
                     if n_frags_dl == len(self.info_dict["fragments"]):
+
+                        await self.clean_from_reset()
+                        self.video_downloader.end_tasks.set()
                         self._qspeed.put_nowait("KILL")
                         self.kill.set()
                         await asyncio.sleep(0)
@@ -1658,157 +1674,147 @@ class AsyncHLSDownloader:
                     else:
                         if self.video_downloader.stop_event.is_set():
 
+                            await self.clean_from_reset()
+                            self.video_downloader.end_tasks.set()
                             self.status = "stop"
                             await asyncio.wait(check_task + upt_task)
                             return
 
-                        if _cause := self.video_downloader.reset_event.is_set():
-
-                            dump_init_task = [asyncio.create_task(async_ex_in_executor(self.ex_hlsdl, self.dump_init_file))]
-                            
-                            await asyncio.wait(dump_init_task + check_task + upt_task)
-
-                            if self.n_reset < self._MAX_RESETS:
-
-                                if self.fromplns and _cause == "403":
-                                    await self.video_downloader.back_from_reset_plns(
-                                        logger,
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]",
-                                    )
-                                    if self.video_downloader.stop_event.is_set():
-                                        try:
-                                            self.video_downloader.info_dl["fromplns"][
-                                                self.fromplns
-                                            ]["in_reset"].remove(
-                                                self.video_downloader.info_dict[
-                                                    "playlist_index"
-                                                ]
-                                            )
-                                        except Exception as e:
-                                            self.warning(
-                                                f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['in_reset']}"
-                                            )
-
-                                        if not self.video_downloader.info_dl[
-                                            "fromplns"
-                                        ][self.fromplns]["in_reset"]:
-                                            logger.info(
-                                                f"{self.premsg}[{self.count}/{self.n_workers}] end of resets fromplns [{self.fromplns}]"
-                                            )
-                                            self.video_downloader.info_dl["fromplns"][
-                                                self.fromplns
-                                            ]["reset"].set()
-                                            self.video_downloader.info_dl["fromplns"][
-                                                "ALL"
-                                            ]["in_reset"].remove(self.fromplns)
-                                            if not self.video_downloader.info_dl[
-                                                "fromplns"
-                                            ]["ALL"]["in_reset"]:
-                                                self.video_downloader.info_dl[
-                                                    "fromplns"
-                                                ]["ALL"]["reset"].set()
-
-                                        return
-
-                                    _cause = self.video_downloader.reset_event.is_set()
-                                    self._speed.append((datetime.now(), "speed"))
-                                    logger.info(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:CAUSE[{_cause}]"
-                                    )
-
-                                elif _cause == "manual":
-                                    logger.info(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:CAUSE[{_cause}]"
-                                    )
-                                    continue
-
-                                try:
-                                    await self.areset(_cause)
-                                    if self.video_downloader.stop_event.is_set():
-                                        return
-                                    self.frags_queue = asyncio.Queue()
-                                    for frag in self.frags_to_dl:
-                                        self.frags_queue.put_nowait(frag)
-                                    if (
-                                        (_t := time.monotonic()) - _tstart
-                                    ) < self._MIN_TIME_RESETS:
-                                        self.n_workers -= self.n_workers // 4
-                                    _tstart = _t
-                                    for _ in range(self.n_workers):
-                                        self.frags_queue.put_nowait("KILL")
-                                    logger.debug(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}"
-                                    )
-                                    await asyncio.sleep(0)
-                                    continue
-
-                                except Exception as e:
-                                    lines = traceback.format_exception(*sys.exc_info())
-                                    logger.debug(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}"
-                                    )
-                                    self.status = "error"
-                                    await self.clean_when_error()
-                                    raise AsyncHLSDLErrorFatal(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]: ERROR reset couldnt progress"
-                                    )
-
-                            else:
-
-                                logger.warning(
-                                    f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets"
-                                )
-                                self.status = "error"
-                                await self.clean_when_error()
-                                await asyncio.sleep(0)
-                                raise AsyncHLSDLErrorFatal(
-                                    f"{self.premsg}[{self.count}/{self.n_workers}]: ERROR max resets"
-                                )
-
                         else:
 
-                            self._qspeed.put_nowait("KILL")
-                            if check_task: await asyncio.wait(check_task)
-                            if inc_frags_dl > 0:
+                            self.video_downloader.end_tasks.set()
 
-                                logger.debug(
-                                    f"{self.premsg}[{self.count}/{self.n_workers}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error"
-                                )
-                                try:
-                                    await self.areset()
-                                    if self.video_downloader.stop_event.is_set():
-                                        return
-                                    self.frags_queue = asyncio.Queue()
-                                    for frag in self.frags_to_dl:
-                                        self.frags_queue.put_nowait(frag)
-                                    for _ in range(self.n_workers):
-                                        self.frags_queue.put_nowait("KILL")
-                                    logger.debug(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}"
+                            if _cause := self.video_downloader.reset_event.is_set():
+
+                                dump_init_task = [
+                                    asyncio.create_task(
+                                        async_ex_in_executor(
+                                            self.ex_hlsdl, self.dump_init_file
+                                        )
                                     )
-                                    self.n_reset -= 1
-                                    continue
+                                ]
 
-                                except Exception as e:
-                                    lines = traceback.format_exception(*sys.exc_info())
-                                    logger.debug(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}"
+                                await asyncio.wait(
+                                    dump_init_task + check_task + upt_task
+                                )
+
+                                if self.n_reset < self._MAX_RESETS:
+
+                                    if self.fromplns and _cause in ("403", "hard"):
+                                        await self.video_downloader.back_from_reset_plns(
+                                            logger,
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]",
+                                        )
+                                        if self.video_downloader.stop_event.is_set():
+                                            await self.clean_from_reset()
+                                            return
+
+                                        _cause = (
+                                            self.video_downloader.reset_event.is_set()
+                                        )
+                                        self._speed.append((datetime.now(), "speed"))
+                                        logger.info(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:CAUSE[{_cause}]"
+                                        )
+
+                                    elif _cause == "manual":
+                                        logger.info(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:CAUSE[{_cause}]"
+                                        )
+                                        continue
+
+                                    try:
+                                        await self.areset(_cause)
+                                        if self.video_downloader.stop_event.is_set():
+                                            return
+                                        self.frags_queue = asyncio.Queue()
+                                        for frag in self.frags_to_dl:
+                                            self.frags_queue.put_nowait(frag)
+                                        if (
+                                            (_t := time.monotonic()) - _tstart
+                                        ) < self._MIN_TIME_RESETS:
+                                            self.n_workers -= self.n_workers // 4
+                                        _tstart = _t
+                                        for _ in range(self.n_workers):
+                                            self.frags_queue.put_nowait("KILL")
+                                        logger.debug(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}"
+                                        )
+                                        await asyncio.sleep(0)
+                                        continue
+
+                                    except Exception as e:
+                                        lines = traceback.format_exception(
+                                            *sys.exc_info()
+                                        )
+                                        logger.debug(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}"
+                                        )
+                                        self.status = "error"
+                                        await self.clean_when_error()
+                                        raise AsyncHLSDLErrorFatal(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]: ERROR reset couldnt progress"
+                                        )
+
+                                else:
+
+                                    logger.warning(
+                                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR:Max_number_of_resets"
                                     )
                                     self.status = "error"
                                     await self.clean_when_error()
                                     await asyncio.sleep(0)
                                     raise AsyncHLSDLErrorFatal(
-                                        f"{self.premsg}[{self.count}/{self.n_workers}]: ERROR reset couldnt progress"
+                                        f"{self.premsg}[{self.count}/{self.n_workers}]: ERROR max resets"
                                     )
 
                             else:
-                                logger.debug(
-                                    f"{self.premsg}[{self.count}/{self.n_workers}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error"
-                                )
-                                self.status = "error"
-                                raise AsyncHLSDLErrorFatal(
-                                    f"{self.premsg}[{self.count}/{self.n_workers}]: no changes in number of dl frags in one cycle"
-                                )
+
+                                self._qspeed.put_nowait("KILL")
+                                if check_task:
+                                    await asyncio.wait(check_task)
+                                if inc_frags_dl > 0:
+
+                                    logger.debug(
+                                        f"{self.premsg}[{self.count}/{self.n_workers}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error"
+                                    )
+                                    try:
+                                        await self.areset()
+                                        if self.video_downloader.stop_event.is_set():
+                                            return
+                                        self.frags_queue = asyncio.Queue()
+                                        for frag in self.frags_to_dl:
+                                            self.frags_queue.put_nowait(frag)
+                                        for _ in range(self.n_workers):
+                                            self.frags_queue.put_nowait("KILL")
+                                        logger.debug(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}"
+                                        )
+                                        self.n_reset -= 1
+                                        continue
+
+                                    except Exception as e:
+                                        lines = traceback.format_exception(
+                                            *sys.exc_info()
+                                        )
+                                        logger.debug(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}"
+                                        )
+                                        self.status = "error"
+                                        await self.clean_when_error()
+                                        await asyncio.sleep(0)
+                                        raise AsyncHLSDLErrorFatal(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]: ERROR reset couldnt progress"
+                                        )
+
+                                else:
+                                    logger.debug(
+                                        f"{self.premsg}[{self.count}/{self.n_workers}]: [{n_frags_dl} <-> {inc_frags_dl}] no improvement, lets raise an error"
+                                    )
+                                    self.status = "error"
+                                    raise AsyncHLSDLErrorFatal(
+                                        f"{self.premsg}[{self.count}/{self.n_workers}]: no changes in number of dl frags in one cycle"
+                                    )
 
                 except AsyncHLSDLErrorFatal:
                     raise
@@ -1855,8 +1861,46 @@ class AsyncHLSDownloader:
                 and not self.status == "error"
             ):
                 self.status = "init_manipulating"
-            
+
             self.ex_hlsdl.shutdown(wait=False, cancel_futures=True)
+
+    async def clean_from_reset(self):
+
+        if self.fromplns and self.video_downloader.reset_event.is_set():
+            try:
+                self.video_downloader.info_dl["fromplns"][self.fromplns][
+                    "in_reset"
+                ].remove(self.video_downloader.info_dict["playlist_index"])
+                if not self.video_downloader.info_dl["fromplns"][self.fromplns][
+                    "in_reset"
+                ]:
+                    logger.info(
+                        f"{self.premsg}[{self.count}/{self.n_workers}] end of resets fromplns [{self.fromplns}]"
+                    )
+                    try:
+                        self.video_downloader.info_dl["fromplns"]["ALL"][
+                            "in_reset"
+                        ].remove(self.fromplns)
+                        if not self.video_downloader.info_dl["fromplns"]["ALL"][
+                            "in_reset"
+                        ]:
+                            self.video_downloader.info_dl["fromplns"]["ALL"][
+                                "reset"
+                            ].set()
+
+                    except Exception as e:
+                        self.warning(
+                            f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.fromplns}] from {self.video_downloader.info_dl['fromplns']['ALL']['in_reset']}"
+                        )
+
+                    self.video_downloader.info_dl["fromplns"][self.fromplns][
+                        "reset"
+                    ].set()
+
+            except Exception as e:
+                self.warning(
+                    f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['in_reset']}"
+                )
 
     def dump_init_file(self):
 
@@ -2005,7 +2049,6 @@ class AsyncHLSDownloader:
                 ]
             ):
 
-
                 if _speed_meter := _temp.get("speed_meter"):
                     _speed_meter_str = f"{naturalsize(_speed_meter)}ps"
                 else:
@@ -2020,9 +2063,7 @@ class AsyncHLSDownloader:
                             _item.split(".")[0]
                             for _item in f"{timedelta(seconds=_est_time_smooth)}".split(
                                 ":"
-                            )[
-                                1:
-                            ]
+                            )[1:]
                         ]
                     )
                 else:

@@ -149,7 +149,6 @@ class AsyncDL:
     def start_aria2c(self, *args, **kwargs):
         try:
             _ready = kwargs.get("stop_event")
-
             self.proc_aria2c = init_aria2c(self.args)
         except Exception as e:
             logger.exception(f"[start_aria2c] {str(e)}")
@@ -561,7 +560,7 @@ class AsyncDL:
         try_get(self.ytdl.params["stop"], lambda x: x.set())
         if self.list_dl:
             for dl in self.list_dl:
-                dl.stop()
+                await dl.stop()
         await asyncio.sleep(0)
 
     async def print_pending_tasks(self):
@@ -761,11 +760,9 @@ class AsyncDL:
                                         if event == "Resume":
                                             await self.list_dl[_index - 1].resume()
                                         if event == "Reset":
-                                            await self.list_dl[_index - 1].reset(
-                                                "manual"
-                                            )
+                                            await self.list_dl[_index - 1].reset_from_console("hard")
                                         if event == "Stop":
-                                            self.list_dl[_index - 1].stop()
+                                            await self.list_dl[_index - 1].stop()
                                         if event == "Info":
                                             sg.cprint(
                                                 self.list_dl[_index - 1].info_dict

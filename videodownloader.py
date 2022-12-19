@@ -232,6 +232,14 @@ class VideoDownloader:
         
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
+    async def reset_from_console(self, cause=None):
+        if 'hls' in str(type(self.info_dl['downloaders'][0])).lower():
+            if (_plns:=self.info_dl['downloaders'][0].fromplns):
+                await self.reset_plns(cause)
+                return
+        await self.reset(cause)
+
+    
     async def reset(self, cause=None):
         if self.reset_event:
             _wait_tasks = []
@@ -249,24 +257,23 @@ class VideoDownloader:
 
             return _wait_tasks
 
-
-
-    async def reset_plns(self, cause=None):
+    async def reset_plns(self, cause="403"):
         self.info_dl['fromplns']['ALL']['reset'].clear()
          
-        plid_total = self.info_dl['fromplns']['ALL']['in_reset'].union(self.info_dl['fromplns']['ALL']['downloading'])
+        plid_total = self.info_dl['fromplns']['ALL']['downloading']
 
         _wait_all_tasks = []
+                
         for plid in plid_total:
 
             dict_dl = traverse_obj(self.info_dl['fromplns'], (plid, 'downloaders'))
             list_dl = traverse_obj(self.info_dl['fromplns'], (plid, 'downloading'))
             list_reset = traverse_obj(self.info_dl['fromplns'], (plid, 'in_reset'))
-            list_total = list_dl.union(list_reset)     
-            if list_total and dict_dl:
+            
+            if list_dl and dict_dl:
                 self.info_dl['fromplns']['ALL']['in_reset'].add(plid)
                 self.info_dl['fromplns'][plid]['reset'].clear()               
-                plns = [dl for key,dl in dict_dl.items() if key in list_total]
+                plns = [dl for key,dl in dict_dl.items() if key in list_dl]
                 for dl,key in zip(plns, list_dl):
                     _wait_all_tasks.extend(await dl.reset(cause))
                     list_reset.add(key)
@@ -286,9 +293,12 @@ class VideoDownloader:
         if _tasks_all:
             _2tasks = {asyncio.wait(_tasks_all): 'tasks',  asyncio.create_task(self.stop_event.wait()): 'stop'}
             done, pending = await asyncio.wait(_2tasks, return_when=asyncio.FIRST_COMPLETED)
-            for _el in pending: _el.cancel()
+            for _el in pending: 
+                if _2tasks.get(_el) == 'tasks':
+                    for _t in _tasks_all: _t.cancel()
+                else: _el.cancel()
 
-    def stop(self):
+    async def stop(self):
         self.info_dl['status'] = "stop"
         for dl in self.info_dl['downloaders']:
             dl.status = "stop"
