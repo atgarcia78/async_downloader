@@ -279,7 +279,6 @@ class VideoDownloader:
                     list_reset.add(key)
         return _wait_all_tasks
         
-
     async def back_from_reset_plns(self, logger, premsg):
         _tasks_all = []
         for plid in  self.info_dl['fromplns']['ALL']['in_reset']:
@@ -304,9 +303,9 @@ class VideoDownloader:
             dl.status = "stop"
         if self.stop_event:
             if self.pause_event.is_set():
-                self.resume_event.set()
+                self.resume_event.set()            
+            await self.awrite_window()
             self.stop_event.set()
-        self.write_window()
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
 
     async def pause(self):
@@ -320,7 +319,8 @@ class VideoDownloader:
     def write_window(self):
         if self.info_dl['status'] not in ("init", "downloading", "manipulating", "init_manipulating"):
             mens = {self.index: self.print_hookup()}
-            self.window_root.write_event_value(self.info_dl['status'], mens)
+            if self.window_root:
+                self.window_root.write_event_value(self.info_dl['status'], mens)
         
     async def run_dl(self):
         
@@ -618,7 +618,7 @@ class VideoDownloader:
             await asyncio.wait(blocking_tasks)
             raise
         finally:
-            self.write_window()
+            await self.awrite_window()
             self.ex_videodl.shutdown(wait=False, cancel_futures=True)
             await asyncio.sleep(0) 
 

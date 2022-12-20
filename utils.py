@@ -36,7 +36,9 @@ CONF_ARIA2C_SPEED_PER_CONNECTION = 102400  # 102400 * 1.5# 102400
 CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 120
 CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
-CONF_INTERVAL_GUI = 0.15
+CONF_INTERVAL_GUI = 0.2
+
+
 
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
 
@@ -496,9 +498,7 @@ async def async_wait_time(n, events=None):
     while not any([_ev.is_set() for _ev in events]):
         if (_t := (time.monotonic() - _started)) >= n:
             return _t
-        else:
-            await asyncio.sleep(0)
-    return
+        await asyncio.sleep(0)
 
 
 def wait_time(n, event=None):
