@@ -2107,7 +2107,7 @@ class AsyncDL:
                     )
                     task_run = asyncio.create_task(video_dl.run_dl())
                     await asyncio.sleep(0)
-                    done, pending = await asyncio.wait([task_run])
+                    done, pending = await asyncio.wait([task_run, asyncio.create_task(video_dl.on_hold_event.wait())], return_when=asyncio.FIRST_COMPLETED)
 
                     for d in done:
                         try:
@@ -2136,6 +2136,16 @@ class AsyncDL:
                         )
                         self.info_videos[url_key]["status"] = "nok"
 
+                    
+                    elif video_dl.on_hold_event.is_set():
+                        logger.info(
+                            f"[worker_run][{i}][{url_key}]: on hold"
+                        )
+
+                        self.queue_onhold.put_nowait((url_key, video_dl))
+
+
+                    
                     else:
 
                         logger.error(
@@ -2235,6 +2245,7 @@ class AsyncDL:
         self.getlistvid_first = asyncio.Event()
         self.queue_run = asyncio.Queue()
         self.queue_manip = asyncio.Queue()
+        self.queue_onhold = asyncio.Queue()
         self.alock = asyncio.Lock()
         self.hosts_alock = asyncio.Lock()
 

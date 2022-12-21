@@ -671,6 +671,20 @@ class AsyncHLSDownloader:
 
             if cause and str(cause) == "403":
 
+                self.video_downloader.on_hold_event.set()
+                
+                try:
+                    dl = self.video_downloader.info_dl['onhold'].get(block=False, timeout=0)
+                    dl.on_hold_event.clear()
+                    logger.info(
+                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] clear onhold event fort [{dl.info_dict['id']}][{dl.info_dict['title']}]"
+                    )
+                except Exception as e:
+                    pass
+                self.video_downloader.info_dl['onhold'].put_nowait(self.video_downloader)
+
+
+
                 logger.info(
                     f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] start wait in reset cause 403"
                 )
@@ -793,7 +807,11 @@ class AsyncHLSDownloader:
                     self.video_downloader.info_dl["fromplns"][self.fromplns]["reset"].wait()
 
                 NakedSwordBaseIE._STATUS = "NORMAL"
-                self.n_reset += 1
+            self.n_reset += 1
+            logger.info(
+                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: exit reset"
+                    )
+
 
     def prep_reset(self, info_reset):
 
@@ -1328,10 +1346,11 @@ class AsyncHLSDownloader:
                                                         "filesize"
                                                     ] += self.filesize
                                         else:
-                                            self.video_downloader.reset_event.set()
-                                            raise AsyncHLSDLErrorFatal(
-                                                f"Frag:{str(q)} _hsize is None"
+                                            logger.warning(
+                                                f"{self._premsg}: Frag:{str(q)} _hsize is None"
                                             )
+                                            
+
 
                                         if self.info_frag[q - 1]["downloaded"]:
 
@@ -1372,13 +1391,12 @@ class AsyncHLSDownloader:
                                                 async with self._LOCK:
                                                     self.n_dl_fragments -= 1
 
-                                        if (
-                                            self.info_frag[q - 1]["headersize"]
-                                            < self._CHUNK_SIZE
-                                        ):
+                                        if self.info_frag[q - 1]["headersize"] and self.info_frag[q - 1]["headersize"] < self._CHUNK_SIZE:
+                                        
                                             _chunk_size = self.info_frag[q - 1][
                                                 "headersize"
                                             ]
+                                        
                                         else:
                                             _chunk_size = self._CHUNK_SIZE
 
@@ -1424,13 +1442,6 @@ class AsyncHLSDownloader:
                                                     (datetime.now(), "resume")
                                                 )
 
-                                            # if any(
-                                            #     [
-                                            #         self.video_downloader.stop_event.is_set(),
-                                            #         self.video_downloader.reset_event.is_set(),
-                                            #     ]
-                                            # ):
-                                            #     raise AsyncHLSDLErrorFatal("event")
 
                                             _timechunk = time.monotonic() - _started
                                             self.info_frag[q - 1][
@@ -1632,6 +1643,9 @@ class AsyncHLSDownloader:
 
         n_frags_dl = 0
 
+        
+
+        
         if self.fromplns:
             _event = traverse_obj(
                 self.video_downloader.info_dl["fromplns"], ("ALL", "reset")
@@ -1649,6 +1663,29 @@ class AsyncHLSDownloader:
         try:
 
             while True:
+
+                if self.video_downloader.on_hold_event.is_set():
+
+                    logger.info(
+                        f"{self.premsg}[{self.count}/{self.n_workers}][fetch_async]: waiting on hold"
+                    )
+
+                    async def prop(ev):
+                        return not ev.is_set()
+
+                    try:
+                    
+                        await async_wait_until(300, cor=prop,args=(self.video_downloader.on_hold_event,), interv=5)
+                        logger.info(
+                            f"{self.premsg}[{self.count}/{self.n_workers}][fetch_async]: end waiting on hold for action of colleague"
+                        )
+
+                    except Exception as e:
+                        logger.info(
+                            f"{self.premsg}[{self.count}/{self.n_workers}][fetch_async]: end waiting on hold for timeout"
+                        )
+
+                        self.video_downloader.on_hold_event.clear()
 
                 logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}] TASKS INIT")
 

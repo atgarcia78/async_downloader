@@ -505,7 +505,7 @@ def wait_time(n, event=None):
     _started = time.monotonic()
     if not event:
         event = threading.Event()  # dummy
-
+ 
     while not event.is_set():
         if (_t := (time.monotonic() - _started)) >= n:
             return _t
@@ -2445,3 +2445,63 @@ def check_if_dl(info_dict, videos):
     return videos.get(vid_name)
 
 
+'''
+import signal
+import textwrap
+from datetime import timedelta
+from pathlib import Path
+from types import FrameType
+from typing import Any, Dict
+
+import pkg_resources
+import toml
+from appdirs import user_config_dir
+from loguru import logger
+
+from aria2p.types import PathOrStr
+
+class SignalHandler:
+    """A helper class to handle signals."""
+
+    def __init__(self, signals: list[str]) -> None:
+        """
+        Initialize the object.
+
+        Arguments:
+            signals: List of signals names as found in the `signal` module (example: SIGTERM).
+        """
+        logger.debug("Signal handler: handling signals " + ", ".join(signals))
+        self.triggered = False
+        for sig in signals:
+            try:
+                signal.signal(signal.Signals[sig], self.trigger)  # noqa: E1101
+            except ValueError as error:
+                logger.error(f"Failed to setup signal handler for {sig}: {error}")
+
+    def __bool__(self) -> bool:
+        """
+        Return True when one of the given signal was received, False otherwise.
+
+        Returns:
+            True when signal received, False otherwise.
+        """
+        return self.triggered
+
+    def trigger(self, signum: int, frame: FrameType | None) -> None:  # noqa: W0613 (unused frame)
+        """
+        Mark this instance as 'triggered' (a specified signal was received).
+
+        Arguments:
+            signum: The signal code.
+            frame: The signal frame (unused).
+        """
+        logger.debug(
+            f"Signal handler: caught signal {signal.Signals(signum).name} ({signum})",  # noqa: E1101 (signal.Signals)
+        )
+        self.triggered = True
+
+
+
+
+
+'''

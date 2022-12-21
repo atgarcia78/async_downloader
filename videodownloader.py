@@ -34,6 +34,8 @@ logger = logging.getLogger("video_DL")
 class VideoDownloader:
 
     _PLNS = {}
+
+    _QUEUE = Queue()
     
     def __init__(self, window_root, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
         
@@ -71,7 +73,8 @@ class VideoDownloader:
                                  "_" + sanitize_filename(self.info_dict['title'], restricted=True) + 
                                  "." + self.info_dict.get('ext', 'mp4')),
                 'backup_http': self.args.use_http_failover,
-                'fromplns': VideoDownloader._PLNS
+                'fromplns': VideoDownloader._PLNS,
+                'onhold': VideoDownloader._QUEUE,
                 
             }
                 
@@ -328,6 +331,7 @@ class VideoDownloader:
         self.resume_event = asyncio.Event()
         self.stop_event = asyncio.Event()
         self.end_tasks = asyncio.Event()
+        self.on_hold_event = asyncio.Event()
         self.info_dl['ytdl'].params['stop_dl'][str(self.index)] = self.stop_event
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] [stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
         self.reset_event = MyAsyncioEvent()
