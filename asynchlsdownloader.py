@@ -672,19 +672,8 @@ class AsyncHLSDownloader:
             if cause and str(cause) == "403":
 
                 self.video_downloader.on_hold_event.set()
-                
-                try:
-                    dl = self.video_downloader.info_dl['onhold'].get(block=False, timeout=0)
-                    dl.on_hold_event.clear()
-                    logger.info(
-                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] clear onhold event fort [{dl.info_dict['id']}][{dl.info_dict['title']}]"
-                    )
-                except Exception as e:
-                    pass
                 self.video_downloader.info_dl['onhold'].put_nowait(self.video_downloader)
-
-
-
+                
                 logger.info(
                     f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] start wait in reset cause 403"
                 )
@@ -811,6 +800,15 @@ class AsyncHLSDownloader:
             logger.info(
                         f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: exit reset"
                     )
+            if cause == "403":
+                try:
+                    dl = self.video_downloader.info_dl['onhold'].get(block=False, timeout=0)
+                    dl.on_hold_event.clear()
+                    logger.info(
+                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] clear onhold event fort [{dl.info_dict['id']}][{dl.info_dict['title']}]"
+                    )
+                except Exception as e:
+                    pass
 
 
     def prep_reset(self, info_reset):
@@ -1000,14 +998,14 @@ class AsyncHLSDownloader:
                         if not _max_bd_detected:
                             self.throttle = float(f"{self.throttle + 0.05:.2f}")
                             _max_bd_detected += 1
-                            prog.has_elapsed(seconds=0.1)
+                            prog.reset()
                             nsecs = 20
 
                         else:
 
                             _max_bd_detected += 1
                             self.throttle = float(f"{self.throttle + 0.01:.2f}")
-                            prog.has_elapsed(seconds=0.1)
+                            prog.reset()
                             nsecs = 20
 
                         _str_speed = ", ".join(
@@ -1082,11 +1080,11 @@ class AsyncHLSDownloader:
 
                         if _max_bd_detected == 1:
                             self.throttle = float(f"{self.throttle - 0.01:.2f}")
-                            prog.has_elapsed(seconds=0.1)
+                            prog.reset()
                             nsecs = 20
                         else:
                             self.throttle = float(f"{self.throttle - 0.005:.2f}")
-                            prog.has_elapsed(seconds=0.1)
+                            prog.reset()
                             nsecs = 20
 
                         if self.throttle < 0:
