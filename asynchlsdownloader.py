@@ -671,8 +671,9 @@ class AsyncHLSDownloader:
 
             if cause and str(cause) == "403":
 
-                self.video_downloader.on_hold_event.set()
-                self.video_downloader.info_dl['onhold'].put_nowait(self.video_downloader)
+                if not self.fromplns:
+                    self.video_downloader.on_hold_event.set()
+                    self.video_downloader.info_dl['onhold'].put_nowait(self.video_downloader)
                 
                 logger.info(
                     f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] start wait in reset cause 403"
@@ -800,7 +801,7 @@ class AsyncHLSDownloader:
             logger.info(
                         f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: exit reset"
                     )
-            if cause == "403":
+            if not self.fromplns and cause == "403":
                 try:
                     dl = self.video_downloader.info_dl['onhold'].get(block=False, timeout=0)
                     dl.on_hold_event.clear()
@@ -891,7 +892,7 @@ class AsyncHLSDownloader:
             except Exception as e:
                 logger.debug(
                     f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:prep_reset error with i = [{i}] \n\ninfo_dict['fragments'] {len(self.info_dict['fragments'])}\n\n{[str(f) for f in self.info_dict['fragments']]}\n\ninfo_frag {len(self.info_frag)}"
-                )  # \n\n{self.info_frag}")
+                )  
                 raise
 
         if not self.frags_to_dl:

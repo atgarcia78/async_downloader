@@ -486,7 +486,6 @@ class AsyncDL:
 
         return(list_res)
 
-
     @long_operation_in_thread
     def upt_window_periodic(self, *args, **kwargs):
 
@@ -495,29 +494,21 @@ class AsyncDL:
         try:
 
             progress_timer = ProgressTimer()
-            list_init_old = {}
-            list_dl_old = {}
             list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
-            list_manip_old = {}
             self.list_nwmon = []
-            io = psutil.net_io_counters()
-            init_bytes_recv = io.bytes_recv
+            init_bytes_recv = psutil.net_io_counters().bytes_recv
             speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
             while not stop_event.is_set():
                 if self.list_dl and progress_timer.has_elapsed(
                     seconds=CONF_INTERVAL_GUI
                 ):
-
-                    #list_init_old = self.update_window("init", list_init_old)
-                    #list_dl_old = self.update_window("downloading", list_dl_old)
-                   
                     _recv = psutil.net_io_counters().bytes_recv
                     ds = speedometer(_recv)
                     self.list_nwmon.append((datetime.now(), ds))
-                    #if self.window_root:
                     msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(ds,True)}ps"
-                    #self.window_root.write_event_value("nwmon", msg)                    
                     list_all_old = self.update_window("all", list_all_old, nwmon=msg)
+                else:
+                    time.sleep(CONF_INTERVAL_GUI/2)
                     
 
         except Exception as e:
@@ -609,6 +600,7 @@ class AsyncDL:
             self.window_console = init_gui_console()
             self.window_root = init_gui_root()
 
+            
             await asyncio.sleep(0)
 
             list_init = {}
@@ -801,6 +793,7 @@ class AsyncDL:
                 elif event == "nwmon":
                     self.window_root["ST"].update(values["nwmon"])
                 elif event == "all":
+                    t0 = time.monotonic()
                     self.window_root["ST"].update(values["all"]["nwmon"])
                     if "init" in values["all"]:
                         list_init = values["all"]["init"]
@@ -843,6 +836,8 @@ class AsyncDL:
                             upt = ""
 
                         self.window_root["-ML2-"].update(upt)
+                    
+                    logger.info(f"%no%Time to write: {time.monotonic() - t0}\n{values}")
 
                
                 elif event in ("error", "done", "stop"):
