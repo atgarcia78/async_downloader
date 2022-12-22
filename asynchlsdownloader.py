@@ -724,10 +724,10 @@ class AsyncHLSDownloader:
                     if _sem._initial_value == 1:
                         if cause == "403": NakedSwordBaseIE._STATUS = "403"
                                                
-                        _st_ip = wait_for_change_ip(logger)
-                        logger.info(
-                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] change ip {_st_ip}"
-                        )
+                        #_st_ip = wait_for_change_ip(logger)
+                        #logger.info(
+                        #    f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] change ip {_st_ip}"
+                        #)
                         NakedSwordBaseIE._API.logout()
                         NakedSwordBaseIE._API.get_auth()
 

@@ -58,6 +58,60 @@ from videodownloader import VideoDownloader
 
 logger = logging.getLogger("asyncDL")
 
+from queue import deque
+
+class WorkerRun:
+    def __init__(self, asyncdl):
+        self.asyncdl = asyncdl
+        self.task_count = self.asyncdl.workers
+        self.running = set()
+        self.waiting = deque()
+        self.tasks = {}
+        self.logger = logging.getLogger("WorkerRun")
+        self.exit = asyncio.Event()
+        
+    @property
+    def running_task_count(self):
+        return len(self.running)
+        
+    def add_dl(self, dl, url_key):
+        self.logger.info(f"[{url_key}] add dl to worker run. Running[{len(self.running)}] Waiting[{len(self.waiting)}]")
+        if len(self.running) >= self.task_count:
+            self.waiting.append((dl, url_key))
+        else:
+            self._start_task(dl, url_key)
+    
+    def add_worker(self):
+        self.task_count += 1
+        if self.waiting:
+            dl, url = self.waiting.popleft()
+            self._start_task(dl, url)
+       
+    def _start_task(self, dl, url_key):
+        self.logger.info(f"[{url_key}] start task {self.tasks}")
+        self.running.add((dl, url_key))
+        self.tasks.update({asyncio.create_task(self._task(dl, url_key)): dl})
+        self.logger.info(f"[{url_key}] task ok {self.tasks}")
+        
+    async def _task(self, dl, url_key):
+        try:
+            if dl.info_dl["status"] not in ("init_manipulating", "done"):
+                done, pending = await asyncio.wait([asyncio.create_task(dl.run_dl()), asyncio.create_task(dl.on_hold_event.wait())], return_when=asyncio.FIRST_COMPLETED)
+            await self.asyncdl.run_callback(dl, url_key)
+
+        finally:
+            self.logger.info(f"[{url_key}] end task worker run")
+            try:               
+                self.running.remove((dl, url_key))
+                if self.waiting:
+                    dl2, url2 = self.waiting.popleft()
+                    self._start_task(dl2, url2)
+                elif not self.running: 
+                    self.logger.info(f"[{url_key}] end tasks worker run: exit")
+                    self.exit.set()
+            except Exception as e:
+                self.logger.info(f"[{url_key}] error {str(e)}")
+
 
 class AsyncDL:
     def __init__(self, args):
@@ -80,7 +134,7 @@ class AsyncDL:
         self.list_notvalid_urls = []
         self.list_urls_to_check = []
 
-        self.list_dl = []
+        self.list_dl = {}
         self.videos_to_dl = []
 
         self.num_videos_to_check = 0
@@ -102,8 +156,8 @@ class AsyncDL:
 
         # contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
-        self.count_run = 0
-        self.count_manip = 0
+        #self.count_run = 0
+        #self.count_manip = 0
         self.hosts_downloading = {}
 
         self.totalbytes2dl = 0
@@ -452,7 +506,6 @@ class AsyncDL:
         list_upt = {}
         list_res = {}
         
-
         trans = {"manip": ("init_manipulating", "manipulating"), 
                 "finish": ("error", "done", "stop"), "init": "init", "downloading": "downloading"}
 
@@ -467,7 +520,7 @@ class AsyncDL:
             list_upt[st] = {}
             list_res[st] = {}
             
-            for i, dl in enumerate(self.list_dl):
+            for i, dl in self.list_dl.items():
                 
                 if dl.info_dl["status"] in trans[st]:
                     list_res[st].update({i: dl.print_hookup()})
@@ -544,19 +597,19 @@ class AsyncDL:
                 ):
                     if not self.reset_repeat:
                         for _index in _list:
-                            asyncio.run(self.list_dl[_index - 1].pause())
+                            asyncio.run(self.list_dl[_index].pause())
 
                         wait_time(self.pasres_time_in_pause, event=stop_event)
 
                         for _index in _list:
-                            asyncio.run(self.list_dl[_index - 1].resume())
+                            asyncio.run(self.list_dl[_index].resume())
 
                         wait_time(
                             self.pasres_time_from_resume_to_pause, event=stop_event
                         )
                     else:
                         for _index in _list:
-                            asyncio.run(self.list_dl[_index - 1].reset("manual"))
+                            asyncio.run(self.list_dl[_index].reset("manual"))
                         wait_time(
                             self.pasres_time_from_resume_to_pause, event=stop_event
                         )
@@ -574,7 +627,7 @@ class AsyncDL:
         await asyncio.sleep(0)
         try_get(self.ytdl.params["stop"], lambda x: x.set())
         if self.list_dl:
-            for dl in self.list_dl:
+            for i,dl in self.list_dl.items():
                 await dl.stop()
         await asyncio.sleep(0)
 
@@ -588,8 +641,7 @@ class AsyncDL:
                     sg.cprint(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
 
                 logger.debug(f"[queue_vid] {self.queue_vid._queue}")
-                logger.debug(f"[run_vid] {self.queue_run._queue}")
-                logger.debug(f"[manip_vid] {self.queue_manip._queue}")
+
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
 
@@ -637,12 +689,9 @@ class AsyncDL:
                     if not self.console_dl_status:
                         self.console_dl_status = True
                 elif event in ["IncWorkerRun"]:
-                    n = len(self.extra_tasks_run) + self.workers
-                    self.extra_tasks_run.append(
-                        self.loop.create_task(self.worker_run(n))
-                    )
+                    self.WorkerRun.add_worker()                    
                     sg.cprint(
-                        f"Run Workers: {n} to {len(self.extra_tasks_run) + self.workers}"
+                        f"Workers: {self.WorkerRun.task_count}"
                     )
                 elif event in ["TimePasRes"]:
                     if not values["-IN-"]:
@@ -690,7 +739,7 @@ class AsyncDL:
                             else:
                                 self.args.parts = _nvidworkers
                                 if self.list_dl:
-                                    for dl in self.list_dl:
+                                    for i,dl in self.list_dl.items():
                                         await dl.change_numvidworkers(_nvidworkers)
                                 else:
                                     sg.cprint("DL list empty")
@@ -712,7 +761,7 @@ class AsyncDL:
 
                             if self.list_dl:
                                 info = []
-                                for dl in self.list_dl:
+                                for i,dl in self.list_dl.items():
                                     if event == "Pause":
                                         await dl.pause()
                                     elif event == "Resume":
@@ -765,16 +814,16 @@ class AsyncDL:
                                                 f"[pause-resume autom] {self.list_pasres}"
                                             )
                                         if event == "Pause":
-                                            await self.list_dl[_index - 1].pause()
+                                            await self.list_dl[_index].pause()
                                         if event == "Resume":
-                                            await self.list_dl[_index - 1].resume()
+                                            await self.list_dl[_index].resume()
                                         if event == "Reset":
-                                            await self.list_dl[_index - 1].reset_from_console("hard")
+                                            await self.list_dl[_index].reset_from_console("hard")
                                         if event == "Stop":
-                                            await self.list_dl[_index - 1].stop()
+                                            await self.list_dl[_index].stop()
                                         if event == "Info":
                                             sg.cprint(
-                                                self.list_dl[_index - 1].info_dict
+                                                self.list_dl[_index].info_dict
                                             )
 
                                         await asyncio.sleep(0)
@@ -782,9 +831,7 @@ class AsyncDL:
                                     else:
                                         sg.cprint("DL index doesnt exist")
                             else:
-                                sg.cprint("DL list empty")
-
-                        await asyncio.sleep(0)
+                                sg.cprint("DL list empty")                        
 
             async def gui_root(event, values):
 
@@ -793,7 +840,7 @@ class AsyncDL:
                 elif event == "nwmon":
                     self.window_root["ST"].update(values["nwmon"])
                 elif event == "all":
-                    t0 = time.monotonic()
+                    #t0 = time.monotonic()
                     self.window_root["ST"].update(values["all"]["nwmon"])
                     if "init" in values["all"]:
                         list_init = values["all"]["init"]
@@ -837,7 +884,7 @@ class AsyncDL:
 
                         self.window_root["-ML2-"].update(upt)
                     
-                    logger.info(f"%no%Time to write: {time.monotonic() - t0}\n{values}")
+                    #logger.info(f"%no%Time to write: {time.monotonic() - t0}\n{values}")
 
                
                 elif event in ("error", "done", "stop"):
@@ -853,8 +900,7 @@ class AsyncDL:
 
             while not self.stop_gui.is_set():
 
-                await async_wait_time(CONF_INTERVAL_GUI / 5)
-
+                
                 window, event, values = sg.read_all_windows(timeout=0)
 
                 if not window or not event or event == sg.TIMEOUT_KEY:
@@ -1550,6 +1596,7 @@ class AsyncDL:
                 f"[prepare_entry_pl_for_dl] {_url}: has not been added to info_videos because it is already"
             )
 
+    
     async def worker_init(self, i):
         # worker que lanza la creación de los objetos VideoDownloaders, uno por video
 
@@ -1596,11 +1643,11 @@ class AsyncDL:
 
                         await asyncio.sleep(5)
 
-                    async with self.alock:
-                        for _ in range(self.workers - 1):
-                            self.queue_run.put_nowait(("", "KILL"))
+                    #async with self.alock:
+                        #for _ in range(self.workers - 1):
+                        #    self.queue_run.put_nowait(("", "KILL"))
 
-                        self.queue_run.put_nowait(("", "KILLANDCLEAN"))
+                        #self.queue_run.put_nowait(("", "KILLANDCLEAN"))
 
                     self.t3.stop()
 
@@ -1823,8 +1870,8 @@ class AsyncDL:
 
                                     async with self.alock:
                                         self.getlistvid_first.set()
-                                        dl.index = len(self.list_dl)
-                                        self.list_dl.append(dl)
+                                        dl.index = len(self.list_dl) + 1
+                                        self.list_dl.update({dl.index: dl})
 
                                     # dl.write_window()
 
@@ -1832,7 +1879,10 @@ class AsyncDL:
                                         "init_manipulating",
                                         "done",
                                     ):
-                                        self.queue_manip.put_nowait((urlkey, dl))
+                                        #self.queue_manip.put_nowait((urlkey, dl))
+                                        dl.on_hold_event = asyncio.Event()
+                                        self.WorkersRun.add_dl(dl, urlkey)
+                                        
                                         logger.info(
                                             f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, video parts DL"
                                         )
@@ -1842,12 +1892,14 @@ class AsyncDL:
                                             f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, lets put in run queue"
                                         )
                                         async with self.alock:
-                                            self.queue_run.put_nowait((urlkey, dl))
+                                            #self.queue_run.put_nowait((urlkey, dl))
+                                            dl.on_hold_event = asyncio.Event()
+                                            self.WorkersRun.add_dl(dl, urlkey)
                                         _msg = ""
                                         async with self.alock:
                                             if dl.info_dl.get("auto_pasres"):
-                                                self.list_pasres.add(dl.index + 1)
-                                                _msg = f", add this dl[{dl.index + 1}] to auto_pasres{list(self.list_pasres)}"
+                                                self.list_pasres.add(dl.index)
+                                                _msg = f", add this dl[{dl.index}] to auto_pasres{list(self.list_pasres)}"
                                                 if self.window_console:
                                                     sg.cprint(
                                                         f"[pause-resume autom] {self.list_pasres}"
@@ -2012,234 +2064,79 @@ class AsyncDL:
             logger.debug(f"[worker_init][{i}]: BYE")
             await asyncio.sleep(0)
 
-    async def worker_run(self, i):
-
-        logger.debug(f"[worker_run][{i}]: launched")
-        await asyncio.sleep(0)
-        try:
-
-            while not self.STOP.is_set():
-
-                done, pending = await asyncio.wait(
-                    [
-                        asyncio.create_task(self.STOP.wait()),
-                        asyncio.create_task(self.queue_run.get()),
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                try_get(list(pending), lambda x: x[0].cancel())
-                if self.STOP.is_set():
-                    break
-                # url_key, video_dl = await self.queue_run.get()
-
-                url_key, video_dl = try_get(list(done), lambda x: x[0].result())
-
-                if video_dl == "KILL":
-                    logger.debug(f"[worker_run][{i}]: get KILL, bye")
-                    break
-
-                elif video_dl == "KILLANDCLEAN":
-                    logger.debug(f"[worker_run][{i}]: get KILLANDCLEAN, bye")
-
-                    async with self.alock:
-                        nworkers = self.workers
-                        if (
-                            _inc := (
-                                len(self.extra_tasks_run) + self.workers - nworkers
-                            )
-                        ) > 0:
-                            logger.info(
-                                f"[worker_run][{i}] nworkers[{nworkers}] inc[{_inc}]"
-                            )
-                            for _ in range(_inc):
-                                self.queue_run.put_nowait(("", "KILL"))
-                            nworkers += _inc
-
-                    logger.debug(
-                        f"[worker_run][{i}]: countrun[{self.count_run}] nworkers[{nworkers}]"
-                    )
-
-                    while True:
-                        async with self.alock:
-
-                            if (_val := self.count_run) == (nworkers - 1):
-                                break
-
-                        logger.debug(
-                            f"[worker_run][{i}]: bucle while [count_run] {_val} [nworkers] {nworkers}"
-                        )
-
-                        await asyncio.sleep(5)
-
-                        async with self.alock:
-
-                            if (
-                                _inc := (
-                                    len(self.extra_tasks_run) + self.workers - nworkers
-                                )
-                            ) > 0:
-                                logger.info(
-                                    f"[worker_run][{i}] nworkers[{nworkers}] inc[{_inc}]"
-                                )
-                                for _ in range(_inc):
-                                    self.queue_run.put_nowait(("", "KILL"))
-                                nworkers += _inc
-
-                        logger.debug(
-                            f"[worker_run][{i}]: countrun[{self.count_run}] nworkers[{nworkers}]"
-                        )
-
-                    for _ in range(self.workers):
-                        self.queue_manip.put_nowait(("", "KILL"))
-
-
-                    break
-
-                else:
-
-                    logger.debug(
-                        f"[worker_run][{i}][{video_dl.info_dl['id']}] start to dl {video_dl.info_dl['title']}"
-                    )
-                    task_run = asyncio.create_task(video_dl.run_dl())
-                    await asyncio.sleep(0)
-                    done, pending = await asyncio.wait([task_run, asyncio.create_task(video_dl.on_hold_event.wait())], return_when=asyncio.FIRST_COMPLETED)
-
-                    for d in done:
-                        try:
-                            d.result()
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())
-                            logger.debug(
-                                f"[worker_run][{i}][{url_key}]: Error with video DL: {repr(e)}\n{'!!'.join(lines)}"
-                            )
-                            self.info_videos[url_key]["error"].append(f"{str(e)}")
-
-                    if video_dl.info_dl["status"] == "init_manipulating":
-                        self.queue_manip.put_nowait((url_key, video_dl))
-                    elif video_dl.info_dl["status"] == "stop":
-                        logger.debug(f"[worker_run][{i}][{url_key}]: STOPPED")
-                        self.info_videos[url_key]["error"].append(f"dl stopped")
-                        self.info_videos[url_key]["status"] = "nok"
-
-                    elif video_dl.info_dl["status"] == "error":
-
-                        logger.error(
-                            f"[worker_run][{i}][{url_key}]: error when dl video, can't go por manipulation"
-                        )
-                        self.info_videos[url_key]["error"].append(
-                            f"error when dl video: {video_dl.info_dl['error_message']}"
-                        )
-                        self.info_videos[url_key]["status"] = "nok"
-
-                    
-                    elif video_dl.on_hold_event.is_set():
-                        logger.info(
-                            f"[worker_run][{i}][{url_key}]: on hold"
-                        )
-
-                        self.queue_onhold.put_nowait((url_key, video_dl))
-
-
-                    
-                    else:
-
-                        logger.error(
-                            f"[worker_run][{i}][{url_key}]: STATUS NOT EXPECTED: {video_dl.info_dl['status']}"
-                        )
-                        self.info_videos[url_key]["error"].append(
-                            f"error when dl video: {video_dl.info_dl['error_message']}"
-                        )
-                        self.info_videos[url_key]["status"] = "nok"
-
-                    await asyncio.sleep(0)
-
-        except BaseException as e:
-            logger.exception(f"[worker_run][{i}]: Error:{repr(e)}")
-            if isinstance(e, KeyboardInterrupt):
-                raise
-
-        finally:
-            async with self.alock:
-                self.count_run += 1
-            logger.debug(f"[worker_run][{i}]: BYE")
-            await asyncio.sleep(0)
-
-    async def worker_manip(self, i):
-
-        logger.debug(f"[worker_manip][{i}]: launched")
-        await asyncio.sleep(0)
+    async def run_callback(self, dl, url_key):
 
         try:
+        
+            if dl.info_dl["status"] == "init_manipulating":
 
-            while not self.STOP.is_set():
+                logger.info(f"[run_callback] start to manip {dl.info_dl['title']}")
+                task_run_manip = asyncio.create_task(dl.run_manip())
+                done, _ = await asyncio.wait([task_run_manip])
 
-                done, pending = await asyncio.wait(
-                    [
-                        asyncio.create_task(self.STOP.wait()),
-                        asyncio.create_task(self.queue_manip.get()),
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-                try_get(list(pending), lambda x: x[0].cancel())
-                if self.STOP.is_set():
-                    break
+                for d in done:
+                    try:
+                        d.result()
+                    except Exception as e:
+                        logger.exception(msg)(
+                            f"[run_callback] [{dl.info_dict['title']}]: Error with video manipulation:\n{'!!'.join(lines)}"
+                        )
+                        
+                        self.info_videos[url_key]["error"].append(
+                            f"\n error with video manipulation {str(e)}"
+                        )
 
-                url_key, video_dl = try_get(list(done), lambda x: x[0].result())
-                # logger.debug(f"[worker_manip][{i}]: get for a video_DL")
-
-                await asyncio.sleep(0)
-
-                if video_dl == "KILL":
-                    logger.debug(f"[worker_manip][{i}]: get KILL, bye")
-                    break
-
+                if dl.info_dl["status"] == "done":
+                    self.info_videos[url_key].update({"status": "done"})
                 else:
-                    logger.debug(
-                        f"[worker_manip][{i}]: start to manip {video_dl.info_dl['title']}"
-                    )
-                    task_run_manip = asyncio.create_task(
-                        video_dl.run_manip(),
-                        name=f"[worker_manip][{i}][{video_dl.info_dict['title']}]",
-                    )
-                    done, _ = await asyncio.wait([task_run_manip])
+                    self.info_videos[url_key].update({"status": "nok"})
 
-                    for d in done:
-                        try:
-                            d.result()
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())
-                            logger.debug(
-                                f"[worker_manip][{i}][{video_dl.info_dict['title']}]: Error with video manipulation:\n{'!!'.join(lines)}"
-                            )
-                            self.info_videos[url_key]["error"].append(
-                                f"\n error with video manipulation {str(e)}"
-                            )
+            elif dl.info_dl["status"] == "stop":
+                logger.debug(f"[run_callback][{url_key}]: STOPPED")
+                self.info_videos[url_key]["error"].append(f"dl stopped")
+                self.info_videos[url_key]["status"] = "nok"
 
-                    if video_dl.info_dl["status"] == "done":
-                        self.info_videos[url_key].update({"status": "done"})
-                    else:
-                        self.info_videos[url_key].update({"status": "nok"})
+            elif dl.info_dl["status"] == "error":
 
-        except BaseException as e:
-            logger.error(f"[worker_manip][{i}]: Error:{repr(e)}")
-            if isinstance(e, KeyboardInterrupt):
-                raise
-        finally:
-            async with self.alock:
-                self.count_manip += 1
-            logger.debug(f"[worker_manip][{i}]: BYE")
-            await asyncio.sleep(0)
+                logger.error(
+                    f"[run_callback][{url_key}]: error when dl video, can't go por manipulation"
+                )
+                self.info_videos[url_key]["error"].append(
+                    f"error when dl video: {dl.info_dl['error_message']}"
+                )
+                self.info_videos[url_key]["status"] = "nok"
+
+        
+            elif dl.on_hold_event.is_set():
+                logger.info(
+                    f"[run_callback][{url_key}]: on hold"
+                )
+
+                self.queue_onhold.put_nowait((url_key, dl))
+            
+            else:
+
+                logger.error(
+                    f"[run_callback][{url_key}]: STATUS NOT EXPECTED: {dl.info_dl['status']}"
+                )
+                self.info_videos[url_key]["error"].append(
+                    f"error when dl video: {dl.info_dl['error_message']}"
+                )
+                self.info_videos[url_key]["status"] = "nok"
+        
+        except Exception as e:
+            logger.exception(
+                    f"[run_callback][{url_key}]: error {str(e)}"
+                )
 
     async def async_ex(self):
 
         self.STOP = asyncio.Event()
 
-        
         self.stop_gui = asyncio.Event()
         self.getlistvid_done = asyncio.Event()
         self.getlistvid_first = asyncio.Event()
-        self.queue_run = asyncio.Queue()
-        self.queue_manip = asyncio.Queue()
+
         self.queue_onhold = asyncio.Queue()
         self.alock = asyncio.Lock()
         self.hosts_alock = asyncio.Lock()
@@ -2273,24 +2170,16 @@ class AsyncDL:
 
             tasks_to_wait = {}
 
-            await asyncio.wait(
-                [
-                    asyncio.create_task(
-                        async_ex_in_executor(
-                            self.ex_winit, self.videos_cached_ready.wait
-                        )
-                    )
-                ]
-            )
+            self.WorkersRun = WorkerRun(self)
             
-            tasks_to_wait.update(
-                {asyncio.create_task(self.get_list_videos()): "task_get_videos"}
-            )
+            await asyncio.wait([asyncio.create_task(async_ex_in_executor(self.ex_winit, self.videos_cached_ready.wait))])
+            
+            tasks_to_wait.update({asyncio.create_task(self.get_list_videos()): "task_get_videos"})
             
             tasks_to_wait.update(
                 {
                     asyncio.create_task(self.worker_init(i)): f"task_worker_init_{i}"
-                    for i in range(self.init_nworkers)
+                        for i in range(self.init_nworkers)
                 }
             )
 
@@ -2333,20 +2222,9 @@ class AsyncDL:
                     self.gui_task = asyncio.create_task(self.gui())
                     
                     tasks_gui = [self.gui_task]
-                    tasks_to_wait.update(
-                        {
-                            asyncio.create_task(self.worker_run(i)): f"task_worker_run_{i}"
-                            for i in range(self.workers)
-                        }
-                    )
-                    tasks_to_wait.update(
-                        {
-                            asyncio.create_task(
-                                self.worker_manip(i)
-                            ): f"task_worker_manip_{i}"
-                            for i in range(self.workers)
-                        }
-                    )
+                    
+                    tasks_to_wait.update({asyncio.create_task(self.WorkersRun.exit.wait()): f"task_workers_run"})
+
 
             done, _ = await asyncio.wait(tasks_to_wait)
             for d in done:
@@ -2376,7 +2254,7 @@ class AsyncDL:
             await asyncio.sleep(0)
             try_get(self.ytdl.params["stop"], lambda x: x.set())
             if self.list_dl:
-                for dl in self.list_dl:
+                for i,dl in self.list_dl.items():
                     dl.stop_event.set()
             await asyncio.sleep(0)
             raise
