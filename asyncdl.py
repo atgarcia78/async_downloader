@@ -60,14 +60,14 @@ logger = logging.getLogger("asyncDL")
 
 from queue import deque
 
-class WorkerRun:
+class WorkersRun:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
         self.task_count = self.asyncdl.workers
         self.running = set()
         self.waiting = deque()
         self.tasks = {}
-        self.logger = logging.getLogger("WorkerRun")
+        self.logger = logging.getLogger("WorkersRun")
         self.exit = asyncio.Event()
         
     @property
@@ -75,7 +75,7 @@ class WorkerRun:
         return len(self.running)
         
     def add_dl(self, dl, url_key):
-        self.logger.info(f"[{url_key}] add dl to worker run. Running[{len(self.running)}] Waiting[{len(self.waiting)}]")
+        self.logger.debug(f"[{url_key}] add dl to worker run. Running[{len(self.running)}] Waiting[{len(self.waiting)}]")
         if len(self.running) >= self.task_count:
             self.waiting.append((dl, url_key))
         else:
@@ -84,14 +84,20 @@ class WorkerRun:
     def add_worker(self):
         self.task_count += 1
         if self.waiting:
-            dl, url = self.waiting.popleft()
-            self._start_task(dl, url)
+            if len(self.running) < self.task_count:
+                dl, url = self.waiting.popleft()
+                self._start_task(dl, url)
+
+    def del_worker(self):
+        if self.task_count > 0:
+            self.task_count -= 1
+
        
     def _start_task(self, dl, url_key):
-        self.logger.info(f"[{url_key}] start task {self.tasks}")
+        self.logger.debug(f"[{url_key}] start task {self.tasks}")
         self.running.add((dl, url_key))
         self.tasks.update({asyncio.create_task(self._task(dl, url_key)): dl})
-        self.logger.info(f"[{url_key}] task ok {self.tasks}")
+        self.logger.debug(f"[{url_key}] task ok {self.tasks}")
         
     async def _task(self, dl, url_key):
         try:
@@ -100,14 +106,15 @@ class WorkerRun:
             await self.asyncdl.run_callback(dl, url_key)
 
         finally:
-            self.logger.info(f"[{url_key}] end task worker run")
+            self.logger.debug(f"[{url_key}] end task worker run")
             try:               
                 self.running.remove((dl, url_key))
                 if self.waiting:
-                    dl2, url2 = self.waiting.popleft()
-                    self._start_task(dl2, url2)
+                    if len(self.running) < self.task_count:
+                        dl2, url2 = self.waiting.popleft()
+                        self._start_task(dl2, url2)
                 elif not self.running: 
-                    self.logger.info(f"[{url_key}] end tasks worker run: exit")
+                    self.logger.debug(f"[{url_key}] end tasks worker run: exit")
                     self.exit.set()
             except Exception as e:
                 self.logger.info(f"[{url_key}] error {str(e)}")
@@ -689,9 +696,14 @@ class AsyncDL:
                     if not self.console_dl_status:
                         self.console_dl_status = True
                 elif event in ["IncWorkerRun"]:
-                    self.WorkerRun.add_worker()                    
+                    self.WorkersRun.add_worker()                    
                     sg.cprint(
-                        f"Workers: {self.WorkerRun.task_count}"
+                        f"Workers: {self.WorkersRun.task_count}"
+                    )
+                elif event in ["DecWorkerRun"]:
+                    self.WorkersRun.del_worker()                    
+                    sg.cprint(
+                        f"Workers: {self.WorkersRun.task_count}"
                     )
                 elif event in ["TimePasRes"]:
                     if not values["-IN-"]:
@@ -2170,7 +2182,7 @@ class AsyncDL:
 
             tasks_to_wait = {}
 
-            self.WorkersRun = WorkerRun(self)
+            self.WorkersRun = WorkersRun(self)
             
             await asyncio.wait([asyncio.create_task(async_ex_in_executor(self.ex_winit, self.videos_cached_ready.wait))])
             

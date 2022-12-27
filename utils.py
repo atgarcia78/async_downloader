@@ -1829,6 +1829,7 @@ if _SUPPORT_PYSIMP:
                         sg.Button("Info"),
                         sg.Button("ToFile"),
                         sg.Button("+runwk", key="IncWorkerRun"),
+                        sg.Button("-runwk", key="DecWorkerRun"),
                         sg.Button("#vidwk", key="NumVideoWorkers"),
                         sg.Button("TimePasRes"),
                         sg.Button("Pause"),
