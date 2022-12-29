@@ -28,7 +28,10 @@ CONF_DASH_SPEED_PER_WORKER = 102400
 # 1048576 #512000 #1048576 #4194304
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 80
-CONF_PROXIES_DOMAINS = ["fn.secureconnect.me", "no.secureconnect.me", "bg.secureconnect.me", "pg.secureconnect.me", "it.secureconnect.me", "fr.secureconnect.me", "_uk.secureconnect.me", "_uk.man.secureconnect.me", "_ger.secureconnect.me", "sp.secureconnect.me", "ire.secureconnect.me", "ice.secureconnect.me","cz.secureconnect.me", "aus.secureconnect.me" ]
+CONF_PROXIES_LIST_HTTPPORTS = [489, 23, 7070, 465, 993, 282, 778, 592]
+CONF_PROXIES_COUNTRIES = ["fn", "no", "bg", "pg", "it", "fr", "sp", "ire", "ice", "cz", "aus"]
+CONF_PROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_PROXIES_COUNTRIES]
+CONF_PROXIES_HTTPPORT = 7070
 CONF_PROXIES_MAX_N_GR_HOST = 10 # 10
 CONF_PROXIES_N_GR_VIDEO = 5  # 8
 CONF_PROXIES_BASE_PORT = 12000
@@ -46,13 +49,6 @@ CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
 
 def wait_for_change_ip(logger):
 
-    # _old_ip = json.loads(
-    #     subprocess.run(
-    #         f"curl -s https://httpbin.org/get".split(" "),
-    #         encoding="utf-8",
-    #         capture_output=True,
-    #     ).stdout
-    # ).get("origin")
     _old_ip = get_myip(timeout=10)
     logger.info(f"old ip: {_old_ip}")
     _proc_kill = subprocess.run(["pkill", "TorGuardDesktopQt"])
@@ -62,13 +58,7 @@ def wait_for_change_ip(logger):
         n = 0
         while n < 5:
             time.sleep(2)
-            # _new_ip = json.loads(
-            #     subprocess.run(
-            #         f"curl -s https://httpbin.org/get".split(" "),
-            #         encoding="utf-8",
-            #         capture_output=True,
-            #     ).stdout
-            # ).get("origin")
+
             _new_ip = get_myip(timeout=10)
             logger.info(f"[{n}] {_new_ip}")
             if _old_ip != _new_ip:
@@ -82,12 +72,7 @@ def wait_for_change_ip(logger):
         n = 0
         while n < 5:
             logger.info("try to get ip")
-            # _proc_ip = subprocess.run(
-            #     f"curl -s https://httpbin.org/get".split(" "),
-            #     encoding="utf-8",
-            #     capture_output=True,
-            # )
-            # _new_ip = json.loads(_proc_ip.stdout).get("origin")
+
             _new_ip = get_myip(timeout=5)
             logger.info(f"[{n}] {_new_ip}")
             if _old_ip != _new_ip:
@@ -945,7 +930,7 @@ def test_proxies_rt(routing_table, api="ipify"):
     return bad_pr
 
 
-def test_proxies_raw(list_ips, port=7070, api="ipify"):
+def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, api="ipify"):
     logger = logging.getLogger("asyncdl")
     cmd_gost = [
         f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
@@ -996,7 +981,7 @@ def get_ips(name):
     return re.findall(r"ip_address: (.+)", res)
 
 
-def init_proxies(num, size, port=7070):
+def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
 
     logger = logging.getLogger("asyncDL")
 
@@ -1053,7 +1038,7 @@ def init_proxies(num, size, port=7070):
         )
 
     cmd_gost_main = [
-        f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:7070"
+        f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
     ]
     routing_table.update({CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
 

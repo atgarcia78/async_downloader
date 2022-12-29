@@ -23,6 +23,7 @@ from utils import (
     CONF_INTERVAL_GUI,
     CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO,
+    CONF_PROXIES_HTTPPORT,
     PATH_LOGS,
     LocalStorage,
     _for_print,
@@ -241,7 +242,7 @@ class AsyncDL:
         try:
             _ready = kwargs.get("stop_event")
             self.proc_gost, self.routing_table = init_proxies(
-                CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=993
+                CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT
             )
             self.stop_proxy = run_proxy_http()
         except Exception as e:
