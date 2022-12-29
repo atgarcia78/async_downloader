@@ -66,13 +66,16 @@ class WorkersRun:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
         self.task_count = self.asyncdl.workers
+        
         self.running = set()
         self.onhold = set()
         self.waiting = deque()
         self.tasks = {}
-        self.logger = logging.getLogger("WorkersRun")
+        
         self.exit = asyncio.Event()
         self.alock = asyncio.Lock()
+
+        self.logger = logging.getLogger("WorkersRun")
         
     @property
     def running_task_count(self):
@@ -100,9 +103,8 @@ class WorkersRun:
         if self.task_count > 0:
             self.task_count -= 1
 
-       
     def _start_task(self, dl, url_key):
-        self.logger.debug(f"[{url_key}] start task {self.tasks}")
+        #self.logger.debug(f"[{url_key}] start task {self.tasks}")
         self.running.add((dl, url_key))
         self.tasks.update({asyncio.create_task(self._task(dl, url_key)): dl})
         self.logger.debug(f"[{url_key}] task ok {self.tasks}")
@@ -137,8 +139,6 @@ class WorkersRun:
                 self.logger.debug(f"[{url_key}] end tasks worker run: exit")
                 self.exit.set()
             
-
-
 class AsyncDL:
     def __init__(self, args):
 
@@ -220,8 +220,8 @@ class AsyncDL:
             self.stop_pasres = self.pasres_periodic()
             if self.args.aria2c:
                 self.init_aria2c_ready = self.start_aria2c()
-                if self.args.proxy != 0:
-                    self.init_proxies_ready = self.start_proxies()
+            if self.args.proxy != 0:
+                self.init_proxies_ready = self.start_proxies()
 
         self.videos_cached_ready = self.get_videos_cached()
 
@@ -1642,7 +1642,6 @@ class AsyncDL:
                 f"[prepare_entry_pl_for_dl] {_url}: has not been added to info_videos because it is already"
             )
 
-    
     async def worker_init(self, i):
         # worker que lanza la creación de los objetos VideoDownloaders, uno por video
 
@@ -2229,19 +2228,19 @@ class AsyncDL:
                         ]
                     )
                     logger.info("[async_ex] aria2c ready")
-                    if self.args.proxy != 0:
-                        await asyncio.wait(
-                            [
-                                asyncio.create_task(
-                                    async_ex_in_executor(
-                                        self.ex_winit, self.init_proxies_ready.wait
-                                    )
+                if self.args.proxy != 0:
+                    await asyncio.wait(
+                        [
+                            asyncio.create_task(
+                                async_ex_in_executor(
+                                    self.ex_winit, self.init_proxies_ready.wait
                                 )
-                            ]
-                        )
-                        self.ytdl.params["routing_table"] = self.routing_table
+                            )
+                        ]
+                    )
+                    self.ytdl.params["routing_table"] = self.routing_table
 
-                        logger.debug(f"[async_ex] ytdl_params:\n{self.ytdl.params}")
+                    logger.debug(f"[async_ex] ytdl_params:\n{self.ytdl.params}")
 
                 tasks_to_wait.update(
                     {
