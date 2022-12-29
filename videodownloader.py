@@ -18,6 +18,7 @@ import httpx
 import m3u8
 from yt_dlp.utils import determine_protocol, sanitize_filename
 from threading import Event
+import xattr
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asyncdashdownloader import AsyncDASHDownloader
@@ -27,7 +28,7 @@ from asynchttpdownloader import AsyncHTTPDownloader
 from utils import (async_ex_in_executor, naturalsize, prepend_extension,
                    sync_to_async, traverse_obj, try_get, MyAsyncioEvent)
 
-FORCE_TO_HTTP = [''] 
+FORCE_TO_HTTP = ['doodstream'] 
 
 logger = logging.getLogger("video_DL")
 
@@ -596,28 +597,62 @@ class VideoDownloader:
 
                 if self.info_dl['status'] == "done":
                     if self.info_dl['downloaded_subtitles']:
-                        if len(self.info_dl['downloaded_subtitles']) > 1:
-                            lang = 'es'
-                            subtfile = self.info_dl['downloaded_subtitles']['es']
-                        else:
-                            lang, subtfile = list(self.info_dl['downloaded_subtitles'].items())[0]
+                        try:
+                            if len(self.info_dl['downloaded_subtitles']) > 1:
+                                lang = 'es'
+                                subtfile = self.info_dl['downloaded_subtitles']['es']
+                            else:
+                                lang, subtfile = list(self.info_dl['downloaded_subtitles'].items())[0]
 
-                        embed_filename = prepend_extension(self.info_dl['filename'], 'embed')
+                            embed_filename = prepend_extension(self.info_dl['filename'], 'embed')
 
-                        cmd = f"ffmpeg -y -loglevel repeat+info -i file:\"{temp_filename}\" -i file:\"{str(subtfile)}\" -map 0 -dn -ignore_unknown -c copy -c:s mov_text -map -0:s -map 1:0 -metadata:s:s:0 language={lang} -movflags +faststart file:\"{embed_filename}\""
+                            cmd = f"ffmpeg -y -loglevel repeat+info -i file:\"{temp_filename}\" -i file:\"{str(subtfile)}\" -map 0 -dn -ignore_unknown -c copy -c:s mov_text -map -0:s -map 1:0 -metadata:s:s:0 language={lang} -movflags +faststart file:\"{embed_filename}\""
 
 
-                        res = await apostffmpeg(cmd)
-                        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
-                        if res.returncode == 0:
-                            await os.replace(embed_filename, self.info_dl['filename'])
-                            await os.remove(temp_filename)
+                            res = await apostffmpeg(cmd)
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
+                            if res.returncode == 0:
+                                await os.replace(embed_filename, self.info_dl['filename'])
+                                await os.remove(temp_filename)
+                        except Exception as e:
+                            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error embeding subtitles {repr(e)}")
 
-                    else: await os.replace(temp_filename, self.info_dl['filename'])
-                    await armtree(self.info_dl['download_path'])
+                    else: 
+                        try:
+                            await os.replace(temp_filename, self.info_dl['filename'])
+                        except Exception as e:
+                            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error replacing {repr(e)}")
                     
-                    if (mtime:=self.info_dict.get("release_timestamp")):
-                        await os.utime(self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
+                    try:
+                        await armtree(self.info_dl['download_path'])
+                    except Exception as e:
+                        logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error rmtree {repr(e)}")
+                    
+                    try:
+                        if (mtime:=self.info_dict.get("release_timestamp")):
+                            await os.utime(self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
+                    except Exception as e:
+                            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error mtime {repr(e)}")
+
+                    try:
+                        if (_meta:=self.info_dict.get("meta_comment")):
+
+                            
+                            temp_filename = prepend_extension(str(self.info_dl['filename']), 'temp')
+
+                            cmd = f"ffmpeg -y -loglevel repeat+info -i file:\"{str(self.info_dl['filename'])}\" -map 0 -dn -ignore_unknown -c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart file:\"{temp_filename}\""
+
+                            res = await apostffmpeg(cmd)
+                            logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
+                            if res.returncode == 0:
+                                await os.replace(temp_filename, self.info_dl['filename'])
+
+                            xattr.setxattr(self.info_dl['filename'], 'user.dublincore.description', _meta.encode())
+                                
+
+                    except Exception as e:
+                        logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error setxattr {repr(e)}")
+
 
             else: self.info_dl['status'] = "error"
                                

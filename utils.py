@@ -28,8 +28,9 @@ CONF_DASH_SPEED_PER_WORKER = 102400
 # 1048576 #512000 #1048576 #4194304
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 80
-CONF_PROXIES_MAX_N_GR_HOST = 10
-CONF_PROXIES_N_GR_VIDEO = 8  # 8
+CONF_PROXIES_DOMAINS = ["fn.secureconnect.me", "no.secureconnect.me", "bg.secureconnect.me", "pg.secureconnect.me", "it.secureconnect.me", "fr.secureconnect.me", "_uk.secureconnect.me", "_uk.man.secureconnect.me", "_ger.secureconnect.me", "sp.secureconnect.me", "ire.secureconnect.me", "ice.secureconnect.me","cz.secureconnect.me", "aus.secureconnect.me" ]
+CONF_PROXIES_MAX_N_GR_HOST = 10 # 10
+CONF_PROXIES_N_GR_VIDEO = 5  # 8
 CONF_PROXIES_BASE_PORT = 12000
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400  # 102400 * 1.5# 102400
@@ -228,8 +229,8 @@ class ProgressTimer:
 
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
-    UPDATE_TIMESPAN_S = 1.0
-    AVERAGE_TIMESPAN_S = 5.0
+    UPDATE_TIMESPAN_S = 1.0#CONF_INTERVAL_GUI#1.0
+    AVERAGE_TIMESPAN_S = 5.0#5.0
 
     def __init__(self, initial_bytes=0):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
@@ -920,14 +921,14 @@ def get_myip(key=None, timeout=2, api="ipify"):
             return f"error: {proc_curl.returncode}"
 
 
-def test_proxies_rt(routing_table):
+def test_proxies_rt(routing_table, api="ipify"):
     logger = logging.getLogger("asyncdl")
 
     logger.info(f"[init_proxies] starting test proxies")
 
     with ThreadPoolExecutor() as exe:
         futures = {
-            exe.submit(get_myip, _key): _key for _key in list(routing_table.keys())
+            exe.submit(get_myip, key=_key, api=api): _key for _key in list(routing_table.keys())
         }
 
     bad_pr = []
@@ -944,7 +945,7 @@ def test_proxies_rt(routing_table):
     return bad_pr
 
 
-def test_proxies_raw(list_ips, port=7070):
+def test_proxies_raw(list_ips, port=7070, api="ipify"):
     logger = logging.getLogger("asyncdl")
     cmd_gost = [
         f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
@@ -969,7 +970,7 @@ def test_proxies_raw(list_ips, port=7070):
         time.sleep(0.05)
     _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
     logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
-    _res_bad = test_proxies_rt(routing_table)
+    _res_bad = test_proxies_rt(routing_table, api=api)
     _line_ps_pr = []
     for _ip in _res_bad:
         if (_temp:=try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
@@ -1003,25 +1004,10 @@ def init_proxies(num, size, port=7070):
 
     subprocess.run(["flush-dns"])
 
+    
     IPS_SSL = []
-    # NL
-    IPS_SSL += get_ips("nl.secureconnect.me")
-    # SWE
-    IPS_SSL += get_ips("swe.secureconnect.me")
-    # NO
-    IPS_SSL += get_ips("no.secureconnect.me")
-    # BG
-    IPS_SSL += get_ips("bg.secureconnect.me")
-    # PG
-    IPS_SSL += get_ips("pg.secureconnect.me")
-    # IT
-    IPS_SSL += get_ips("it.secureconnect.me")
-    # FR
-    IPS_SSL += get_ips("fr.secureconnect.me")
-    # UK
-    IPS_SSL += get_ips("uk.secureconnect.me") + get_ips("uk.man.secureconnect.me")
-    # DE
-    IPS_SSL += get_ips("ger.secureconnect.me")
+    for domain in CONF_PROXIES_DOMAINS:
+        IPS_SSL += get_ips(domain)
 
     cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
     if cached_res.exists() and (
