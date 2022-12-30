@@ -28,7 +28,7 @@ from asynchttpdownloader import AsyncHTTPDownloader
 from utils import (async_ex_in_executor, naturalsize, prepend_extension,
                    sync_to_async, traverse_obj, try_get, MyAsyncioEvent)
 
-FORCE_TO_HTTP = ['doodstream'] 
+FORCE_TO_HTTP = []#['doodstream'] 
 
 logger = logging.getLogger("video_DL")
 
@@ -36,7 +36,6 @@ logger = logging.getLogger("video_DL")
 class VideoDownloader:
 
     _PLNS = {}
-
     _QUEUE = Queue()
     
     def __init__(self, window_root, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
@@ -140,6 +139,12 @@ class VideoDownloader:
     @index.deleter
     def index(self):
         del self._index 
+
+    def shutdown(self):
+        self.ex_videodl.shutdown(wait=False, cancel_futures=True)
+        for dl in self.info_dl['downloaders']:
+            if hasattr(dl, 'ex_dl'):
+                dl.ex_dl.shutdown(wait=False, cancel_futures=True)
 
     def _check_if_apple(self, info):
         
@@ -245,7 +250,6 @@ class VideoDownloader:
                 return
         await self.reset(cause)
 
-    
     async def reset(self, cause=None):
         if self.reset_event:
             _wait_tasks = []
@@ -304,15 +308,18 @@ class VideoDownloader:
                 else: _el.cancel()
 
     async def stop(self):
-        self.info_dl['status'] = "stop"
-        for dl in self.info_dl['downloaders']:
-            dl.status = "stop"
-        if self.stop_event:
-            if self.pause_event.is_set():
-                self.resume_event.set()            
-            await self.awrite_window()
-            self.stop_event.set()
-        logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
+        try:
+            self.info_dl['status'] = "stop"
+            for dl in self.info_dl['downloaders']:
+                dl.status = "stop"
+            if self.stop_event:
+                if self.pause_event.is_set():
+                    self.resume_event.set()            
+                await self.awrite_window()
+                self.stop_event.set()
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
+        except Exception as e:
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {repr(e)}")
 
     async def pause(self):
         if self.pause_event:            
@@ -372,7 +379,7 @@ class VideoDownloader:
                                 
             
                 if self.stop_event.is_set():
-                    self.info_dl['status'] = "stop"
+                    logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] salida tasks with stop event")
 
                 elif self.on_hold_event.is_set():
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] salida tasks with on hold event")
@@ -664,7 +671,7 @@ class VideoDownloader:
             raise
         finally:
             await self.awrite_window()
-            self.ex_videodl.shutdown(wait=False, cancel_futures=True)
+            #self.ex_videodl.shutdown(wait=False, cancel_futures=True)
             await asyncio.sleep(0) 
 
     def syncpostffmpeg(self, cmd):

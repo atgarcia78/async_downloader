@@ -65,7 +65,7 @@ from queue import deque
 class WorkersRun:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
-        self.task_count = self.asyncdl.workers
+        self.max = self.asyncdl.workers
         
         self.running = set()
         self.onhold = set()
@@ -78,7 +78,7 @@ class WorkersRun:
         self.logger = logging.getLogger("WorkersRun")
         
     @property
-    def running_task_count(self):
+    def running_count(self):
         return len(self.running)
         
     async def add_dl(self, dl, url_key):
@@ -86,22 +86,22 @@ class WorkersRun:
         dl.on_hold_event = asyncio.Event()
 
         async with self.alock:
-            self.logger.debug(f"[{url_key}] add dl to worker run. Running[{len(self.running)}] Waiting[{len(self.waiting)}]")
-            if len(self.running) >= self.task_count:
+            self.logger.debug(f"[{url_key}] add dl to worker run. Running[{self.running_count}] Waiting[{len(self.waiting)}]")
+            if self.running_count >= self.max:
                 self.waiting.append((dl, url_key))
             else:
                 self._start_task(dl, url_key)
         
     def add_worker(self):
-        self.task_count += 1
+        self.max += 1
         if self.waiting:
-            if len(self.running) < self.task_count:
+            if self.running_count < self.max:
                 dl, url = self.waiting.popleft()
                 self._start_task(dl, url)
 
     def del_worker(self):
-        if self.task_count > 0:
-            self.task_count -= 1
+        if self.max > 0:
+            self.max -= 1
 
     def _start_task(self, dl, url_key):
         #self.logger.debug(f"[{url_key}] start task {self.tasks}")
@@ -116,13 +116,14 @@ class WorkersRun:
             
             if not dl.on_hold_event.is_set():
                 await self.asyncdl.run_callback(dl, url_key)
+            
             else:
                 self.onhold.add((dl, url_key))
 
             async with self.alock:               
                 self.running.remove((dl, url_key))
                 if self.waiting:
-                    if len(self.running) < self.task_count:
+                    if self.running_count < self.max:
                         dl2, url2 = self.waiting.popleft()
                         self._start_task(dl2, url2)
             
@@ -673,7 +674,7 @@ class AsyncDL:
         if self.list_dl:
             for i,dl in self.list_dl.items():
                 await dl.stop()
-        await asyncio.sleep(0)
+                await asyncio.sleep(0)
 
     async def print_pending_tasks(self):
         try:
@@ -735,12 +736,12 @@ class AsyncDL:
                 elif event in ["IncWorkerRun"]:
                     self.WorkersRun.add_worker()                    
                     sg.cprint(
-                        f"Workers: {self.WorkersRun.task_count}"
+                        f"Workers: {self.WorkersRun.max}"
                     )
                 elif event in ["DecWorkerRun"]:
                     self.WorkersRun.del_worker()                    
                     sg.cprint(
-                        f"Workers: {self.WorkersRun.task_count}"
+                        f"Workers: {self.WorkersRun.max}"
                     )
                 elif event in ["TimePasRes"]:
                     if not values["-IN-"]:
@@ -2149,8 +2150,6 @@ class AsyncDL:
                 )
                 self.info_videos[url_key]["status"] = "nok"
 
-        
-            
             else:
 
                 logger.error(
@@ -2299,7 +2298,7 @@ class AsyncDL:
             try_get(self.ytdl.params["stop"], lambda x: x.set())
             if self.list_dl:
                 for i,dl in self.list_dl.items():
-                    dl.stop_event.set()
+                    await dl.stop()
             await asyncio.sleep(0)
             raise
 
@@ -2314,7 +2313,7 @@ class AsyncDL:
             await asyncio.sleep(0)
             if tasks_gui:
                 done, _ = await asyncio.wait(tasks_gui)
-            self.ex_winit.shutdown(wait=False, cancel_futures=True)
+            #self.ex_winit.shutdown(wait=False, cancel_futures=True)
             logger.info(f"[async_ex] BYE")
             if any(
                 isinstance(_e, KeyboardInterrupt)
@@ -2741,6 +2740,14 @@ class AsyncDL:
 
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
+
+            if self.list_dl:
+                for _,vdl in self.list_dl.items():
+                    try:
+                        vdl.shutdown()
+                    except Exception as e:
+                        logger.exception(f"[close] {repr(e)}")
+
 
         except BaseException as e:
             logger.exception(f"[close] {repr(e)}")

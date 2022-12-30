@@ -29,8 +29,7 @@ CONF_DASH_SPEED_PER_WORKER = 102400
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 80
 CONF_PROXIES_LIST_HTTPPORTS = [489, 23, 7070, 465, 993, 282, 778, 592]
-CONF_PROXIES_COUNTRIES = ["fn", "no", "bg", "pg", "it", "fr", "sp", "ire", "ice", "cz", "aus"]
-CONF_PROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_PROXIES_COUNTRIES]
+CONF_PROXIES_COUNTRIES = ["fn", "no", "bg", "pg", "it", "fr", "sp", "ire", "ice", "cz", "aus", "ger", "uk", "uk.man", "ro", "slk", "nl", "hg", "bul"]
 CONF_PROXIES_HTTPPORT = 7070
 CONF_PROXIES_MAX_N_GR_HOST = 10 # 10
 CONF_PROXIES_N_GR_VIDEO = 5  # 8
@@ -449,13 +448,6 @@ def long_operation_in_process(func):
         proc = MPProcess(target=func, args=args, kwargs=kwargs)
         proc.start()
         return (proc, queue)
-        # try:
-        #     res = queue.get(timeout=60)
-        #     proc.join()
-        #     proc.close()
-        #     return res
-        # except BaseException as e:
-        #     logging.getLogger('op_in_proc').exception(repr(r))
 
     return wrapper
 
@@ -471,15 +463,22 @@ def long_operation_in_thread(func):
 
     return wrapper
 
-
 @contextlib.asynccontextmanager
-async def async_lock(executor, lock):
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(executor, lock.acquire)
-    try:
-        yield  # the lock is held
-    finally:
-        lock.release()
+async def async_lock(lock):
+    if not isinstance(lock, contextlib.nullcontext):
+        executor = ThreadPoolExecutor()
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(executor, lock.acquire)
+        try:
+            yield  # the lock is held
+        finally:
+            await loop.run_in_executor(executor, lock.release)
+    else:
+        try:
+            yield
+        finally:
+            pass
+    
 
 
 async def async_wait_time(n, events=None):
@@ -991,6 +990,7 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
 
     
     IPS_SSL = []
+    CONF_PROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_PROXIES_COUNTRIES]
     for domain in CONF_PROXIES_DOMAINS:
         IPS_SSL += get_ips(domain)
 

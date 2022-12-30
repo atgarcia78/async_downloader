@@ -102,7 +102,7 @@ class AsyncDASHDownloader:
         self.ema_s = EMA(smoothing=0.01)
         self.ema_t = EMA(smoothing=0.01)
         
-        self.ex_dashdl = ThreadPoolExecutor(thread_name_prefix="ex_dashdl")
+        self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_dashdl")
 
         self.init()
 
@@ -620,7 +620,7 @@ class AsyncDASHDownloader:
 
                                 try:
 
-                                    await async_ex_in_executor(self.ex_dashdl, self.reset)
+                                    await async_ex_in_executor(self.ex_dl, self.reset)
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
@@ -655,7 +655,7 @@ class AsyncDASHDownloader:
                                 
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                                 try:
-                                    await async_ex_in_executor(self.ex_dashdl, self.reset)
+                                    await async_ex_in_executor(self.ex_dl, self.reset)
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
@@ -697,7 +697,7 @@ class AsyncDASHDownloader:
             #self.init_client.close()            
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
             self.status = "init_manipulating"
-            self.ex_dashdl.shutdown(wait=False, cancel_futures=True)
+            #self.ex_dl.shutdown(wait=False, cancel_futures=True)
     async def clean_when_error(self):
         
         for f in self.info_frag:

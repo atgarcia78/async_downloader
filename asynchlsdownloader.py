@@ -162,7 +162,7 @@ class AsyncHLSDownloader:
             self.upt = {}
 
             self._qspeed = None
-            self.ex_hlsdl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
+            self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
 
             self._proxy = None
 
@@ -1630,7 +1630,7 @@ class AsyncHLSDownloader:
         self.kill = asyncio.Event()
         self.frags_queue = asyncio.Queue()
 
-        self.areset = sync_to_async(self.resetdl, self.ex_hlsdl)
+        self.areset = sync_to_async(self.resetdl, self.ex_dl)
 
         for frag in self.frags_to_dl:
             self.frags_queue.put_nowait(frag)
@@ -1649,7 +1649,7 @@ class AsyncHLSDownloader:
             _event = traverse_obj(
                 self.video_downloader.info_dl["fromplns"], ("ALL", "reset")
             )
-            await async_ex_in_executor(self.ex_hlsdl, _event.wait)
+            await async_ex_in_executor(self.ex_dl, _event.wait)
             self.video_downloader.info_dl["fromplns"][self.fromplns]["downloading"].add(
                 self.video_downloader.info_dict["playlist_index"]
             )
@@ -1756,7 +1756,7 @@ class AsyncHLSDownloader:
                                 dump_init_task = [
                                     asyncio.create_task(
                                         async_ex_in_executor(
-                                            self.ex_hlsdl, self.dump_init_file
+                                            self.ex_dl, self.dump_init_file
                                         )
                                     )
                                 ]
@@ -1898,7 +1898,7 @@ class AsyncHLSDownloader:
             )
             self.status = "error"
         finally:
-            await async_ex_in_executor(self.ex_hlsdl, self.dump_init_file)
+            await async_ex_in_executor(self.ex_dl, self.dump_init_file)
             if self.fromplns:
                 try:
                     self.video_downloader.info_dl["fromplns"][self.fromplns][
@@ -1929,7 +1929,7 @@ class AsyncHLSDownloader:
             ):
                 self.status = "init_manipulating"
 
-            self.ex_hlsdl.shutdown(wait=False, cancel_futures=True)
+            #self.ex_dl.shutdown(wait=False, cancel_futures=True)
 
     async def clean_from_reset(self):
 
