@@ -14,7 +14,10 @@ import signal
 import subprocess
 import threading
 import time
-from concurrent.futures.thread import ThreadPoolExecutor
+from concurrent.futures import(
+    ThreadPoolExecutor,
+    wait as waitfut,
+    FIRST_COMPLETED as first_completed_fut)
 from datetime import datetime, timedelta
 from itertools import zip_longest
 from pathlib import Path
@@ -32,7 +35,7 @@ CONF_PROXIES_LIST_HTTPPORTS = [489, 23, 7070, 465, 993, 282, 778, 592]
 CONF_PROXIES_COUNTRIES = ["fn", "no", "bg", "pg", "it", "fr", "sp", "ire", "ice", "cz", "aus", "ger", "uk", "uk.man", "ro", "slk", "nl", "hg", "bul"]
 CONF_PROXIES_HTTPPORT = 7070
 CONF_PROXIES_MAX_N_GR_HOST = 10 # 10
-CONF_PROXIES_N_GR_VIDEO = 5  # 8
+CONF_PROXIES_N_GR_VIDEO = 8  # 8
 CONF_PROXIES_BASE_PORT = 12000
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400  # 102400 * 1.5# 102400
@@ -868,20 +871,19 @@ def grouper(iterable, n, *, incomplete="fill", fillvalue=None):
 #     return(subprocess.run(['jq', '-r', '.ip'], stdin=proc_curl.stdout, encoding='utf-8', capture_output=True).stdout.strip())
 
 URLS_API_GETMYIP = {
-    "httpbin": {"url": "https://httpbin.org/get", "json": True, "key": "origin"},
-    "ipify": {"url": "https://api.ipify.org?format=json", "json": True, "key": "ip"},
+    "httpbin": {"url": "https://httpbin.org/get", "key": "origin"},
+    "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
+    "ipapi": {"url": "http://ip-api.com/json", "key": "query"}
 }
 
 
-def get_myip(key=None, timeout=2, api="ipify"):
+def get_myip(key=None, timeout=2, api="ipify", stop_event=None):
 
-    _urlapi = URLS_API_GETMYIP[api]['url']
-
-    _keyapi = URLS_API_GETMYIP[api]['key']
+    _urlapi = traverse_obj(URLS_API_GETMYIP, (api, 'url'))
+    _keyapi = traverse_obj(URLS_API_GETMYIP, (api, 'key'))
 
     _proxy = ""
-    if key:
-        _proxy = f"-x http://127.0.0.1:{key} "
+    if key: _proxy = f"-x http://127.0.0.1:{key} "
     _cmd = f"curl {_proxy}-s {_urlapi}"
     proc_curl = subprocess.Popen(
         _cmd.split(" "),
@@ -893,26 +895,46 @@ def get_myip(key=None, timeout=2, api="ipify"):
         proc_curl.poll()
 
         if proc_curl.returncode == 0:
-            return json.loads(proc_curl.stdout.read().replace("\n", "")).get(_keyapi)
+            return try_get(proc_curl.stdout.read(), lambda x: json.loads(x.replace("\n", "")).get(_keyapi) if x else None)
         elif proc_curl.returncode == None:
             if time.monotonic() - t0 > timeout:
-
                 proc_curl.kill()
                 return "timeout"
-            time.sleep(0.5)
+            elif try_get(stop_event, lambda x: x.is_set() if x else False):
+                proc_curl.kill()
+                return "stop_event"
+            time.sleep(0.2)
             continue
         else:
             return f"error: {proc_curl.returncode}"
 
 
-def test_proxies_rt(routing_table, api="ipify"):
+
+def get_myiptryall(key=None, timeout=2):
+
+    logger = logging.getLogger('test')
+    stop_event = threading.Event()
+    with ThreadPoolExecutor() as exe:
+        futures = {exe.submit(get_myip, key=key, timeout=timeout, api=api, stop_event=stop_event): api for api in URLS_API_GETMYIP}
+
+        d, p = waitfut(futures, return_when=first_completed_fut)
+        stop_event.set()
+        try:
+            return(d.pop().result())
+        except Exception as e:
+            logger.exception(repr(e))
+        finally:
+            waitfut(p)
+
+
+def test_proxies_rt(routing_table, timeout=2):
     logger = logging.getLogger("asyncdl")
 
     logger.info(f"[init_proxies] starting test proxies")
 
     with ThreadPoolExecutor() as exe:
         futures = {
-            exe.submit(get_myip, key=_key, api=api): _key for _key in list(routing_table.keys())
+            exe.submit(get_myiptryall, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())
         }
 
     bad_pr = []
@@ -929,7 +951,7 @@ def test_proxies_rt(routing_table, api="ipify"):
     return bad_pr
 
 
-def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, api="ipify"):
+def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, timeout=2):
     logger = logging.getLogger("asyncdl")
     cmd_gost = [
         f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
@@ -954,7 +976,7 @@ def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, api="ipify"):
         time.sleep(0.05)
     _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
     logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
-    _res_bad = test_proxies_rt(routing_table, api=api)
+    _res_bad = test_proxies_rt(routing_table, timeout=timeout)
     _line_ps_pr = []
     for _ip in _res_bad:
         if (_temp:=try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):

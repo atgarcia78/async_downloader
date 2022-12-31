@@ -206,22 +206,11 @@ class AsyncARIA2CDownloader:
         else:
             self.sem = contextlib.nullcontext()
 
-        # if self.sem and self._mode == "noproxy":
-        #     logger.info(
-        #             f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] pre init waiting for lock"
-        #         )
-        #     #self.sem.acquire()
-        #     logger.info(
-        #             f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] pre init after lock"
-        #         )
-        
+       
         
         if self._mode != "noproxy": self.sem = contextlib.nullcontext()
         self.block_init = True
 
-        # logger.debug(
-        #             f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] pre init\n{self.info_dict}"
-        #         )
 
     async def init(self):
 

@@ -1,13 +1,17 @@
 import asyncio
 import contextlib
 import copy
-from datetime import timedelta
-from datetime import datetime
+from datetime import (
+    timedelta,
+    datetime
+)
 import logging
 import sys
 import time
-import traceback
-from concurrent.futures import CancelledError, ThreadPoolExecutor
+from concurrent.futures import (
+    CancelledError, 
+    ThreadPoolExecutor
+)
 from pathlib import Path
 from shutil import rmtree
 from statistics import median
@@ -72,7 +76,6 @@ class AsyncHTTPDownloader:
     _CHUNK_SIZE = 102400  # 100KB
     _MAX_RETRIES = 10
     _CONFIG = CONFIG_EXTRACTORS.copy()
-
 
     def __init__(self, video_dict, vid_dl):
 
@@ -270,9 +273,9 @@ class AsyncHTTPDownloader:
                 )
 
             except Exception as e:
-                lines = traceback.format_exception(*sys.exc_info())
-                logger.debug(
-                    f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)} \n{'!!'.join(lines)}"
+                
+                logger.exception(
+                    f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)}"
                 )
                 raise
 
@@ -418,9 +421,9 @@ class AsyncHTTPDownloader:
                 )
 
         except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())
+            
             logger.debug(
-                f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] {repr(e)} \n{'!!'.join(lines)}"
+                f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] {repr(e)})"
             )
 
     def get_parts_to_dl(self):
@@ -558,9 +561,7 @@ class AsyncHTTPDownloader:
         if not _reset_info: raise AsyncHTTPDLError("no video info")
         return get_format_id(_reset_info, self.info_dict["format_id"])
         
-
     def resetdl(self):
-
         _wurl = self.info_dict.get("webpage_url")
         _webpage_url = (
             smuggle_url(_wurl, {"indexdl": self.video_downloader.index})
@@ -581,9 +582,7 @@ class AsyncHTTPDownloader:
             self.get_parts_to_dl()
     
     async def fetch(self, i):
-
         try:
-
             client = httpx.AsyncClient(
                 proxies=try_get(self.proxies, lambda x: x[i]),
                 limits=self.limits,
@@ -608,13 +607,11 @@ class AsyncHTTPDownloader:
 
                 await asyncio.sleep(0)
 
-                while True:  # bucle del worker
-
+                while True:  
                     try:
-
+                        await asyncio.sleep(0)
                         async with aiofiles.open(tempfilename, mode="ab") as f:
-
-                            await asyncio.sleep(0)
+                            
                             if any(
                                 [
                                     self.video_downloader.stop_event.is_set(),
@@ -704,16 +701,8 @@ class AsyncHTTPDownloader:
                                         await f.write(chunk)
 
                                         async with self._ALOCK:
-                                            self.down_size += (
-                                                _iter_bytes := (
-                                                    res.num_bytes_downloaded
-                                                    - num_bytes_downloaded
-                                                )
-                                            )
-                                            if (
-                                                _dif := self.down_size
-                                                - self.filesize
-                                            ) > 0:
+                                            self.down_size += (_iter_bytes := (res.num_bytes_downloaded - num_bytes_downloaded))
+                                            if (_dif := self.down_size - self.filesize) > 0:
                                                 self.filesize += _dif
                                             self.first_data.set()
 
@@ -833,9 +822,9 @@ class AsyncHTTPDownloader:
                             )
                             raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
                     except Exception as e:
-                        lines = traceback.format_exception(*sys.exc_info())
-                        logger.warning(
-                            f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected: {repr(e)}\n{'!!'.join(lines)}"
+                        
+                        logger.exception(
+                            f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected: {repr(e)})"
                         )
 
         finally:

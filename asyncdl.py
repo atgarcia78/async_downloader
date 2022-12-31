@@ -3,9 +3,7 @@ import hashlib
 import json
 import logging
 import shutil
-import sys
 import time
-import traceback
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from itertools import zip_longest
@@ -81,17 +79,6 @@ class WorkersRun:
     def running_count(self):
         return len(self.running)
         
-    async def add_dl(self, dl, url_key):
-        
-        dl.on_hold_event = asyncio.Event()
-
-        async with self.alock:
-            self.logger.debug(f"[{url_key}] add dl to worker run. Running[{self.running_count}] Waiting[{len(self.waiting)}]")
-            if self.running_count >= self.max:
-                self.waiting.append((dl, url_key))
-            else:
-                self._start_task(dl, url_key)
-        
     def add_worker(self):
         self.max += 1
         if self.waiting:
@@ -101,8 +88,16 @@ class WorkersRun:
 
     def del_worker(self):
         if self.max > 0:
-            self.max -= 1
-
+            self.max -= 1    
+    
+    async def add_dl(self, dl, url_key):
+        async with self.alock:
+            self.logger.debug(f"[{url_key}] add dl to worker run. Running[{self.running_count}] Waiting[{len(self.waiting)}]")
+            if self.running_count >= self.max:
+                self.waiting.append((dl, url_key))
+            else:
+                self._start_task(dl, url_key)
+        
     def _start_task(self, dl, url_key):
         #self.logger.debug(f"[{url_key}] start task {self.tasks}")
         self.running.add((dl, url_key))
@@ -111,15 +106,14 @@ class WorkersRun:
         
     async def _task(self, dl, url_key):
         try:
+            dl.on_hold_event = asyncio.Event()
             if dl.info_dl["status"] not in ("init_manipulating", "done"):
                 done, pending = await asyncio.wait([asyncio.create_task(dl.run_dl()), asyncio.create_task(dl.on_hold_event.wait())], return_when=asyncio.FIRST_COMPLETED)
             
             if not dl.on_hold_event.is_set():
-                await self.asyncdl.run_callback(dl, url_key)
-            
+                await self.asyncdl.run_callback(dl, url_key)            
             else:
                 self.onhold.add((dl, url_key))
-
             async with self.alock:               
                 self.running.remove((dl, url_key))
                 if self.waiting:
