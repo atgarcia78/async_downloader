@@ -91,6 +91,9 @@ class WorkersRun:
             self.max -= 1    
     
     async def add_dl(self, dl, url_key):
+        
+        await dl.async_init()
+        
         async with self.alock:
             self.logger.debug(f"[{url_key}] add dl to worker run. Running[{self.running_count}] Waiting[{len(self.waiting)}]")
             if self.running_count >= self.max:
@@ -106,7 +109,7 @@ class WorkersRun:
         
     async def _task(self, dl, url_key):
         try:
-            dl.on_hold_event = asyncio.Event()
+            
             if dl.info_dl["status"] not in ("init_manipulating", "done"):
                 done, pending = await asyncio.wait([asyncio.create_task(dl.run_dl()), asyncio.create_task(dl.on_hold_event.wait())], return_when=asyncio.FIRST_COMPLETED)
             
@@ -133,7 +136,402 @@ class WorkersRun:
             if not self.waiting and not self.running and not self.onhold:
                 self.logger.debug(f"[{url_key}] end tasks worker run: exit")
                 self.exit.set()
+
+class FrontEndGUI:
+    def __init__(self, asyncdl):
+        self.asyncdl = asyncdl
+        self.logger = logging.getLogger("FEgui")
+        self.list_finish = {}
+        self.console_dl_status = False
+        self.pasres_repeat = False
+        self.reset_repeat = False
+        self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
+        self.window_root = None
+        self.window_console = None
+    
+    def close(self):
+        if self.window_console:
+            self.window_console.close()            
+            self.window_console = None
+        if self.window_root:
+            self.window_root.close()            
+            self.window_root = None
+    
+    async def gui_root(self, event, values):
+
+        try:
+        
+            if "kill" in event or event == sg.WIN_CLOSED:
+                return "break"
+            elif event == "nwmon":
+                self.window_root["ST"].update(values["nwmon"])
+            elif event == "all":
+                self.window_root["ST"].update(values["all"]["nwmon"])
+                if "init" in values["all"]:
+                    list_init = values["all"]["init"]
+                    if list_init:
+                        upt = "\n\n" + "".join(list(list_init.values()))
+                    else:
+                        upt = ""
+                    self.window_root["-ML0-"].update(upt)
+                if "downloading" in values["all"]:
+                    list_downloading = values["all"]["downloading"]
+                    _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
+                    if list_downloading:
+                        _text.extend(list(list_downloading.values()))
+                    upt = "".join(_text)
+                    self.window_root["-ML1-"].update(upt)
+                    if self.console_dl_status:
+                        upt = "\n".join(list_downloading.values())
+                        sg.cprint(
+                            f"\n\n-------STATUS DL----------------\n\n{upt}\n\n-------END STATUS DL------------\n\n"
+                        )
+                        self.console_dl_status = False
+                if "manipulating" in values["all"]:
+                    list_manipulating = values["all"]["manipulating"]
+                    _text = []
+                    if list_manipulating:
+                        _text.extend(["\n\n-------CREATING FILE------------\n\n"])
+                        _text.extend(list(list_manipulating.values()))
+                    if _text:
+                        upt = "".join(_text)
+                    else:
+                        upt = ""
+                    self.window_root["-ML3-"].update(upt)
+
+                if "finish" in values["all"]: 
+                    self.list_finish.update(values["all"]["finish"])
+
+                    if self.list_finish:
+                        upt = "\n\n" + "".join(list(self.list_finish.values()))
+                    else:
+                        upt = ""
+
+                    self.window_root["-ML2-"].update(upt)
+                
+
+            elif event in ("error", "done", "stop"):
+                self.list_finish.update(values[event])
+
+                if self.list_finish:
+                    upt = "\n\n" + "".join(list(self.list_finish.values()))
+                else:
+                    upt = ""
+
+                self.window_root["-ML2-"].update(upt)
+
+        except Exception as e:
+            self.logger.exception(f"[gui_root] {repr(e)}")
+
+    async def gui_console(self, event, values):
+        
+        sg.cprint(event, values)
+        if event == sg.WIN_CLOSED:
+            return "break"
+        elif event in ["Exit"]:
+            self.logger.info(f"[gui_console] event Exit")
+            await self.asyncdl.cancel_all_tasks()
+        elif event in ["-WKINIT-"]:
+            self.asyncdl.wkinit_stop = not self.asyncdl.wkinit_stop
+            sg.cprint(
+                f"Worker inits: BLOCKED"
+            ) if self.asyncdl.wkinit_stop else sg.cprint(f"Worker inits: RUNNING")
+        elif event in ["-PASRES-"]:
+            if not values["-PASRES-"]:
+                self.pasres_repeat = False
+            else:
+                self.pasres_repeat = True
+        elif event in ["-RESETREP-"]:
+            if not values["-RESETREP-"]:
+                self.reset_repeat = False
+            else:
+                self.reset_repeat = True
+        elif event in ["-DL-STATUS"]:
+            await self.asyncdl.print_pending_tasks()
+            if not self.console_dl_status:
+                self.console_dl_status = True
+        elif event in ["IncWorkerRun"]:
+            self.asyncdl.WorkersRun.add_worker()                    
+            sg.cprint(
+                f"Workers: {self.asyncdl.WorkersRun.max}"
+            )
+        elif event in ["DecWorkerRun"]:
+            self.asyncdl.WorkersRun.del_worker()                    
+            sg.cprint(
+                f"Workers: {self.asyncdl.WorkersRun.max}"
+            )
+        elif event in ["TimePasRes"]:
+            if not values["-IN-"]:
+                sg.cprint("Please enter number")
+            else:
+                timers = [timer.strip() for timer in values["-IN-"].split(",")]
+                if len(timers) > 2:
+                    sg.cprint("max 2 timers")
+                else:
+
+                    if any(
+                        [
+                            (not timer.isdecimal() or int(timer) < 0)
+                            for timer in timers
+                        ]
+                    ):
+                        sg.cprint("not an integer, or negative")
+                    else:
+                        if len(timers) == 2:
+                            self.asyncdl.pasres_time_from_resume_to_pause = int(
+                                timers[0]
+                            )
+                            self.asyncdl.pasres_time_in_pause = int(timers[1])
+                        else:
+                            self.asyncdl.pasres_time_from_resume_to_pause = int(
+                                timers[0]
+                            )
+                            self.asyncdl.pasres_time_in_pause = int(timers[0])
+
+                        sg.cprint(
+                            f"[time to resume] {self.asyncdl.pasres_time_from_resume_to_pause} [time in pause] {self.asyncdl.pasres_time_in_pause}"
+                        )
+
+        elif event in ["NumVideoWorkers"]:
+            if not values["-IN-"]:
+                sg.cprint("Please enter number")
+            else:
+                if not values["-IN-"].isdecimal():
+                    sg.cprint("not an integer")
+                else:
+                    _nvidworkers = int(values["-IN-"])
+                    if _nvidworkers == 0:
+                        sg.cprint("must be > 0")
+
+                    else:
+                        self.asyncdl.args.parts = _nvidworkers
+                        if self.asyncdl.list_dl:
+                            for _,dl in self.asyncdl.list_dl.items():
+                                await dl.change_numvidworkers(_nvidworkers)
+                        else:
+                            sg.cprint("DL list empty")
+
+        elif event in [
+            "ToFile",
+            "Info",
+            "Pause",
+            "Resume",
+            "Reset",
+            "Stop",
+            "+PasRes",
+            "-PasRes",
+        ]:
+            if not self.asyncdl.list_dl:
+                sg.cprint("DL list empty")
             
+            else:
+                _index_list = []
+                if (not (_values:=values["-IN-"]) or _values.lower() == "all"):
+                    _index_list = [int(dl.index) for _,dl in self.asyncdl.list_dl.items()]
+                else:
+                    if any([any([not el.isdecimal(), int(el) == 0, int(el) > len(self.asyncdl.list_dl)])  for el in values["-IN-"].replace(" ", "").split(",")]):
+                        sg.cprint("there are characters not decimal or equal to 0 or out of bound of number of dl")
+                    else:
+                        _index_list = [int(el) for el in values["-IN-"].replace(" ", "").split(",")]
+                
+                if _index_list:
+                    info = []
+                    for _index in _index_list:
+                        if event == "+PasRes":
+                            self.asyncdl.list_pasres.add(_index)
+                        elif event == "-PasRes":
+                            self.asyncdl.list_pasres.discard(_index)
+                        elif event == "Pause":
+                            await self.asyncdl.list_dl[_index].pause()
+                        elif event == "Resume":
+                            await self.asyncdl.list_dl[_index].resume()
+                        elif event == "Reset":
+                            await self.asyncdl.list_dl[_index].reset_from_console("hard")
+                        elif event == "Stop":
+                            await self.asyncdl.list_dl[_index].stop()
+                        elif event in ["Info", "ToFile"]:
+                            _thr = getattr(self.asyncdl.list_dl[_index].info_dl["downloaders"][0], "throttle", None)
+                            sg.cprint(f"[{_index}] throttle [{_thr}]")
+                            _info = json.dumps(self.asyncdl.list_dl[_index].info_dict)
+                            sg.cprint(f"[{_index}] info\n{_info}")
+                            info.append(_info)                          
+
+                        await asyncio.sleep(0)
+
+                    if event in ["+PasRes", "-PasRes"]:
+                        sg.cprint(f"[pause-resume autom] {self.asyncdl.list_pasres}")
+
+                    if event == "ToFile":
+                        with open((_file:=Path(Path.home(),"testing", f"{self.asyncdl.launch_time.strftime('%Y%m%d_%H%M')}.json")), "w") as f:
+                            f.write(
+                                f'{{"entries": [{", ".join(info)}]}}'
+                            )
+                        sg.cprint(f"saved to file: {_file}")
+
+    async def gui(self):
+
+        try:
+            
+            self.stop = asyncio.Event()
+            self.window_console = init_gui_console()
+            self.window_root = init_gui_root()
+
+            await asyncio.sleep(0)
+           
+            while not self.stop.is_set():
+                
+                window, event, values = sg.read_all_windows(timeout=0)
+
+                if not window or not event or event == sg.TIMEOUT_KEY:
+                    await asyncio.sleep(0)
+                    continue
+
+                _res = None
+                if window == self.window_console:
+                    _res = await self.gui_console(event, values)                    
+                elif window == self.window_root:
+                    _res = await self.gui_root(event, values)
+                
+                if _res == "break":
+                    break
+
+                await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        except BaseException as e:
+            if not isinstance(e, asyncio.CancelledError):                
+                self.logger.exception(
+                    f"[gui] {repr(e)}"
+                )
+            if isinstance(e, KeyboardInterrupt):
+                raise
+        finally:
+            self.logger.debug("[gui] BYE")
+
+    def update_window(self, status, nwmon=None):
+        list_upt = {}
+        list_res = {}
+        
+        trans = {"manip": ("init_manipulating", "manipulating"), 
+                "finish": ("error", "done", "stop"), "init": "init", "downloading": "downloading"}
+
+        if status == "all": _status = ("init", "downloading", "manip", "finish")
+        else: 
+            if isinstance(status, str):
+                _status = (status,)
+            else:
+                _status = status
+            
+        for st in _status:
+            list_upt[st] = {}
+            list_res[st] = {}
+            
+            for i, dl in self.asyncdl.list_dl.items():
+                
+                if dl.info_dl["status"] in trans[st]:
+                    list_res[st].update({i: dl.print_hookup()})
+                
+            if list_res[st] == self.list_all_old[st]: 
+                del list_upt[st]
+            else:
+                list_upt[st] = list_res[st]
+        if nwmon:
+            list_upt["nwmon"] = nwmon
+        
+        if self.window_root:
+            self.window_root.write_event_value("all", list_upt)
+
+        for st,val in self.list_all_old.items():
+            if st not in list_res: list_res.update({st:val})
+
+        self.list_all_old = list_res
+
+    @long_operation_in_thread
+    def upt_window_periodic(self, *args, **kwargs):
+
+        stop_upt = kwargs["stop_event"]
+
+        try:
+
+            progress_timer = ProgressTimer()
+            short_progress_timer = ProgressTimer()
+            self.list_nwmon = []
+            init_bytes_recv = psutil.net_io_counters().bytes_recv
+            speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
+            
+            while not stop_upt.is_set():
+                
+                if self.asyncdl.list_dl and progress_timer.has_elapsed(
+                    seconds=CONF_INTERVAL_GUI
+                ):
+                    _recv = psutil.net_io_counters().bytes_recv
+                    ds = speedometer(_recv)
+                    if short_progress_timer.has_elapsed(seconds=10*CONF_INTERVAL_GUI):
+                        self.list_nwmon.append((datetime.now(), ds))
+                    msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(ds,True)}ps"
+                    self.update_window("all", nwmon=msg)
+                else:
+                    time.sleep(CONF_INTERVAL_GUI/2)
+                    
+        except Exception as e:
+            self.logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
+        finally:
+            if self.list_nwmon:
+                self.logger.info(
+                    f"DL MEDIA: {naturalsize(median([el[1] for el in self.list_nwmon]),True)}ps"
+                )
+                _str_nwmon = ", ".join(
+                    [
+                        f'{el[0].strftime("%H:%M:")}{(el[0].second + (el[0].microsecond / 1000000)):06.3f}'
+                        for el in self.list_nwmon
+                    ]
+                )
+                self.logger.debug(
+                    f"[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}"
+                )
+            self.logger.debug("[upt_window_periodic] BYE")
+
+    @long_operation_in_thread
+    def pasres_periodic(self, *args, **kwargs):
+
+        self.logger.debug("[pasres_periodic] START")
+
+        stop_event = kwargs["stop_event"]
+
+        try:
+            while not stop_event.is_set():
+
+                if (self.pasres_repeat or self.reset_repeat) and (
+                    _list := list(self.asyncdl.list_pasres)
+                ):
+                    if not self.reset_repeat:
+                        for _index in _list:
+                            asyncio.run(self.asyncdl.list_dl[_index].pause())
+
+                        wait_time(self.pasres_time_in_pause, event=stop_event)
+
+                        for _index in _list:
+                            asyncio.run(self.asyncdl.list_dl[_index].resume())
+
+                        wait_time(
+                            self.pasres_time_from_resume_to_pause, event=stop_event
+                        )
+                    else:
+                        for _index in _list:
+                            asyncio.run(self.asyncdl.list_dl[_index].reset("manual"))
+                        wait_time(
+                            self.pasres_time_from_resume_to_pause, event=stop_event
+                        )
+
+                else:
+                    wait_time(CONF_INTERVAL_GUI, event=stop_event)
+
+        except Exception as e:
+            logger.exception(f"[pasres_periodic]: error: {repr(e)}")
+        finally:
+            logger.debug("[pasres_periodic] BYE")
+
+
 class AsyncDL:
     def __init__(self, args):
 
@@ -162,14 +560,13 @@ class AsyncDL:
         self.num_videos_pending = 0
        
 
-        # tk control
-        self.window_console = None
-        self.window_root = None
 
         self.wkinit_stop = False
-        self.pasres_repeat = False
-        self.reset_repeat = False
-        self.console_dl_status = False
+
+        
+        #OJOOO QUITAR
+        #self.console_dl_status = False
+        #
 
         self.list_pasres = set()
         self.pasres_time_from_resume_to_pause = 20
@@ -177,8 +574,6 @@ class AsyncDL:
 
         # contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
-        #self.count_run = 0
-        #self.count_manip = 0
         self.hosts_downloading = {}
 
         self.totalbytes2dl = 0
@@ -210,15 +605,14 @@ class AsyncDL:
         self.stop_upt_window = None
         self.stop_pasres = None
 
-        if not self.args.nodl:
-            self.stop_upt_window = self.upt_window_periodic()
-            self.stop_pasres = self.pasres_periodic()
-            if self.args.aria2c:
-                self.init_aria2c_ready = self.start_aria2c()
-            if self.args.proxy != 0:
-                self.init_proxies_ready = self.start_proxies()
 
         self.videos_cached_ready = self.get_videos_cached()
+        if not self.args.nodl:            
+            if self.args.proxy != 0:
+                self.init_proxies_ready = self.start_proxies()
+            if self.args.aria2c:
+                self.init_aria2c_ready = self.start_aria2c()
+        
 
     @long_operation_in_thread
     def start_aria2c(self, *args, **kwargs):
@@ -541,126 +935,6 @@ class AsyncDL:
         except Exception as e:
             logger.exception(f"[videos_cached] {repr(e)}")
 
-    def update_window(self, status, list_old, nwmon=None):
-        list_upt = {}
-        list_res = {}
-        
-        trans = {"manip": ("init_manipulating", "manipulating"), 
-                "finish": ("error", "done", "stop"), "init": "init", "downloading": "downloading"}
-
-        if status == "all": _status = ("init", "downloading", "manip", "finish")
-        else: 
-            if isinstance(status, str):
-                _status = (status,)
-            else:
-                _status = status
-            
-        for st in _status:
-            list_upt[st] = {}
-            list_res[st] = {}
-            
-            for i, dl in self.list_dl.items():
-                
-                if dl.info_dl["status"] in trans[st]:
-                    list_res[st].update({i: dl.print_hookup()})
-                
-            if list_res[st] == list_old[st]: 
-                del list_upt[st]
-            else:
-                list_upt[st] = list_res[st]
-        if nwmon:
-            list_upt["nwmon"] = nwmon
-        if self.window_root:
-            self.window_root.write_event_value("all", list_upt)
-
-        for st,val in list_old.items():
-            if st not in list_res: list_res.update({st:val})
-
-        return(list_res)
-
-    @long_operation_in_thread
-    def upt_window_periodic(self, *args, **kwargs):
-
-        stop_event = kwargs["stop_event"]
-
-        try:
-
-            progress_timer = ProgressTimer()
-            list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
-            self.list_nwmon = []
-            init_bytes_recv = psutil.net_io_counters().bytes_recv
-            speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
-            while not stop_event.is_set():
-                if self.list_dl and progress_timer.has_elapsed(
-                    seconds=CONF_INTERVAL_GUI
-                ):
-                    _recv = psutil.net_io_counters().bytes_recv
-                    ds = speedometer(_recv)
-                    self.list_nwmon.append((datetime.now(), ds))
-                    msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(ds,True)}ps"
-                    list_all_old = self.update_window("all", list_all_old, nwmon=msg)
-                else:
-                    time.sleep(CONF_INTERVAL_GUI/2)
-                    
-
-        except Exception as e:
-            logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
-        finally:
-            if self.list_nwmon:
-                logger.info(
-                    f"DL MEDIA: {naturalsize(median([el[1] for el in self.list_nwmon]),True)}ps"
-                )
-                _str_nwmon = ", ".join(
-                    [
-                        f'{el[0].strftime("%H:%M:")}{(el[0].second + (el[0].microsecond / 1000000)):06.3f}'
-                        for el in self.list_nwmon
-                    ]
-                )
-                logger.debug(
-                    f"[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}"
-                )
-            logger.debug("[upt_window_periodic] BYE")
-
-    @long_operation_in_thread
-    def pasres_periodic(self, *args, **kwargs):
-
-        logger.debug("[pasres_periodic] START")
-
-        stop_event = kwargs["stop_event"]
-
-        try:
-            while not stop_event.is_set():
-
-                if (self.pasres_repeat or self.reset_repeat) and (
-                    _list := list(self.list_pasres)
-                ):
-                    if not self.reset_repeat:
-                        for _index in _list:
-                            asyncio.run(self.list_dl[_index].pause())
-
-                        wait_time(self.pasres_time_in_pause, event=stop_event)
-
-                        for _index in _list:
-                            asyncio.run(self.list_dl[_index].resume())
-
-                        wait_time(
-                            self.pasres_time_from_resume_to_pause, event=stop_event
-                        )
-                    else:
-                        for _index in _list:
-                            asyncio.run(self.list_dl[_index].reset("manual"))
-                        wait_time(
-                            self.pasres_time_from_resume_to_pause, event=stop_event
-                        )
-
-                else:
-                    wait_time(CONF_INTERVAL_GUI, event=stop_event)
-
-        except Exception as e:
-            logger.exception(f"[pasres_periodic]: error: {repr(e)}")
-        finally:
-            logger.debug("[pasres_periodic] BYE")
-
     async def cancel_all_tasks(self):
         self.STOP.set()
         await asyncio.sleep(0)
@@ -676,304 +950,11 @@ class AsyncDL:
                 pending_tasks = asyncio.all_tasks(loop=self.loop)
                 logger.debug(f"[pending_all_tasks] {pending_tasks}")
                 logger.debug(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
-                if self.window_console:
-                    sg.cprint(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
 
                 logger.debug(f"[queue_vid] {self.queue_vid._queue}")
 
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
-
-    async def gui(self):
-
-        try:
-
-            self.window_console = init_gui_console()
-            self.window_root = init_gui_root()
-
-            
-            await asyncio.sleep(0)
-
-            list_init = {}
-            list_downloading = {}
-            list_manipulating = {}
-            list_finish = {}
-            
-
-            async def gui_console(event, values):
-                
-                sg.cprint(event, values)
-                if event == sg.WIN_CLOSED:
-                    return "break"
-                elif event in ["Exit"]:
-                    logger.info(f"[gui_console] event Exit")
-                    await self.cancel_all_tasks()
-                elif event in ["-WKINIT-"]:
-                    self.wkinit_stop = not self.wkinit_stop
-                    sg.cprint(
-                        f"Worker inits: BLOCKED"
-                    ) if self.wkinit_stop else sg.cprint(f"Worker inits: RUNNING")
-                elif event in ["-PASRES-"]:
-                    if not values["-PASRES-"]:
-                        self.pasres_repeat = False
-                    else:
-                        self.pasres_repeat = True
-                elif event in ["-RESETREP-"]:
-                    if not values["-RESETREP-"]:
-                        self.reset_repeat = False
-                    else:
-                        self.reset_repeat = True
-                elif event in ["-DL-STATUS"]:
-                    await self.print_pending_tasks()
-                    if not self.console_dl_status:
-                        self.console_dl_status = True
-                elif event in ["IncWorkerRun"]:
-                    self.WorkersRun.add_worker()                    
-                    sg.cprint(
-                        f"Workers: {self.WorkersRun.max}"
-                    )
-                elif event in ["DecWorkerRun"]:
-                    self.WorkersRun.del_worker()                    
-                    sg.cprint(
-                        f"Workers: {self.WorkersRun.max}"
-                    )
-                elif event in ["TimePasRes"]:
-                    if not values["-IN-"]:
-                        sg.cprint("Please enter number")
-                    else:
-                        timers = [timer.strip() for timer in values["-IN-"].split(",")]
-                        if len(timers) > 2:
-                            sg.cprint("max 2 timers")
-                        else:
-
-                            if any(
-                                [
-                                    (not timer.isdecimal() or int(timer) < 0)
-                                    for timer in timers
-                                ]
-                            ):
-                                sg.cprint("not an integer, or negative")
-                            else:
-                                if len(timers) == 2:
-                                    self.pasres_time_from_resume_to_pause = int(
-                                        timers[0]
-                                    )
-                                    self.pasres_time_in_pause = int(timers[1])
-                                else:
-                                    self.pasres_time_from_resume_to_pause = int(
-                                        timers[0]
-                                    )
-                                    self.pasres_time_in_pause = int(timers[0])
-
-                                sg.cprint(
-                                    f"[time to resume] {self.pasres_time_from_resume_to_pause} [time in pause] {self.pasres_time_in_pause}"
-                                )
-
-                elif event in ["NumVideoWorkers"]:
-                    if not values["-IN-"]:
-                        sg.cprint("Please enter number")
-                    else:
-                        if not values["-IN-"].isdecimal():
-                            sg.cprint("not an integer")
-                        else:
-                            _nvidworkers = int(values["-IN-"])
-                            if _nvidworkers == 0:
-                                sg.cprint("must be > 0")
-
-                            else:
-                                self.args.parts = _nvidworkers
-                                if self.list_dl:
-                                    for i,dl in self.list_dl.items():
-                                        await dl.change_numvidworkers(_nvidworkers)
-                                else:
-                                    sg.cprint("DL list empty")
-
-                elif event in [
-                    "ToFile",
-                    "Info",
-                    "Pause",
-                    "Resume",
-                    "Reset",
-                    "Stop",
-                    "+PasRes",
-                    "-PasRes",
-                ]:
-                    if not values["-IN-"]:
-                        if event in ["Reset", "Stop", "+PasRes", "-PasRes"]:
-                            sg.cprint("Needs to select a DL")
-                        else:
-
-                            if self.list_dl:
-                                info = []
-                                for i,dl in self.list_dl.items():
-                                    if event == "Pause":
-                                        await dl.pause()
-                                    elif event == "Resume":
-                                        await dl.resume()
-                                    elif event in ["Info", "ToFile"]:
-                                        info.append(json.dumps(dl.info_dict))
-
-                                    await asyncio.sleep(0)
-
-                                logger.debug(f"[gui_console] info for print\n{info}")
-                                if info:
-                                    # sg.cprint(f"[{', '.join(info)}]")
-                                    _thr = getattr(
-                                        dl.info_dl["downloaders"][0], "throttle", None
-                                    )
-                                    sg.cprint(f"throttle [{_thr}]")
-                                    if event == "ToFile":
-                                        with open(
-                                            Path(
-                                                Path.home(),
-                                                "testing",
-                                                _file := f"{self.launch_time.strftime('%Y%m%d_%H%M')}.json",
-                                            ),
-                                            "w",
-                                        ) as f:
-                                            f.write(
-                                                f'{{"entries": [{", ".join(info)}]}}'
-                                            )
-                                        sg.cprint(f"saved to file: {_file}")
-
-                            else:
-                                sg.cprint("DL list empty")
-                    else:
-                        if any(not el.isdecimal() for el in values["-IN-"].split(",")):
-                            sg.cprint("not an integer")
-                        else:
-
-                            if self.list_dl:
-                                for el in (values["-IN-"].replace(" ", "")).split(","):
-                                    _index = int(el)
-                                    if 0 < _index <= len(self.list_dl):
-                                        if event == "+PasRes":
-                                            self.list_pasres.add(_index)
-                                            sg.cprint(
-                                                f"[pause-resume autom] {self.list_pasres}"
-                                            )
-                                        if event == "-PasRes":
-                                            self.list_pasres.discard(_index)
-                                            sg.cprint(
-                                                f"[pause-resume autom] {self.list_pasres}"
-                                            )
-                                        if event == "Pause":
-                                            await self.list_dl[_index].pause()
-                                        if event == "Resume":
-                                            await self.list_dl[_index].resume()
-                                        if event == "Reset":
-                                            await self.list_dl[_index].reset_from_console("hard")
-                                        if event == "Stop":
-                                            await self.list_dl[_index].stop()
-                                        if event == "Info":
-                                            sg.cprint(
-                                                self.list_dl[_index].info_dict
-                                            )
-
-                                        await asyncio.sleep(0)
-
-                                    else:
-                                        sg.cprint("DL index doesnt exist")
-                            else:
-                                sg.cprint("DL list empty")                        
-
-            async def gui_root(event, values):
-
-                if "kill" in event or event == sg.WIN_CLOSED:
-                    return "break"
-                elif event == "nwmon":
-                    self.window_root["ST"].update(values["nwmon"])
-                elif event == "all":
-                    #t0 = time.monotonic()
-                    self.window_root["ST"].update(values["all"]["nwmon"])
-                    if "init" in values["all"]:
-                        list_init = values["all"]["init"]
-                        if list_init:
-                            upt = "\n\n" + "".join(list(list_init.values()))
-                        else:
-                            upt = ""
-                        self.window_root["-ML0-"].update(upt)
-                    if "downloading" in values["all"]:
-                        list_downloading = values["all"]["downloading"]
-                        _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
-                        if list_downloading:
-                            _text.extend(list(list_downloading.values()))
-                        upt = "".join(_text)
-                        self.window_root["-ML1-"].update(upt)
-                        if self.console_dl_status:
-                            upt = "\n".join(list_downloading.values())
-                            sg.cprint(
-                                f"\n\n-------STATUS DL----------------\n\n{upt}\n\n-------END STATUS DL------------\n\n"
-                            )
-                            self.console_dl_status = False
-                    if "manipulating" in values["all"]:
-                        list_manipulating = values["all"]["manipulating"]
-                        _text = []
-                        if list_manipulating:
-                            _text.extend(["\n\n-------CREATING FILE------------\n\n"])
-                            _text.extend(list(list_manipulating.values()))
-                        if _text:
-                            upt = "".join(_text)
-                        else:
-                            upt = ""
-                        self.window_root["-ML3-"].update(upt)
-
-                    if "finish" in values["all"]: 
-                        list_finish.update(values["all"]["finish"])
-
-                        if list_finish:
-                            upt = "\n\n" + "".join(list(list_finish.values()))
-                        else:
-                            upt = ""
-
-                        self.window_root["-ML2-"].update(upt)
-                    
-                    #logger.info(f"%no%Time to write: {time.monotonic() - t0}\n{values}")
-
-               
-                elif event in ("error", "done", "stop"):
-                    list_finish.update(values[event])
-
-                    if list_finish:
-                        upt = "\n\n" + "".join(list(list_finish.values()))
-                    else:
-                        upt = ""
-
-                    self.window_root["-ML2-"].update(upt)
-
-
-            while not self.stop_gui.is_set():
-
-                
-                window, event, values = sg.read_all_windows(timeout=0)
-
-                if not window or not event or event == sg.TIMEOUT_KEY:
-                    await asyncio.sleep(0)
-                    continue
-
-                if window == self.window_console:
-                    _res = await gui_console(event, values)
-                    if _res: break
-                elif window == self.window_root:
-                    _res = await gui_root(event, values)
-                    if _res: break
-
-                await asyncio.sleep(0)
-            await asyncio.sleep(0)
-
-        except BaseException as e:
-            if not isinstance(e, asyncio.CancelledError):                
-                logger.exception(
-                    f"[gui] {repr(e)}"
-                )
-            if isinstance(e, KeyboardInterrupt):
-                raise
-        finally:
-            logger.debug("[gui] BYE")
-            self.window_console.close()
-            self.gui_root.close()
-            self.window_console = None
-            self.gui_root = None
 
     async def get_list_videos(self):
 
@@ -1868,7 +1849,6 @@ class AsyncDL:
                                 dl = await async_ex_in_executor(
                                     self.ex_winit,
                                     VideoDownloader,
-                                    self.window_root,
                                     self.info_videos[urlkey]["video_info"],
                                     self.ytdl,
                                     self.args,
@@ -1938,10 +1918,9 @@ class AsyncDL:
                                             if dl.info_dl.get("auto_pasres"):
                                                 self.list_pasres.add(dl.index)
                                                 _msg = f", add this dl[{dl.index}] to auto_pasres{list(self.list_pasres)}"
-                                                if self.window_console:
-                                                    sg.cprint(
-                                                        f"[pause-resume autom] {self.list_pasres}"
-                                                    )
+                                                logger.debug(
+                                                    f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] pause-resume update{_msg}"
+                                                )
 
                                         logger.debug(
                                             f"[worker_init][{i}][{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, ready to DL{_msg}"
@@ -2163,7 +2142,6 @@ class AsyncDL:
 
         self.STOP = asyncio.Event()
 
-        self.stop_gui = asyncio.Event()
         self.getlistvid_done = asyncio.Event()
         self.getlistvid_first = asyncio.Event()
 
@@ -2210,6 +2188,8 @@ class AsyncDL:
 
             if not self.args.nodl:
 
+
+
                 if self.args.aria2c:
                     logger.info("[async_ex] checking if aria2c ready")
                     await asyncio.wait(                        [
@@ -2245,11 +2225,16 @@ class AsyncDL:
                                                     _done:=asyncio.create_task(self.getlistvid_done.wait())],
                                                     return_when=asyncio.FIRST_COMPLETED)
 
+                
                 for _el in pending:
                     _el.cancel()
                 if _first in done or len(self.videos_to_dl) > 0:
 
-                    self.gui_task = asyncio.create_task(self.gui())
+                    self.FEgui = FrontEndGUI(self)
+                    self.stop_upt_window = self.FEgui.upt_window_periodic()
+                    self.stop_pasres = self.FEgui.pasres_periodic()
+                    
+                    self.gui_task = asyncio.create_task(self.FEgui.gui())
                     
                     tasks_gui = [self.gui_task]
                     
@@ -2286,7 +2271,7 @@ class AsyncDL:
         except BaseException as e:
             if isinstance(e, KeyboardInterrupt):
                 print("")
-            logger.error(f"[async_ex] {repr(e)}")
+            logger.exception(f"[async_ex] {repr(e)}")
             self.STOP.set()
             await asyncio.sleep(0)
             try_get(self.ytdl.params["stop"], lambda x: x.set())
@@ -2298,22 +2283,25 @@ class AsyncDL:
 
         finally:
 
-            self.stop_upt_window.set()
-            await asyncio.sleep(0)
-            self.stop_pasres.set()
-            await asyncio.sleep(0)
-            await asyncio.sleep(0)
-            self.stop_gui.set()
-            await asyncio.sleep(0)
+            if self.stop_upt_window:
+                self.stop_upt_window.set()
+                await asyncio.sleep(0)
+            if self.stop_pasres:
+                self.stop_pasres.set()
+                await asyncio.sleep(0)
             if tasks_gui:
+                self.FEgui.stop.set()
+                await asyncio.sleep(0)
                 done, _ = await asyncio.wait(tasks_gui)
-            #self.ex_winit.shutdown(wait=False, cancel_futures=True)
+                self.FEgui.close()
+                await asyncio.sleep(0)
+                if any(
+                    isinstance(_e, KeyboardInterrupt)
+                    for _e in [d.exception() for d in done]
+                ):
+                    raise KeyboardInterrupt
+
             logger.info(f"[async_ex] BYE")
-            if any(
-                isinstance(_e, KeyboardInterrupt)
-                for _e in [d.exception() for d in done]
-            ):
-                raise KeyboardInterrupt
 
     def get_results_info(self):
         def _getter(url, vid):

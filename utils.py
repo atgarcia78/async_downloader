@@ -173,20 +173,42 @@ class MySem(asyncio.Semaphore):
         self._value = n
 
 
-class MyAsyncioEvent(asyncio.Event):
+
+class MyAsyncioEvent:
+    
+    def __init__(self):
+        self.aevent = None
+        self._cause = "noinfo"
+
+    
     def set(self, cause="noinfo"):
 
-        super().set()
-        if not cause:
-            cause = "noinfo"
-        self._cause = cause
+        if self.aevent:
+            self.aevent.set()
+            if not cause:
+                cause = "noinfo"
+            self._cause = cause
 
     def is_set(self):
         """Return True if and only if the internal flag is true."""
-        if self._value:
-            return self._cause
+        if self.aevent:
+            if self.aevent._value:
+                return self._cause
+            else:
+                return False
+        else: return False
+    
+    def clear(self):
+        if self.aevent:
+            self.aevent._value = False
+
+
+    async def wait(self):
+        if self.aevent:
+            return await self.aevent.wait()
         else:
-            return False
+            return True
+
 
 
 class ProgressTimer:

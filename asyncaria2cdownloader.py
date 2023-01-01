@@ -216,6 +216,7 @@ class AsyncARIA2CDownloader:
 
         try:
             if self._mode == "noproxy":
+                self._index_proxy = None
                 self._proxy = None
                 self.uris = [unquote(self.info_dict.get("url"))] * self.n_workers
             

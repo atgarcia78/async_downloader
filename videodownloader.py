@@ -38,7 +38,7 @@ class VideoDownloader:
     _PLNS = {}
     _QUEUE = Queue()
     
-    def __init__(self, window_root, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
+    def __init__(self, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
         
         try:
             
@@ -48,8 +48,7 @@ class VideoDownloader:
             self.args = args
             
             self._index = None #for printing
-            self.window_root = window_root
-            
+                        
             self.info_dict = video_dict
             
             _date_file = datetime.now().strftime("%Y%m%d")
@@ -113,21 +112,30 @@ class VideoDownloader:
             })
             
 
-            self.pause_event = None
-            self.resume_event = None
-            self.stop_event = None
-            self.reset_event = None
-            self.end_tasks = None
-            self.alock = None
-            self.awrite_window  = None
+            self.pause_event = MyAsyncioEvent()
+            self.resume_event = MyAsyncioEvent()
+            self.stop_event = MyAsyncioEvent()
+            self.end_tasks = MyAsyncioEvent()
+            self.reset_event = MyAsyncioEvent()
+            self.on_hold_event = MyAsyncioEvent() 
             
-
+            
             self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
 
         except Exception as e:            
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}] DL constructor failed {repr(e)}")
             self.info_dl['status'] = "error"
     
+    
+    async def async_init(self):
+        self.pause_event.aevent = asyncio.Event()
+        self.resume_event.aevent = asyncio.Event() 
+        self.stop_event.aevent = asyncio.Event()
+        self.end_tasks.aevent = asyncio.Event()
+        self.reset_event.aevent = asyncio.Event()        
+        self.on_hold_event.aevent = asyncio.Event()
+        self.alock = asyncio.Lock()
+
     @property
     def index(self):
         return self._index
@@ -244,6 +252,7 @@ class VideoDownloader:
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
     async def reset_from_console(self, cause=None):
+        
         if 'hls' in str(type(self.info_dl['downloaders'][0])).lower():
             if (_plns:=self.info_dl['downloaders'][0].fromplns):
                 await self.reset_plns(cause)
@@ -251,7 +260,7 @@ class VideoDownloader:
         await self.reset(cause)
 
     async def reset(self, cause=None):
-        if self.reset_event:
+        if self.reset_event and self.info_dl['status'] == "downloading":
             _wait_tasks = []
             if not self.reset_event.is_set():
                 if self.pause_event.is_set():
@@ -287,6 +296,12 @@ class VideoDownloader:
                 for dl,key in zip(plns, list_dl):
                     _wait_all_tasks.extend(await dl.reset(cause))
                     list_reset.add(key)
+                    await asyncio.sleep(0)
+            
+            self.info_dl['fromplns'][plid]['in_reset'] = list_reset
+            
+            await asyncio.sleep(0)
+        
         return _wait_all_tasks
         
     async def back_from_reset_plns(self, logger, premsg):
@@ -315,41 +330,26 @@ class VideoDownloader:
             if self.stop_event:
                 if self.pause_event.is_set():
                     self.resume_event.set()            
-                await self.awrite_window()
                 self.stop_event.set()
             logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {repr(e)}")
 
     async def pause(self):
-        if self.pause_event:            
+        if self.pause_event and self.info_dl['status'] == "downloading":            
+            self.resume_event.clear()
             self.pause_event.set()
 
     async def resume(self):
-        if self.resume_event:
-            self.resume_event.set()
+        if self.resume_event and self.info_dl['status'] == "downloading": 
+            if self.pause_event.is_set():
+                self.resume_event.set()
     
-    def write_window(self):
-        if self.info_dl['status'] not in ("init", "downloading", "manipulating", "init_manipulating"):
-            mens = {self.index: self.print_hookup()}
-            if self.window_root:
-                self.window_root.write_event_value(self.info_dl['status'], mens)
         
     async def run_dl(self):
         
-        self.pause_event = asyncio.Event()
-        self.resume_event = asyncio.Event()
-        self.stop_event = asyncio.Event()
-        self.end_tasks = asyncio.Event()
-        if not self.on_hold_event:
-            self.on_hold_event = asyncio.Event()
         self.info_dl['ytdl'].params['stop_dl'][str(self.index)] = self.stop_event
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] [stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
-        self.reset_event = MyAsyncioEvent()
-        self.alock = asyncio.Lock()
-        
-
-        self.awrite_window = sync_to_async(self.write_window, self.ex_videodl)
         
         try:
             
@@ -400,12 +400,9 @@ class VideoDownloader:
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]:[run_dl] error when DL {repr(e)}")
             self.info_dl['status'] = 'error'
-        finally:  
-            await self.awrite_window()  
-             
+ 
     def _get_subts_files(self):
      
-        
         def _dl_subt(url):
 
             subt_url = url
@@ -497,11 +494,7 @@ class VideoDownloader:
         armtree = sync_to_async(partial(shutil.rmtree, ignore_errors=True), self.ex_videodl)
         amove = sync_to_async(shutil.move, self.ex_videodl)
 
-        if not self.awrite_window:
-            self.awrite_window = sync_to_async(self.write_window, self.ex_videodl)
-
-        
-        
+       
         try:
             if not self.alock:
                 self.alock = asyncio.Lock()
@@ -511,8 +504,7 @@ class VideoDownloader:
                 if dl.status == 'init_manipulating':
                     dl.status = 'manipulating'
                 
-            await self.awrite_window()
-
+           
 
             blocking_tasks = [asyncio.create_task(async_ex_in_executor(self.ex_videodl, dl.ensamble_file)) 
                                 for dl in self.info_dl['downloaders'] if (
@@ -670,7 +662,6 @@ class VideoDownloader:
             await asyncio.wait(blocking_tasks)
             raise
         finally:
-            await self.awrite_window()
             #self.ex_videodl.shutdown(wait=False, cancel_futures=True)
             await asyncio.sleep(0) 
 
