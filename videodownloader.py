@@ -33,8 +33,6 @@ FORCE_TO_HTTP = []#['doodstream']
 logger = logging.getLogger("video_DL")
 
 
-class 
-
 
 class VideoDownloader:
 

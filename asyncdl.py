@@ -39,7 +39,6 @@ from utils import (
     is_playlist_extractor,
     js_to_json,
     kill_processes,
-    long_operation_in_process,
     long_operation_in_thread,
     naturalsize,
     none_to_zero,
@@ -58,7 +57,7 @@ from videodownloader import VideoDownloader
 
 logger = logging.getLogger("asyncDL")
 
-from queue import deque
+from collections import deque
 
 class WorkersRun:
     def __init__(self, asyncdl):
@@ -110,6 +109,7 @@ class WorkersRun:
     async def _task(self, dl, url_key):
         try:
             
+            pending = []
             if dl.info_dl["status"] not in ("init_manipulating", "done"):
                 done, pending = await asyncio.wait([asyncio.create_task(dl.run_dl()), asyncio.create_task(dl.on_hold_event.wait())], return_when=asyncio.FIRST_COMPLETED)
             
@@ -125,7 +125,9 @@ class WorkersRun:
                         self._start_task(dl2, url2)
             
             if dl.on_hold_event.is_set():
-                await asyncio.wait(pending)
+                if pending:
+                    await asyncio.wait(pending)
+                dl.on_hold_event.clear()
                 self.onhold.remove((dl, url_key))
                 await self.asyncdl.run_callback(dl, url_key)
 
@@ -144,6 +146,9 @@ class FrontEndGUI:
         self.list_finish = {}
         self.console_dl_status = False
         self.pasres_repeat = False
+        self.pasres_time_from_resume_to_pause = 20
+        self.pasres_time_in_pause = 1
+
         self.reset_repeat = False
         self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
         self.window_root = None
@@ -278,18 +283,18 @@ class FrontEndGUI:
                         sg.cprint("not an integer, or negative")
                     else:
                         if len(timers) == 2:
-                            self.asyncdl.pasres_time_from_resume_to_pause = int(
+                            self.pasres_time_from_resume_to_pause = int(
                                 timers[0]
                             )
-                            self.asyncdl.pasres_time_in_pause = int(timers[1])
+                            self.pasres_time_in_pause = int(timers[1])
                         else:
-                            self.asyncdl.pasres_time_from_resume_to_pause = int(
+                            self.pasres_time_from_resume_to_pause = int(
                                 timers[0]
                             )
-                            self.asyncdl.pasres_time_in_pause = int(timers[0])
+                            self.pasres_time_in_pause = int(timers[0])
 
                         sg.cprint(
-                            f"[time to resume] {self.asyncdl.pasres_time_from_resume_to_pause} [time in pause] {self.asyncdl.pasres_time_in_pause}"
+                            f"[time to resume] {self.pasres_time_from_resume_to_pause} [time in pause] {self.pasres_time_in_pause}"
                         )
 
         elif event in ["NumVideoWorkers"]:
@@ -569,8 +574,7 @@ class AsyncDL:
         #
 
         self.list_pasres = set()
-        self.pasres_time_from_resume_to_pause = 20
-        self.pasres_time_in_pause = 1
+
 
         # contadores sobre número de workers init, workers run y workers manip
         self.count_init = 0
@@ -966,7 +970,6 @@ class AsyncDL:
             _url_list_caplinks = []
             _url_list_cli = []
             self.url_pl_list = {}
-            netdna_list = set()
             _url_list = {}
 
             filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
@@ -1012,10 +1015,11 @@ class AsyncDL:
                 _file_list_videos = []
                 for file in self.args.collection_files:
                     info_video = get_info_json(file)
-                    if info_video.get("_type", "video") != "playlist":
-                        _file_list_videos.append(info_video)
-                    else:
-                        _file_list_videos.extend(info_video.get("entries"))
+                    if info_video:
+                        if info_video.get("_type", "video") != "playlist":
+                            _file_list_videos.append(info_video)
+                        elif (_entries:=info_video.get("entries")):
+                            _file_list_videos.extend(_entries)
 
                 for _vid in _file_list_videos:
                     if not _vid.get("playlist"):
@@ -1075,9 +1079,7 @@ class AsyncDL:
 
                         if not is_pl:
 
-                            if ie_key == "NetDNA":
-                                netdna_list.add(_elurl)
-
+                            
                             _entry = {"_type": "url", "url": _elurl, "ie_key": ie_key}
 
                             if not self.info_videos.get(_elurl):
@@ -1106,36 +1108,6 @@ class AsyncDL:
                 )
                 logger.debug(f"[url_list] {url_list}")
 
-                if netdna_list:
-                    logger.info(f"[netdna_list]: {netdna_list}")
-                    _ies_netdna = self.ytdl.get_info_extractor("NetDNA")
-
-                    with ThreadPoolExecutor(
-                        thread_name_prefix="Get_netdna",
-                        max_workers=min(self.init_nworkers, len(netdna_list)),
-                    ) as ex:
-
-                        futures = [
-                            ex.submit(_ies_netdna.get_entry, _url_netdna)
-                            for _url_netdna in netdna_list
-                        ]
-
-                    for fut, _url_netdna in zip(futures, netdna_list):
-                        try:
-                            _entry_netdna = fut.result()
-
-                            self.info_videos[_url_netdna]["video_info"] = _entry_netdna
-                            await self.async_prepare_for_dl(_url_netdna)
-                            self.list_videos.append(
-                                self.info_videos[_url_netdna]["video_info"]
-                            )
-
-                        except Exception as e:
-                            self.info_videos[_url_netdna]["error"].append(str(e))
-                            self.info_videos[_url_netdna]["status"] = "prenok"
-                            self.info_videos[_url_netdna]["todl"] = True
-
-                            logger.error(repr(e))
 
                 if self.url_pl_list:
 
@@ -1170,9 +1142,9 @@ class AsyncDL:
                                     logger.info(
                                         f"[get_videos][url_playlist_list][{self._count_pl}/{len(self.url_pl_list) + len(self.url_pl_list2)}] processing {_url}"
                                     )
+                                _errormsg = None
                                 if not _info:
                                     try:
-                                        _errormsg = None
                                         _info = await self.async_ytdl_extract_info(
                                             _url, download=False, process=False
                                         )
@@ -2095,8 +2067,8 @@ class AsyncDL:
                     try:
                         d.result()
                     except Exception as e:
-                        logger.exception(msg)(
-                            f"[run_callback] [{dl.info_dict['title']}]: Error with video manipulation:\n{'!!'.join(lines)}"
+                        logger.exception(
+                            f"[run_callback] [{dl.info_dict['title']}]: Error with video manipulation - {repr(e)}"
                         )
                         
                         self.info_videos[url_key]["error"].append(
@@ -2116,7 +2088,7 @@ class AsyncDL:
             elif dl.info_dl["status"] == "error":
 
                 logger.error(
-                    f"[run_callback][{url_key}]: error when dl video, can't go por manipulation"
+                    f"[run_callback][{url_key}]: error when dl video, can't go por manipulation - {dl.info_dl['error_message']}"
                 )
                 self.info_videos[url_key]["error"].append(
                     f"error when dl video: {dl.info_dl['error_message']}"
@@ -2135,7 +2107,7 @@ class AsyncDL:
         
         except Exception as e:
             logger.exception(
-                    f"[run_callback][{url_key}]: error {str(e)}"
+                    f"[run_callback][{url_key}]: error {repr(e)}"
                 )
 
     async def async_ex(self):

@@ -57,7 +57,7 @@ from utils import (
     YoutubeDL
 )
 
-from videodownloader import VideoDownloader
+
 
 
 logger = logging.getLogger("async_HLS_DL")
@@ -99,7 +99,7 @@ class AsyncHLSDownloader:
     _CONFIG = CONFIG_EXTRACTORS.copy()
     _CLASSLOCK = threading.Lock()
 
-    def __init__(self, enproxy: bool, video_dict: dict, vid_dl: VideoDownloader):
+    def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
 
         try:
 
@@ -107,7 +107,7 @@ class AsyncHLSDownloader:
 
             self._test: list = []
             self.info_dict = video_dict.copy()
-            self.video_downloader: VideoDownloader = vid_dl
+            self.video_downloader = vid_dl
             self.enproxy: bool = enproxy != 0
             self.n_workers: int = self.video_downloader.info_dl["n_workers"]
             self.count: int  = 0  # cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
@@ -766,7 +766,7 @@ class AsyncHLSDownloader:
                 try:
                     self.video_downloader.info_dl["fromplns"][self.fromplns]["in_reset"].remove(self.video_downloader.info_dict["playlist_index"])
                 except Exception as e:
-                    self.warning(
+                    logger.warning(
                         f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['downloading']}"
                     )
 
@@ -1900,7 +1900,7 @@ class AsyncHLSDownloader:
                         "downloading"
                     ].remove(self.video_downloader.info_dict["playlist_index"])
                 except Exception as e:
-                    self.warning(
+                    logger.warning(
                         f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['downloading']}"
                     )
 
@@ -1951,7 +1951,7 @@ class AsyncHLSDownloader:
                             ].set()
 
                     except Exception as e:
-                        self.warning(
+                        logger.warning(
                             f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.fromplns}] from {self.video_downloader.info_dl['fromplns']['ALL']['in_reset']}"
                         )
 
@@ -1960,7 +1960,7 @@ class AsyncHLSDownloader:
                     ].set()
 
             except Exception as e:
-                self.warning(
+                logger.warning(
                     f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['in_reset']}"
                 )
 
@@ -2079,7 +2079,7 @@ class AsyncHLSDownloader:
         _proxy = self._proxy["http://"].split(":")[-1] if self._proxy else None
 
         if self.status == "done":
-            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed \n")
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed \n")
         elif self.status == "init":
             return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n")
         elif self.status == "error":
@@ -2137,10 +2137,10 @@ class AsyncHLSDownloader:
                 else "-----"
             )
 
-            msg = f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] WK[{self.count:2d}/{self.n_workers:2d}] FR[{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]"
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] WK[{self.count:2d}/{self.n_workers:2d}] FR[{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]")
 
         elif self.status == "init_manipulating":
-            msg = f"[HLS][{self.info_dict['format_id']}]: Waiting for Ensambling \n"
+            return(f"[HLS][{self.info_dict['format_id']}]: Waiting for Ensambling \n")
         elif self.status == "manipulating":
             if self.filename.exists():
                 _size = self.filename.stat().st_size
@@ -2151,6 +2151,4 @@ class AsyncHLSDownloader:
                 if self.filesize
                 else f"[{naturalsize(_size)}]"
             )
-            msg = f"[HLS][{self.info_dict['format_id']}]: Ensambling {_str} \n"
-
-        return msg
+            return(f"[HLS][{self.info_dict['format_id']}]: Ensambling {_str} \n")
