@@ -129,12 +129,18 @@ class VideoDownloader:
     
     
     async def async_init(self):
-        self.pause_event.aevent = asyncio.Event()
-        self.resume_event.aevent = asyncio.Event() 
-        self.stop_event.aevent = asyncio.Event()
-        self.end_tasks.aevent = asyncio.Event()
-        self.reset_event.aevent = asyncio.Event()        
-        self.on_hold_event.aevent = asyncio.Event()
+        # self.pause_event.aevent = asyncio.Event()
+        # self.resume_event.aevent = asyncio.Event() 
+        # self.stop_event.aevent = asyncio.Event()
+        # self.end_tasks.aevent = asyncio.Event()
+        # self.reset_event.aevent = asyncio.Event()        
+        # self.on_hold_event.aevent = asyncio.Event()
+        self.pause_event()
+        self.resume_event()
+        self.stop_event()
+        self.end_tasks()
+        self.reset_event()
+        self.on_hold_event()
         self.alock = asyncio.Lock()
 
     @property
@@ -147,7 +153,7 @@ class VideoDownloader:
       
     @index.deleter
     def index(self):
-        del self._index 
+        self._index = None
 
     def shutdown(self):
         self.ex_videodl.shutdown(wait=False, cancel_futures=True)
@@ -495,6 +501,7 @@ class VideoDownloader:
         armtree = sync_to_async(partial(shutil.rmtree, ignore_errors=True), self.ex_videodl)
         amove = sync_to_async(shutil.move, self.ex_videodl)
 
+        blocking_tasks = []
        
         try:
             if not self.alock:
@@ -528,7 +535,8 @@ class VideoDownloader:
             
             res = True
             for dl in self.info_dl['downloaders']:
-                res = res and (_exists:= await os.path.exists(dl.filename)) and dl.status == "done"
+                _exists = await os.path.exists(dl.filename)
+                res = res and _exists and dl.status == "done"
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] {dl.filename} exists: [{_exists}] status: [{dl.status}]")
 
             if res:    

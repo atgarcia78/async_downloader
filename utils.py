@@ -192,7 +192,7 @@ class MyAsyncioEvent:
     def is_set(self):
         """Return True if and only if the internal flag is true."""
         if self.aevent:
-            if self.aevent._value:
+            if self.aevent.is_set():
                 return self._cause
             else:
                 return False
@@ -200,14 +200,17 @@ class MyAsyncioEvent:
     
     def clear(self):
         if self.aevent:
-            self.aevent._value = False
-
+            self.aevent.clear()
+            self._cause = "noinfo"
 
     async def wait(self):
         if self.aevent:
             return await self.aevent.wait()
         else:
             return True
+
+    def __call__(self):
+        self.aevent = asyncio.Event()
 
 
 
