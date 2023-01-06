@@ -33,6 +33,9 @@ FORCE_TO_HTTP = []#['doodstream']
 logger = logging.getLogger("video_DL")
 
 
+class 
+
+
 class VideoDownloader:
 
     _PLNS = {}
@@ -520,7 +523,7 @@ class VideoDownloader:
                 for d in done:
                     
                     try:
-                        d.result()
+                        _ = d.result()
                     except Exception as e:
                         lines = traceback.format_exception(*sys.exc_info())                
                         logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: {repr(e)}\n{'!!'.join(lines)}")
@@ -658,11 +661,11 @@ class VideoDownloader:
         except Exception as e:
             lines = traceback.format_exception(*sys.exc_info())                
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
-            for t in blocking_tasks: t.cancel()
-            await asyncio.wait(blocking_tasks)
+            if blocking_tasks:
+                for t in blocking_tasks: t.cancel()
+                await asyncio.wait(blocking_tasks)
             raise
         finally:
-            #self.ex_videodl.shutdown(wait=False, cancel_futures=True)
             await asyncio.sleep(0) 
 
     def syncpostffmpeg(self, cmd):

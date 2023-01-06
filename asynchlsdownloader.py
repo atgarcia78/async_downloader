@@ -16,7 +16,6 @@ from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 from shutil import rmtree
-from urllib.parse import urlparse
 import copy
 
 import aiofiles
@@ -38,17 +37,13 @@ from utils import (
     ProxyYTDL,
     SmoothETA,
     SpeedometerMA,
-    StatusStop,
     _for_print,
     _for_print_entry,
     async_ex_in_executor,
     async_wait_time,
-    cmd_extract_info,
     dec_retry_error,
-    get_domain,
     get_format_id,
     int_or_none,
-    limiter_15,
     limiter_non,
     my_dec_on_exception,
     naturalsize,
@@ -58,10 +53,12 @@ from utils import (
     sync_to_async,
     traverse_obj,
     try_get,
-    unsmuggle_url,
-    wait_for_change_ip,
     wait_time,
+    YoutubeDL
 )
+
+from videodownloader import VideoDownloader
+
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -92,6 +89,7 @@ class AsyncHLSDLReset(Exception):
         self.exc_info = exc_info
 
 
+
 class AsyncHLSDownloader:
 
     _CHUNK_SIZE = 102400
@@ -101,29 +99,31 @@ class AsyncHLSDownloader:
     _CONFIG = CONFIG_EXTRACTORS.copy()
     _CLASSLOCK = threading.Lock()
 
-    def __init__(self, enproxy, video_dict, vid_dl):
+    def __init__(self, enproxy: bool, video_dict: dict, vid_dl: VideoDownloader):
 
         try:
 
-            self._test = []
+            
+
+            self._test: list = []
             self.info_dict = video_dict.copy()
-            self.video_downloader = vid_dl
-            self.enproxy = enproxy != 0
-            self.n_workers = self.video_downloader.info_dl["n_workers"]
-            self.count = 0  # cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
-            self.video_url = self.info_dict.get("url")  # url del format
-            self.webpage_url = self.info_dict.get("webpage_url")  # url de la web
+            self.video_downloader: VideoDownloader = vid_dl
+            self.enproxy: bool = enproxy != 0
+            self.n_workers: int = self.video_downloader.info_dl["n_workers"]
+            self.count: int  = 0  # cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
+            self.video_url = self.info_dict["url"]  # url del format
+            self.webpage_url: _valYT = self.info_dict["webpage_url"]  # type: ignore # url de la web
             self.m3u8_doc = None
             self.id = self.info_dict["id"]
-            self.ytdl = self.video_downloader.info_dl["ytdl"]
-            self.verifycert = not self.ytdl.params.get("nocheckcertificate")
-            self.timeout = httpx.Timeout(30, connect=30)
-            self.limits = httpx.Limits(
+            self.ytdl: YoutubeDL = self.video_downloader.info_dl["ytdl"]
+            self.verifycert: bool = not self.ytdl.params.get("nocheckcertificate")
+            self.timeout: httpx.Timeout = httpx.Timeout(30, connect=30)
+            self.limits: httpx.Limits = httpx.Limits(
                 max_keepalive_connections=None,
                 max_connections=None,
                 keepalive_expiry=30,
             )
-            self.headers = self.info_dict.get("http_headers")
+            self.headers: dict[str, str] = self.info_dict["http_headers"]
 
             self.base_download_path = Path(str(self.info_dict["download_path"]))
 
@@ -131,9 +131,8 @@ class AsyncHLSDownloader:
                 self.base_download_path, f"init_file.{self.info_dict['format_id']}"
             )
 
-            _filename = self.info_dict.get("_filename") or self.info_dict.get(
-                "filename"
-            )
+            _filename = Path(self.info_dict.get("_filename", self.info_dict.get("filename")))
+
             self.download_path = Path(
                 self.base_download_path, self.info_dict["format_id"]
             )
@@ -166,6 +165,9 @@ class AsyncHLSDownloader:
 
             self._proxy = None
 
+            
+            self.special_extr: bool = False
+            
             if self.enproxy:
 
                 self._qproxies = Queue()
@@ -199,7 +201,7 @@ class AsyncHLSDownloader:
             self.init_client.close()
 
     def init(self):
-        def getter(x):
+        def getter(x: str):
             try:
                 if "nakedsword" in x:
                     self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
@@ -251,7 +253,7 @@ class AsyncHLSDownloader:
                                 }
                             )
 
-                        logger.info(
+                        logger.debug(
                             f"{self.premsg}[{self.count}/{self.n_workers}]: added new dl to plns [{self.fromplns}], count [{len(self.video_downloader.info_dl['fromplns'][self.fromplns]['downloaders'])}] members[{list(self.video_downloader.info_dl['fromplns'][self.fromplns]['downloaders'].keys())}]"
                         )
             except Exception as e:
@@ -280,10 +282,7 @@ class AsyncHLSDownloader:
             self.fromplns = False
             self._CONF_HLS_MAX_SPEED_PER_DL = None
 
-            self._extractor = try_get(
-                self.info_dict.get("extractor_key").lower(), lambda x: x.lower()
-            )
-
+            self._extractor = try_get(self.info_dict.get("extractor_key", "Generic").lower(), lambda x: x.lower())
             self._limit = getter(self._extractor)
             self.info_frag = []
             self.info_init_section = {}
@@ -722,12 +721,8 @@ class AsyncHLSDownloader:
                     )
                     
                     if _sem._initial_value == 1:
-                        if cause == "403": NakedSwordBaseIE._STATUS = "403"
-                                               
-                        #_st_ip = wait_for_change_ip(logger)
-                        #logger.info(
-                        #    f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] change ip {_st_ip}"
-                        #)
+                        if cause == "403": NakedSwordBaseIE._STATUS = "403"                                               
+
                         NakedSwordBaseIE._API.logout()
                         NakedSwordBaseIE._API.get_auth()
 
@@ -2084,23 +2079,23 @@ class AsyncHLSDownloader:
         _proxy = self._proxy["http://"].split(":")[-1] if self._proxy else None
 
         if self.status == "done":
-            msg = f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed \n"
+            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed \n")
         elif self.status == "init":
-            msg = f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n")
         elif self.status == "error":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
                 if self.filesize
                 else "--"
             )
-            msg = f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n")
         elif self.status == "stop":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
                 if self.filesize
                 else "--"
             )
-            msg = f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n")
         elif self.status == "downloading":
 
             _eta_smooth_str = "--"
