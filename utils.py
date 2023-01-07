@@ -23,6 +23,7 @@ from itertools import zip_longest
 from pathlib import Path
 from queue import Queue
 from bisect import bisect
+from typing import Optional, List, Tuple, Union, Dict, Coroutine
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
@@ -51,37 +52,41 @@ CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
 
 def wait_for_change_ip(logger):
 
-    _old_ip = get_myip(timeout=10)
+    _old_ip = get_myiptryall(timeout=5)
     logger.info(f"old ip: {_old_ip}")
     _proc_kill = subprocess.run(["pkill", "TorGuardDesktopQt"])
     if _proc_kill.returncode:
         logger.error(f"error when closing TorGuard {_proc_kill}")
     else:
         n = 0
+        _new_ip = None
         while n < 5:
             time.sleep(2)
 
-            _new_ip = get_myip(timeout=10)
+            _new_ip = get_myiptryall(timeout=5)
             logger.info(f"[{n}] {_new_ip}")
-            if _old_ip != _new_ip:
+            if _new_ip and (_old_ip != _new_ip):
                 break
             else:
                 n += 1
+                _new_ip = None
         _old_ip = _new_ip
         logger.info(f"new old ip: {_old_ip}")
         _proc_open = subprocess.run(["open", "/Applications/Torguard.app"])
         time.sleep(5)
         n = 0
-        while n < 5:
+        _new_ip = None
+        while n < 5:            
             logger.info("try to get ip")
-
-            _new_ip = get_myip(timeout=5)
+            _new_ip = get_myiptryall(timeout=5)
             logger.info(f"[{n}] {_new_ip}")
-            if _old_ip != _new_ip:
+            if _new_ip and (_old_ip != _new_ip):
                 return True
             else:
                 n += 1
+                _new_ip = None
                 time.sleep(2)
+                
 
 
 def cmd_extract_info(url, proxy=None, pl=False, upt=False):
@@ -152,15 +157,16 @@ async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
 class MySem(asyncio.Semaphore):
     def __init__(self, *args, **kwargs):
 
+        self.logger = logging.getLogger("mysem")
         self.dl = kwargs.pop("dl")
         super().__init__(*args, **kwargs)
 
     async def __aenter__(self):
 
         if self._value <= 0:
-            logger.debug(f"{self.dl.premsg} waiting for SEM")
+            self.logger.debug(f"{self.dl.premsg} waiting for SEM")
             await self.acquire()
-            logger.debug(f"{self.dl.premsg} entry SEM")
+            self.logger.debug(f"{self.dl.premsg} entry SEM")
 
         else:
             await self.acquire()
@@ -181,11 +187,11 @@ class MyAsyncioEvent:
         self._cause = "noinfo"
 
     
-    def set(self, cause="noinfo"):
+    def set(self, cause: Union[str, None] = "noinfo"):
 
         if self.aevent:
             self.aevent.set()
-            if not cause:
+            if cause == None:
                 cause = "noinfo"
             self._cause = cause
 
@@ -336,8 +342,11 @@ try:
 except Exception:
     _SUPPORT_PYSIMP = False
 
+_SUPPORT_YTDL = False
 try:
-    from yt_dlp import YoutubeDL
+    import yt_dlp
+    _SUPPORT_YTDL = True
+    
     from yt_dlp.extractor.commonwebdriver import (
         CONFIG_EXTRACTORS,
         SeleniumInfoExtractor,
@@ -366,14 +375,15 @@ try:
         try_get,
         unsmuggle_url,
     )
-
-    _SUPPORT_YTDL = True
 except Exception:
     _SUPPORT_YTDL = False
+    
+
+
 
 
 try:
-    from filelock import FileLock
+    import filelock
 
     _SUPPORT_FILELOCK = True
 except Exception:
@@ -491,9 +501,12 @@ def long_operation_in_thread(func):
 
     return wrapper
 
+
+from _thread import LockType
+
 @contextlib.asynccontextmanager
 async def async_lock(lock):
-    if not isinstance(lock, contextlib.nullcontext):
+    if isinstance(lock, LockType):
         executor = ThreadPoolExecutor()
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(executor, lock.acquire)
@@ -501,18 +514,37 @@ async def async_lock(lock):
             yield  # the lock is held
         finally:
             await loop.run_in_executor(executor, lock.release)
-    else:
+    elif (isinstance(lock, contextlib.nullcontext) or not lock):
         try:
             yield
         finally:
             pass
+
+# @contextlib.asynccontextmanager
+# async def async_lock(lock):
+#     if not isinstance(lock, contextlib.nullcontext):
+#         executor = ThreadPoolExecutor()
+#         loop = asyncio.get_event_loop()
+#         await loop.run_in_executor(executor, lock.acquire)
+#         try:
+#             yield  # the lock is held
+#         finally:
+#             await loop.run_in_executor(executor, lock.release)
+#     else:
+#         try:
+#             yield
+#         finally:
+#             pass
     
 
 
-async def async_wait_time(n, events=None):
+async def async_wait_time(n: Union[int, float], events: Union[List[asyncio.Event], Tuple[asyncio.Event, ...], asyncio.Event, None] = None):
 
     if not events:
         events = [asyncio.Event()]  # dummy
+    elif isinstance(events, asyncio.Event):
+        events = [events]
+
     _started = time.monotonic()
     while not any([_ev.is_set() for _ev in events]):
         if (_t := (time.monotonic() - _started)) >= n:
@@ -531,6 +563,39 @@ def wait_time(n, event=None):
         else:
             time.sleep(CONF_INTERVAL_GUI)
     return
+
+
+
+async def async_waitfortask(coro: Coroutine, *, timeout: Union[float, None] = None, events: Union[List[asyncio.Event], Tuple[asyncio.Event, ...], asyncio.Event, None] = None)->dict:
+    
+    _tasks_to_wait = {asyncio.create_task(coro): "task"}
+    if events:
+        if isinstance(events, (tuple, list)):
+            _tasks_to_wait.update({asyncio.create_task(_event.wait()): "event" for _event in events})
+           
+        elif isinstance(events, asyncio.Event):           
+            _tasks_to_wait.update({asyncio.create_task(events.wait()): "event"})
+
+    done, pending = await asyncio.wait(_tasks_to_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+
+    try:
+        for p in pending:
+            p.cancel()
+        if not done: return {"timeout": timeout}
+        else:
+            _task = done.pop()
+            if _tasks_to_wait.get(_task) == "event":
+                return {"event": _task}
+            else:
+                return {"result": _task.result()}
+    except Exception as e:
+        return {"exception": e}    
+    finally:
+        if pending:
+            await asyncio.wait(pending)
+
+
+
 
 
 async def async_wait_until(
@@ -817,8 +882,8 @@ if _SUPPORT_PROXY:
                 "proxy.plugin.ProxyPoolByHostPlugin",
             ]
         ) as p:
+            logger = logging.getLogger("proxy")
             try:
-                logger = logging.getLogger("proxy")
                 logger.debug(p.flags)
                 while not stop_event.is_set():
                     time.sleep(CONF_INTERVAL_GUI)
@@ -934,6 +999,14 @@ def get_myip(key=None, timeout=2, api="ipify", stop_event=None):
             return f"error: {proc_curl.returncode}"
 
 
+from ipaddress import ip_address
+
+def is_ipaddr(res):
+    try:
+        ip_address(res)
+        return True
+    except Exception as e:
+        return False
 
 def get_myiptryall(key=None, timeout=2):
 
@@ -942,14 +1015,36 @@ def get_myiptryall(key=None, timeout=2):
     with ThreadPoolExecutor() as exe:
         futures = {exe.submit(get_myip, key=key, timeout=timeout, api=api, stop_event=stop_event): api for api in URLS_API_GETMYIP}
 
-        d, p = waitfut(futures, return_when=first_completed_fut)
-        stop_event.set()
+        done, pending = waitfut(futures, return_when=first_completed_fut)
+        #logger.info(f"done: {done}, pending: {pending}")
+        
         try:
-            return(d.pop().result())
-        except Exception as e:
-            logger.exception(repr(e))
+            while True:
+                _pending = pending
+                try:                
+                    _res = done.pop().result()
+                    #logger.info(f"_res:{_res}")
+                    if is_ipaddr(_res):
+                        #stop_event.set()
+                        return _res
+                    else:
+                        raise Exception("res not valid")
+                except Exception as e:
+                    logger.debug(repr(e))
+                    if _pending:
+                        done, pending = waitfut(_pending, return_when=first_completed_fut)
+                    else:
+                        #stop_event.set()
+                        return
         finally:
-            waitfut(p)
+            stop_event.set()
+            if pending:
+                waitfut(pending)
+
+
+
+            
+
 
 
 def test_proxies_rt(routing_table, timeout=2):
@@ -1132,6 +1227,8 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
 
 if _SUPPORT_YTDL:
 
+    from yt_dlp import YoutubeDL
+
     class ProxyYTDL(YoutubeDL):
         def __init__(self, **kwargs):
             opts = kwargs.get("opts", {})
@@ -1289,7 +1386,7 @@ if _SUPPORT_YTDL:
 
         return ytdl
 
-    def get_format_id(info_dict, _formatid):
+    def get_format_id(info_dict, _formatid)->dict:
 
         if _req_fts := info_dict.get("requested_formats"):
             for _ft in _req_fts:
@@ -1298,6 +1395,7 @@ if _SUPPORT_YTDL:
         elif _req_ft := info_dict.get("format_id"):
             if _req_ft == _formatid:
                 return info_dict
+        return {}
 
     def get_files_same_id():
 
@@ -1316,8 +1414,8 @@ if _SUPPORT_YTDL:
 
         for _vol, _folder in config_folders.items():
             if not _folder.exists():
-                logger(
-                    "failed {_folder}, let get previous info saved in previous files"
+                logger.error(
+                    f"failed {_folder}, let get previous info saved in previous files"
                 )
 
             else:
@@ -1328,6 +1426,7 @@ if _SUPPORT_YTDL:
 
             logger.info(">>>>>>>>>>>STARTS " + str(folder))
 
+            files = []
             try:
 
                 files = [
@@ -1368,6 +1467,8 @@ if _SUPPORT_YTDL:
 
 if _SUPPORT_FILELOCK:
 
+    from filelock import FileLock
+
     class LocalStorage:
 
         lslogger = logging.getLogger("LocalStorage")
@@ -1385,17 +1486,11 @@ if _SUPPORT_FILELOCK:
             "wd8_2": Path("/Volumes/WD8_2/videos"),
         }
 
-        def __init__(self, paths=None):
+        def __init__(self):
 
             self._data_from_file = {}  # data struct per vol
             self._data_for_scan = {}  # data ready for scan
             self._last_time_sync = {}
-
-            if paths:
-                if not isinstance(paths, list):
-                    paths = [paths]
-
-                LocalStorage.config_folders.extend(paths)
 
         @lock
         def load_info(self):
@@ -1457,7 +1552,7 @@ if _SUPPORT_FILELOCK:
                         f"found file with not registered volumen - {val} - {key}"
                     )
                 else:
-                    _temp[getter(val)].update({key: val})
+                    _temp[_vol].update({key: val})
 
             shutil.copy(
                 str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
@@ -1691,9 +1786,10 @@ if _SUPPORT_PYSIMP:
 
     def init_gui_root():
 
+        logger = logging.getLogger("init_gui_root")
+
         try:
 
-            logger = logging.getLogger("asyncDL")
 
             sg.theme("SystemDefaultForReal")
 
@@ -1804,9 +1900,10 @@ if _SUPPORT_PYSIMP:
 
     def init_gui_console():
 
+        
+        logger = logging.getLogger("init_gui_cons")
         try:
 
-            logger = logging.getLogger("asyncDL")
 
             sg.theme("SystemDefaultForReal")
 
@@ -1884,9 +1981,10 @@ if _SUPPORT_PYSIMP:
 
     def init_gui_rclone():
 
+        logger = logging.getLogger("rclone-san")
         try:
 
-            logger = logging.getLogger("rclone-san")
+            
 
             sg.theme("SystemDefaultForReal")
 

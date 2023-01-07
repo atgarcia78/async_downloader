@@ -267,7 +267,8 @@ class FrontEndGUI:
             )
         elif event in ["TimePasRes"]:
             if not values["-IN-"]:
-                sg.cprint("Please enter number")
+                sg.cprint("[pause-resume autom] Please enter number")
+                sg.cprint(f"[pause-resume autom] {list(self.asyncdl.list_pasres)}")
             else:
                 timers = [timer.strip() for timer in values["-IN-"].split(",")]
                 if len(timers) > 2:
@@ -340,6 +341,8 @@ class FrontEndGUI:
                         _index_list = [int(el) for el in values["-IN-"].replace(" ", "").split(",")]
                 
                 if _index_list:
+                    if event in ["+PasRes", "-PasRes"]:
+                        sg.cprint(f"[pause-resume autom] before: {list(self.asyncdl.list_pasres)}")
                     info = []
                     for _index in _index_list:
                         if event == "+PasRes":
@@ -351,7 +354,7 @@ class FrontEndGUI:
                         elif event == "Resume":
                             await self.asyncdl.list_dl[_index].resume()
                         elif event == "Reset":
-                            await self.asyncdl.list_dl[_index].reset_from_console("hard")
+                            await self.asyncdl.list_dl[_index].reset_from_console()
                         elif event == "Stop":
                             await self.asyncdl.list_dl[_index].stop()
                         elif event in ["Info", "ToFile"]:
@@ -364,7 +367,7 @@ class FrontEndGUI:
                         await asyncio.sleep(0)
 
                     if event in ["+PasRes", "-PasRes"]:
-                        sg.cprint(f"[pause-resume autom] {self.asyncdl.list_pasres}")
+                        sg.cprint(f"[pause-resume autom] after: {list(self.asyncdl.list_pasres)}")
 
                     if event == "ToFile":
                         with open((_file:=Path(Path.home(),"testing", f"{self.asyncdl.launch_time.strftime('%Y%m%d_%H%M')}.json")), "w") as f:
@@ -2057,6 +2060,7 @@ class AsyncDL:
 
         try:
         
+            self.list_pasres.discard(dl.index)
             if dl.info_dl["status"] == "init_manipulating":
 
                 logger.info(f"[run_callback] start to manip {dl.info_dl['title']}")

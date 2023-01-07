@@ -5,19 +5,19 @@ import shutil
 import subprocess
 import sys
 import traceback
-import urllib
+from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
 from pathlib import Path
 from queue import Queue
 
-import aiofiles
-import aiofiles.os as os
+import myaiofiles.os
+
+
 import httpx
 import m3u8
 from yt_dlp.utils import determine_protocol, sanitize_filename
-from threading import Event
 import xattr
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
@@ -26,12 +26,12 @@ from asyncffmpegdownloader import AsyncFFMPEGDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
 from utils import (async_ex_in_executor, naturalsize, prepend_extension,
-                   sync_to_async, traverse_obj, try_get, MyAsyncioEvent)
+                   sync_to_async, traverse_obj, try_get, MyAsyncioEvent,
+                   Union)
 
 FORCE_TO_HTTP = []#['doodstream'] 
 
 logger = logging.getLogger("video_DL")
-
 
 
 class VideoDownloader:
@@ -129,12 +129,6 @@ class VideoDownloader:
     
     
     async def async_init(self):
-        # self.pause_event.aevent = asyncio.Event()
-        # self.resume_event.aevent = asyncio.Event() 
-        # self.stop_event.aevent = asyncio.Event()
-        # self.end_tasks.aevent = asyncio.Event()
-        # self.reset_event.aevent = asyncio.Event()        
-        # self.on_hold_event.aevent = asyncio.Event()
         self.pause_event()
         self.resume_event()
         self.stop_event()
@@ -258,32 +252,36 @@ class VideoDownloader:
         
         logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: workers set to {n}")        
     
-    async def reset_from_console(self, cause=None):
+    async def reset_from_console(self):
         
         if 'hls' in str(type(self.info_dl['downloaders'][0])).lower():
             if (_plns:=self.info_dl['downloaders'][0].fromplns):
-                await self.reset_plns(cause)
+                await self.reset_plns("hard")
                 return
-        await self.reset(cause)
+        await self.reset("hard")
 
-    async def reset(self, cause=None):
+    async def reset(self, cause: Union[str, None] = None):
         if self.reset_event and self.info_dl['status'] == "downloading":
             _wait_tasks = []
             if not self.reset_event.is_set():
-                if self.pause_event.is_set():
-                    self.resume_event.set()
+                #if self.pause_event.is_set():
+                #    self.resume_event.set()
                 self.reset_event.set(cause)                      
                 await asyncio.sleep(0)                
                 for dl in self.info_dl['downloaders']:
                     if 'hls' in str(type(dl)).lower():
-                        _wait_tasks.extend(try_get([_task for _task in dl.tasks if not _task.done() and not _task.cancelled() and _task not in [asyncio.current_task()]], lambda x: [_t for _t in x if any([(_res:=_t.cancel()), not _res])]))
+                        _tasks = [_task for _task in dl.tasks if not _task.done() and not _task.cancelled() and _task not in [asyncio.current_task()]]
+                        if _tasks:
+                            for _t in _tasks: _t.cancel()
+                        #_wait_tasks.extend(try_get([_task for _task in dl.tasks if not _task.done() and not _task.cancelled() and _task not in [asyncio.current_task()]], lambda x: [_t for _t in x if any([(_res:=_t.cancel()), not _res])]))
+                            _wait_tasks.extend(_tasks)
                 
             else:
                 self.reset_event.set(cause)
 
             return _wait_tasks
 
-    async def reset_plns(self, cause="403"):
+    async def reset_plns(self, cause: Union[str, None] = "403"):
         self.info_dl['fromplns']['ALL']['reset'].clear()
          
         plid_total = self.info_dl['fromplns']['ALL']['downloading']
@@ -299,10 +297,10 @@ class VideoDownloader:
             if list_dl and dict_dl:
                 self.info_dl['fromplns']['ALL']['in_reset'].add(plid)
                 self.info_dl['fromplns'][plid]['reset'].clear()               
-                plns = [dl for key,dl in dict_dl.items() if key in list_dl]
-                for dl,key in zip(plns, list_dl):
+                plns = [dl for key,dl in dict_dl.items() if key in list_dl]  # type: ignore
+                for dl,key in zip(plns, list_dl):  # type: ignore
                     _wait_all_tasks.extend(await dl.reset(cause))
-                    list_reset.add(key)
+                    list_reset.add(key)  # type: ignore
                     await asyncio.sleep(0)
             
             self.info_dl['fromplns'][plid]['in_reset'] = list_reset
@@ -317,7 +315,7 @@ class VideoDownloader:
             dict_dl = traverse_obj(self.info_dl['fromplns'], (plid, 'downloaders'))
             list_reset = traverse_obj(self.info_dl['fromplns'], (plid, 'in_reset'))        
             if list_reset and dict_dl:
-                plns = [dl for key,dl in dict_dl.items() if key in list_reset]
+                plns = [dl for key,dl in dict_dl.items() if key in list_reset]  # type: ignore
                 _tasks_all.extend([asyncio.create_task(dl.end_tasks.wait()) for dl in plns])
                 
         logger.debug(f"{premsg} endtasks {_tasks_all}")
@@ -325,7 +323,7 @@ class VideoDownloader:
             _2tasks = {asyncio.wait(_tasks_all): 'tasks',  asyncio.create_task(self.stop_event.wait()): 'stop'}
             done, pending = await asyncio.wait(_2tasks, return_when=asyncio.FIRST_COMPLETED)
             for _el in pending: 
-                if _2tasks.get(_el) == 'tasks':
+                if _2tasks.get(_el) == 'tasks':  # type: ignore
                     for _t in _tasks_all: _t.cancel()
                 else: _el.cancel()
 
@@ -415,7 +413,7 @@ class VideoDownloader:
             subt_url = url
             if '.m3u8' in url:
                 m3u8obj = m3u8.load(url, headers = self.info_dict.get('http_headers'))
-                subt_url = urllib.parse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
+                subt_url = urlparse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
         
             return(httpx.get(subt_url, headers = self.info_dict.get('http_headers')).text)
         
@@ -535,7 +533,7 @@ class VideoDownloader:
             
             res = True
             for dl in self.info_dl['downloaders']:
-                _exists = await os.path.exists(dl.filename)
+                _exists = await myaiofiles.os.path.exists(dl.filename)
                 res = res and _exists and dl.status == "done"
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}] {dl.filename} exists: [{_exists}] status: [{dl.status}]")
 
@@ -567,7 +565,7 @@ class VideoDownloader:
                             lines = traceback.format_exception(*sys.exc_info())                
                             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
                             
-                    if rc == 0 and (await os.path.exists(temp_filename)):
+                    if rc == 0 and (await myaiofiles.os.path.exists(temp_filename)):
                                                                 
                         self.info_dl['status'] = "done"
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
@@ -589,12 +587,12 @@ class VideoDownloader:
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: ffmpeg rc[{res.returncode}]\n{res.stdout}")
                     rc = res.returncode
                     
-                    if rc == 0 and (await os.path.exists(temp_filename)):
+                    if rc == 0 and (await myaiofiles.os.path.exists(temp_filename)):
                                                 
                         self.info_dl['status'] = "done"          
                         for dl in self.info_dl['downloaders']:
                             
-                            await os.remove(dl.filename)
+                            await myaiofiles.os.remove(dl.filename)
                             
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: Streams merged for: {self.info_dl['filename']}")
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL video file OK")
@@ -620,14 +618,14 @@ class VideoDownloader:
                             res = await apostffmpeg(cmd)
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
                             if res.returncode == 0:
-                                await os.replace(embed_filename, self.info_dl['filename'])
-                                await os.remove(temp_filename)
+                                await myaiofiles.os.replace(embed_filename, self.info_dl['filename'])
+                                await myaiofiles.os.remove(temp_filename)
                         except Exception as e:
                             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error embeding subtitles {repr(e)}")
 
                     else: 
                         try:
-                            await os.replace(temp_filename, self.info_dl['filename'])
+                            await myaiofiles.os.replace(temp_filename, self.info_dl['filename'])
                         except Exception as e:
                             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error replacing {repr(e)}")
                     
@@ -638,7 +636,7 @@ class VideoDownloader:
                     
                     try:
                         if (mtime:=self.info_dict.get("release_timestamp")):
-                            await os.utime(self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))
+                            await myaiofiles.os.utime(self.info_dl['filename'], (int(datetime.now().timestamp()), mtime))  
                     except Exception as e:
                             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error mtime {repr(e)}")
 
@@ -653,7 +651,7 @@ class VideoDownloader:
                             res = await apostffmpeg(cmd)
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n{res.stdout}\n[stderr]{res.stderr}")
                             if res.returncode == 0:
-                                await os.replace(temp_filename, self.info_dl['filename'])
+                                await myaiofiles.os.replace(temp_filename, self.info_dl['filename'])
 
                             xattr.setxattr(self.info_dl['filename'], 'user.dublincore.description', _meta.encode())
                                 
