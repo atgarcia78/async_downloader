@@ -7,10 +7,14 @@ import time
 from concurrent.futures import ThreadPoolExecutor, wait
 from datetime import datetime
 from itertools import zip_longest
+
 from pathlib import Path
+
+import os as syncos
+
 from statistics import median
 from textwrap import fill
-from threading import Lock
+from threading import Lock, Event
 import xattr
 
 import psutil
@@ -43,7 +47,6 @@ from utils import (
     naturalsize,
     none_to_zero,
     print_tasks,
-    run_proxy_http,
     sanitize_filename,
     sg,
     traverse_obj,
@@ -51,6 +54,8 @@ from utils import (
     wait_time,
     ProgressTimer,
     SpeedometerMA,
+    Union,
+    proxy
 )
 
 from videodownloader import VideoDownloader
@@ -151,16 +156,16 @@ class FrontEndGUI:
 
         self.reset_repeat = False
         self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
-        self.window_root = None
-        self.window_console = None
+        #self.window_root = None
+        #self.window_console = None
     
     def close(self):
-        if self.window_console:
+        if hasattr(self, 'window_console') and self.window_console:
             self.window_console.close()            
-            self.window_console = None
-        if self.window_root:
+            del self.window_console
+        if hasattr(self, 'window_root') and self.window_root:
             self.window_root.close()            
-            self.window_root = None
+            del self.window_root
     
     async def gui_root(self, event, values):
 
@@ -178,14 +183,14 @@ class FrontEndGUI:
                         upt = "\n\n" + "".join(list(list_init.values()))
                     else:
                         upt = ""
-                    self.window_root["-ML0-"].update(upt)
+                    self.window_root["-ML0-"].update(value=upt)
                 if "downloading" in values["all"]:
                     list_downloading = values["all"]["downloading"]
                     _text = ["\n\n-------DOWNLOADING VIDEO------------\n\n"]
                     if list_downloading:
                         _text.extend(list(list_downloading.values()))
                     upt = "".join(_text)
-                    self.window_root["-ML1-"].update(upt)
+                    self.window_root["-ML1-"].update(value=upt)
                     if self.console_dl_status:
                         upt = "\n".join(list_downloading.values())
                         sg.cprint(
@@ -202,7 +207,7 @@ class FrontEndGUI:
                         upt = "".join(_text)
                     else:
                         upt = ""
-                    self.window_root["-ML3-"].update(upt)
+                    self.window_root["-ML3-"].update(value=upt)
 
                 if "finish" in values["all"]: 
                     self.list_finish.update(values["all"]["finish"])
@@ -212,7 +217,7 @@ class FrontEndGUI:
                     else:
                         upt = ""
 
-                    self.window_root["-ML2-"].update(upt)
+                    self.window_root["-ML2-"].update(value=upt)
                 
 
             elif event in ("error", "done", "stop"):
@@ -223,7 +228,7 @@ class FrontEndGUI:
                 else:
                     upt = ""
 
-                self.window_root["-ML2-"].update(upt)
+                self.window_root["-ML2-"].update(value=upt)
 
         except Exception as e:
             self.logger.exception(f"[gui_root] {repr(e)}")
@@ -446,7 +451,7 @@ class FrontEndGUI:
         if nwmon:
             list_upt["nwmon"] = nwmon
         
-        if self.window_root:
+        if hasattr(self, 'window_root') and self.window_root:
             self.window_root.write_event_value("all", list_upt)
 
         for st,val in self.list_all_old.items():
@@ -616,15 +621,18 @@ class AsyncDL:
         self.videos_cached_ready = self.get_videos_cached()
         if not self.args.nodl:            
             if self.args.proxy != 0:
-                self.init_proxies_ready = self.start_proxies()
+                self.stop_proxy = self.run_proxy_http()
+                self.init_proxies_ready = self.start_proxies()                
             if self.args.aria2c:
                 self.init_aria2c_ready = self.start_aria2c()
         
 
     @long_operation_in_thread
     def start_aria2c(self, *args, **kwargs):
+        
+        _ready: Event = kwargs["stop_event"]
         try:
-            _ready = kwargs.get("stop_event")
+            
             self.proc_aria2c = init_aria2c(self.args)
         except Exception as e:
             logger.exception(f"[start_aria2c] {str(e)}")
@@ -635,18 +643,336 @@ class AsyncDL:
     @long_operation_in_thread
     def start_proxies(self, *args, **kwargs):
 
+        _ready: Event = kwargs["stop_event"]
         try:
-            _ready = kwargs.get("stop_event")
+            
             self.proc_gost, self.routing_table = init_proxies(
                 CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT
             )
-            self.stop_proxy = run_proxy_http()
+            
         except Exception as e:
             logger.exception(f"[start_proxies] {str(e)}")
             raise
         finally:
             _ready.set()
 
+    @long_operation_in_thread
+    def run_proxy_http(self, *args, **kwargs):
+        # with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
+        
+        stop_event: Event = kwargs["stop_event"]
+        log_level = kwargs.get('log_level', 'INFO')
+
+        with proxy.Proxy(
+            [
+                "--log-level",
+                log_level,
+                "--plugins",
+                "proxy.plugin.ProxyPoolByHostPlugin",
+            ]
+        ) as p:
+            logger = logging.getLogger("proxy")
+            try:
+                logger.debug(p.flags)
+                while not stop_event.is_set():
+                    time.sleep(CONF_INTERVAL_GUI)
+            except BaseException:
+                logger.error("context manager proxy")
+
+    # @long_operation_in_thread
+    # def get_videos_cached(self, *args, **kwargs):
+
+    #     """
+    #     In local storage, files are saved wihtin the file files.cached.json in 5 groups each in different volumnes.
+    #     If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.
+    #     """
+
+    #     _videos_ready: Event = kwargs["stop_event"]
+    #     # queue = kwargs.get('queue')
+
+    #     local_storage = LocalStorage()
+
+    #     logger.info(
+    #         f"[videos_cached] start scanning - dlnocaching [{self.args.nodlcaching}]"
+    #     )
+
+    #     videos_cached = {}
+    #     last_time_sync = {}
+
+    #     try:
+
+    #         with local_storage.lock:
+
+    #             local_storage.load_info()
+
+    #             list_folders_to_scan = {}
+    #             videos_cached = {}
+    #             last_time_sync = local_storage._last_time_sync
+
+    #             if self.args.nodlcaching:
+    #                 for _vol, _folder in local_storage.config_folders.items():
+    #                     if _vol != "local":
+    #                         videos_cached.update(
+    #                             {_vol: local_storage._data_from_file.get(_vol)}
+    #                         )
+    #                     else:
+    #                         list_folders_to_scan.update({_folder: _vol})
+
+    #             else:
+
+    #                 for _vol, _folder in local_storage.config_folders.items():
+    #                     if not _folder.exists():  # comm failure
+    #                         logger.error(
+    #                             f"Fail to connect to [{_vol}], will use last info"
+    #                         )
+    #                         videos_cached.update(
+    #                             {_vol: local_storage._data_from_file.get(_vol)}
+    #                         )
+    #                     else:
+    #                         list_folders_to_scan.update({_folder: _vol})
+
+    #             _repeated = []
+    #             _dont_exist = []
+    #             _repeated_by_xattr = []
+
+    #             for folder in list_folders_to_scan:
+
+    #                 try:
+
+    #                     files = [
+    #                         file
+    #                         for file in folder.rglob("*")
+    #                         if file.is_file()
+    #                         and not file.stem.startswith(".")
+    #                         and (file.suffix.lower() in (".mp4", ".mkv", ".zip"))
+    #                     ]
+
+    #                     for file in files:
+                            
+                            
+    #                         try:
+    #                             _xattr_desc = xattr.getxattr(file, "user.dublincore.description").decode()
+    #                             #logger.info(f"[get_videos_cached] {str(file)} {_xattr_desc}")
+    #                             if not videos_cached.get(_xattr_desc):
+
+    #                                 videos_cached.update({_xattr_desc: str(file)})
+                            
+    #                             else:
+
+                                    
+    #                                 _repeated_by_xattr.append({_xattr_desc: [videos_cached[_xattr_desc], str(file)]})
+    #                         except Exception:
+    #                             pass
+
+
+
+    #                         _res = file.stem.split("_", 1)
+    #                         if len(_res) == 2:
+    #                             _id = _res[0]
+    #                             _title = sanitize_filename(
+    #                                 _res[1], restricted=True
+    #                             ).upper()
+    #                             _name = f"{_id}_{_title}"
+    #                         else:
+    #                             _name = sanitize_filename(
+    #                                 file.stem, restricted=True
+    #                             ).upper()
+
+    #                         if not (_video_path_str := videos_cached.get(_name)):
+
+    #                             videos_cached.update({_name: str(file)})
+
+    #                         else:
+    #                             _video_path = Path(_video_path_str)
+    #                             if _video_path != file:
+
+    #                                 if (
+    #                                     not file.is_symlink()
+    #                                     and not _video_path.is_symlink()
+    #                                 ):  # only if both are hard files we have to do something, so lets report it in repeated files
+    #                                     _repeated.append(
+    #                                         {
+    #                                             "title": _name,
+    #                                             "indict": _video_path_str,
+    #                                             "file": str(file),
+    #                                         }
+    #                                     )
+    #                                 elif (
+    #                                     not file.is_symlink()
+    #                                     and _video_path.is_symlink()
+    #                                 ):
+    #                                     _links = get_chain_links(_video_path)
+    #                                     if _links[-1] == file:
+    #                                         if len(_links) > 2:
+    #                                             logger.debug(
+    #                                                 f'[videos_cached] \nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}'
+    #                                             )
+    #                                             for _link in _links[0:-1]:
+    #                                                 _link.unlink()
+    #                                                 _link.symlink_to(file)
+    #                                                 syncos.utime(
+    #                                                     _link,
+    #                                                     (
+    #                                                         int(
+    #                                                             self.launch_time.timestamp()
+    #                                                         ),
+    #                                                         file.stat().st_mtime,
+    #                                                     ),
+    #                                                     follow_symlinks=False,
+    #                                                 )
+
+    #                                         videos_cached.update({_name: str(file)})
+    #                                     else:
+    #                                         logger.warning(
+    #                                             f'[videos_cached] \n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}'
+    #                                         )
+
+    #                                 elif (
+    #                                     file.is_symlink()
+    #                                     and not _video_path.is_symlink()
+    #                                 ):
+    #                                     _links = get_chain_links(file)
+    #                                     if _links[-1] == _video_path:
+    #                                         if len(_links) > 2:
+    #                                             logger.debug(
+    #                                                 f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}'
+    #                                             )
+    #                                             for _link in _links[0:-1]:
+    #                                                 _link.unlink()
+    #                                                 _link.symlink_to(_video_path)
+    #                                                 syncos.utime(
+    #                                                     _link,
+    #                                                     (
+    #                                                         int(
+    #                                                             self.launch_time.timestamp()
+    #                                                         ),
+    #                                                         _video_path.stat().st_mtime,
+    #                                                     ),
+    #                                                     follow_symlinks=False,
+    #                                                 )
+
+    #                                         videos_cached.update(
+    #                                             {_name: str(_video_path)}
+    #                                         )
+    #                                         if not _video_path.exists():
+    #                                             _dont_exist.append(
+    #                                                 {
+    #                                                     "title": _name,
+    #                                                     "file_not_exist": str(
+    #                                                         _video_path
+    #                                                     ),
+    #                                                     "links": [
+    #                                                         str(_l)
+    #                                                         for _l in _links[0:-1]
+    #                                                     ],
+    #                                                 }
+    #                                             )
+    #                                     else:
+    #                                         logger.warning(
+    #                                             f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}'
+    #                                         )
+
+    #                                 else:
+    #                                     _links_file = get_chain_links(file)
+    #                                     _links_video_path = get_chain_links(_video_path)
+    #                                     if (
+    #                                         _file := _links_file[-1]
+    #                                     ) == _links_video_path[-1]:
+    #                                         if len(_links_file) > 2:
+    #                                             logger.debug(
+    #                                                 f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}'
+    #                                             )
+    #                                             for _link in _links_file[0:-1]:
+    #                                                 _link.unlink()
+    #                                                 _link.symlink_to(_file)
+    #                                                 syncos.utime(
+    #                                                     _link,
+    #                                                     (
+    #                                                         int(
+    #                                                             self.launch_time.timestamp()
+    #                                                         ),
+    #                                                         _file.stat().st_mtime,
+    #                                                     ),
+    #                                                     follow_symlinks=False,
+    #                                                 )
+    #                                         if len(_links_video_path) > 2:
+    #                                             logger.debug(
+    #                                                 f'[videos_cached] \nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}'
+    #                                             )
+    #                                             for _link in _links_video_path[0:-1]:
+    #                                                 _link.unlink()
+    #                                                 _link.symlink_to(_file)
+    #                                                 syncos.utime(
+    #                                                     _link,
+    #                                                     (
+    #                                                         int(
+    #                                                             self.launch_time.timestamp()
+    #                                                         ),
+    #                                                         _file.stat().st_mtime,
+    #                                                     ),
+    #                                                     follow_symlinks=False,
+    #                                                 )
+
+    #                                         videos_cached.update({_name: str(_file)})
+    #                                         if not _file.exists():
+    #                                             _dont_exist.append(
+    #                                                 {
+    #                                                     "title": _name,
+    #                                                     "file_not_exist": str(_file),
+    #                                                     "links": [
+    #                                                         str(_l)
+    #                                                         for _l in (
+    #                                                             _links_file[0:-1]
+    #                                                             + _links_video_path[
+    #                                                                 0:-1
+    #                                                             ]
+    #                                                         )
+    #                                                     ],
+    #                                                 }
+    #                                             )
+
+    #                                     else:
+    #                                         logger.warning(
+    #                                             f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}'
+    #                                         )
+
+    #                 except Exception as e:
+    #                     logger.error(
+    #                         f"[videos_cached][{list_folders_to_scan[folder]}] {repr(e)}"
+    #                     )
+
+    #                 else:
+    #                     last_time_sync.update(
+    #                         {list_folders_to_scan[folder]: str(self.launch_time)}
+    #                     )
+
+    #             try:
+
+    #                 local_storage.dump_info(videos_cached, last_time_sync)
+
+    #                 if _repeated:
+    #                     logger.warning(
+    #                         "[videos_cached] Please check videos repeated in logs"
+    #                     )
+    #                     logger.debug(f"[videos_cached] videos repeated: \n {_repeated}")
+
+    #                 if _dont_exist:
+    #                     logger.warning(
+    #                         "[videos_cached] Please check videos dont exist in logs"
+    #                     )
+    #                     logger.debug(
+    #                         f"[videos_cached] videos dont exist: \n {_dont_exist}"
+    #                     )
+
+    #             except Exception as e:
+    #                 logger.exception(f"[videos_cached] {repr(e)}")
+
+    #         logger.info(f"[videos_cached] Total videos cached: [{len(videos_cached)}]")
+    #         self.videos_cached = videos_cached
+    #         _videos_ready.set()
+
+    #     except Exception as e:
+    #         logger.exception(f"[videos_cached] {repr(e)}")
     @long_operation_in_thread
     def get_videos_cached(self, *args, **kwargs):
 
@@ -958,7 +1284,7 @@ class AsyncDL:
                 logger.debug(f"[pending_all_tasks] {pending_tasks}")
                 logger.debug(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
 
-                logger.debug(f"[queue_vid] {self.queue_vid._queue}")
+                logger.debug(f"[queue_vid] {str(self.queue_vid)}")
 
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
@@ -1128,7 +1454,7 @@ class AsyncDL:
                     else:
                         _get_name = False
 
-                    async def process_playlist(_get, _info=None):
+                    async def process_playlist(_get:bool, _kinfo:Union[dict,None]=None):
 
                         while True:
 
@@ -1146,11 +1472,15 @@ class AsyncDL:
                                         f"[get_videos][url_playlist_list][{self._count_pl}/{len(self.url_pl_list) + len(self.url_pl_list2)}] processing {_url}"
                                     )
                                 _errormsg = None
-                                if not _info:
+                                if _kinfo:
+                                    _info = _kinfo
+                                else:
                                     try:
-                                        _info = await self.async_ytdl_extract_info(
+                                        _info = await self.ytdl.async_extract_info(
                                             _url, download=False, process=False
                                         )
+                                        if not _info:
+                                            raise Exception("no info")
                                     except Exception as e:
                                         logger.warning(
                                             f"[url_playlist_list] {_url} {type(e).__name__}"
@@ -1158,194 +1488,195 @@ class AsyncDL:
                                         logger.debug(
                                             f"[url_playlist_list] {_url} {repr(e)}"
                                         )
-                                        _info = None
-                                        _errormsg = repr(e)
-                                if not _info:
-                                    _info = {
-                                        "_type": "error",
-                                        "url": _url,
-                                        "error": _errormsg or "no video entry",
-                                    }
+                                        
+                                        
+                                        _info = {
+                                            "_type": "error",
+                                            "url": _url,
+                                            "error": repr(e)
+                                        }
+                                        await self.async_prepare_entry_pl_for_dl(_info)
+                                        self._url_pl_entries += [_info]
+                                        continue
+
+
+                                
+                                if (
+                                    _info.get("_type", "video") != "playlist"
+                                ):  # caso generic que es playlist default, pero luego puede ser url, url_trans
+
+                                    _info = self.ytdl.sanitize_info(
+                                        await self.ytdl.async_process_ie_result(
+                                            _info, download=False
+                                        )
+                                    )
+
+                                    if not _info.get("original_url"):
+                                        _info.update({"original_url": _url})
+
                                     await self.async_prepare_entry_pl_for_dl(_info)
                                     self._url_pl_entries += [_info]
-                                elif _info:
+                                else:
+                                    if _get and not self.args.path:
+                                        _name = f"{sanitize_filename(_info.get('title'), restricted=True)}{_info.get('extractor_key')}{_info.get('id')}"
+                                        self.args.path = str(
+                                            Path(Path.home(), "testing", _name)
+                                        )
+                                        logger.debug(
+                                            f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}"
+                                        )
 
-                                    if (
-                                        _info.get("_type", "video") != "playlist"
-                                    ):  # caso generic que es playlist default, pero luego puede ser url, url_trans
+                                    if isinstance(_info.get("entries"), list):
 
+                                        _temp_error = []
+
+                                        _entries_ok = []
+                                        for _ent in _info["entries"]:
+                                            if _ent.get("error"):
+                                                _ent["_type"] = "error"
+                                                if not _ent.get("original_url"):
+                                                    _ent.update(
+                                                        {"original_url": _url}
+                                                    )
+                                                await self.async_prepare_entry_pl_for_dl(
+                                                    _ent
+                                                )
+                                                self._url_pl_entries.append(_ent)
+                                                _temp_error.append(_ent)
+                                                # del _ent
+                                            else:
+                                                _entries_ok.append(_ent)
+
+                                        _info["entries"] = _entries_ok
                                         _info = self.ytdl.sanitize_info(
-                                            await self.async_ytdl_process_ie_result(
+                                            await self.ytdl.async_process_ie_result(
                                                 _info, download=False
                                             )
                                         )
 
-                                        if not _info.get("original_url"):
-                                            _info.update({"original_url": _url})
+                                        if _info.get("extractor_key") in (
+                                            "GVDBlogPost",
+                                            "GVDBlogPlaylist",
+                                        ):
+                                            _temp_aldl = []
+                                            _temp_nodl = []
 
-                                        await self.async_prepare_entry_pl_for_dl(_info)
-                                        self._url_pl_entries += [_info]
-                                    else:
-                                        if _get and not self.args.path:
-                                            _name = f"{sanitize_filename(_info.get('title'), restricted=True)}{_info.get('extractor_key')}{_info.get('id')}"
-                                            self.args.path = str(
-                                                Path(Path.home(), "testing", _name)
+                                            for _ent in _info["entries"]:
+                                                if not await self.async_check_if_aldl(
+                                                    _ent, test=True
+                                                ):
+                                                    _temp_nodl.append(_ent)
+                                                else:
+                                                    _temp_aldl.append(_ent)
+
+                                            def get_list_interl(res):
+                                                if not res:
+                                                    return []
+                                                if len(res) < 3:
+                                                    return res
+                                                _dict = {}
+                                                for ent in res:
+                                                    _key = get_domain(ent["url"])
+                                                    if not _dict.get(_key):
+                                                        _dict[_key] = [ent]
+                                                    else:
+                                                        _dict[_key].append(ent)
+                                                logger.info(
+                                                    f"[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries"
+                                                )
+                                                _interl = []
+                                                for el in list(
+                                                    zip_longest(
+                                                        *list(_dict.values())
+                                                    )
+                                                ):
+                                                    _interl.extend(
+                                                        [_el for _el in el if _el]
+                                                    )
+                                                return _interl
+
+                                            _info["entries"] = (
+                                                get_list_interl(_temp_nodl)
+                                                + _temp_aldl
                                             )
-                                            logger.debug(
-                                                f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}"
+
+                                    for _ent in _info["entries"]:
+
+                                        if self.STOP.is_set():
+                                            raise Exception("STOP")
+
+                                        if _ent.get(
+                                            "_type", "video"
+                                        ) == "video" and not _ent.get("error"):
+
+                                            _ent = self.ytdl.sanitize_info(
+                                                await self.ytdl.async_process_ie_result(
+                                                    _ent, download=False
+                                                )
                                             )
 
-                                        if isinstance(_info.get("entries"), list):
+                                            if not _ent.get("original_url"):
+                                                _ent.update({"original_url": _url})
+                                            elif _ent["original_url"] != _url:
+                                                _ent["initial_url"] = _url
+                                            if ((_ent.get("extractor_key", _ent.get("extractor", _ent.get("ie_key", ""))).lower() == "generic") 
+                                                    and (_ent.get("n_entries", 0) <= 1)):
+                                                _ent.pop("playlist", "")
+                                                _ent.pop("playlist_index", "")
+                                                _ent.pop("n_entries", "")
+                                                _ent.pop("playlist", "")
+                                                _ent.pop("playlist_id", "")
+                                                _ent.pop("playlist_title", "")
 
-                                            _temp_error = []
+                                            if (
+                                                _wurl := _ent["webpage_url"]
+                                            ) == _ent["original_url"]:
+                                                if _ent.get("n_entries", 0) > 1:
+                                                    _ent.update(
+                                                        {
+                                                            "webpage_url": f"{_wurl}?index={_ent['playlist_index']}"
+                                                        }
+                                                    )
+                                                    logger.warning(
+                                                        f"[url_playlist_list][{_url}][{_ent['playlist_index']}]: playlist, nentries > 1, webpage_url == original_url: {_wurl}"
+                                                    )
 
-                                            _entries_ok = []
-                                            for _ent in _info.get("entries"):
-                                                if _ent.get("error"):
-                                                    _ent["_type"] = "error"
+                                            await self.async_prepare_entry_pl_for_dl(
+                                                _ent
+                                            )
+                                            self._url_pl_entries += [_ent]
+                                        else:
+                                            try:
+                                                (
+                                                    is_pl,
+                                                    ie_key,
+                                                ) = is_playlist_extractor(
+                                                    _ent["url"], self.ytdl
+                                                )
+                                                _error = _ent.get("error")
+                                                if not is_pl or _error:
                                                     if not _ent.get("original_url"):
                                                         _ent.update(
                                                             {"original_url": _url}
                                                         )
+                                                    if _error:
+                                                        _ent["_type"] = "error"
                                                     await self.async_prepare_entry_pl_for_dl(
                                                         _ent
                                                     )
-                                                    self._url_pl_entries.append(_ent)
-                                                    _temp_error.append(_ent)
-                                                    # del _ent
+                                                    self._url_pl_entries.append(
+                                                        _ent
+                                                    )
                                                 else:
-                                                    _entries_ok.append(_ent)
 
-                                            _info["entries"] = _entries_ok
-                                            _info = self.ytdl.sanitize_info(
-                                                await self.async_ytdl_process_ie_result(
-                                                    _info, download=False
-                                                )
-                                            )
-
-                                            if _info.get("extractor_key") in (
-                                                "GVDBlogPost",
-                                                "GVDBlogPlaylist",
-                                            ):
-                                                _temp_aldl = []
-                                                _temp_nodl = []
-
-                                                for _ent in _info.get("entries"):
-                                                    if not await self.async_check_if_aldl(
-                                                        _ent, test=True
-                                                    ):
-                                                        _temp_nodl.append(_ent)
-                                                    else:
-                                                        _temp_aldl.append(_ent)
-
-                                                def get_list_interl(res):
-                                                    if not res:
-                                                        return []
-                                                    if len(res) < 3:
-                                                        return res
-                                                    _dict = {}
-                                                    for ent in res:
-                                                        _key = get_domain(ent["url"])
-                                                        if not _dict.get(_key):
-                                                            _dict[_key] = [ent]
-                                                        else:
-                                                            _dict[_key].append(ent)
-                                                    logger.info(
-                                                        f"[url_playlist_list][{_url}] gvdblogplaylist entries interleave: {len(list(_dict.keys()))} different hosts, longest with {len(max(list(_dict.values()), key=len))} entries"
+                                                    self.url_pl_list2.append(
+                                                        _ent["url"]
                                                     )
-                                                    _interl = []
-                                                    for el in list(
-                                                        zip_longest(
-                                                            *list(_dict.values())
-                                                        )
-                                                    ):
-                                                        _interl.extend(
-                                                            [_el for _el in el if _el]
-                                                        )
-                                                    return _interl
 
-                                                _info["entries"] = (
-                                                    get_list_interl(_temp_nodl)
-                                                    + _temp_aldl
+                                            except Exception as e:
+                                                logger.error(
+                                                    f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}"
                                                 )
-
-                                        for _ent in _info.get("entries"):
-
-                                            if self.STOP.is_set():
-                                                raise Exception("STOP")
-
-                                            if _ent.get(
-                                                "_type", "video"
-                                            ) == "video" and not _ent.get("error"):
-
-                                                _ent = self.ytdl.sanitize_info(
-                                                    await self.async_ytdl_process_ie_result(
-                                                        _ent, download=False
-                                                    )
-                                                )
-
-                                                if not _ent.get("original_url"):
-                                                    _ent.update({"original_url": _url})
-                                                elif _ent["original_url"] != _url:
-                                                    _ent["initial_url"] = _url
-                                                if (((_ent.get("extractor_key") or _ent.get("extractor") or _ent.get("ie_key")).lower() == "generic") 
-                                                        and (_ent.get("n_entries", 0) <= 1)):
-                                                    _ent.pop("playlist", "")
-                                                    _ent.pop("playlist_index", "")
-                                                    _ent.pop("n_entries", "")
-                                                    _ent.pop("playlist", "")
-                                                    _ent.pop("playlist_id", "")
-                                                    _ent.pop("playlist_title", "")
-
-                                                if (
-                                                    _wurl := _ent["webpage_url"]
-                                                ) == _ent["original_url"]:
-                                                    if _ent.get("n_entries", 0) > 1:
-                                                        _ent.update(
-                                                            {
-                                                                "webpage_url": f"{_wurl}?index={_ent['playlist_index']}"
-                                                            }
-                                                        )
-                                                        logger.warning(
-                                                            f"[url_playlist_list][{_url}][{_ent['playlist_index']}]: playlist, nentries > 1, webpage_url == original_url: {_wurl}"
-                                                        )
-
-                                                await self.async_prepare_entry_pl_for_dl(
-                                                    _ent
-                                                )
-                                                self._url_pl_entries += [_ent]
-                                            else:
-                                                try:
-                                                    (
-                                                        is_pl,
-                                                        ie_key,
-                                                    ) = is_playlist_extractor(
-                                                        _ent["url"], self.ytdl
-                                                    )
-                                                    _error = _ent.get("error")
-                                                    if not is_pl or _error:
-                                                        if not _ent.get("original_url"):
-                                                            _ent.update(
-                                                                {"original_url": _url}
-                                                            )
-                                                        if _error:
-                                                            _ent["_type"] = "error"
-                                                        await self.async_prepare_entry_pl_for_dl(
-                                                            _ent
-                                                        )
-                                                        self._url_pl_entries.append(
-                                                            _ent
-                                                        )
-                                                    else:
-
-                                                        self.url_pl_list2.append(
-                                                            _ent["url"]
-                                                        )
-
-                                                except Exception as e:
-                                                    logger.error(
-                                                        f"[url_playlist_list][{_url}]:{_ent['url']} no video entries - {repr(e)}"
-                                                    )
 
                             except BaseException as e:
                                 logger.exception(f"[url_playlist_list] {repr(e)}")
@@ -1442,7 +1773,8 @@ class AsyncDL:
                     file_aldl.symlink_to(vid_path)
                     try:
                         mtime = int(vid_path.stat().st_mtime)
-                        file_aldl._accessor.utime(
+
+                        syncos.utime(
                             file_aldl,
                             (int(datetime.timestamp(datetime.now())), mtime),
                             follow_symlinks=False,
@@ -1454,7 +1786,7 @@ class AsyncDL:
 
             return vid_path_str
 
-    def _check_if_same_video(self, url_to_check):
+    def _check_if_same_video(self, url_to_check: str)->Union[str, None]:
 
         info = self.info_videos[url_to_check]["video_info"]
 
@@ -1473,7 +1805,7 @@ class AsyncDL:
                     ):
                         return urlkey
 
-    def _prepare_for_dl(self, url, put=True):
+    def _prepare_for_dl(self, url: str, put: bool=True)->None:
         self.info_videos[url].update({"todl": True})
         if _id := self.info_videos[url]["video_info"].get("id"):
             self.info_videos[url]["video_info"]["id"] = (
@@ -1509,7 +1841,7 @@ class AsyncDL:
                 self.num_videos_to_check += 1
                 self.num_videos_pending += 1
 
-    def _prepare_entry_pl_for_dl(self, entry):
+    def _prepare_entry_pl_for_dl(self, entry: dict)->None:
 
         _type = entry.get("_type", "video")
         if _type == "playlist":
@@ -1557,10 +1889,10 @@ class AsyncDL:
             return
 
         elif _type == "video":
-            _url = entry.get("webpage_url") or entry.get("url")
+            _url = entry.get("webpage_url") or entry["url"]
 
         else:  # url, url_transparent
-            _url = entry.get("url")
+            _url = entry["url"]
 
         if not self.info_videos.get(_url):  # es decir, los nuevos videos
 
@@ -1634,7 +1966,7 @@ class AsyncDL:
                             if (_val := self.count_init) == (self.init_nworkers - 1):
                                 break
                             logger.debug(
-                                f"[worker_init][{i}]: bucle while [count_init] {self.count_init} [init_workers] {self.init_workers} [val] {_val}"
+                                f"[worker_init][{i}]: bucle while [count_init] {self.count_init} [init_workers] {self.init_nworkers} [val] {_val}"
                             )
 
                         await asyncio.sleep(5)
@@ -1681,7 +2013,7 @@ class AsyncDL:
                                 logger.debug(
                                     f"[worker_init][{i}]: [{url_key}] extra_info={_ext_info or vid}"
                                 )
-                                _res = await self.async_ytdl_extract_info(
+                                _res = await self.ytdl.async_extract_info(
                                     vid["url"], download=False, extra_info=_ext_info
                                 )
                                 if not _res:
@@ -1821,16 +2153,13 @@ class AsyncDL:
                                 await go_for_dl(urlkey, infdict, extradict)
                             ) and not self.args.nodl:
 
-                                dl = await async_ex_in_executor(
-                                    self.ex_winit,
-                                    VideoDownloader,
-                                    self.info_videos[urlkey]["video_info"],
-                                    self.ytdl,
-                                    self.args,
-                                    self.hosts_downloading,
-                                    self.alock,
-                                    self.hosts_alock,
-                                )
+                                async def async_videodl_init(*args, **kwargs)->VideoDownloader:
+                                    return await sync_to_async(VideoDownloader, self.ex_winit)(*args, **kwargs) # type: ignore
+                                
+                                
+                                dl = await async_videodl_init(self.info_videos[urlkey]["video_info"], 
+                                        self.ytdl, self.args, self.hosts_downloading, self.alock,self.hosts_alock)
+                                    
 
                                 logger.debug(
                                     f"[worker_init][{i}]: [{dl.info_dict['id']}][{dl.info_dict['title']}]: {dl.info_dl}"
@@ -1930,18 +2259,21 @@ class AsyncDL:
 
                             for _entry in info["entries"]:
 
-                                try:
+                                
 
-                                    if (
-                                        _type := _entry.get("_type", "video")
-                                    ) != "video":
-                                        logger.warning(
-                                            f"[worker_init][{i}]: [{url_key}] playlist of entries that are not videos"
-                                        )
-                                    else:
-                                        _url = _entry.get("original_url") or _entry.get(
+                                if (
+                                    _type := _entry.get("_type", "video")
+                                ) != "video":
+                                    logger.warning(
+                                        f"[worker_init][{i}]: [{url_key}] playlist of entries that are not videos"
+                                    )
+                                    continue
+                                else:
+                                    _url = _entry.get("original_url") or _entry.get(
                                             "url"
                                         )
+                                    try:
+                                        
 
                                         if not self.info_videos.get(
                                             _url
@@ -2007,24 +2339,24 @@ class AsyncDL:
                                                     async with self.alock:
                                                         self.num_videos_pending -= 1
 
-                                except Exception as e:
+                                    except Exception as e:
 
-                                    self.list_initnok.append(
-                                        (_entry, f"Error:{repr(e)}")
-                                    )
-                                    logger.error(
-                                        f"[worker_init][{i}]: [{_url}] init nok - Error:{repr(e)}"
-                                    )
+                                        self.list_initnok.append(
+                                            (_entry, f"Error:{repr(e)}")
+                                        )
+                                        logger.error(
+                                            f"[worker_init][{i}]: [{_url}] init nok - Error:{repr(e)}"
+                                        )
 
-                                    self.list_urls_to_check.append((_url, repr(e)))
-                                    self.info_videos[_url]["error"].append(
-                                        f"DL constructor error:{repr(e)}"
-                                    )
-                                    self.info_videos[_url]["status"] = "initnok"
+                                        self.list_urls_to_check.append((_url, repr(e)))
+                                        self.info_videos[_url]["error"].append(
+                                            f"DL constructor error:{repr(e)}"
+                                        )
+                                        self.info_videos[_url]["status"] = "initnok"
 
-                                finally:
-                                    await asyncio.sleep(0)
-                                    continue
+                                    finally:
+                                        await asyncio.sleep(0)
+                                        continue
 
                     except Exception as e:
 
@@ -2092,10 +2424,10 @@ class AsyncDL:
             elif dl.info_dl["status"] == "error":
 
                 logger.error(
-                    f"[run_callback][{url_key}]: error when dl video, can't go por manipulation - {dl.info_dl['error_message']}"
+                    f"[run_callback][{url_key}]: error when dl video, can't go por manipulation - {dl.info_dl.get('error_message')}"
                 )
                 self.info_videos[url_key]["error"].append(
-                    f"error when dl video: {dl.info_dl['error_message']}"
+                    f"error when dl video: {dl.info_dl.get('error_message')}"
                 )
                 self.info_videos[url_key]["status"] = "nok"
 
@@ -2105,7 +2437,7 @@ class AsyncDL:
                     f"[run_callback][{url_key}]: STATUS NOT EXPECTED: {dl.info_dl['status']}"
                 )
                 self.info_videos[url_key]["error"].append(
-                    f"error when dl video: {dl.info_dl['error_message']}"
+                    f"error when dl video: {dl.info_dl.get('error_message')}"
                 )
                 self.info_videos[url_key]["status"] = "nok"
         
@@ -2131,16 +2463,16 @@ class AsyncDL:
         self.async_prepare_entry_pl_for_dl = sync_to_async(
             self._prepare_entry_pl_for_dl, self.ex_winit
         )
-        self.async_ytdl_extract_info = sync_to_async(
-            self.ytdl.extract_info, self.ex_winit
-        )
-        self.async_ytdl_process_ie_result = sync_to_async(
-            self.ytdl.process_ie_result, self.ex_winit
-        )
+       
         self.async_check_if_aldl = sync_to_async(self._check_if_aldl, self.ex_winit)
         self.async_check_if_same_video = sync_to_async(
             self._check_if_same_video, self.ex_winit
         )
+
+        tasks_gui = []
+        self.extra_tasks_run = []
+
+        tasks_to_wait = {}
 
         try:
 
@@ -2149,10 +2481,7 @@ class AsyncDL:
             self.t3.start()
             self.loop = asyncio.get_running_loop()
 
-            tasks_gui = []
-            self.extra_tasks_run = []
 
-            tasks_to_wait = {}
 
             self.WorkersRun = WorkersRun(self)
             
@@ -2280,17 +2609,19 @@ class AsyncDL:
             logger.info(f"[async_ex] BYE")
 
     def get_results_info(self):
-        def _getter(url, vid):
-            webpageurl = traverse_obj(vid, ("video_info", "webpage_url"))
-            originalurl = traverse_obj(vid, ("video_info", "original_url"))
+        def _getter(url: str, vid: dict)->str:
+            webpageurl = try_get(traverse_obj(vid, ("video_info", "webpage_url")), lambda x: str(x) if x else None)  
+            originalurl = try_get(traverse_obj(vid, ("video_info", "original_url")), lambda x: str(x) if x else None)
             playlist = traverse_obj(vid, ("video_info", "playlist"))
             if not webpageurl and not originalurl and not playlist:
                 return url
-            if playlist and traverse_obj(vid, ("video_info", "n_entries")) > 1:
+            nentries = try_get(traverse_obj(vid, ("video_info", "n_entries")), lambda x: int(x) if x else None)
+            if playlist and nentries and nentries > 1:
                 # return f"{playlist}:[{traverse_obj(vid, ('video_info','playlist_index'))}]:{originalurl or webpageurl}:{url}"
                 return f"[{traverse_obj(vid, ('video_info','playlist_index'))}]:{originalurl or webpageurl}:{url}"
             else:
-                return originalurl or webpageurl
+                _url = originalurl or webpageurl or ""
+                return _url
 
         def _print_list_videos():
             try:
@@ -2304,7 +2635,7 @@ class AsyncDL:
                 ]
 
                 if list_videos:
-                    list_videos_str = [[fill(url, col // 2)] for url in list_videos]
+                    list_videos_str = [[fill(text=url, width=col // 2)] for url in list_videos]
                 else:
                     list_videos_str = []
 
@@ -2428,6 +2759,7 @@ class AsyncDL:
                 }
             except Exception as e:
                 logger.exception(repr(e))
+                return {}
 
         _videos_url_notsupported = self.list_unsup_urls
         _videos_url_notvalid = self.list_notvalid_urls
@@ -2461,9 +2793,10 @@ class AsyncDL:
             ):
                 if video["status"] == "done":
                     videos_okdl.append(_getter(url, video))
+
                     _temp["local"].update(
                         {
-                            f"{traverse_obj(video, ('video_info', 'id'))}_{traverse_obj(video, ('video_info', 'title')).upper()}": str(
+                            f"{traverse_obj(video, ('video_info', 'id'))}_{str(traverse_obj(video, ('video_info', 'title'), default='')).upper()}": str(
                                 traverse_obj(video, "filename")
                             )
                         }

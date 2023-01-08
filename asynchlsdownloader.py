@@ -1343,6 +1343,7 @@ class AsyncHLSDownloader:
                                             logger.warning(
                                                 f"{self._premsg}: Frag:{str(q)} _hsize is None"
                                             )
+                                            continue
                                             
 
 

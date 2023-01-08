@@ -23,7 +23,9 @@ from itertools import zip_longest
 from pathlib import Path
 from queue import Queue
 from bisect import bisect
-from typing import Optional, List, Tuple, Union, Dict, Coroutine
+from typing import Optional, List, Tuple, Union, Dict, Coroutine, Any, Callable, TypeVar, Awaitable
+
+_T = TypeVar('_T', bound=Callable[...,Any])
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
@@ -40,8 +42,8 @@ CONF_PROXIES_N_GR_VIDEO = 8  # 8
 CONF_PROXIES_BASE_PORT = 12000
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400  # 102400 * 1.5# 102400
-CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 120
-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = 60
+CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 240#120
+CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED//4#60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
@@ -456,23 +458,40 @@ def _for_print_videos(videos):
         return _videos
 
 
-def sync_to_async(func, executor=None):
-    @functools.wraps(func)
+def sync_to_async(func, exe=None):
+    
+    if not exe:
+        exe = ThreadPoolExecutor()
+
     async def run_in_executor(*args, **kwargs):
         loop = asyncio.get_event_loop()
-        pfunc = functools.partial(func, *args, **kwargs)
-        return await loop.run_in_executor(executor, pfunc)
+        ctx = contextvars.copy_context()        
+        pfunc = functools.partial(ctx.run, func, *args, **kwargs)
+    
+        return await loop.run_in_executor(exe, pfunc)
 
     return run_in_executor
 
 
-async def async_ex_in_executor(executor, func, /, *args, **kwargs):
-    loop = kwargs.get("loop", asyncio.get_running_loop())
+async def async_ex_in_executor(executor: ThreadPoolExecutor, func: Callable, /, *args, **kwargs):
+    
     ctx = contextvars.copy_context()
     _kwargs = {k: v for k, v in kwargs.items() if k != "loop"}
     func_call = functools.partial(ctx.run, func, *args, **_kwargs)
-    return await loop.run_in_executor(executor, func_call)
+    return await asyncio.get_running_loop().run_in_executor(executor, func_call)
 
+
+def long_operation_in_thread(func) -> Callable[[Callable], threading.Event]:
+    
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        stop_event = threading.Event()
+        #kwargs["stop_event"] = stop_event
+        thread = threading.Thread(target=func, args=args, kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
+        thread.start()
+        return stop_event
+
+    return wrapper
 
 from multiprocess import Process as MPProcess
 from multiprocess import Queue as MPQueue
@@ -490,16 +509,8 @@ def long_operation_in_process(func):
     return wrapper
 
 
-def long_operation_in_thread(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        stop_event = threading.Event()
-        kwargs["stop_event"] = stop_event
-        thread = threading.Thread(target=func, args=args, kwargs=kwargs, daemon=True)
-        thread.start()
-        return stop_event
 
-    return wrapper
+
 
 
 from _thread import LockType
@@ -867,28 +878,28 @@ def init_argparser():
     return args
 
 
-if _SUPPORT_PROXY:
+# if _SUPPORT_PROXY:
 
-    @long_operation_in_thread
-    def run_proxy_http(*args, **kwargs):
-        # with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
-        log_level = kwargs.get("log_level", "INFO")
-        stop_event = kwargs.get("stop_event")
-        with proxy.Proxy(
-            [
-                "--log-level",
-                log_level,
-                "--plugins",
-                "proxy.plugin.ProxyPoolByHostPlugin",
-            ]
-        ) as p:
-            logger = logging.getLogger("proxy")
-            try:
-                logger.debug(p.flags)
-                while not stop_event.is_set():
-                    time.sleep(CONF_INTERVAL_GUI)
-            except BaseException:
-                logger.error("context manager proxy")
+#     @long_operation_in_thread
+#     def run_proxy_http(*args, log_level='INFO', **kwargs):
+#         # with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
+        
+#         stop_event: threading.Event = kwargs["stop_event"]
+#         with proxy.Proxy(
+#             [
+#                 "--log-level",
+#                 log_level,
+#                 "--plugins",
+#                 "proxy.plugin.ProxyPoolByHostPlugin",
+#             ]
+#         ) as p:
+#             logger = logging.getLogger("proxy")
+#             try:
+#                 logger.debug(p.flags)
+#                 while not stop_event.is_set():
+#                     time.sleep(CONF_INTERVAL_GUI)
+#             except BaseException:
+#                 logger.error("context manager proxy")
 
 
 if _SUPPORT_ARIA2P:
@@ -1229,6 +1240,60 @@ if _SUPPORT_YTDL:
 
     from yt_dlp import YoutubeDL
 
+    class myYTDL(YoutubeDL):
+        def __init__(self, **kwargs):
+            self.close: bool = kwargs.get("close", True)
+            self.executor: ThreadPoolExecutor = kwargs.get("executor", ThreadPoolExecutor())
+            super().__init__(**kwargs)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args, **kwargs):
+            if self.close:
+                ies = self._ies_instances
+                if not ies:
+                    return
+                for _, ins in ies.items():
+                    if close := getattr(ins, "close", None):
+                        try:
+                            close()
+                        except Exception as e:
+                            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args, **kwargs):
+            ies = self._ies_instances
+            if not ies:
+                return
+            for _, ins in ies.items():
+                if close := getattr(ins, "close", None):
+                    try:
+                        close()
+                    except Exception as e:
+                        pass
+        
+        def extract_info(self, *args, **kwargs)->Union[dict, None]:
+            return super().extract_info(*args, **kwargs)
+
+        def process_ie_result(self, *args, **kwargs)->dict:
+            return super().process_ie_result(*args, **kwargs)
+        
+        def sanitize_info(self, *args, **kwargs)->dict:
+            return super().sanitize_info(*args, **kwargs)
+        
+        async def async_extract_info(self, *args, **kwargs)->dict:
+            return await async_ex_in_executor(self.executor, self.extract_info, *args, **kwargs)
+            
+        
+        async def async_process_ie_result(self, *args, **kwargs)->dict:
+            return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)
+
+            
+
+    
     class ProxyYTDL(YoutubeDL):
         def __init__(self, **kwargs):
             opts = kwargs.get("opts", {})
@@ -1380,7 +1445,7 @@ if _SUPPORT_YTDL:
         if args.ytdlopts:
             ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
 
-        ytdl = YoutubeDL(ytdl_opts, auto_init="no_verbose_header")
+        ytdl = myYTDL(params=ytdl_opts, auto_init="no_verbose_header")
 
         logger.debug(f"ytdl opts:\n{ytdl.params}")
 
@@ -1469,7 +1534,7 @@ if _SUPPORT_FILELOCK:
 
     from filelock import FileLock
 
-    class LocalStorage:
+class LocalStorage:
 
         lslogger = logging.getLogger("LocalStorage")
         lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
@@ -1486,11 +1551,17 @@ if _SUPPORT_FILELOCK:
             "wd8_2": Path("/Volumes/WD8_2/videos"),
         }
 
-        def __init__(self):
+        def __init__(self, paths=None):
 
             self._data_from_file = {}  # data struct per vol
             self._data_for_scan = {}  # data ready for scan
             self._last_time_sync = {}
+
+            if paths:
+                if not isinstance(paths, list):
+                    paths = [paths]
+
+                LocalStorage.config_folders.extend(paths)
 
         @lock
         def load_info(self):
@@ -1552,7 +1623,7 @@ if _SUPPORT_FILELOCK:
                         f"found file with not registered volumen - {val} - {key}"
                     )
                 else:
-                    _temp[_vol].update({key: val})
+                    _temp[getter(val)].update({key: val})
 
             shutil.copy(
                 str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
@@ -1562,6 +1633,100 @@ if _SUPPORT_FILELOCK:
                 json.dump(_temp, f)
 
             self._data_from_file = _temp
+
+    # class LocalStorage:
+
+    #     lslogger = logging.getLogger("LocalStorage")
+    #     lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
+    #     local_storage = Path(PATH_LOGS, "files_cached.json")
+    #     prev_local_storage = Path(PATH_LOGS, "prev_files_cached.json")
+
+    #     config_folders = {
+    #         "local": Path(Path.home(), "testing"),
+    #         "pandaext4": Path("/Volumes/Pandaext4/videos"),
+    #         "datostoni": Path("/Volumes/DatosToni/videos"),
+    #         "wd1b": Path("/Volumes/WD1B/videos"),
+    #         "wd5": Path("/Volumes/WD5/videos"),
+    #         "wd8_1": Path("/Volumes/WD8_1/videos"),
+    #         "wd8_2": Path("/Volumes/WD8_2/videos"),
+    #     }
+
+    #     def __init__(self):
+
+    #         self._data_from_file = {}  # data struct per vol
+    #         self._data_for_scan = {}  # data ready for scan
+    #         self._last_time_sync = {}
+
+    #     @lock
+    #     def load_info(self):
+
+    #         with open(LocalStorage.local_storage, "r") as f:
+    #             self._data_from_file = json.load(f)
+
+    #         for _key, _data in self._data_from_file.items():
+    #             if _key in list(LocalStorage.config_folders.keys()):
+    #                 self._data_for_scan.update(_data)
+    #             elif "last_time_sync" in _key:
+    #                 self._last_time_sync.update(_data)
+    #             else:
+    #                 LocalStorage.lslogger.error(
+    #                     f"found key not registered volumen - {_key}"
+    #                 )
+
+    #     @lock
+    #     def dump_info(self, videos_cached, last_time_sync):
+    #         def getter(x):
+    #             if "Pandaext4/videos" in x:
+    #                 return "pandaext4"
+    #             elif "WD5/videos" in x:
+    #                 return "wd5"
+    #             elif "WD1B/videos" in x:
+    #                 return "wd1b"
+    #             elif "antoniotorres/testing" in x:
+    #                 return "local"
+    #             elif "DatosToni/videos" in x:
+    #                 return "datostoni"
+    #             elif "WD8_1/videos" in x:
+    #                 return "wd8_1"
+    #             elif "WD8_2/videos" in x:
+    #                 return "wd8_2"
+
+    #         if videos_cached:
+    #             self._data_for_scan = videos_cached.copy()
+    #         if last_time_sync:
+    #             self._last_time_sync = last_time_sync.copy()
+
+    #         _temp = {
+    #             "last_time_sync": {},
+    #             "local": {},
+    #             "wd5": {},
+    #             "wd1b": {},
+    #             "pandaext4": {},
+    #             "datostoni": {},
+    #             "wd8_1": {},
+    #             "wd8_2": {},
+    #         }
+
+    #         _temp.update({"last_time_sync": last_time_sync})
+
+    #         for key, val in videos_cached.items():
+
+    #             _vol = getter(val)
+    #             if not _vol:
+    #                 LocalStorage.lslogger.error(
+    #                     f"found file with not registered volumen - {val} - {key}"
+    #                 )
+    #             else:
+    #                 _temp[_vol].update({key: val})
+
+    #         shutil.copy(
+    #             str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
+    #         )
+
+    #         with open(LocalStorage.local_storage, "w") as f:
+    #             json.dump(_temp, f)
+
+    #         self._data_from_file = _temp
 
 
 def print_tasks(tasks):
@@ -1788,290 +1953,281 @@ if _SUPPORT_PYSIMP:
 
         logger = logging.getLogger("init_gui_root")
 
-        try:
+        sg.theme("SystemDefaultForReal")
 
-
-            sg.theme("SystemDefaultForReal")
-
-            col_0 = sg.Column(
+        col_0 = sg.Column(
+            [
+                [sg.Text("WAITING TO DL", font="Any 14")],
                 [
-                    [sg.Text("WAITING TO DL", font="Any 14")],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(70, 40),
-                            font=("Courier New Bold", 10),
-                            write_only=True,
-                            key="-ML0-",
-                            autoscroll=True,
-                            auto_refresh=True,
-                        )
-                    ],
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(70, 40),
+                        font=("Courier New Bold", 10),
+                        write_only=True,
+                        key="-ML0-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
                 ],
-                element_justification="l",
-                expand_x=True,
-                expand_y=True,
-            )
+            ],
+            element_justification="l",
+            expand_x=True,
+            expand_y=True,
+        )
 
-            col_00 = sg.Column(
+        col_00 = sg.Column(
+            [
                 [
-                    [
-                        sg.Text(
-                            "Waiting for info",
-                            size=(80, 2),
-                            font=("Courier New Bold", 12),
-                            key="ST",
-                        )
-                    ]
+                    sg.Text(
+                        "Waiting for info",
+                        size=(80, 2),
+                        font=("Courier New Bold", 12),
+                        key="ST",
+                    )
                 ]
-            )
-            col_1 = sg.Column(
+            ]
+        )
+        col_1 = sg.Column(
+            [
+                [sg.Text("NOW DOWNLOADING/CREATING FILE", font="Any 14")],
                 [
-                    [sg.Text("NOW DOWNLOADING/CREATING FILE", font="Any 14")],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(90, 35),
-                            font=("Courier New Bold", 11),
-                            write_only=True,
-                            key="-ML1-",
-                            autoscroll=True,
-                            auto_refresh=True,
-                        )
-                    ],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(90, 5),
-                            font=("Courier New Bold", 10),
-                            write_only=True,
-                            key="-ML3-",
-                            autoscroll=True,
-                            auto_refresh=True,
-                        )
-                    ],
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(90, 35),
+                        font=("Courier New Bold", 11),
+                        write_only=True,
+                        key="-ML1-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
                 ],
-                element_justification="c",
-                expand_x=True,
-                expand_y=True,
-            )
-
-            col_2 = sg.Column(
                 [
-                    [sg.Text("DOWNLOADED/STOPPED/ERRORS", font="Any 14")],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(70, 40),
-                            font=("Courier New Bold", 10),
-                            write_only=True,
-                            key="-ML2-",
-                            autoscroll=True,
-                            auto_refresh=True,
-                        )
-                    ],
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(90, 5),
+                        font=("Courier New Bold", 10),
+                        write_only=True,
+                        key="-ML3-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
                 ],
-                element_justification="r",
-                expand_x=True,
-                expand_y=True,
-            )
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
 
-            layout_root = [[col_00], [col_0, col_1, col_2]]
+        col_2 = sg.Column(
+            [
+                [sg.Text("DOWNLOADED/STOPPED/ERRORS", font="Any 14")],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(70, 40),
+                        font=("Courier New Bold", 10),
+                        write_only=True,
+                        key="-ML2-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+            ],
+            element_justification="r",
+            expand_x=True,
+            expand_y=True,
+        )
 
-            window_root = sg.Window(
-                "async_downloader",
-                layout_root,
-                alpha_channel=0.99,
-                location=(0, 0),
-                finalize=True,
-                resizable=True,
-            )
-            window_root.set_min_size(window_root.size)
+        layout_root = [[col_00], [col_0, col_1, col_2]]
 
-            window_root["-ML0-"].expand(True, True, True)
-            window_root["-ML1-"].expand(True, True, True)
-            window_root["-ML2-"].expand(True, True, True)
-            window_root["-ML3-"].expand(True, True, True)
+        window_root = sg.Window(
+            "async_downloader",
+            layout_root,
+            alpha_channel=0.99,
+            location=(0, 0),
+            finalize=True,
+            resizable=True,
+        )
+        window_root.set_min_size(window_root.size)
 
-            return window_root
+        window_root["-ML0-"].expand(True, True, True)
+        window_root["-ML1-"].expand(True, True, True)
+        window_root["-ML2-"].expand(True, True, True)
+        window_root["-ML3-"].expand(True, True, True)
 
-        except Exception as e:
-            logger.exception(f"[init_gui] error {repr(e)}")
+        return window_root
+
 
     def init_gui_console():
 
         
         logger = logging.getLogger("init_gui_cons")
-        try:
+        
 
 
-            sg.theme("SystemDefaultForReal")
+        sg.theme("SystemDefaultForReal")
 
-            col_pygui = sg.Column(
+        col_pygui = sg.Column(
+            [
+                [sg.Text("Select DL", font="Any 14")],
+                [sg.Input(key="-IN-", font="Any 10", focus=True)],
                 [
-                    [sg.Text("Select DL", font="Any 14")],
-                    [sg.Input(key="-IN-", font="Any 10", focus=True)],
-                    [
-                        sg.Multiline(
-                            size=(50, 12),
-                            font="Any 10",
-                            write_only=True,
-                            key="-ML-",
-                            reroute_cprint=True,
-                            auto_refresh=True,
-                            autoscroll=True,
-                        )
-                    ],
-                    [
-                        sg.Checkbox(
-                            "PauseRep",
-                            key="-PASRES-",
-                            default=False,
-                            enable_events=True,
-                        ),
-                        sg.Checkbox(
-                            "ResRep",
-                            key="-RESETREP-",
-                            default=False,
-                            enable_events=True,
-                        ),
-                        sg.Checkbox(
-                            "WkInit", key="-WKINIT-", default=True, enable_events=True
-                        ),
-                        sg.Button("+PasRes"),
-                        sg.Button("-PasRes"),
-                        sg.Button("DLStatus", key="-DL-STATUS"),
-                        sg.Button("Info"),
-                        sg.Button("ToFile"),
-                        sg.Button("+runwk", key="IncWorkerRun"),
-                        sg.Button("-runwk", key="DecWorkerRun"),
-                        sg.Button("#vidwk", key="NumVideoWorkers"),
-                        sg.Button("TimePasRes"),
-                        sg.Button("Pause"),
-                        sg.Button("Resume"),
-                        sg.Button("Reset"),
-                        sg.Button("Stop"),
-                        sg.Button("Exit"),
-                    ],
+                    sg.Multiline(
+                        size=(50, 12),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML-",
+                        reroute_cprint=True,
+                        auto_refresh=True,
+                        autoscroll=True,
+                    )
                 ],
-                element_justification="c",
-                expand_x=True,
-                expand_y=True,
-            )
+                [
+                    sg.Checkbox(
+                        "PauseRep",
+                        key="-PASRES-",
+                        default=False,
+                        enable_events=True,
+                    ),
+                    sg.Checkbox(
+                        "ResRep",
+                        key="-RESETREP-",
+                        default=False,
+                        enable_events=True,
+                    ),
+                    sg.Checkbox(
+                        "WkInit", key="-WKINIT-", default=True, enable_events=True
+                    ),
+                    sg.Button("+PasRes"),
+                    sg.Button("-PasRes"),
+                    sg.Button("DLStatus", key="-DL-STATUS"),
+                    sg.Button("Info"),
+                    sg.Button("ToFile"),
+                    sg.Button("+runwk", key="IncWorkerRun"),
+                    sg.Button("-runwk", key="DecWorkerRun"),
+                    sg.Button("#vidwk", key="NumVideoWorkers"),
+                    sg.Button("TimePasRes"),
+                    sg.Button("Pause"),
+                    sg.Button("Resume"),
+                    sg.Button("Reset"),
+                    sg.Button("Stop"),
+                    sg.Button("Exit"),
+                ],
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
 
-            layout_pygui = [[col_pygui]]
+        layout_pygui = [[col_pygui]]
 
-            window_console = sg.Window(
-                "Console",
-                layout_pygui,
-                alpha_channel=0.99,
-                location=(0, 500),
-                finalize=True,
-                resizable=True,
-            )
-            window_console.set_min_size(window_console.size)
-            window_console["-ML-"].expand(True, True, True)
+        window_console = sg.Window(
+            "Console",
+            layout_pygui,
+            alpha_channel=0.99,
+            location=(0, 500),
+            finalize=True,
+            resizable=True,
+        )
+        window_console.set_min_size(window_console.size)
+        window_console["-ML-"].expand(True, True, True)
 
-            window_console.bring_to_front()
+        window_console.bring_to_front()
 
-            return window_console
+        return window_console
 
-        except Exception as e:
-            logger.exception(f"[init_gui] error {repr(e)}")
+
 
     def init_gui_rclone():
 
         logger = logging.getLogger("rclone-san")
-        try:
 
-            
 
-            sg.theme("SystemDefaultForReal")
+        sg.theme("SystemDefaultForReal")
 
-            col_00 = sg.Column(
-                [[sg.Text("Waiting for info", size=(150, 2), font="Any 10", key="ST")]]
-            )
+        col_00 = sg.Column(
+            [[sg.Text("Waiting for info", size=(150, 2), font="Any 10", key="ST")]]
+        )
 
-            col_0 = sg.Column(
+        col_0 = sg.Column(
+            [
+                [sg.Text("NOW RCLONE", font="Any 14")],
                 [
-                    [sg.Text("NOW RCLONE", font="Any 14")],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(50, 25),
-                            font="Any 10",
-                            write_only=True,
-                            key="-ML0-",
-                            autoscroll=True,
-                            auto_refresh=True,
-                        )
-                    ],
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(50, 25),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML0-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
                 ],
-                element_justification="c",
-                expand_x=True,
-                expand_y=True,
-            )
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
 
-            col_1 = sg.Column(
+        col_1 = sg.Column(
+            [
+                [sg.Text("NOW MOVING", font="Any 14")],
                 [
-                    [sg.Text("NOW MOVING", font="Any 14")],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(50, 25),
-                            font="Any 10",
-                            write_only=True,
-                            key="-ML1-",
-                            autoscroll=True,
-                            auto_refresh=True,
-                        )
-                    ],
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(50, 25),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML1-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
                 ],
-                element_justification="c",
-                expand_x=True,
-                expand_y=True,
-            )
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
 
-            col_2 = sg.Column(
+        col_2 = sg.Column(
+            [
+                [sg.Text("FINISHED", font="Any 14")],
                 [
-                    [sg.Text("FINISHED", font="Any 14")],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(50, 25),
-                            font="Any 10",
-                            write_only=True,
-                            key="-ML2-",
-                            autoscroll=True,
-                            auto_refresh=True,
-                        )
-                    ],
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(50, 25),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML2-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
                 ],
-                element_justification="c",
-                expand_x=True,
-                expand_y=True,
-            )
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
 
-            layout_root = [[col_00], [col_0, col_1, col_2]]
+        layout_root = [[col_00], [col_0, col_1, col_2]]
 
-            window_root = sg.Window(
-                "rclone",
-                layout_root,
-                alpha_channel=0.99,
-                location=(0, 0),
-                finalize=True,
-                resizable=True,
-            )
-            window_root.set_min_size(window_root.size)
+        window_root = sg.Window(
+            "rclone",
+            layout_root,
+            alpha_channel=0.99,
+            location=(0, 0),
+            finalize=True,
+            resizable=True,
+        )
+        window_root.set_min_size(window_root.size)
 
-            window_root["-ML0-"].expand(True, True, True)
-            window_root["-ML1-"].expand(True, True, True)
-            window_root["-ML2-"].expand(True, True, True)
+        window_root["-ML0-"].expand(True, True, True)
+        window_root["-ML1-"].expand(True, True, True)
+        window_root["-ML2-"].expand(True, True, True)
 
-            return window_root
+        return window_root
 
-        except Exception as e:
-            logger.exception(f"[init_gui] error {repr(e)}")
+
 
 
 def patch_http_connection_pool(**constructor_kwargs):

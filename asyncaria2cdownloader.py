@@ -462,16 +462,17 @@ class AsyncARIA2CDownloader:
             )
 
             async def add_uris()->aria2p.Download:
-                return (await async_ex_in_executor(
-                    self.ex_dl, self.aria2_client.add_uris, self.uris, self.opts
-                ))
+                async with self._decor:
+                    return (await async_ex_in_executor(self.ex_dl, self.aria2_client.add_uris, self.uris, options=self.opts)) # type: ignore
 
 
-            async with self._decor:
-                # self.dl_cont: aria2p.Download = await async_ex_in_executor(
-                #     self.ex_dl, self.aria2_client.add_uris, self.uris, self.opts
-                # )
-                self.dl_cont = await add_uris()
+            # async with self._decor:
+            #     # self.dl_cont: aria2p.Download = await async_ex_in_executor(
+            #     #     self.ex_dl, self.aria2_client.add_uris, self.uris, self.opts
+            #     # )
+            #     self.dl_cont = await add_uris()
+
+            self.dl_cont = await add_uris()
 
             self.async_update = sync_to_async(self.dl_cont.update, self.ex_dl)
             self.async_pause = sync_to_async(
@@ -482,6 +483,11 @@ class AsyncARIA2CDownloader:
             )
             self.async_remove = sync_to_async(
                 partial(self.aria2_client.remove, [self.dl_cont], clean=False),
+                self.ex_dl,
+            )
+
+            self.async_restart = sync_to_async(
+                partial(self.aria2_client.remove, [self.dl_cont], files=True, clean=True),
                 self.ex_dl,
             )
 
@@ -502,14 +508,14 @@ class AsyncARIA2CDownloader:
                 #     or self.video_downloader.reset_event.is_set()
                 # ):
                 #     return
-                if self.dl_cont and (
+                if hasattr(self, 'dl_cont') and (
                     self.dl_cont.total_length or self.dl_cont.status == "complete"
                 ):
                     break
-                if (self.dl_cont and self.dl_cont.status == "error") or (
+                if (hasattr(self, 'dl_cont') and self.dl_cont.status == "error") or (
                     time.monotonic() - _tstart > CONF_ARIA2C_TIMEOUT_INIT
                 ):
-                    if self.dl_cont and self.dl_cont.status == "error":
+                    if hasattr(self, 'dl_cont') and self.dl_cont.status == "error":
                         _msg_error = self.dl_cont.error_message
                     else:
                         _msg_error = "timeout"
@@ -524,11 +530,11 @@ class AsyncARIA2CDownloader:
             ):
                 return
 
-            if self.dl_cont and self.dl_cont.status == "complete":
+            if hasattr(self, 'dl_cont') and self.dl_cont.status == "complete":
                 self._speed.append((datetime.now(), "complete"))
                 self.status = "done"
 
-            elif self.dl_cont and self.dl_cont.total_length:
+            elif hasattr(self, 'dl_cont') and self.dl_cont.total_length:
                 if not self.filesize:
                     self.filesize = self.dl_cont.total_length
                     async with self.video_downloader.alock:
@@ -541,7 +547,7 @@ class AsyncARIA2CDownloader:
                 _msg = f"host: {self._host} proxy: {self._proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
             else:
                 _msg = ""
-            if self.dl_cont and self.dl_cont.status == "error":
+            if hasattr(self, 'dl_cont') and self.dl_cont.status == "error":
                 _msg_error = f"{repr(e)} - {self.dl_cont.error_message}"
             else:
                 _msg_error = repr(e)
@@ -632,7 +638,7 @@ class AsyncARIA2CDownloader:
                     continue
 
                 
-                if "KILL" in _input_speed[0]:
+                if _input_speed[0] == "KILL":
                     break
 
                 if self.block_init:
@@ -717,11 +723,11 @@ class AsyncARIA2CDownloader:
         self.block_init = False
         try:
 
-            while self.dl_cont and self.dl_cont.status in [
+            while (hasattr(self, 'dl_cont') and self.dl_cont.status in [
                 "active",
                 "paused",
                 "waiting",
-            ]:
+            ]):
 
                 try:
 
@@ -795,12 +801,13 @@ class AsyncARIA2CDownloader:
                     if isinstance(e, KeyboardInterrupt):
                         raise
 
-            if self.dl_cont and self.dl_cont.status == "complete":
+
+            if hasattr(self, 'dl_cont') and self.dl_cont.status == "complete":
                 self._speed.append((datetime.now(), "complete"))
                 self.status = "done"
                 return
-            elif self.dl_cont and self.dl_cont.status == "error":
-
+            
+            elif hasattr(self, 'dl_cont') and self.dl_cont.status == "error":
                 raise AsyncARIA2CDLError("error")
 
         except BaseException as e:
@@ -810,7 +817,7 @@ class AsyncARIA2CDownloader:
                 _msg = f"host: {self._host} proxy: {self._proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
             else:
                 _msg = ""
-            if self.dl_cont and self.dl_cont.status == "error":
+            if hasattr(self, 'dl_cont') and self.dl_cont.status == "error":
                 _msg_error = f"{repr(e)} - {self.dl_cont.error_message}"
             else:
                 _msg_error = repr(e)
@@ -840,13 +847,23 @@ class AsyncARIA2CDownloader:
                             return
                         elif self.video_downloader.stop_event.is_set():
                             self._speed.append((datetime.now(), "stop"))
-                            self.status = "stop"
-                            return
+                            #self.status = "stop"
+                            #return
+                            self.video_downloader.stop_event.clear()
+                            self.block_init = True
+                            if hasattr(self, 'dl_cont'):
+                                await self.async_restart()
+                                async with self.video_downloader.alock:
+                                    self.video_downloader.info_dl["down_size"] -= self.down_size
+                                    
+                                self.down_size = 0
+                                
+                                continue
                         elif self.video_downloader.reset_event.is_set():
                             self._speed.append((datetime.now(), "reset"))
                             self.video_downloader.reset_event.clear()
                             self.block_init = True
-                            if self.dl_cont:
+                            if hasattr(self, 'dl_cont'):
                                 await self.async_remove()
                                 continue
                         
@@ -862,13 +879,23 @@ class AsyncARIA2CDownloader:
                                 return
                             elif self.video_downloader.stop_event.is_set():
                                 self._speed.append((datetime.now(), "stop"))
-                                self.status = "stop"
-                                return
+                                #self.status = "stop"
+                                #return
+                                self.video_downloader.stop_event.clear()
+                                self.block_init = True
+                                if hasattr(self, 'dl_cont'):
+                                    await self.async_restart()
+                                    async with self.video_downloader.alock:
+                                        self.video_downloader.info_dl["down_size"] -= self.down_size
+                                    
+                                    self.down_size = 0
+                                
+                                    continue
                             elif self.video_downloader.reset_event.is_set():
                                 self._speed.append((datetime.now(), "reset"))
                                 self.video_downloader.reset_event.clear()
                                 self.block_init = True
-                                if self.dl_cont:
+                                if hasattr(self, 'dl_cont'):
                                     await self.async_remove()
                                     continue
                         finally:
@@ -883,7 +910,7 @@ class AsyncARIA2CDownloader:
                             _msg = f"host: {self._host} proxy: {self._proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
                         else:
                             _msg = ""
-                        if self.dl_cont and self.dl_cont.status == "error":
+                        if hasattr(self, 'dl_cont') and self.dl_cont.status == "error":
                             _msg_error = f"{repr(e)} - {self.dl_cont.error_message}"
                         else:
                             _msg_error = repr(e)
@@ -946,7 +973,7 @@ class AsyncARIA2CDownloader:
                     self.video_downloader.stop_event.is_set(),
                     self.video_downloader.pause_event.is_set(),
                 ]
-            ):
+            ) and hasattr(self, 'dl_cont'):
 
                 _temp = copy.deepcopy(self.dl_cont)
 
