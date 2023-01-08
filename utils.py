@@ -23,7 +23,7 @@ from itertools import zip_longest
 from pathlib import Path
 from queue import Queue
 from bisect import bisect
-from typing import Optional, List, Tuple, Union, Dict, Coroutine, Any, Callable, TypeVar, Awaitable
+from typing import Optional, List, Tuple, Union, Dict, Coroutine, Any, Callable, TypeVar, Awaitable, Iterable
 
 _T = TypeVar('_T', bound=Callable[...,Any])
 
@@ -577,33 +577,69 @@ def wait_time(n, event=None):
 
 
 
-async def async_waitfortask(coro: Coroutine, *, timeout: Union[float, None] = None, events: Union[List[asyncio.Event], Tuple[asyncio.Event, ...], asyncio.Event, None] = None)->dict:
+async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] = None, timeout: Union[float, None] = None, events: Union[Iterable, asyncio.Event, None] = None)->dict:
     
-    _tasks_to_wait = {asyncio.create_task(coro): "task"}
+    _final_wait = {}
+    
+    _tasks = {}
+
+    if fs:
+        
+        if not isinstance(fs, Iterable):
+            fs = [fs]
+        for _el in fs:
+            if not isinstance(_el, asyncio.Task):
+                _el = asyncio.create_task(_el)
+            
+            _tasks.update({_el: "task"})
+
+        _one_task_to_wait_tasks = asyncio.create_task(asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED))
+
+        _final_wait.update({_one_task_to_wait_tasks: "tasks"})
+
     if events:
-        if isinstance(events, (tuple, list)):
-            _tasks_to_wait.update({asyncio.create_task(_event.wait()): "event" for _event in events})
+        if not isinstance(events, Iterable):
+            events = [events]        
+
+        _tasks_events = {asyncio.create_task(event.wait()): "event" for event in events}
+        
+        _final_wait.update(_tasks_events)
            
-        elif isinstance(events, asyncio.Event):           
-            _tasks_to_wait.update({asyncio.create_task(events.wait()): "event"})
+    if not _final_wait:
+        if timeout:
+            _tasks.update({asyncio.create_task(asyncio.sleep(timeout*2)): "task"})
+            _final_wait.update(_tasks)
+        else:
+            return {"timeout": "nothing to await"}
+            
+    done, pending = await asyncio.wait(_final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
 
-    done, pending = await asyncio.wait(_tasks_to_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
-
-    try:
-        for p in pending:
-            p.cancel()
-        if not done: return {"timeout": timeout}
+    res = {}
+    try:        
+        if not done:             
+            res = {"timeout": timeout}
         else:
             _task = done.pop()
-            if _tasks_to_wait.get(_task) == "event":
-                return {"event": _task}
-            else:
-                return {"result": _task.result()}
-    except Exception as e:
-        return {"exception": e}    
+            if _final_wait.get(_task) == "event":
+                res = {"event": _task}
+            elif fs:
+                d, p = _task.result()
+                _results = [_d.result() for _d in d if not _d.exception()]
+                if len(_results) == 1: _results = _results[0] 
+                res = {"result": _results}
+    except Exception as e:        
+        res = {"exception": e}    
     finally:
+        for p in pending:
+            p.cancel()
+        if not res.get("result"):
+            for _task in _tasks:
+                _task.cancel()
+                pending.add(_task)
         if pending:
             await asyncio.wait(pending)
+    
+    return res
 
 
 
@@ -2571,7 +2607,7 @@ def get_videos_cached(*args, **kwargs):
                                                 _link._accessor.utime(
                                                     _link,
                                                     (
-                                                        int(launch_time().timestamp()),
+                                                        int(launch_time.timestamp()),
                                                         file.stat().st_mtime,
                                                     ),
                                                     follow_symlinks=False,
@@ -2596,7 +2632,7 @@ def get_videos_cached(*args, **kwargs):
                                                 _link._accessor.utime(
                                                     _link,
                                                     (
-                                                        int(launch_time().timestamp()),
+                                                        int(launch_time.timestamp()),
                                                         _video_path.stat().st_mtime,
                                                     ),
                                                     follow_symlinks=False,
@@ -2634,7 +2670,7 @@ def get_videos_cached(*args, **kwargs):
                                                 _link._accessor.utime(
                                                     _link,
                                                     (
-                                                        int(launch_time().timestamp()),
+                                                        int(launch_time.timestamp()),
                                                         _file.stat().st_mtime,
                                                     ),
                                                     follow_symlinks=False,
@@ -2649,7 +2685,7 @@ def get_videos_cached(*args, **kwargs):
                                                 _link._accessor.utime(
                                                     _link,
                                                     (
-                                                        int(launch_time().timestamp()),
+                                                        int(launch_time.timestamp()),
                                                         _file.stat().st_mtime,
                                                     ),
                                                     follow_symlinks=False,

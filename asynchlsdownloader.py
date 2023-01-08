@@ -31,8 +31,7 @@ from utils import (
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO,
-    CONFIG_EXTRACTORS,
-    NakedSwordBaseIE,
+    CONFIG_EXTRACTORS,    
     ProgressTimer,
     ProxyYTDL,
     SmoothETA,
@@ -41,6 +40,7 @@ from utils import (
     _for_print_entry,
     async_ex_in_executor,
     async_wait_time,
+    async_wait_until,
     dec_retry_error,
     get_format_id,
     int_or_none,
@@ -54,9 +54,13 @@ from utils import (
     traverse_obj,
     try_get,
     wait_time,
-    YoutubeDL
+    YoutubeDL,
+    myYTDL,
+    async_waitfortasks,
+    Union
 )
 
+from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 
 
@@ -160,10 +164,10 @@ class AsyncHLSDownloader:
             self.error_message = ""
             self.upt = {}
 
-            self._qspeed = None
+            
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
 
-            self._proxy = None
+            #self._proxy = {}
 
             
             self.special_extr: bool = False
@@ -180,9 +184,10 @@ class AsyncHLSDownloader:
                     ),
                 ):
                     self._qproxies.put_nowait((el1, el2))
-
+            
+            _proxies = self._proxy if hasattr(self, '_proxy') else None
             self.init_client = httpx.Client(
-                proxies=self._proxy,
+                proxies=_proxies, # type: ignore
                 follow_redirects=True,
                 headers=self.headers,
                 limits=self.limits,
@@ -201,8 +206,12 @@ class AsyncHLSDownloader:
             self.init_client.close()
 
     def init(self):
-        def getter(x: str):
+        def getter(x: Union[str, None]):
+            
             try:
+                if not x:
+                    self.special_extr = False
+                    return limiter_non.ratelimit("transp", delay=True)
                 if "nakedsword" in x:
                     self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
                     self.auto_pasres = True
@@ -446,7 +455,7 @@ class AsyncHLSDownloader:
 
             self.n_total_fragments = len(self.info_dict["fragments"])
 
-            self.totalduration = self.info_dict.get("duration")
+            self.totalduration = self.info_dict.get("duration", 0) or 0
             if not self.totalduration:
                 self.calculate_duration()  # get total duration
             self.filesize = self.info_dict.get("filesize") or self.info_dict.get(
@@ -568,7 +577,7 @@ class AsyncHLSDownloader:
                 )
 
             if not _info_video:
-                raise ExtractorError("no info video")
+                raise AsyncHLSDLErrorFatal("no info video")
 
             return _info_video
 
@@ -579,7 +588,7 @@ class AsyncHLSDownloader:
     @retry
     def get_reset_info(self, _reset_url, first=False):
             
-        _proxy = self._proxy["http://"] if self._proxy else None
+        _proxy = self._proxy["all://"] if hasattr(self, '_proxy') else None
         _print_proxy = _proxy.split(":")[-1] if _proxy else None
 
         logger.debug(
@@ -587,6 +596,8 @@ class AsyncHLSDownloader:
         )
 
         _info = None
+
+        info_reset = None
 
         if self.fromplns:
             
@@ -688,10 +699,12 @@ class AsyncHLSDownloader:
             
             if self.enproxy:
                 el1, el2 = self._qproxies.get()
+                #_proxy = httpx.Proxy(f"http://127.0.0.1:{CONF_PROXIES_BASE_PORT + el1*100 + el2}")
+                #self._proxy = {"http://": _proxy, "https://": _proxy}
                 _proxy = f"http://127.0.0.1:{CONF_PROXIES_BASE_PORT + el1*100 + el2}"
-                self._proxy = {"http://": _proxy, "https://": _proxy}
+                self._proxy = {"all://": _proxy}
 
-            _wurl = self.info_dict.get("webpage_url")
+            _wurl = self.info_dict["webpage_url"]
 
             if self.fromplns and cause in ("403", "hard"):
 
@@ -721,7 +734,8 @@ class AsyncHLSDownloader:
                     )
                     
                     if _sem._initial_value == 1:
-                        if cause == "403": NakedSwordBaseIE._STATUS = "403"                                               
+                        if cause == "403": 
+                            NakedSwordBaseIE._STATUS = "403"                                               
 
                         NakedSwordBaseIE._API.logout()
                         NakedSwordBaseIE._API.get_auth()
@@ -812,8 +826,9 @@ class AsyncHLSDownloader:
         self.headers = info_reset.get("http_headers")
         self.video_url = info_reset.get("url")
         self.init_client.close()
+        _proxies = self._proxy if hasattr(self, '_proxy') else None
         self.init_client = httpx.Client(
-            proxies=self._proxy,
+            proxies=_proxies, # type: ignore
             follow_redirects=True,
             headers=self.headers,
             limits=self.limits,
@@ -912,32 +927,26 @@ class AsyncHLSDownloader:
         try:
             while True:
 
-                done, pending = await asyncio.wait(
-                    [
-                        _reset := asyncio.create_task(
-                            self.video_downloader.reset_event.wait()
-                        ),
-                        _stop := asyncio.create_task(
-                            self.video_downloader.stop_event.wait()
-                        ),
-                        _qspeed := asyncio.create_task(self._qspeed.get()),
-                    ],
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-
-                for _el in pending:
-                    _el.cancel()
-                if any([_ in done for _ in [_reset, _stop]]):
+                _res = await async_waitfortasks(self._qspeed.get(), events=(self.video_downloader.reset_event, self.video_downloader.stop_event))
+                if _res.get("event"):
                     logger.info(
                         f"{self.premsg}[{self.count}/{self.n_workers}][check_speed] event detected"
                     )
                     self._test.append((f"event detected"))
                     return
-                _input_speed = try_get(list(done), lambda x: x[0].result())
-                if _input_speed == "KILL":
+                elif (_e:=_res.get("exception")):
+                    raise AsyncHLSDLError(f"couldnt get input spped: {repr(_e)}")
+                else:
+                    _input_speed = _res.get("result")
+                    if not _input_speed:
+                        continue
+                
+                if "KILL" in _input_speed:
                     return
 
                 _speed.append(_input_speed)
+
+                nsecs = 20
 
                 if len(_speed) > _num_chunks:
 
@@ -1171,8 +1180,9 @@ class AsyncHLSDownloader:
             f"{self.premsg}[{self.count}/{self.n_workers}]:[worker-{nco}]: init worker"
         )
 
+        _proxies = self._proxy if hasattr(self, '_proxy') else None
         client = httpx.AsyncClient(
-            proxies=self._proxy,
+            proxies=_proxies, # type: ignore
             limits=self.limits,
             follow_redirects=True,
             timeout=self.timeout,
@@ -1185,28 +1195,18 @@ class AsyncHLSDownloader:
             while True:
 
                 try:
-                    done, pending = await asyncio.wait(
-                        [
-                            _reset := asyncio.create_task(
-                                self.video_downloader.reset_event.wait()
-                            ),
-                            _stop := asyncio.create_task(
-                                self.video_downloader.stop_event.wait()
-                            ),
-                            _frags := asyncio.create_task(self.frags_queue.get()),
-                        ],
-                        return_when=asyncio.FIRST_COMPLETED,
-                    )
 
-                    for _el in pending:
-                        _el.cancel()
-                    if any([_ in done for _ in [_reset, _stop]]):
-                        if pending: await asyncio.wait(pending)
+                    _res = await async_waitfortasks(self.frags_queue.get(), events=(self.video_downloader.reset_event, self.video_downloader.stop_event))
+                    if _res.get("event"):
                         return
+                    elif (_e:=_res.get("exception")):
+                        raise AsyncHLSDLError(f"couldnt get frag from queue {repr(_e)}")
+                    else:
+                        q = _res.get("result")
+                        if not q:
+                            continue
 
-                    q = try_get(list(done), lambda x: x[0].result())
-
-                    if q == "KILL":
+                    if "KILL" in q:
                         logger.debug(
                             f"{self.premsg}[{self.count}/{self.n_workers}]:[worker-{nco}]: KILL"
                         )
@@ -1218,23 +1218,7 @@ class AsyncHLSDownloader:
 
                     if self.video_downloader.pause_event.is_set():
                         self._speed.append((datetime.now(), "pause"))
-                        done2, pending2 = await asyncio.wait(
-                            [
-                                asyncio.create_task(
-                                    self.video_downloader.resume_event.wait()
-                                ),
-                                asyncio.create_task(
-                                    self.video_downloader.reset_event.wait()
-                                ),
-                                asyncio.create_task(
-                                    self.video_downloader.stop_event.wait()
-                                ),
-                            ],
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
-
-                        for _el in pending2:
-                            _el.cancel()
+                        await async_waitfortasks(events=(self.video_downloader.resume_event, self.video_downloader.reset_event, self.video_downloader.stop_event))
                         self.video_downloader.pause_event.clear()
                         self.video_downloader.resume_event.clear()
                         self._speed.append((datetime.now(), "resume"))
@@ -1414,23 +1398,8 @@ class AsyncHLSDownloader:
                                                     (datetime.now(), "pause")
                                                 )
 
-                                                done, pending = await asyncio.wait(
-                                                    [
-                                                        asyncio.create_task(
-                                                            self.video_downloader.resume_event.wait()
-                                                        ),
-                                                        asyncio.create_task(
-                                                            self.video_downloader.reset_event.wait()
-                                                        ),
-                                                        asyncio.create_task(
-                                                            self.video_downloader.stop_event.wait()
-                                                        ),
-                                                    ],
-                                                    return_when=asyncio.FIRST_COMPLETED,
-                                                )
-                                                for _el in pending:
-                                                    _el.cancel()
-                                                if pending: await asyncio.wait(pending)
+                                                await async_waitfortasks(events=(self.video_downloader.resume_event, self.video_downloader.reset_event, self.video_downloader.stop_event))
+
                                                 self.video_downloader.pause_event.clear()
                                                 self.video_downloader.resume_event.clear()
                                                 self._speed.append(
@@ -1645,7 +1614,8 @@ class AsyncHLSDownloader:
             _event = traverse_obj(
                 self.video_downloader.info_dl["fromplns"], ("ALL", "reset")
             )
-            await async_ex_in_executor(self.ex_dl, _event.wait)
+            if _event:
+                await async_ex_in_executor(self.ex_dl, _event.wait) # type: ignore
             self.video_downloader.info_dl["fromplns"][self.fromplns]["downloading"].add(
                 self.video_downloader.info_dict["playlist_index"]
             )
@@ -1998,12 +1968,14 @@ class AsyncHLSDownloader:
             f"{self.premsg}[{self.count}/{self.n_workers}]: Fragments DL \n{self.fragsdl()}"
         )
 
+        _skipped = 0
+        
         try:
             logger.debug(
                 f"{self.premsg}[{self.count}/{self.n_workers}]:{self.filename}"
             )
             with open(self.filename, mode="wb") as dest:
-                _skipped = 0
+                
                 for f in self.info_frag:
                     if f.get("skipped", False):
                         _skipped += 1
