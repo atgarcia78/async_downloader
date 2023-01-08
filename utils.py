@@ -184,10 +184,11 @@ class MySem(asyncio.Semaphore):
 
 class MyAsyncioEvent:
     
-    def __init__(self):
-        self.aevent = None
+    def __init__(self, name=None):
+        if name:
+            self.name = name
         self._cause = "noinfo"
-
+        
     
     def set(self, cause: Union[str, None] = "noinfo"):
 
@@ -384,13 +385,6 @@ except Exception:
 
 
 
-try:
-    import filelock
-
-    _SUPPORT_FILELOCK = True
-except Exception:
-    _SUPPORT_FILELOCK = False
-
 
 def _for_print_entry(entry):
     if not entry:
@@ -464,54 +458,20 @@ def sync_to_async(func, exe=None):
         exe = ThreadPoolExecutor()
 
     async def run_in_executor(*args, **kwargs):
-        loop = asyncio.get_event_loop()
+        
         ctx = contextvars.copy_context()        
         pfunc = functools.partial(ctx.run, func, *args, **kwargs)
     
-        return await loop.run_in_executor(exe, pfunc)
+        return await asyncio.get_running_loop().run_in_executor(exe, pfunc)
 
     return run_in_executor
 
 
 async def async_ex_in_executor(executor: ThreadPoolExecutor, func: Callable, /, *args, **kwargs):
     
-    ctx = contextvars.copy_context()
-    _kwargs = {k: v for k, v in kwargs.items() if k != "loop"}
-    func_call = functools.partial(ctx.run, func, *args, **_kwargs)
+    ctx = contextvars.copy_context()    
+    func_call = functools.partial(ctx.run, func, *args, **kwargs)
     return await asyncio.get_running_loop().run_in_executor(executor, func_call)
-
-
-def long_operation_in_thread(func) -> Callable[[Callable], threading.Event]:
-    
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        stop_event = threading.Event()
-        #kwargs["stop_event"] = stop_event
-        thread = threading.Thread(target=func, args=args, kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
-        thread.start()
-        return stop_event
-
-    return wrapper
-
-from multiprocess import Process as MPProcess
-from multiprocess import Queue as MPQueue
-
-
-def long_operation_in_process(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        queue = MPQueue()
-        kwargs["queue"] = queue
-        proc = MPProcess(target=func, args=args, kwargs=kwargs)
-        proc.start()
-        return (proc, queue)
-
-    return wrapper
-
-
-
-
-
 
 from _thread import LockType
 
@@ -531,22 +491,34 @@ async def async_lock(lock):
         finally:
             pass
 
-# @contextlib.asynccontextmanager
-# async def async_lock(lock):
-#     if not isinstance(lock, contextlib.nullcontext):
-#         executor = ThreadPoolExecutor()
-#         loop = asyncio.get_event_loop()
-#         await loop.run_in_executor(executor, lock.acquire)
-#         try:
-#             yield  # the lock is held
-#         finally:
-#             await loop.run_in_executor(executor, lock.release)
-#     else:
-#         try:
-#             yield
-#         finally:
-#             pass
+
+def long_operation_in_thread(func) -> Callable[[Callable], threading.Event]:
     
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        stop_event = threading.Event()
+        thread = threading.Thread(target=func, args=args, kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
+        thread.start()
+        return stop_event
+
+    return wrapper
+
+
+
+from multiprocess import Process as MPProcess
+from multiprocess import Queue as MPQueue
+
+def long_operation_in_process(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        queue = MPQueue()
+        kwargs["queue"] = queue
+        proc = MPProcess(target=func, args=args, kwargs=kwargs)
+        proc.start()
+        return (proc, queue)
+
+    return wrapper
+
 
 
 async def async_wait_time(n: Union[int, float], events: Union[List[asyncio.Event], Tuple[asyncio.Event, ...], asyncio.Event, None] = None):
@@ -576,15 +548,12 @@ def wait_time(n, event=None):
     return
 
 
-
 async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] = None, timeout: Union[float, None] = None, events: Union[Iterable, asyncio.Event, None] = None)->dict:
     
-    _final_wait = {}
-    
+    _final_wait = {}    
     _tasks = {}
 
-    if fs:
-        
+    if fs:        
         if not isinstance(fs, Iterable):
             fs = [fs]
         for _el in fs:
@@ -600,8 +569,13 @@ async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] 
     if events:
         if not isinstance(events, Iterable):
             events = [events]        
+        
+        def getter(ev):
+            if hasattr(ev, 'name'):
+                return f"_{ev.name}"
+            return ""
 
-        _tasks_events = {asyncio.create_task(event.wait()): "event" for event in events}
+        _tasks_events = {asyncio.create_task(event.wait()): f"event{getter(event)}" for event in events}
         
         _final_wait.update(_tasks_events)
            
@@ -620,8 +594,16 @@ async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] 
             res = {"timeout": timeout}
         else:
             _task = done.pop()
-            if _final_wait.get(_task) == "event":
-                res = {"event": _task}
+            _label = _final_wait.get(_task)
+            if _label.startswith("event"):
+                
+                def getname(x, task):
+                    if "event_" in x:
+                        return x.split("event_")[1]
+                    else: return task
+
+                res = {"event": getname(_label, _task)}
+
             elif fs:
                 d, p = _task.result()
                 _results = [_d.result() for _d in d if not _d.exception()]
@@ -898,8 +880,11 @@ def init_argparser():
     if args.vv:
         args.verbose = True
 
+    args.enproxy = True
     if args.proxy == "no":
-        args.proxy = 0
+        args.enproxy = False
+        args.proxy = None
+    
 
     if args.dlcaching:
         args.nodlcaching = False
@@ -1277,10 +1262,10 @@ if _SUPPORT_YTDL:
     from yt_dlp import YoutubeDL
 
     class myYTDL(YoutubeDL):
-        def __init__(self, **kwargs):
-            self.close: bool = kwargs.get("close", True)
-            self.executor: ThreadPoolExecutor = kwargs.get("executor", ThreadPoolExecutor())
-            super().__init__(**kwargs)
+        def __init__(self, *args, **kwargs):
+            self.close: bool = kwargs["close"] if "close" in kwargs else True
+            self.executor: ThreadPoolExecutor = kwargs["executor"] if "executor" in kwargs else ThreadPoolExecutor()
+            super().__init__(*args, **kwargs)
 
         def __enter__(self):
             return self
@@ -1317,15 +1302,17 @@ if _SUPPORT_YTDL:
         def process_ie_result(self, *args, **kwargs)->dict:
             return super().process_ie_result(*args, **kwargs)
         
+        
         def sanitize_info(self, *args, **kwargs)->dict:
-            return super().sanitize_info(*args, **kwargs)
+            return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore 
+       
         
         async def async_extract_info(self, *args, **kwargs)->dict:
-            return await async_ex_in_executor(self.executor, self.extract_info, *args, **kwargs)
+            return await async_ex_in_executor(self.executor, self.extract_info, *args, **kwargs)  # type: ignore 
             
         
         async def async_process_ie_result(self, *args, **kwargs)->dict:
-            return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)
+            return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)  # type: ignore 
 
             
 
@@ -1419,7 +1406,7 @@ if _SUPPORT_YTDL:
         logger = logging.getLogger("yt_dlp")
 
         proxy = None
-        if args.proxy and args.proxy != 0:
+        if args.proxy:
             sch = args.proxy.split("://")
             if len(sch) == 2:
                 if sch[0] != "http":
@@ -1566,221 +1553,117 @@ if _SUPPORT_YTDL:
         return _ord_res_dict
 
 
-if _SUPPORT_FILELOCK:
 
-    from filelock import FileLock
+from filelock import FileLock
 
 class LocalStorage:
 
-        lslogger = logging.getLogger("LocalStorage")
-        lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
-        local_storage = Path(PATH_LOGS, "files_cached.json")
-        prev_local_storage = Path(PATH_LOGS, "prev_files_cached.json")
+    lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
+    local_storage = Path(PATH_LOGS, "files_cached.json")
+    prev_local_storage = Path(PATH_LOGS, "prev_files_cached.json")
 
-        config_folders = {
-            "local": Path(Path.home(), "testing"),
-            "pandaext4": Path("/Volumes/Pandaext4/videos"),
-            "datostoni": Path("/Volumes/DatosToni/videos"),
-            "wd1b": Path("/Volumes/WD1B/videos"),
-            "wd5": Path("/Volumes/WD5/videos"),
-            "wd8_1": Path("/Volumes/WD8_1/videos"),
-            "wd8_2": Path("/Volumes/WD8_2/videos"),
+    config_folders = {
+        "local": Path(Path.home(), "testing"),
+        "pandaext4": Path("/Volumes/Pandaext4/videos"),
+        "datostoni": Path("/Volumes/DatosToni/videos"),
+        "wd1b": Path("/Volumes/WD1B/videos"),
+        "wd5": Path("/Volumes/WD5/videos"),
+        "wd8_1": Path("/Volumes/WD8_1/videos"),
+        "wd8_2": Path("/Volumes/WD8_2/videos"),
+    }
+
+    def __init__(self):
+
+        self._data_from_file = {}  # data struct per vol
+        self._data_for_scan = {}  # data ready for scan
+        self._last_time_sync = {}
+        self.logger = logging.getLogger("LocalStorage")
+
+    @lock
+    def load_info(self):
+
+        with open(LocalStorage.local_storage, "r") as f:
+            self._data_from_file = json.load(f)
+
+        for _key, _data in self._data_from_file.items():
+            if _key in list(LocalStorage.config_folders.keys()):
+                self._data_for_scan.update(_data)
+            elif "last_time_sync" in _key:
+                self._last_time_sync.update(_data)
+            else:
+                self.logger.error(
+                    f"found key not registered volumen - {_key}"
+                )
+
+    @lock
+    def dump_info(self, videos_cached, last_time_sync):
+        
+        def getter(x):
+            if "Pandaext4/videos" in x:
+                return "pandaext4"
+            elif "WD5/videos" in x:
+                return "wd5"
+            elif "WD1B/videos" in x:
+                return "wd1b"
+            elif "antoniotorres/testing" in x:
+                return "local"
+            elif "DatosToni/videos" in x:
+                return "datostoni"
+            elif "WD8_1/videos" in x:
+                return "wd8_1"
+            elif "WD8_2/videos" in x:
+                return "wd8_2"
+
+        if videos_cached:
+            self._data_for_scan = videos_cached.copy()
+        if last_time_sync:
+            self._last_time_sync = last_time_sync.copy()
+
+        _temp = {
+            "last_time_sync": {},
+            "local": {},
+            "wd5": {},
+            "wd1b": {},
+            "pandaext4": {},
+            "datostoni": {},
+            "wd8_1": {},
+            "wd8_2": {},
         }
 
-        def __init__(self, paths=None):
+        _temp.update({"last_time_sync": last_time_sync})
 
-            self._data_from_file = {}  # data struct per vol
-            self._data_for_scan = {}  # data ready for scan
-            self._last_time_sync = {}
+        for key, val in videos_cached.items():
 
-            if paths:
-                if not isinstance(paths, list):
-                    paths = [paths]
+            _vol = getter(val)
+            if not _vol:
+                self.logger.error(
+                    f"found file with not registered volumen - {val} - {key}"
+                )
+            else:
+                _temp[_vol].update({key: val})
 
-                LocalStorage.config_folders.extend(paths)
+        shutil.copy(
+            str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
+        )
 
-        @lock
-        def load_info(self):
+        with open(LocalStorage.local_storage, "w") as f:
+            json.dump(_temp, f)
 
-            with open(LocalStorage.local_storage, "r") as f:
-                self._data_from_file = json.load(f)
-
-            for _key, _data in self._data_from_file.items():
-                if _key in list(LocalStorage.config_folders.keys()):
-                    self._data_for_scan.update(_data)
-                elif "last_time_sync" in _key:
-                    self._last_time_sync.update(_data)
-                else:
-                    LocalStorage.lslogger.error(
-                        f"found key not registered volumen - {_key}"
-                    )
-
-        @lock
-        def dump_info(self, videos_cached, last_time_sync):
-            def getter(x):
-                if "Pandaext4/videos" in x:
-                    return "pandaext4"
-                elif "WD5/videos" in x:
-                    return "wd5"
-                elif "WD1B/videos" in x:
-                    return "wd1b"
-                elif "antoniotorres/testing" in x:
-                    return "local"
-                elif "DatosToni/videos" in x:
-                    return "datostoni"
-                elif "WD8_1/videos" in x:
-                    return "wd8_1"
-                elif "WD8_2/videos" in x:
-                    return "wd8_2"
-
-            if videos_cached:
-                self._data_for_scan = videos_cached.copy()
-            if last_time_sync:
-                self._last_time_sync = last_time_sync.copy()
-
-            _temp = {
-                "last_time_sync": {},
-                "local": {},
-                "wd5": {},
-                "wd1b": {},
-                "pandaext4": {},
-                "datostoni": {},
-                "wd8_1": {},
-                "wd8_2": {},
-            }
-
-            _temp.update({"last_time_sync": last_time_sync})
-
-            for key, val in videos_cached.items():
-
-                _vol = getter(val)
-                if not _vol:
-                    LocalStorage.lslogger.error(
-                        f"found file with not registered volumen - {val} - {key}"
-                    )
-                else:
-                    _temp[getter(val)].update({key: val})
-
-            shutil.copy(
-                str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
-            )
-
-            with open(LocalStorage.local_storage, "w") as f:
-                json.dump(_temp, f)
-
-            self._data_from_file = _temp
-
-    # class LocalStorage:
-
-    #     lslogger = logging.getLogger("LocalStorage")
-    #     lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
-    #     local_storage = Path(PATH_LOGS, "files_cached.json")
-    #     prev_local_storage = Path(PATH_LOGS, "prev_files_cached.json")
-
-    #     config_folders = {
-    #         "local": Path(Path.home(), "testing"),
-    #         "pandaext4": Path("/Volumes/Pandaext4/videos"),
-    #         "datostoni": Path("/Volumes/DatosToni/videos"),
-    #         "wd1b": Path("/Volumes/WD1B/videos"),
-    #         "wd5": Path("/Volumes/WD5/videos"),
-    #         "wd8_1": Path("/Volumes/WD8_1/videos"),
-    #         "wd8_2": Path("/Volumes/WD8_2/videos"),
-    #     }
-
-    #     def __init__(self):
-
-    #         self._data_from_file = {}  # data struct per vol
-    #         self._data_for_scan = {}  # data ready for scan
-    #         self._last_time_sync = {}
-
-    #     @lock
-    #     def load_info(self):
-
-    #         with open(LocalStorage.local_storage, "r") as f:
-    #             self._data_from_file = json.load(f)
-
-    #         for _key, _data in self._data_from_file.items():
-    #             if _key in list(LocalStorage.config_folders.keys()):
-    #                 self._data_for_scan.update(_data)
-    #             elif "last_time_sync" in _key:
-    #                 self._last_time_sync.update(_data)
-    #             else:
-    #                 LocalStorage.lslogger.error(
-    #                     f"found key not registered volumen - {_key}"
-    #                 )
-
-    #     @lock
-    #     def dump_info(self, videos_cached, last_time_sync):
-    #         def getter(x):
-    #             if "Pandaext4/videos" in x:
-    #                 return "pandaext4"
-    #             elif "WD5/videos" in x:
-    #                 return "wd5"
-    #             elif "WD1B/videos" in x:
-    #                 return "wd1b"
-    #             elif "antoniotorres/testing" in x:
-    #                 return "local"
-    #             elif "DatosToni/videos" in x:
-    #                 return "datostoni"
-    #             elif "WD8_1/videos" in x:
-    #                 return "wd8_1"
-    #             elif "WD8_2/videos" in x:
-    #                 return "wd8_2"
-
-    #         if videos_cached:
-    #             self._data_for_scan = videos_cached.copy()
-    #         if last_time_sync:
-    #             self._last_time_sync = last_time_sync.copy()
-
-    #         _temp = {
-    #             "last_time_sync": {},
-    #             "local": {},
-    #             "wd5": {},
-    #             "wd1b": {},
-    #             "pandaext4": {},
-    #             "datostoni": {},
-    #             "wd8_1": {},
-    #             "wd8_2": {},
-    #         }
-
-    #         _temp.update({"last_time_sync": last_time_sync})
-
-    #         for key, val in videos_cached.items():
-
-    #             _vol = getter(val)
-    #             if not _vol:
-    #                 LocalStorage.lslogger.error(
-    #                     f"found file with not registered volumen - {val} - {key}"
-    #                 )
-    #             else:
-    #                 _temp[_vol].update({key: val})
-
-    #         shutil.copy(
-    #             str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
-    #         )
-
-    #         with open(LocalStorage.local_storage, "w") as f:
-    #             json.dump(_temp, f)
-
-    #         self._data_from_file = _temp
+        self._data_from_file = _temp
 
 
 def print_tasks(tasks):
-    # return [f"{task.get_name()} : {str(task.get_coro()).split(' ')[0]}\n" for task in tasks]
     return "\n".join(
         [f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks]
     )
-
 
 def print_threads(threads):
     return "\n".join(
         [f"{thread.getName()} : {repr(thread._target)}" for thread in threads]
     )
 
-
 def none_to_zero(item):
     return 0 if not item else item
-
 
 def get_chain_links(f):
     _links = []
@@ -1798,11 +1681,11 @@ def get_chain_links(f):
 
 def kill_processes(logger=None, rpcport=None):
 
+    def _log(msg):
+        logger.info(msg) if logger else print(msg)
+    
     try:
-
-        def _log(msg):
-            logger.info(msg) if logger else print(msg)
-
+        
         term = (
             (subprocess.run(["tty"], encoding="utf-8", capture_output=True).stdout)
             .splitlines()[0]
@@ -2093,7 +1976,6 @@ if _SUPPORT_PYSIMP:
 
         return window_root
 
-
     def init_gui_console():
 
         
@@ -2171,8 +2053,6 @@ if _SUPPORT_PYSIMP:
         window_console.bring_to_front()
 
         return window_console
-
-
 
     def init_gui_rclone():
 
@@ -2262,9 +2142,6 @@ if _SUPPORT_PYSIMP:
         window_root["-ML2-"].expand(True, True, True)
 
         return window_root
-
-
-
 
 def patch_http_connection_pool(**constructor_kwargs):
     """
@@ -2481,6 +2358,9 @@ def compute_prefix(match):
 def _open_vpn(func):
     @functools.wraps(func)
     def wrapper(self, *args, **kwargs):
+        
+        relaunch = False
+
         try:
             _proc = subprocess.run(["pkill", "TorGuardDesktopQt"])
             relaunch = _proc.returncode == 0
@@ -2495,7 +2375,7 @@ def _open_vpn(func):
                 time.sleep(1)
                 cont += 1
                 if cont == 15:
-                    raise ExtractorError("openvpn couldnt get started")
+                    raise Exception("openvpn couldnt get started")
             _ip = try_get(
                 self._download_json("https://api.ipify.org?format=json", None),
                 lambda x: x.get("ip"),
@@ -2520,7 +2400,7 @@ def get_videos_cached(*args, **kwargs):
         If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.    
         """
 
-    queue = kwargs.get("queue")
+    queue = kwargs["queue"]
 
     local_storage = LocalStorage()
 

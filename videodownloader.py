@@ -112,13 +112,12 @@ class VideoDownloader:
         })
         
 
-        self.pause_event = MyAsyncioEvent()
-        self.resume_event = MyAsyncioEvent()
-        self.stop_event = MyAsyncioEvent()
-        self.end_tasks = MyAsyncioEvent()
-        self.reset_event = MyAsyncioEvent()
-        self.on_hold_event = MyAsyncioEvent() 
-        
+        self.pause_event = MyAsyncioEvent("pause")
+        self.resume_event = MyAsyncioEvent("resume")
+        self.stop_event = MyAsyncioEvent("stop")
+        self.end_tasks = MyAsyncioEvent("end_tasks")
+        self.reset_event = MyAsyncioEvent("reset")
+        self.on_hold_event = MyAsyncioEvent("on_hold")         
         
         self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
 
@@ -190,15 +189,11 @@ class VideoDownloader:
             for n, info in enumerate(_info):        
             
                 dl = None
-                
                 protocol = determine_protocol(info)
-                            
                 if protocol in ('http', 'https'):
                     if self.info_dl['rpcport'] and (info.get('extractor_key').lower() not in FORCE_TO_HTTP):
-                                        
                         try:
-                                        
-                            dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], self.args.proxy, info, self)
+                            dl = AsyncARIA2CDownloader(self.info_dl['rpcport'], self.args.enproxy, info, self)
                             logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type ARIA2C")
                             if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                         except Exception as e:
@@ -216,7 +211,7 @@ class VideoDownloader:
                         if dl.auto_pasres: self.info_dl.update({'auto_pasres': True}) 
                                         
                 elif protocol in ('m3u8', 'm3u8_native'):
-                    dl = AsyncHLSDownloader(self.args.proxy, info, self)
+                    dl = AsyncHLSDownloader(self.args.enproxy, info, self)
                     logger.debug(f"[{info['id']}][{info['title']}][{info['format_id']}][get_dl] DL type HLS")
                     if dl.auto_pasres: self.info_dl.update({'auto_pasres': True})
                                 

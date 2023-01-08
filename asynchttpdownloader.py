@@ -41,7 +41,8 @@ from utils import (
     smuggle_url,
     my_dec_on_exception,
     get_format_id,
-    sync_to_async
+    sync_to_async,
+    myYTDL
 )
 
 
@@ -84,11 +85,11 @@ class AsyncHTTPDownloader:
         self.info_dict = video_dict.copy()
         self.video_downloader = vid_dl
 
-        self.video_url = self.info_dict.get("url")
+        self.video_url = self.info_dict["url"]
 
         self.uris = [unquote(self.video_url)]
 
-        self.ytdl = traverse_obj(self.video_downloader.info_dl, ("ytdl"))
+        self.ytdl: myYTDL = self.video_downloader.info_d["ytdl"]
 
         self.proxies = None
 
@@ -151,14 +152,21 @@ class AsyncHTTPDownloader:
 
         self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_httpdl")
 
+        self.special_extr: bool = False
+
+        self.n_parts: int = self.video_downloader.info_dl.get("n_workers", 16)
+
         self.init()
 
     def init(self):
 
         try:
-
             def getter(x):
-
+                if not x:
+                    return (
+                        limiter_non.ratelimit("transp", delay=True),
+                        self.n_parts
+                    )
                 value, key_text = try_get(
                     [
                         (v, kt)
@@ -174,17 +182,12 @@ class AsyncHTTPDownloader:
                         value["maxsplits"],
                     )
                 else:
-                    self.special_extr = False
+                    
                     return (
                         limiter_non.ratelimit("transp", delay=True),
                         self.n_parts
                     )
-
-
-            self.n_parts = traverse_obj(
-                self.video_downloader.info_dl, ("n_workers"), default=16
-            )
-
+            
             _extractor = self.info_dict.get("extractor_key").lower()
             self.auto_pasres = False
             _sem = False
@@ -215,8 +218,6 @@ class AsyncHTTPDownloader:
                         self.ytdl.params["sem"].update({self._host: _temp})
 
                 self.sem = _temp
-
-                #self.sem.acquire()
 
             else:
                 self.sem = contextlib.nullcontext()
@@ -252,9 +253,6 @@ class AsyncHTTPDownloader:
             self.status = "error"
             self.error_message = repr(e)
             raise
-        # finally:
-        #     if self.sem:
-        #         self.sem.release()
 
     def check_server(self):
         @dec_retry_error
