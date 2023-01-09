@@ -676,8 +676,8 @@ class AsyncARIA2CDownloader:
                             return
                         elif self.video_downloader.stop_event.is_set():
                             self._speed.append((datetime.now(), "stop"))
-                            #self.status = "stop"
-                            #return
+                            if self.status == "stop":
+                                return
                             self.video_downloader.stop_event.clear()
                             self.block_init = True
                             if hasattr(self, 'dl_cont'):
@@ -708,8 +708,8 @@ class AsyncARIA2CDownloader:
                                 return
                             elif self.video_downloader.stop_event.is_set():
                                 self._speed.append((datetime.now(), "stop"))
-                                #self.status = "stop"
-                                #return
+                                if self.status == "stop":
+                                    return
                                 self.video_downloader.stop_event.clear()
                                 self.block_init = True
                                 if hasattr(self, 'dl_cont'):

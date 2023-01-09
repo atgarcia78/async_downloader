@@ -318,12 +318,19 @@ class VideoDownloader:
                     for _t in _tasks_all: _t.cancel()
                 else: _el.cancel()
 
-    async def stop(self):
+    async def stop(self, cause=None):
         try:
-            if not 'aria2' in str(type(self.info_dl['downloaders'][0])).lower():
+            if not cause:
+                if not 'aria2' in str(type(self.info_dl['downloaders'][0])).lower():
+                    self.info_dl['status'] = "stop"
+                    for dl in self.info_dl['downloaders']:
+                        dl.status = "stop"
+            
+            elif cause == "exit":
                 self.info_dl['status'] = "stop"
                 for dl in self.info_dl['downloaders']:
                     dl.status = "stop"
+
             #if self.stop_event:
                 #if self.pause_event.is_set():
                 #    self.resume_event.set()            

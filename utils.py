@@ -1160,9 +1160,8 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
 
     logger.info(f"[init_proxies] start")
 
-    subprocess.run(["flush-dns"])
+    #subprocess.run(["flush-dns"])
 
-    
     IPS_SSL = []
     CONF_PROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_PROXIES_COUNTRIES]
     for domain in CONF_PROXIES_DOMAINS:
@@ -1247,14 +1246,16 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
 
         logger.info("[init_proxies] done")
         return proc_gost, routing_table
-    except Exception:
+    except Exception as e:
+        logger.exception(repr(e))
+    
         if proc_gost:
             for proc in proc_gost:
                 try:
                     proc.kill()
                 except Exception as e:
                     pass
-        raise
+        
 
 
 if _SUPPORT_YTDL:
@@ -1579,7 +1580,7 @@ class LocalStorage:
         self._last_time_sync = {}
         self.logger = logging.getLogger("LocalStorage")
 
-    @lock
+    
     def load_info(self):
 
         with open(LocalStorage.local_storage, "r") as f:
@@ -1595,7 +1596,7 @@ class LocalStorage:
                     f"found key not registered volumen - {_key}"
                 )
 
-    @lock
+    
     def dump_info(self, videos_cached, last_time_sync):
         
         def getter(x):

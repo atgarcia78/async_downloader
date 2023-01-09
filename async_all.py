@@ -14,9 +14,10 @@ logger = logging.getLogger("async_all")
 
 def main():
     
+    asyncDL = None
+    
     try:
-
-        asyncDL = None
+        
         patch_http_connection_pool(maxsize=1000)
         patch_https_connection_pool(maxsize=1000)
         os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
@@ -32,10 +33,9 @@ def main():
 
             try:
                 uvloop.install()
-                asyncDL.loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(asyncDL.loop)
-                asyncDL.main_task = asyncDL.loop.create_task(asyncDL.async_ex())                  
-                asyncDL.loop.run_until_complete(asyncDL.main_task)
+                loop = asyncio.get_event_loop()                
+                asyncDL.main_task = loop.create_task(asyncDL.async_ex())                  
+                loop.run_until_complete(asyncDL.main_task)
                 asyncDL.get_results_info()
             except BaseException as e:
                 logger.exception(f"[main] {repr(e)}")
@@ -50,7 +50,6 @@ def main():
     finally:
         if asyncDL:
             asyncDL.close()
-
     
 
 if __name__ == "__main__":
