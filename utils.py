@@ -492,11 +492,11 @@ async def async_lock(lock):
             pass
 
 
-def long_operation_in_thread(func) -> Callable[[Callable], threading.Event]:
+def long_operation_in_thread(func) -> Callable[[Callable], asyncio.Event]:
     
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        stop_event = threading.Event()
+        stop_event = asyncio.Event()
         thread = threading.Thread(target=func, args=args, kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
         thread.start()
         return stop_event
@@ -928,38 +928,44 @@ if _SUPPORT_ARIA2P:
     def init_aria2c(args):
 
         logger = logging.getLogger("asyncDL")
-        res = subprocess.run(
-            ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
-            encoding="utf-8",
-            capture_output=True,
-        ).stdout
-        mobj = re.findall(r"aria2c.+--rpc-listen-port ([^ ]+).+", res)
-        if mobj:
-            if str(args.rpcport) in mobj:
-                mobj.sort()
-                args.rpcport = int(mobj[-1]) + 100
-
-        _proc = subprocess.Popen(
-            f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=True,
-        )
         
-        if _proc.stdout:
-            sem = True
-            while sem:
-                _proc.poll()
-                for line in _proc.stdout:
-                    _line = line.decode("utf-8").strip()
-                    if _line:
-                        sem = False
-                    break
+        try:
+            
+            res = subprocess.run(
+                ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
+                encoding="utf-8",
+                capture_output=True,
+            ).stdout
+            mobj = re.findall(r"aria2c.+--rpc-listen-port ([^ ]+).+", res)
+            if mobj:
+                if str(args.rpcport) in mobj:
+                    mobj.sort()
+                    args.rpcport = int(mobj[-1]) + 100
+
+            _proc = subprocess.Popen(
+                f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True,
+            )
+            
+            # if _proc.stdout:
+            #     sem = True
+            #     while sem:
+            #         _proc.poll()
+            #         for line in _proc.stdout:
+            #             _line = line.decode("utf-8").strip()
+            #             if _line:
+            #                 sem = False
+            #             break
+            _proc.poll()
 
 
-        logger.info(f"aria2c running on port: {args.rpcport} ")
+            logger.info(f"[init_aria2c] {_proc} - running on port: {args.rpcport} ")
 
-        return _proc
+            return _proc
+        except Exception as e:
+            logger.exception(f"[init_aria2] {repr(e)}")
 
 
 

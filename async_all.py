@@ -30,10 +30,10 @@ def main():
         asyncDL = AsyncDL(args)        
 
         try:
-
             try:
                 uvloop.install()
-                loop = asyncio.get_event_loop()                
+                asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+                loop = asyncio.get_event_loop()                               
                 asyncDL.main_task = loop.create_task(asyncDL.async_ex())                  
                 loop.run_until_complete(asyncDL.main_task)
                 asyncDL.get_results_info()

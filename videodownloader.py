@@ -331,12 +331,10 @@ class VideoDownloader:
                 for dl in self.info_dl['downloaders']:
                     dl.status = "stop"
 
-            #if self.stop_event:
-                #if self.pause_event.is_set():
-                #    self.resume_event.set()            
-                #self.stop_event.set()
+            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop - {cause}")
+            
             self.stop_event.set()
-            logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: stop")
+                    
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {repr(e)}")
 

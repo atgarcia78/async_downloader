@@ -95,7 +95,6 @@ class WorkersRun:
     
     async def add_dl(self, dl, url_key):
         
-        
         await dl.async_init()
         
         async with self.alock:
@@ -106,7 +105,6 @@ class WorkersRun:
                 self._start_task(dl, url_key)
         
     def _start_task(self, dl, url_key):
-        #self.logger.debug(f"[{url_key}] start task {self.tasks}")
         self.running.add((dl, url_key))
         self.tasks.update({asyncio.create_task(self._task(dl, url_key)): dl})
         self.logger.debug(f"[{url_key}] task ok {self.tasks}")
@@ -145,24 +143,20 @@ class WorkersRun:
                 self.exit.set()
 
 
-
 class WorkersInit:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
-        self.max = self.asyncdl.init_nworkers
-        
+        self.max = self.asyncdl.init_nworkers        
         self.running = set()        
         self.waiting = deque()
         self.tasks = {}        
         self.lock = Lock()
         self.exit = asyncio.Event()
-
         self.logger = logging.getLogger("WorkersInit")
 
     @property
     def running_count(self):
-        return len(self.running)
-    
+        return len(self.running)    
     
     def add_init(self, url_key):
         
@@ -207,11 +201,9 @@ class FrontEndGUI:
         self.pasres_repeat = False
         self.pasres_time_from_resume_to_pause = 20
         self.pasres_time_in_pause = 1
-
         self.reset_repeat = False
         self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
-        #self.window_root = None
-        #self.window_console = None
+
     
     def close(self):
         if hasattr(self, 'window_console') and self.window_console:
@@ -223,8 +215,7 @@ class FrontEndGUI:
     
     async def gui_root(self, event, values):
 
-        try:
-        
+        try:        
             if "kill" in event or event == sg.WIN_CLOSED:
                 return "break"
             elif event == "nwmon":
@@ -391,7 +382,7 @@ class FrontEndGUI:
             
             else:
                 _index_list = []
-                if (_values:=values.get(event)):
+                if (_values:=values.get(event)): #from thread pasres
                     _index_list = [int(el) for el in _values.split(',')]
                 elif (not (_values:=values["-IN-"]) or _values.lower() == "all"):
                     _index_list = [int(dl.index) for _,dl in self.asyncdl.list_dl.items()]
@@ -440,28 +431,26 @@ class FrontEndGUI:
     async def gui(self):
 
         try:
-            
             self.stop = asyncio.Event()
             self.window_console = init_gui_console()
             self.window_root = init_gui_root()
-
             await asyncio.sleep(0)
-           
+
             while not self.stop.is_set():
-                
+
                 window, event, values = sg.read_all_windows(timeout=0)
 
                 if not window or not event or event == sg.TIMEOUT_KEY:
                     await asyncio.sleep(0)
                     continue
 
-                _res = None
+                _res = []
                 if window == self.window_console:
-                    _res = await self.gui_console(event, values)                    
+                    _res.append(await self.gui_console(event, values))                    
                 elif window == self.window_root:
-                    _res = await self.gui_root(event, values)
+                    _res.append(await self.gui_root(event, values))
                 
-                if _res == "break":
+                if "break" in _res:
                     break
 
                 await asyncio.sleep(0)
@@ -564,7 +553,6 @@ class FrontEndGUI:
     def pasres_periodic(self, *args, **kwargs):
 
         self.logger.debug("[pasres_periodic] START")
-
         stop_event = kwargs["stop_event"]
 
         try:
@@ -574,24 +562,14 @@ class FrontEndGUI:
                     _list := list(self.asyncdl.list_pasres)
                 ):
                     if not self.reset_repeat:
-                        #for _index in _list:
-                            #self.asyncdl.loop.create_task(self.asyncdl.list_dl[_index].pause())
                         self.window_console.write_event_value("Pause", ','.join(list(map(str,_list))))
 
                         wait_time(self.pasres_time_in_pause, event=stop_event)
-
-                        #for _index in _list:
-                        #    self.asyncdl.loop.create_task(self.asyncdl.list_dl[_index].resume())
-
                         self.window_console.write_event_value("Resume", ','.join(list(map(str,_list))))
-
-
                         wait_time(
                             self.pasres_time_from_resume_to_pause, event=stop_event
                         )
                     else:
-                        #for _index in _list:
-                        #    self.asyncdl.loop.create_task(self.asyncdl.list_dl[_index].reset("manual"))
                         self.window_console.write_event_value("Reset",','.join(list(map(str,_list))))
                         wait_time(
                             self.pasres_time_from_resume_to_pause, event=stop_event
@@ -607,6 +585,7 @@ class FrontEndGUI:
 
 
 class AsyncDL:
+
     def __init__(self, args):
 
         # args
@@ -663,18 +642,12 @@ class AsyncDL:
             logger=logger.info,
         )
 
-               
-
-        # self.videos_cached_ready = self.get_videos_cached()
+        self.routing_table = {}
+        self.proc_gost = []
+        if not self.args.nodl:            
+            if self.args.enproxy:
+                self.stop_proxy = self.run_proxy_http()
         
-        # if not self.args.nodl:            
-        #     if self.args.enproxy:
-        #         self.stop_proxy = self.run_proxy_http()
-        #         self.init_proxies_ready = self.start_proxies()                
-        #     if self.args.aria2c:
-        #         self.init_aria2c_ready = self.start_aria2c()
-        
-
     @property
     def main_task(self):
         return self._main_task
@@ -684,39 +657,6 @@ class AsyncDL:
         self._main_task: asyncio.Task = task
     
     
-
-    
-    @long_operation_in_thread
-    def start_aria2c(self, *args, **kwargs):
-        
-        _ready: Event = kwargs["stop_event"]
-        try:    
-            logger.info("[start_aria2c] init aria2c")        
-            self.proc_aria2c = init_aria2c(self.args)
-            logger.info("[start_aria2c] aria2c ready")
-            logger.debug(f"[start_aria2c] ytdl_params:\n{self.ytdl.params}")
-        except Exception as e:
-            logger.exception(f"[start_aria2c] {repr(e)}")
-            
-        finally:
-            _ready.set()
-
-    @long_operation_in_thread
-    def start_proxies(self, *args, **kwargs):
-
-        _ready: Event = kwargs["stop_event"]
-        try:            
-            logger.info("[start_proxies] init proxies")
-            self.proc_gost, self.routing_table = init_proxies(
-                CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT
-            )
-            logger.info("[start_proxies] proxies ready")
-            if self.routing_table: self.ytdl.params["routing_table"] = self.routing_table            
-        except Exception as e:
-            logger.exception(f"[start_proxies] {repr(e)}")            
-        finally:
-            _ready.set()
-
     @long_operation_in_thread
     def run_proxy_http(self, *args, **kwargs):
         
@@ -739,15 +679,15 @@ class AsyncDL:
             except BaseException:
                 logger.error("context manager proxy")
 
-    @long_operation_in_thread
-    def get_videos_cached(self, *args, **kwargs):
+    
+    def get_videos_cached(self):
 
         """
         In local storage, files are saved wihtin the file files.cached.json in 5 groups each in different volumnes.
         If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.
         """
 
-        _videos_ready: Event = kwargs["stop_event"]
+        
 
         local_storage = LocalStorage()
 
@@ -1016,7 +956,6 @@ class AsyncDL:
 
             logger.info(f"[videos_cached] Total videos cached: [{len(videos_cached)}]")
             self.videos_cached = videos_cached
-            _videos_ready.set()
 
         except Exception as e:
             logger.exception(f"[videos_cached] {repr(e)}")
@@ -1489,8 +1428,7 @@ class AsyncDL:
 
     def _check_if_aldl(self, info_dict, test=False):
 
-        
-        
+
         if not (_id := info_dict.get("id")) or not (_title := info_dict.get("title")):
             return False
 
@@ -2121,33 +2059,6 @@ class AsyncDL:
                     f"[run_callback][{url_key}]: error {repr(e)}"
                 )
 
-    
-            
-
-    async def ready_dl(self):
-        
-        try:
-            if not self.args.nodl:
-
-                _tasks_to_wait = []
-                if self.args.aria2c and not self.init_aria2c_ready.is_set():
-                    logger.info("[async_ex] checking if aria2c ready")
-                    _tasks_to_wait.append(asyncio.create_task(async_ex_in_executor(self.ex_winit, self.init_aria2c_ready.wait)))
-                    
-
-                if self.args.enproxy and not self.init_proxies_ready.is_set():
-                    logger.info("[async_ex] checking if proxies ready")
-                    _tasks_to_wait.append(asyncio.create_task(async_ex_in_executor(self.ex_winit, self.init_proxies_ready.wait)))
-                    
-                
-                if _tasks_to_wait:
-                    await asyncio.wait(_tasks_to_wait)
-                
-            self.is_ready_to_dl.set()
-                    
-        except Exception as e:
-            logger.exception(f"[ready_dl] {repr(e)}")
-
     async def async_ex(self):
 
         self.STOP = asyncio.Event()
@@ -2172,16 +2083,8 @@ class AsyncDL:
             self._check_if_same_video, self.ex_winit
         )
 
-        self.routing_table = {}
-        self.proc_gost = []
-        self.videos_cached_ready = self.get_videos_cached()
-        if not self.args.nodl:            
-            if self.args.enproxy:
-                self.stop_proxy = self.run_proxy_http()
-                self.init_proxies_ready = self.start_proxies()                
-            if self.args.aria2c:
-                self.init_aria2c_ready = self.start_aria2c()
-
+        
+                
         tasks_gui = []
         tasks_to_wait = {}
 
@@ -2190,19 +2093,46 @@ class AsyncDL:
             self.t1.start()
             self.t2.start()
             self.t3.start()
-            self.loop: asyncio.AbstractEventLoop = asyncio.get_running_loop()
+            self.loop = asyncio.get_running_loop()
 
-            await asyncio.wait([asyncio.create_task(async_ex_in_executor(self.ex_winit, self.videos_cached_ready.wait))])
+            _tasks_to_wait_dl = {}            
+            if self.args.aria2c:
+                logger.info("[async_ex] checking if aria2c ready")
+                ainit_aria2c = sync_to_async(init_aria2c, self.ex_winit)
+                _tasks_to_wait_dl.update({asyncio.create_task(ainit_aria2c(self.args)): "aria2"})
+            if self.args.enproxy:
+                logger.info("[async_ex] checking if proxies ready")
+                ainit_proxies = sync_to_async(init_proxies, self.ex_winit)
+                _tasks_to_wait_dl.update({asyncio.create_task(ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
+                
             
+            self.get_videos_cached()
             self.WorkersInit = WorkersInit(self)
             self.WorkersRun = WorkersRun(self)
-
-            tasks_to_wait.update({asyncio.create_task(self.get_list_videos()): "task_get_videos"})
-            tasks_to_wait.update({asyncio.create_task(self.WorkersInit.exit.wait()): f"task_workers_init"})
-
-            await self.ready_dl()
             
-            if not self.args.nodl:                
+            tasks_to_wait.update({asyncio.create_task(self.get_list_videos()): "task_get_videos"})
+                    
+            if _tasks_to_wait_dl:
+                done, pending = await asyncio.wait(_tasks_to_wait_dl)
+
+                for d in done:
+                    try:
+                        _res = d.result()
+                        if _tasks_to_wait_dl[d] == "aria2":
+                            self.proc_aria2c = _res
+                        else:
+                            self.proc_gost, self.routing_table = _res
+                            self.ytdl.params["routing_table"] = self.routing_table
+
+                    except Exception as e:
+                        logger.exception(f"[async_ex] {repr(e)}")
+            
+                
+            self.is_ready_to_dl.set()
+
+            
+            if not self.args.nodl:
+
 
                 _res = await async_waitfortasks(events=(self.getlistvid_first, self.getlistvid_done))
                 
