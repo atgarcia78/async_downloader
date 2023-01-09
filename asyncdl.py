@@ -711,10 +711,9 @@ class AsyncDL:
                 CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT
             )
             logger.info("[start_proxies] proxies ready")
-            self.ytdl.params["routing_table"] = self.routing_table            
+            if self.routing_table: self.ytdl.params["routing_table"] = self.routing_table            
         except Exception as e:
-            logger.exception(f"[start_proxies] {repr(e)}")
-            
+            logger.exception(f"[start_proxies] {repr(e)}")            
         finally:
             _ready.set()
 
@@ -1054,6 +1053,7 @@ class AsyncDL:
             _url_list = {}
 
             filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
+            prevfilecaplinks = Path(Path.home(), "Projects/common/logs/prev_captured_links.txt")
             if self.args.caplinks and filecaplinks.exists():
                 if self.STOP.is_set():
                     raise Exception("STOP")
@@ -1065,11 +1065,9 @@ class AsyncDL:
 
                 _url_list_caplinks = list(_temp)
                 logger.info(f"[get_videos] video list caplinks:\n{_url_list_caplinks}")
-
-                shutil.copy(
-                    "/Users/antoniotorres/Projects/common/logs/captured_links.txt",
-                    "/Users/antoniotorres/Projects/common/logs/prev_captured_links.txt",
-                )
+                with open(prevfilecaplinks, "a") as file:
+                    _text = '\n'.join(_url_list_caplinks)
+                    file.write(f"\n\n[{self.launch_time.strftime('%Y-%m-%d %H:%M')}]\n{_text}")
 
                 with open(filecaplinks, "w") as file:
                     file.write("")

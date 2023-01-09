@@ -939,38 +939,28 @@ if _SUPPORT_ARIA2P:
                 mobj.sort()
                 args.rpcport = int(mobj[-1]) + 100
 
-        # subprocess.run(["aria2c","--rpc-listen-port",f"{args.rpcport}", "--enable-rpc","--daemon"])
         _proc = subprocess.Popen(
             f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc",
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             shell=True,
         )
-        sem = True
-        while sem:
-            _proc.poll()
-            for line in _proc.stdout:
-                _line = line.decode("utf-8").strip()
-                if not _line:
+        
+        if _proc.stdout:
+            sem = True
+            while sem:
+                _proc.poll()
+                for line in _proc.stdout:
+                    _line = line.decode("utf-8").strip()
+                    if _line:
+                        sem = False
                     break
-                else:
-                    sem = False
-                    break
+
 
         logger.info(f"aria2c running on port: {args.rpcport} ")
 
-        cl = aria2p.API(aria2p.Client(port=args.rpcport))
-        opts = cl.get_global_options()
-        logger.debug(f"aria2c options:\n{opts._struct}")
-        del opts
-        del cl
-
         return _proc
 
-        # _aria2cstr = f"aria2c.+--rpc-listen-port {args.rpcport}.+"
-        # res = subprocess.run(["ps", "-u", "501", "-x", "-o" , "pid,command"], encoding='utf-8', capture_output=True).stdout
-        # mobj = re.findall(rf'(\d+)\s+({_aria2cstr})', res)
-        # return(mobj[0][0])
 
 
 def grouper(iterable, n, *, incomplete="fill", fillvalue=None):
@@ -1075,10 +1065,6 @@ def get_myiptryall(key=None, timeout=2):
 
 
 
-            
-
-
-
 def test_proxies_rt(routing_table, timeout=2):
     logger = logging.getLogger("asyncdl")
 
@@ -1154,7 +1140,7 @@ def get_ips(name):
     return re.findall(r"ip_address: (.+)", res)
 
 
-def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
+def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT)->Tuple[List, Dict]:
 
     logger = logging.getLogger("asyncDL")
 
@@ -1227,13 +1213,9 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
     proc_gost = []
 
     try:
-
         for cmd in cmd_gost:
-
             logger.debug(cmd)
-            _proc = subprocess.Popen(
-                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-            )
+            _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             _proc.poll()
             if _proc.returncode:
                 logger.error(
@@ -1244,17 +1226,18 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT):
                 proc_gost.append(_proc)
             time.sleep(0.05)
 
-        logger.info("[init_proxies] done")
+        logger.info("[init_proxies] done")        
         return proc_gost, routing_table
-    except Exception as e:
-        logger.exception(repr(e))
     
+    except Exception as e:
+        logger.exception(repr(e))    
         if proc_gost:
             for proc in proc_gost:
                 try:
                     proc.kill()
                 except Exception as e:
                     pass
+        return [], {}
         
 
 

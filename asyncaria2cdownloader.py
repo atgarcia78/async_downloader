@@ -125,7 +125,7 @@ class AsyncARIA2CDownloader:
                 maxplits = self.n_workers
 
             _sem = False
-            if maxplits < 16 or x in ["boyfriendtv"]:
+            if maxplits < 16 or x in ['']:
                 _sem = True
                 if x in CONF_ARIA2C_EXTR_GROUP:
                     self._mode = "group"
