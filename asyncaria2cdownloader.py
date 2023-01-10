@@ -63,7 +63,6 @@ class AsyncARIA2CDownloader:
 
     _CONFIG = CONFIG_EXTRACTORS.copy()
     
-
     def __init__(self, port, enproxy, video_dict, vid_dl):
 
         self.info_dict = video_dict.copy()
@@ -640,10 +639,8 @@ class AsyncARIA2CDownloader:
                     try:
                         self._speed.append((datetime.now(), "init"))
                         await self.init()
-                        if self.status == "done":
-                            return
-                        elif self.status == "error":
-                            return
+                        if self.status in ("done", "error"):
+                            return                       
                         elif self.video_downloader.stop_event.is_set():
                             self._speed.append((datetime.now(), "stop"))
                             if self.status == "stop":
@@ -654,9 +651,7 @@ class AsyncARIA2CDownloader:
                                 await self.async_restart()
                                 async with self.video_downloader.alock:
                                     self.video_downloader.info_dl["down_size"] -= self.down_size
-                                    
                                 self.down_size = 0
-                                
                                 continue
                         elif self.video_downloader.reset_event.is_set():
                             self._speed.append((datetime.now(), "reset"))
@@ -672,9 +667,7 @@ class AsyncARIA2CDownloader:
                             check_task = [asyncio.create_task(self.check_speed())]
                             self._speed.append((datetime.now(), "fetch"))
                             await self.fetch()
-                            if self.status == "done":
-                                return
-                            elif self.status == "error":
+                            if self.status in ("done", "error"):
                                 return
                             elif self.video_downloader.stop_event.is_set():
                                 self._speed.append((datetime.now(), "stop"))
@@ -686,9 +679,7 @@ class AsyncARIA2CDownloader:
                                     await self.async_restart()
                                     async with self.video_downloader.alock:
                                         self.video_downloader.info_dl["down_size"] -= self.down_size
-                                    
                                     self.down_size = 0
-                                
                                     continue
                             elif self.video_downloader.reset_event.is_set():
                                 self._speed.append((datetime.now(), "reset"))
@@ -719,14 +710,11 @@ class AsyncARIA2CDownloader:
                         self.status = "error"
                         self.error_message = _msg_error
                     finally:
-
                         if self._mode != "noproxy":
                             async with self.video_downloader.master_hosts_alock:
                                 self.video_downloader.hosts_dl[self._host]["count"] -= 1
                                 if self._index_proxy != None and self._index_proxy >= 0:
-                                    self.video_downloader.hosts_dl[self._host][
-                                        "queue"
-                                    ].put_nowait(self._index_proxy)
+                                    self.video_downloader.hosts_dl[self._host]["queue"].put_nowait(self._index_proxy)
                             self._proxy = None
 
         except BaseException as e:
@@ -734,7 +722,6 @@ class AsyncARIA2CDownloader:
                 f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch_async] {repr(e)}"
             )
         finally:
-
             def _print_el(el):
                 if isinstance(el, str):
                     return el

@@ -919,35 +919,51 @@ URLS_API_GETMYIP = {
 }
 
 
-def get_myip(key=None, timeout=2, api="ipify", stop_event=None):
+def get_myip(key=None, timeout=1, api="ipify", shell=False, stop_event=None):
 
-    _urlapi = traverse_obj(URLS_API_GETMYIP, (api, 'url'))
-    _keyapi = traverse_obj(URLS_API_GETMYIP, (api, 'key'))
+    if api not in URLS_API_GETMYIP:
+        raise Exception("api not supported")
+    
+    _urlapi = URLS_API_GETMYIP[api]['url']
+    _keyapi = URLS_API_GETMYIP[api]['key']
 
-    _proxy = ""
-    if key: _proxy = f"-x http://127.0.0.1:{key} "
-    _cmd = f"curl {_proxy}-s {_urlapi}"
-    proc_curl = subprocess.Popen(
-        _cmd.split(" "),
-        encoding="utf-8",
-        stdout=subprocess.PIPE,
-    )
-    t0 = time.monotonic()
-    while True:
-        proc_curl.poll()
-        if proc_curl.returncode == 0:
-            return try_get(proc_curl.stdout, lambda x: json.loads(x.read().replace("\n", "")).get(_keyapi) if x else None)
-        elif proc_curl.returncode == None:
-            if time.monotonic() - t0 > timeout:
-                proc_curl.kill()
-                return "timeout"
-            elif try_get(stop_event, lambda x: x.is_set() if x else False):
-                proc_curl.kill()
-                return "stop_event"
-            time.sleep(0.2)
-            continue
-        else:
-            return f"error: {proc_curl.returncode}"
+    if not shell:
+        
+        _proxies = {'all://': f'http://127.0.0.1:{key}'} if key != None else None
+
+        try:
+            myip = try_get(httpx.get(_urlapi, timeout=httpx.Timeout(timeout=timeout), proxies=_proxies, follow_redirects=True), lambda x: x.json().get(_keyapi)) # type: ignore
+            return myip
+        except Exception as e:
+            return "timeout"
+    
+    else:
+        _proxy = ""
+        if key: _proxy = f"-x http://127.0.0.1:{key} "
+        _cmd = f"curl {_proxy}-s {_urlapi}"
+        proc_curl = subprocess.Popen(
+            _cmd.split(" "),
+            encoding="utf-8",
+            stdout=subprocess.PIPE,
+        )
+        t0 = time.monotonic()
+        while True:
+            proc_curl.poll()
+            if proc_curl.returncode == 0:
+                return try_get(proc_curl.stdout, lambda x: json.loads(x.read().replace("\n", "")).get(_keyapi) if x else None)
+            elif proc_curl.returncode == None:
+                if time.monotonic() - t0 > timeout:
+                    proc_curl.kill()
+                    proc_curl.poll()
+                    return "timeout"
+                elif try_get(stop_event, lambda x: x.is_set() if x else False):
+                    proc_curl.kill()
+                    proc_curl.poll()
+                    return "stop_event"
+                time.sleep(0.2)
+                continue
+            else:
+                return f"error: {proc_curl.returncode}"
 
 
 from ipaddress import ip_address
@@ -959,42 +975,22 @@ def is_ipaddr(res):
     except Exception as e:
         return False
 
-def get_myiptryall(key=None, timeout=2):
+from concurrent.futures import as_completed
+
+def get_myiptryall(key=None, timeout=1, shell=False):
 
     logger = logging.getLogger('test')
     stop_event = threading.Event()
-    with ThreadPoolExecutor(thread_name_prefix="getmyip") as exe:
-        futures = {exe.submit(get_myip, key=key, timeout=timeout, api=api, stop_event=stop_event): api for api in URLS_API_GETMYIP}
-
-        done, pending = waitfut(futures, return_when=first_completed_fut)
-        #logger.info(f"done: {done}, pending: {pending}")
-        
-        try:
-            while True:
-                _pending = pending
-                try:                
-                    _res = done.pop().result()
-                    #logger.info(f"_res:{_res}")
-                    if is_ipaddr(_res):
-                        #stop_event.set()
-                        return _res
-                    else:
-                        raise Exception("res not valid")
-                except Exception as e:
-                    logger.debug(repr(e))
-                    if _pending:
-                        done, pending = waitfut(_pending, return_when=first_completed_fut)
-                    else:
-                        #stop_event.set()
-                        return
-        finally:
-            stop_event.set()
-            if pending:
-                waitfut(pending)
+    exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
+    futures = {exe.submit(get_myip, key=key, timeout=timeout, api=api, shell=shell, stop_event=stop_event): api for api in URLS_API_GETMYIP}
+    for el in as_completed(futures):
+        if not el.exception() and is_ipaddr(_res:=el.result()):
+            exe.shutdown(wait=False, cancel_futures=True)
+            return _res
+        else: continue
 
 
-
-def test_proxies_rt(routing_table, timeout=2):
+def test_proxies_rt(routing_table, timeout=1):
     logger = logging.getLogger("asyncdl")
 
     logger.info(f"[init_proxies] starting test proxies")
@@ -1018,7 +1014,7 @@ def test_proxies_rt(routing_table, timeout=2):
     return bad_pr
 
 
-def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, timeout=2):
+def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, timeout=1):
     logger = logging.getLogger("asyncdl")
     cmd_gost = [
         f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
@@ -1051,6 +1047,7 @@ def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, timeout=2):
     logger.info(f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] ps_print [{len(_line_ps_pr)}]")
     for proc in proc_gost:
         proc.kill()
+        proc.poll()
 
     cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
     with open(cached_res, "w") as f:
@@ -1176,6 +1173,7 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT)->Tuple[List, Dict]:
             for proc in proc_gost:
                 try:
                     proc.kill()
+                    proc.poll()
                 except Exception as e:
                     pass
         return [], {}
@@ -1187,9 +1185,9 @@ if _SUPPORT_YTDL:
 
     class myYTDL(YoutubeDL):
         def __init__(self, *args, **kwargs):
-            self.close: bool = kwargs["close"] if "close" in kwargs else True
-            self.executor: ThreadPoolExecutor = kwargs["executor"] if "executor" in kwargs else ThreadPoolExecutor(thread_name_prefix="myYTDL")
-            super().__init__(*args, **kwargs)
+            self.close: bool = kwargs.get("close", True)
+            self.executor: ThreadPoolExecutor = kwargs.get("executor", ThreadPoolExecutor(thread_name_prefix="myYTDL"))
+            super().__init__(*args, **kwargs) # type: ignore
 
         def __enter__(self):
             return self
@@ -1226,15 +1224,12 @@ if _SUPPORT_YTDL:
         def process_ie_result(self, *args, **kwargs)->dict:
             return super().process_ie_result(*args, **kwargs)
         
-        
         def sanitize_info(self, *args, **kwargs)->dict:
             return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore 
        
-        
         async def async_extract_info(self, *args, **kwargs)->dict:
             return await async_ex_in_executor(self.executor, self.extract_info, *args, **kwargs)  # type: ignore 
             
-        
         async def async_process_ie_result(self, *args, **kwargs)->dict:
             return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)  # type: ignore 
 
@@ -1251,7 +1246,7 @@ if _SUPPORT_YTDL:
             opts["verbose"] = verbose
             opts["verboseplus"] = verboseplus
             opts["logger"] = MyLogger(
-                logging.getLogger("async-ytdl"),
+                logging.getLogger("proxyYTDL"),
                 quiet=opts["quiet"],
                 verbose=opts["verbose"],
                 superverbose=opts["verboseplus"],
@@ -1289,11 +1284,22 @@ if _SUPPORT_YTDL:
                     except Exception as e:
                         pass
 
-        def extract_info(self, url):
-            return super().extract_info(url, download=False)
+        def extract_info(self, *args, **kwargs)->Union[dict, None]:
+            return super().extract_info(*args, **kwargs)
 
-        async def async_extract_info(self, url):
-            return await async_ex_in_executor(self.executor, self.extract_info, url)
+        def process_ie_result(self, *args, **kwargs)->dict:
+            return super().process_ie_result(*args, **kwargs)
+        
+        def sanitize_info(self, *args, **kwargs)->dict:
+            return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore 
+       
+        async def async_extract_info(self, *args, **kwargs)->dict:
+            return await async_ex_in_executor(self.executor, self.extract_info, *args, **kwargs)  # type: ignore 
+            
+        async def async_process_ie_result(self, *args, **kwargs)->dict:
+            return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)  # type: ignore 
+
+        
 
     def get_extractor(url, ytdl):
 
@@ -1339,9 +1345,7 @@ if _SUPPORT_YTDL:
             "extractor_retries": 1,
             "http_headers": headers,
             "proxy": args.proxy,
-            "logger": MyLogger(
-                logger, quiet=args.quiet, verbose=args.verbose, superverbose=args.vv
-            ),
+            "logger": MyLogger(logger, quiet=args.quiet, verbose=args.verbose, superverbose=args.vv),
             "verbose": args.verbose,
             "quiet": args.quiet,
             "format": args.format,
