@@ -4,58 +4,42 @@ import os
 import uvloop
 import logging
 from asyncdl import AsyncDL
-from utils import (init_argparser, init_logging, patch_http_connection_pool,
-                   patch_https_connection_pool, print_threads)
+from utils import (
+    init_argparser, 
+    init_logging, 
+    patch_http_connection_pool,
+    patch_https_connection_pool)
 
-import threading
 init_logging()
 logger = logging.getLogger("async_all")
 
-
 def main():
     
-    asyncDL = None
-    
-    try:
+    patch_http_connection_pool(maxsize=1000)
+    patch_https_connection_pool(maxsize=1000)
+    os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
+    os.environ['MOZ_HEADLESS_HEIGHT'] = '1080'
         
-        patch_http_connection_pool(maxsize=1000)
-        patch_https_connection_pool(maxsize=1000)
-        os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
-        os.environ['MOZ_HEADLESS_HEIGHT'] = '1080'
-         
-        args = init_argparser()
+    args = init_argparser()
 
-        logger.info(f"Hi, lets dl!\n{args}")
-                
-        asyncDL = AsyncDL(args)        
+    logger.info(f"Hi, lets dl!\n{args}")
 
-        try:
-            try:
-                uvloop.install()
-                asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-                loop = asyncio.get_event_loop()                               
-                asyncDL.main_task = loop.create_task(asyncDL.async_ex())                  
-                loop.run_until_complete(asyncDL.main_task)
-                asyncDL.get_results_info()
-            except BaseException as e:
-                logger.exception(f"[main] {repr(e)}")
-    
-        except BaseException as e:
-            logger.exception(f"[main] {repr(e)}")
-    
+    asyncDL = AsyncDL(args)
+    try:            
+        uvloop.install()
+        asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+        loop = asyncio.get_event_loop()
+        asyncDL.main_task = loop.create_task(asyncDL.async_ex())
+        loop.run_until_complete(asyncDL.main_task)
+        asyncDL.get_results_info()
     except BaseException as e:
         logger.exception(f"[main] {repr(e)}")
-        
-
-    finally:
-        if asyncDL:
-            asyncDL.close()
-    
+    finally:        
+        asyncDL.close()  
 
 if __name__ == "__main__":
     try:
-        main()        
-        #logger.debug(f"[main] pending threads:\n{print_threads(threading.enumerate())}")
+        main()
     except BaseException as e:
         logger.exception(f"[main] {repr(e)}")
 

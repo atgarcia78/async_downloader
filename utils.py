@@ -19,7 +19,7 @@ from concurrent.futures import(
     wait as waitfut,
     FIRST_COMPLETED as first_completed_fut)
 from datetime import datetime, timedelta
-from itertools import zip_longest
+
 from pathlib import Path
 from queue import Queue
 from bisect import bisect
@@ -32,6 +32,7 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 # 1048576 #512000 #1048576 #4194304
+CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 80
 CONF_PROXIES_LIST_HTTPPORTS = [489, 23, 7070, 465, 993, 282, 778, 592]
@@ -47,9 +48,8 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
-
-
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
+CONF_AUTO_PASRES = ["doodstream"]
 
 
 def wait_for_change_ip(logger):
@@ -89,8 +89,6 @@ def wait_for_change_ip(logger):
                 _new_ip = None
                 time.sleep(2)
                 
-
-
 def cmd_extract_info(url, proxy=None, pl=False, upt=False):
     if pl:
         opt = "-J"
@@ -108,7 +106,6 @@ def cmd_extract_info(url, proxy=None, pl=False, upt=False):
             raise Exception(res.stderr)
         else:
             return json.loads(res.stdout.splitlines()[0])
-
 
 async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
     if pl:
@@ -152,9 +149,9 @@ async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
 
     await asyncio.gather(read_stream(proc.stderr), proc.wait())
 
-    _info = await proc.stdout.read()
-    return json.loads(_info)
-
+    if proc.stdout:
+        _info = await proc.stdout.read()
+        return json.loads(_info)
 
 class MySem(asyncio.Semaphore):
     def __init__(self, *args, **kwargs):
@@ -180,8 +177,6 @@ class MySem(asyncio.Semaphore):
             self._wake_up_next()
         self._value = n
 
-
-
 class MyAsyncioEvent:
     
     def __init__(self, name=None):
@@ -189,7 +184,6 @@ class MyAsyncioEvent:
             self.name = name
         self._cause = "noinfo"
         
-    
     def set(self, cause: Union[str, None] = "noinfo"):
 
         if self.aevent:
@@ -221,8 +215,6 @@ class MyAsyncioEvent:
     def __call__(self):
         self.aevent = asyncio.Event()
 
-
-
 class ProgressTimer:
     TIMER_FUNC = time.monotonic
 
@@ -246,7 +238,6 @@ class ProgressTimer:
 
         self._last_ts += elapsed_seconds - elapsed_seconds % seconds
         return True
-
 
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
@@ -276,7 +267,6 @@ class SpeedometerMA:
 
         return self.last_value or speed
 
-
 class SmoothETA:
     def __init__(self):
         self.last_value = None
@@ -299,8 +289,6 @@ class SmoothETA:
         self.last_value = time_now + value
         return value
 
-
-CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
 
 try:
     from selenium.webdriver import Firefox, FirefoxOptions
@@ -326,7 +314,6 @@ except Exception:
 try:
     import aria2p
     from aria2p.utils import human_readable_timedelta
-
     _SUPPORT_ARIA2P = True
 except Exception:
     _SUPPORT_ARIA2P = False
@@ -381,9 +368,6 @@ try:
 except Exception:
     _SUPPORT_YTDL = False
     
-
-
-
 
 
 def _for_print_entry(entry):
@@ -455,7 +439,7 @@ def _for_print_videos(videos):
 def sync_to_async(func, exe=None):
     
     if not exe:
-        exe = ThreadPoolExecutor()
+        exe = ThreadPoolExecutor(thread_name_prefix="sync2async")
 
     async def run_in_executor(*args, **kwargs):
         
@@ -478,7 +462,7 @@ from _thread import LockType
 @contextlib.asynccontextmanager
 async def async_lock(lock):
     if isinstance(lock, LockType):
-        executor = ThreadPoolExecutor()
+        executor = ThreadPoolExecutor(thread_name_prefix="lock2async")
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(executor, lock.acquire)
         try:
@@ -505,8 +489,8 @@ def long_operation_in_thread(func) -> Callable[[Callable], asyncio.Event]:
 
 
 
-from multiprocess import Process as MPProcess
-from multiprocess import Queue as MPQueue
+from multiprocess import Process as MPProcess # type: ignore
+from multiprocess import Queue as MPQueue # type: ignore
 
 def long_operation_in_process(func):
     @functools.wraps(func)
@@ -518,8 +502,6 @@ def long_operation_in_process(func):
         return (proc, queue)
 
     return wrapper
-
-
 
 async def async_wait_time(n: Union[int, float], events: Union[List[asyncio.Event], Tuple[asyncio.Event, ...], asyncio.Event, None] = None):
 
@@ -534,7 +516,6 @@ async def async_wait_time(n: Union[int, float], events: Union[List[asyncio.Event
             return _t
         await asyncio.sleep(0)
 
-
 def wait_time(n, event=None):
     _started = time.monotonic()
     if not event:
@@ -546,7 +527,6 @@ def wait_time(n, event=None):
         else:
             time.sleep(CONF_INTERVAL_GUI)
     return
-
 
 async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] = None, timeout: Union[float, None] = None, events: Union[Iterable, asyncio.Event, None] = None)->dict:
     
@@ -594,7 +574,7 @@ async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] 
             res = {"timeout": timeout}
         else:
             _task = done.pop()
-            _label = _final_wait.get(_task)
+            _label = _final_wait.get(_task, "")
             if _label.startswith("event"):
                 
                 def getname(x, task):
@@ -719,7 +699,7 @@ class OutputLogger:
         self.logger = logging.getLogger(name)
         self.name = self.logger.name
         self.level = getattr(logging, level)
-        self._redirector = contextlib.redirect_stdout(self)
+        self._redirector = contextlib.redirect_stdout(self) # type: ignore
 
     def write(self, msg):
         if msg and not msg.isspace():
@@ -849,8 +829,8 @@ def init_argparser():
     parser.add_argument(
         "--aria2c",
         help="use of external aria2c running in port [PORT]. By default PORT=6800. PORT 0 to disable",
-        default=-1,
-        type=int,
+        default="6800",
+        type=str,
     )
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true", default=False)
@@ -863,14 +843,11 @@ def init_argparser():
     if args.winit == 0:
         args.winit = args.w
 
-    if args.aria2c == -1:
-        args.aria2c = True
-        args.rpcport = 6800
-    elif args.aria2c == 0:
+    if args.aria2c == "no":
         args.rpcport = None
         args.aria2c = False
     else:
-        args.rpcport = args.aria2c
+        args.rpcport = int(args.aria2c)
         args.aria2c = True
 
     if args.path and len(args.path.split("/")) == 1:
@@ -879,18 +856,14 @@ def init_argparser():
 
     if args.vv:
         args.verbose = True
-
     args.enproxy = True
     if args.proxy == "no":
         args.enproxy = False
         args.proxy = None
-    
-
     if args.dlcaching:
         args.nodlcaching = False
     else:
         args.nodlcaching = True
-
     if args.checkcert:
         args.nocheckcert = False
     else:
@@ -899,94 +872,45 @@ def init_argparser():
     return args
 
 
-# if _SUPPORT_PROXY:
-
-#     @long_operation_in_thread
-#     def run_proxy_http(*args, log_level='INFO', **kwargs):
-#         # with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.cache.CacheResponsesPlugin', '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
-        
-#         stop_event: threading.Event = kwargs["stop_event"]
-#         with proxy.Proxy(
-#             [
-#                 "--log-level",
-#                 log_level,
-#                 "--plugins",
-#                 "proxy.plugin.ProxyPoolByHostPlugin",
-#             ]
-#         ) as p:
-#             logger = logging.getLogger("proxy")
-#             try:
-#                 logger.debug(p.flags)
-#                 while not stop_event.is_set():
-#                     time.sleep(CONF_INTERVAL_GUI)
-#             except BaseException:
-#                 logger.error("context manager proxy")
-
-
+def find_in_ps(pattern, value=None):
+    res = subprocess.run(
+            ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
+            encoding="utf-8",
+            capture_output=True,
+        ).stdout
+    mobj = re.findall(pattern, res)
+    if not value or str(value) in mobj:
+        return mobj
+    
 if _SUPPORT_ARIA2P:
 
     def init_aria2c(args):
 
         logger = logging.getLogger("asyncDL")
+
+        if (mobj:=find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport)):
+            mobj.sort()
+            args.rpcport = int(mobj[-1]) + 100
+
+        _proc = subprocess.Popen(
+            f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+        )
         
-        try:
-            
-            res = subprocess.run(
-                ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
-                encoding="utf-8",
-                capture_output=True,
-            ).stdout
-            mobj = re.findall(r"aria2c.+--rpc-listen-port ([^ ]+).+", res)
-            if mobj:
-                if str(args.rpcport) in mobj:
-                    mobj.sort()
-                    args.rpcport = int(mobj[-1]) + 100
-
-            _proc = subprocess.Popen(
-                f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc",
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=True,
-            )
-            
-            # if _proc.stdout:
-            #     sem = True
-            #     while sem:
-            #         _proc.poll()
-            #         for line in _proc.stdout:
-            #             _line = line.decode("utf-8").strip()
-            #             if _line:
-            #                 sem = False
-            #             break
-            _proc.poll()
-
-
-            logger.info(f"[init_aria2c] {_proc} - running on port: {args.rpcport} ")
-
-            return _proc
-        except Exception as e:
-            logger.exception(f"[init_aria2] {repr(e)}")
+        _proc.poll()
+        if _proc.returncode not in (0,None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport):
+            raise Exception(f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
+        
+        logger.info(f"[init_aria2c] {_proc} - running on port: {args.rpcport}")
+        
+        return _proc
 
 
 
-def grouper(iterable, n, *, incomplete="fill", fillvalue=None):
-    args = [iter(iterable)] * n
-    if incomplete == "fill":
-        return zip_longest(*args, fillvalue=fillvalue)
-    if incomplete == "strict":
-        return zip(*args, strict=True)
-    if incomplete == "ignore":
-        return zip(*args)
-    else:
-        raise ValueError("Expected fill, strict, or ignore")
 
 
-# def get_myip(key=None):
-#     _proxy = ""
-#     if key:
-#         _proxy = f"-x http://127.0.0.1:{key} "
-#     proc_curl = subprocess.Popen(f"curl {_proxy}-s https://api.ipify.org?format=json".split(' '), stdout=subprocess.PIPE,)
-#     return(subprocess.run(['jq', '-r', '.ip'], stdin=proc_curl.stdout, encoding='utf-8', capture_output=True).stdout.strip())
 
 URLS_API_GETMYIP = {
     "httpbin": {"url": "https://httpbin.org/get", "key": "origin"},
@@ -1011,9 +935,8 @@ def get_myip(key=None, timeout=2, api="ipify", stop_event=None):
     t0 = time.monotonic()
     while True:
         proc_curl.poll()
-
         if proc_curl.returncode == 0:
-            return try_get(proc_curl.stdout.read(), lambda x: json.loads(x.replace("\n", "")).get(_keyapi) if x else None)
+            return try_get(proc_curl.stdout, lambda x: json.loads(x.read().replace("\n", "")).get(_keyapi) if x else None)
         elif proc_curl.returncode == None:
             if time.monotonic() - t0 > timeout:
                 proc_curl.kill()
@@ -1040,7 +963,7 @@ def get_myiptryall(key=None, timeout=2):
 
     logger = logging.getLogger('test')
     stop_event = threading.Event()
-    with ThreadPoolExecutor() as exe:
+    with ThreadPoolExecutor(thread_name_prefix="getmyip") as exe:
         futures = {exe.submit(get_myip, key=key, timeout=timeout, api=api, stop_event=stop_event): api for api in URLS_API_GETMYIP}
 
         done, pending = waitfut(futures, return_when=first_completed_fut)
@@ -1146,13 +1069,13 @@ def get_ips(name):
     return re.findall(r"ip_address: (.+)", res)
 
 
+from itertools import zip_longest
+
 def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT)->Tuple[List, Dict]:
 
     logger = logging.getLogger("asyncDL")
 
     logger.info(f"[init_proxies] start")
-
-    #subprocess.run(["flush-dns"])
 
     IPS_SSL = []
     CONF_PROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_PROXIES_COUNTRIES]
@@ -1179,6 +1102,18 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT)->Tuple[List, Dict]:
     IPS_SSL.remove(_ip_main)
 
     _ips = random.sample(IPS_SSL, num * (size + 1))
+
+    def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
+
+        args = [iter(iterable)] * n
+        if incomplete == 'fill':
+            return zip_longest(*args, fillvalue=fillvalue)
+        if incomplete == 'strict':
+            return zip(*args, strict=True)  # type: ignore
+        if incomplete == 'ignore':
+            return zip(*args)
+        else:
+            raise ValueError('Expected fill, strict, or ignore')
 
     FINAL_IPS = list(grouper(_ips, (size + 1)))
 
@@ -1246,7 +1181,6 @@ def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT)->Tuple[List, Dict]:
         return [], {}
         
 
-
 if _SUPPORT_YTDL:
 
     from yt_dlp import YoutubeDL
@@ -1254,7 +1188,7 @@ if _SUPPORT_YTDL:
     class myYTDL(YoutubeDL):
         def __init__(self, *args, **kwargs):
             self.close: bool = kwargs["close"] if "close" in kwargs else True
-            self.executor: ThreadPoolExecutor = kwargs["executor"] if "executor" in kwargs else ThreadPoolExecutor()
+            self.executor: ThreadPoolExecutor = kwargs["executor"] if "executor" in kwargs else ThreadPoolExecutor(thread_name_prefix="myYTDL")
             super().__init__(*args, **kwargs)
 
         def __enter__(self):
@@ -1304,9 +1238,6 @@ if _SUPPORT_YTDL:
         async def async_process_ie_result(self, *args, **kwargs)->dict:
             return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)  # type: ignore 
 
-            
-
-    
     class ProxyYTDL(YoutubeDL):
         def __init__(self, **kwargs):
             opts = kwargs.get("opts", {})
@@ -1315,7 +1246,7 @@ if _SUPPORT_YTDL:
             verbose = kwargs.get("verbose", False)
             verboseplus = kwargs.get("verboseplus", False)
             self.close = kwargs.get("close", True)
-            self.executor = kwargs.get("executor", ThreadPoolExecutor())
+            self.executor = kwargs.get("executor", ThreadPoolExecutor(thread_name_prefix="proxyYTDL"))
             opts["quiet"] = quiet
             opts["verbose"] = verbose
             opts["verboseplus"] = verboseplus
@@ -1327,7 +1258,7 @@ if _SUPPORT_YTDL:
             )
             opts["proxy"] = proxy
 
-            super().__init__(params=opts, auto_init="no_verbose_header")
+            super().__init__(params=opts, auto_init="no_verbose_header") # type:  ignore
 
         def __enter__(self):
             return self
@@ -1395,17 +1326,6 @@ if _SUPPORT_YTDL:
 
         logger = logging.getLogger("yt_dlp")
 
-        proxy = None
-        if args.proxy:
-            sch = args.proxy.split("://")
-            if len(sch) == 2:
-                if sch[0] != "http":
-                    logger.error("Proxy is not valid, should be http")
-                else:
-                    proxy = args.proxy
-            else:
-                proxy = f"http://{args.proxy}"
-
         headers = {
             "User-Agent": args.useragent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -1418,7 +1338,7 @@ if _SUPPORT_YTDL:
             "retries": 1,
             "extractor_retries": 1,
             "http_headers": headers,
-            "proxy": proxy,
+            "proxy": args.proxy,
             "logger": MyLogger(
                 logger, quiet=args.quiet, verbose=args.verbose, superverbose=args.vv
             ),
@@ -1543,10 +1463,9 @@ if _SUPPORT_YTDL:
         return _ord_res_dict
 
 
-
-from filelock import FileLock
-
 class LocalStorage:
+    
+    from filelock import FileLock
 
     lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
     local_storage = Path(PATH_LOGS, "files_cached.json")
@@ -1569,7 +1488,6 @@ class LocalStorage:
         self._last_time_sync = {}
         self.logger = logging.getLogger("LocalStorage")
 
-    
     def load_info(self):
 
         with open(LocalStorage.local_storage, "r") as f:
@@ -1585,7 +1503,6 @@ class LocalStorage:
                     f"found key not registered volumen - {_key}"
                 )
 
-    
     def dump_info(self, videos_cached, last_time_sync):
         
         def getter(x):
@@ -1668,7 +1585,6 @@ def get_chain_links(f):
             break
     return _links
 
-
 def kill_processes(logger=None, rpcport=None):
 
     def _log(msg):
@@ -1743,13 +1659,11 @@ def kill_processes(logger=None, rpcport=None):
         _log(f"[kill_processes_proxy]: {repr(e)}")
         raise
 
-
 def foldersize(folder):
     # devuelve en bytes size folder
     return sum(
         file.stat().st_size for file in Path(folder).rglob("*") if file.is_file()
     )
-
 
 def folderfiles(folder):
     count = 0
@@ -1759,44 +1673,11 @@ def folderfiles(folder):
 
     return count
 
-
 def int_or_none(res):
     return int(res) if res else None
 
-
 def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
-    """Format a number of bytes like a human readable filesize (e.g. 10 kB).
-
-    By default, decimal suffixes (kB, MB) are used.
-
-    Non-GNU modes are compatible with jinja2's `filesizeformat` filter.
-
-    Examples:
-        ```pycon
-        >>> naturalsize(3000000)
-        '3.0 MB'
-        >>> naturalsize(300, False, True)
-        '300B'
-        >>> naturalsize(3000, False, True)
-        '2.9K'
-        >>> naturalsize(3000, False, True, "%.3f")
-        '2.930K'
-        >>> naturalsize(3000, True)
-        '2.9 KiB'
-
-        ```
-    Args:
-        value (int, float, str): Integer to convert.
-        binary (bool): If `True`, uses binary suffixes (KiB, MiB) with base
-            2<sup>10</sup> instead of 10<sup>3</sup>.
-        gnu (bool): If `True`, the binary argument is ignored and GNU-style
-            (`ls -sh` style) prefixes are used (K, M) with the 2**10 definition.
-        format (str): Custom formatter.
-
-    Returns:
-        str: Human readable representation of a filesize.
-    """
-
+    
     SUFFIXES = {
         "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
         "binary": ("KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
@@ -1831,7 +1712,6 @@ def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
         return f"{(base * abs_bytes / unit):{format_}}{s}"
     return f"{(base*abs_bytes/unit):{format_}} {s}"
 
-
 def print_norm_time(time):
     """Time in secs"""
 
@@ -1843,7 +1723,6 @@ def print_norm_time(time):
 
     return f"{hour:.0f}h:{minutes:.0f}min:{seconds:.0f}secs"
 
-
 def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
 
     for str_reg in str_reg_list:
@@ -1854,7 +1733,6 @@ def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
             return res
 
     return not_found
-
 
 if _SUPPORT_PYSIMP:
 
@@ -2149,7 +2027,7 @@ def patch_http_connection_pool(**constructor_kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPConnectionPool, self).__init__(*args, **kwargs)
 
-    poolmanager.pool_classes_by_scheme["http"] = MyHTTPConnectionPool
+    poolmanager.pool_classes_by_scheme["http"] = MyHTTPConnectionPool # type: ignore
 
 
 def patch_https_connection_pool(**constructor_kwargs):
@@ -2168,7 +2046,7 @@ def patch_https_connection_pool(**constructor_kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPSConnectionPool, self).__init__(*args, **kwargs)
 
-    poolmanager.pool_classes_by_scheme["https"] = MyHTTPSConnectionPool
+    poolmanager.pool_classes_by_scheme["https"] = MyHTTPSConnectionPool # type: ignore
 
 
 def get_ip_proxy():
@@ -2176,136 +2054,14 @@ def get_ip_proxy():
         return random.choice(json.load(f))
 
 
-if _SUPPORT_HTTPX:
-
-    def send_http_request(url, **kwargs):
-
-        logger = logging.getLogger("test")
-
-        try:
-            _type = kwargs.get("_type", "GET")
-            headers = kwargs.get("headers", None)
-            data = kwargs.get("data", None)
-            msg = kwargs.get("msg", None)
-            premsg = f"[send_http_request][{(url)}][{_type}]"
-            if msg:
-                premsg = f"{msg}{premsg}"
-
-            _CLIENT = kwargs.get("client")
-            res = None
-            _msg_err = ""
-            req = _CLIENT.build_request(_type, url, data=data, headers=headers)
-            res = _CLIENT.send(req)
-            if res:
-                res.raise_for_status()
-                return res
-            else:
-                return ""
-        except Exception as e:
-            _msg_err = repr(e)
-            if res and res.status_code == 403:
-                raise ReExtractInfo(_msg_err)
-            if res and res.status_code == 404:
-                res.raise_for_status()
-            elif res and res.status_code == 503:
-                raise StatusError503(repr(e))
-            elif isinstance(e, ConnectError):
-                if "errno 61" in _msg_err.lower():
-                    raise
-                else:
-                    raise Exception(_msg_err)
-            elif not res:
-                raise TimeoutError(_msg_err)
-            else:
-                raise Exception(_msg_err)
-        finally:
-            logger.info(f"{premsg} {req}:{res}:{_msg_err}")
-
-    def check_proxy(ip, port, queue_ok=None):
-        try:
-
-            cl = httpx.Client(
-                proxies={"http://": f"http://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"},
-                timeout=10,
-                follow_redirects=True,
-            )
-            res = cl.get("https://checkip.dyndns.org")
-            print(f"{ip}:{port}:{res}")
-            print(res.text)
-            if res.status_code == 200:
-                if queue_ok:
-                    queue_ok.put((ip, port, res))
-        except Exception as e:
-            print(f"{ip}:{port}:{e}")
-        finally:
-            cl.close()
-
-    def status_proxy(name):
-
-        # dscacheutil -q host -a name proxy.torguard.org
-        res = subprocess.run(
-            f"dscacheutil -q host -a name {name}".split(" "),
-            encoding="utf-8",
-            capture_output=True,
-        ).stdout
-        IPS_SSL = re.findall(r"ip_address: (.+)", res)
-
-        # IPS_ES_SSL = ["192.145.124.186", "192.145.124.234", "89.238.178.234", "192.145.124.242", "192.145.124.226", "192.145.124.238", "192.145.124.174", "89.238.178.206", "192.145.124.190"]
-
-        # IPS_TORGUARD = ["82.129.66.196"]
-
-        # PORTS = [6060,1337,1338,1339,1340,1341,1342,1343]
-        PORTS_SSL = [489, 23, 7070, 465, 993, 282, 778, 592]
-
-        queue_ok = Queue()
-
-        futures = []
-
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            for ip in IPS_SSL:
-                for port in PORTS_SSL:
-                    futures.append(ex.submit(check_proxy, ip, port, queue_ok))
-
-        list_res = list(queue_ok.queue)
-
-        list_ok = list(set([res[0] for res in list_res]))
-
-        print(list_ok)
-
-        queue_rtt = Queue()
-
-        def _get_rtt(ip):
-            res = subprocess.run(
-                ["ping", "-c", "10", "-q", "-S", "192.168.1.128", ip],
-                encoding="utf-8",
-                capture_output=True,
-            ).stdout
-            mobj = re.findall(r"= [^\/]+\/([^\/]+)\/", res)
-            if mobj:
-                _tavg = float(mobj[0])
-            print(f"{ip}:{_tavg}")
-            queue_rtt.put({"ip": ip, "time": _tavg})
-
-        futures = []
-
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            for ipl in list_ok:
-                futures.append(ex.submit(_get_rtt, ipl))
-
-        list_ord = list(queue_rtt.queue)
-
-        def myFunc(e):
-            return e["time"]
-
-        list_ord.sort(key=myFunc)
-
-        with open(Path(Path.home(), "Projects/common/ipproxies.json"), "w") as f:
-            f.write(json.dumps(list_ord))
-
-        list_final = [el["ip"] for el in list_ord]
-
-        print(json.dumps(list_final))
-        return list_ord
+def _get_rtt(ip):
+    res = subprocess.run(
+        ["ping", "-c", "10", "-q", "-S", "192.168.1.128", ip],
+        encoding="utf-8",
+        capture_output=True,
+    ).stdout
+    _tavg = try_get(re.findall(r"= [^\/]+\/([^\/]+)\/", res), lambda x: float(x[0]))
+    return {"ip": ip, "time": _tavg}
 
 
 def parse_ffmpeg_time_string(time_string):
@@ -2412,7 +2168,7 @@ def get_videos_cached(*args, **kwargs):
             for _vol, _folder in local_storage.config_folders.items():
                 if not _folder.exists():  # comm failure
                     logger.error(f"Fail to connect to [{_vol}], will use last info")
-                    videos_cached.update(local_storage._data_from_file.get(_vol))
+                    videos_cached.update(local_storage._data_from_file.get(_vol)) # type: ignore
                 else:
                     list_folders_to_scan.update({_folder: _vol})
 

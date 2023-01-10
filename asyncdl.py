@@ -1791,7 +1791,7 @@ class AsyncDL:
                             return await sync_to_async(VideoDownloader, self.ex_winit)(*args, **kwargs) # type: ignore
 
                         dl = await async_videodl_init(self.info_videos[urlkey]["video_info"], 
-                                self.ytdl, self.args, self.hosts_downloading, self.alock,self.hosts_alock)
+                                self.ytdl, self.args, self.hosts_downloading, self.alock, self.hosts_alock)
                             
                         logger.debug(
                             f"[init_callback]: [{url_key}]: [{dl.info_dict['id']}][{dl.info_dict['title']}]: {dl.info_dl}"
@@ -2097,13 +2097,14 @@ class AsyncDL:
 
             _tasks_to_wait_dl = {}            
             if self.args.aria2c:
-                logger.info("[async_ex] checking if aria2c ready")
+                #logger.info("[async_ex] checking if aria2c ready")
                 ainit_aria2c = sync_to_async(init_aria2c, self.ex_winit)
                 _tasks_to_wait_dl.update({asyncio.create_task(ainit_aria2c(self.args)): "aria2"})
             if self.args.enproxy:
-                logger.info("[async_ex] checking if proxies ready")
+                #logger.info("[async_ex] checking if proxies ready")
                 ainit_proxies = sync_to_async(init_proxies, self.ex_winit)
-                _tasks_to_wait_dl.update({asyncio.create_task(ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
+                _tasks_to_wait_dl.update({asyncio.create_task(
+                        ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
                 
             
             self.get_videos_cached()
@@ -2127,17 +2128,12 @@ class AsyncDL:
                     except Exception as e:
                         logger.exception(f"[async_ex] {repr(e)}")
             
-                
             self.is_ready_to_dl.set()
 
-            
             if not self.args.nodl:
 
-
-                _res = await async_waitfortasks(events=(self.getlistvid_first, self.getlistvid_done))
-                
+                _res = await async_waitfortasks(events=(self.getlistvid_first, self.getlistvid_done))                
                 if _res.get("event") == "first" or len(self.videos_to_dl) > 0:
-
                     self.FEgui = FrontEndGUI(self)
                     self.stop_upt_window = self.FEgui.upt_window_periodic()
                     self.stop_pasres = self.FEgui.pasres_periodic()
@@ -2173,20 +2169,21 @@ class AsyncDL:
             if hasattr(self, 'stop_pasres'):
                 self.stop_pasres.set()
                 await asyncio.sleep(0)
-            if tasks_gui:
+            if hasattr(self, 'FEgui'):
                 self.FEgui.stop.set()
                 await asyncio.sleep(0)
-                done, _ = await asyncio.wait(tasks_gui)
-                self.FEgui.close()
-                await asyncio.sleep(0)
-                if any(
-                    isinstance(_e, KeyboardInterrupt)
-                    for _e in [d.exception() for d in done]
-                ):
-                    raise KeyboardInterrupt
-
+                if tasks_gui:
+                    done, _ = await asyncio.wait(tasks_gui)
+                    self.FEgui.close()
+                    await asyncio.sleep(0)
+                    if any(
+                        isinstance(_e, KeyboardInterrupt)
+                        for _e in [d.exception() for d in done]
+                    ):
+                        raise KeyboardInterrupt            
             logger.info(f"[async_ex] BYE")
 
+            
     def get_results_info(self):
         def _getter(url: str, vid: dict)->str:
             webpageurl = try_get(traverse_obj(vid, ("video_info", "webpage_url")), lambda x: str(x) if x else None)  

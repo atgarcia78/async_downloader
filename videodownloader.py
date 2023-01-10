@@ -33,11 +33,13 @@ FORCE_TO_HTTP = []#['doodstream']
 
 logger = logging.getLogger("video_DL")
 
+from threading import Lock
 
 class VideoDownloader:
 
     _PLNS = {}
     _QUEUE = Queue()
+    
     
     def __init__(self, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
         
