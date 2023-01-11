@@ -38,13 +38,10 @@ from threading import Lock
 class VideoDownloader:
 
     _PLNS = {}
-    _QUEUE = Queue()
-    
+    _QUEUE = Queue()    
     
     def __init__(self, video_dict, ytdl, args, hosts_dl, alock, hosts_alock): 
-        
-        
-            
+
         self.hosts_dl = hosts_dl
         self.master_alock = alock
         self.master_hosts_alock = hosts_alock
@@ -98,7 +95,7 @@ class VideoDownloader:
                 downloaders.append(dl)     
 
         res = sorted(list(set([dl.status for dl in downloaders])))
-        if any([_ in res for _ in ("done", "init_manipulating")]):#(res == ["init_manipulating"] or res == ["done"] or res == ["done", "init_manipulating"]):
+        if any([_ in res for _ in ("done", "init_manipulating")]):
             _status = "init_manipulating"
         elif "error" in res:
             _status = "error"

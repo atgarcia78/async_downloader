@@ -631,10 +631,8 @@ class AsyncARIA2CDownloader:
         self.status = "downloading"
         self._speed = []
 
-
         try:
             while True:
-
                 async with async_lock(self.sem):
                     try:
                         self._speed.append((datetime.now(), "init"))

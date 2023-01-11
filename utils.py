@@ -1713,8 +1713,8 @@ def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
         elif abs_bytes < unit and gnu:
             return f"{(base * abs_bytes / unit):{format_}}{s}"
     if gnu:
-        return f"{(base * abs_bytes / unit):{format_}}{s}"
-    return f"{(base*abs_bytes/unit):{format_}} {s}"
+        return f"{(base * abs_bytes / unit):{format_}}{s}" # type: ignore
+    return f"{(base*abs_bytes/unit):{format_}} {s}" # type: ignore
 
 def print_norm_time(time):
     """Time in secs"""
