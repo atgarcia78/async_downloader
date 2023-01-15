@@ -305,7 +305,6 @@ except Exception:
 
 try:
     import proxy
-
     _SUPPORT_PROXY = True
 except Exception:
     _SUPPORT_PROXY = False
@@ -320,17 +319,11 @@ except Exception:
 
 try:
     import httpx
-
     _SUPPORT_HTTPX = True
 except Exception:
     _SUPPORT_HTTPX = False
 
-try:
-    import PySimpleGUI as sg
 
-    _SUPPORT_PYSIMP = True
-except Exception:
-    _SUPPORT_PYSIMP = False
 
 _SUPPORT_YTDL = False
 try:
@@ -1056,7 +1049,6 @@ def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, timeout=1):
 
     return _res_bad
 
-
 def get_ips(name):
     res = subprocess.run(
         f"dscacheutil -q host -a name {name}".split(" "),
@@ -1298,8 +1290,6 @@ if _SUPPORT_YTDL:
             
         async def async_process_ie_result(self, *args, **kwargs)->dict:
             return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)  # type: ignore 
-
-        
 
     def get_extractor(url, ytdl):
 
@@ -1738,282 +1728,6 @@ def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
 
     return not_found
 
-if _SUPPORT_PYSIMP:
-
-    def init_gui_root():
-
-        logger = logging.getLogger("init_gui_root")
-
-        sg.theme("SystemDefaultForReal")
-
-        col_0 = sg.Column(
-            [
-                [sg.Text("WAITING TO DL", font="Any 14")],
-                [
-                    sg.Multiline(
-                        default_text="Waiting for info",
-                        size=(70, 40),
-                        font=("Courier New Bold", 10),
-                        write_only=True,
-                        key="-ML0-",
-                        autoscroll=True,
-                        auto_refresh=True,
-                    )
-                ],
-            ],
-            element_justification="l",
-            expand_x=True,
-            expand_y=True,
-        )
-
-        col_00 = sg.Column(
-            [
-                [
-                    sg.Text(
-                        "Waiting for info",
-                        size=(80, 2),
-                        font=("Courier New Bold", 12),
-                        key="ST",
-                    )
-                ]
-            ]
-        )
-        col_1 = sg.Column(
-            [
-                [sg.Text("NOW DOWNLOADING/CREATING FILE", font="Any 14")],
-                [
-                    sg.Multiline(
-                        default_text="Waiting for info",
-                        size=(90, 35),
-                        font=("Courier New Bold", 11),
-                        write_only=True,
-                        key="-ML1-",
-                        autoscroll=True,
-                        auto_refresh=True,
-                    )
-                ],
-                [
-                    sg.Multiline(
-                        default_text="Waiting for info",
-                        size=(90, 5),
-                        font=("Courier New Bold", 10),
-                        write_only=True,
-                        key="-ML3-",
-                        autoscroll=True,
-                        auto_refresh=True,
-                    )
-                ],
-            ],
-            element_justification="c",
-            expand_x=True,
-            expand_y=True,
-        )
-
-        col_2 = sg.Column(
-            [
-                [sg.Text("DOWNLOADED/STOPPED/ERRORS", font="Any 14")],
-                [
-                    sg.Multiline(
-                        default_text="Waiting for info",
-                        size=(70, 40),
-                        font=("Courier New Bold", 10),
-                        write_only=True,
-                        key="-ML2-",
-                        autoscroll=True,
-                        auto_refresh=True,
-                    )
-                ],
-            ],
-            element_justification="r",
-            expand_x=True,
-            expand_y=True,
-        )
-
-        layout_root = [[col_00], [col_0, col_1, col_2]]
-
-        window_root = sg.Window(
-            "async_downloader",
-            layout_root,
-            alpha_channel=0.99,
-            location=(0, 0),
-            finalize=True,
-            resizable=True,
-        )
-        window_root.set_min_size(window_root.size)
-
-        window_root["-ML0-"].expand(True, True, True)
-        window_root["-ML1-"].expand(True, True, True)
-        window_root["-ML2-"].expand(True, True, True)
-        window_root["-ML3-"].expand(True, True, True)
-
-        return window_root
-
-    def init_gui_console():
-
-        
-        logger = logging.getLogger("init_gui_cons")
-        
-
-
-        sg.theme("SystemDefaultForReal")
-
-        col_pygui = sg.Column(
-            [
-                [sg.Text("Select DL", font="Any 14")],
-                [sg.Input(key="-IN-", font="Any 10", focus=True)],
-                [
-                    sg.Multiline(
-                        size=(50, 12),
-                        font="Any 10",
-                        write_only=True,
-                        key="-ML-",
-                        reroute_cprint=True,
-                        auto_refresh=True,
-                        autoscroll=True,
-                    )
-                ],
-                [
-                    sg.Checkbox(
-                        "PauseRep",
-                        key="-PASRES-",
-                        default=False,
-                        enable_events=True,
-                    ),
-                    sg.Checkbox(
-                        "ResRep",
-                        key="-RESETREP-",
-                        default=False,
-                        enable_events=True,
-                    ),
-                    sg.Checkbox(
-                        "WkInit", key="-WKINIT-", default=True, enable_events=True
-                    ),
-                    sg.Button("+PasRes"),
-                    sg.Button("-PasRes"),
-                    sg.Button("DLStatus", key="-DL-STATUS"),
-                    sg.Button("Info"),
-                    sg.Button("ToFile"),
-                    sg.Button("+runwk", key="IncWorkerRun"),
-                    sg.Button("-runwk", key="DecWorkerRun"),
-                    sg.Button("#vidwk", key="NumVideoWorkers"),
-                    sg.Button("TimePasRes"),
-                    sg.Button("Pause"),
-                    sg.Button("Resume"),
-                    sg.Button("Reset"),
-                    sg.Button("Stop"),
-                    sg.Button("Exit"),
-                ],
-            ],
-            element_justification="c",
-            expand_x=True,
-            expand_y=True,
-        )
-
-        layout_pygui = [[col_pygui]]
-
-        window_console = sg.Window(
-            "Console",
-            layout_pygui,
-            alpha_channel=0.99,
-            location=(0, 500),
-            finalize=True,
-            resizable=True,
-        )
-        window_console.set_min_size(window_console.size)
-        window_console["-ML-"].expand(True, True, True)
-
-        window_console.bring_to_front()
-
-        return window_console
-
-    def init_gui_rclone():
-
-        logger = logging.getLogger("rclone-san")
-
-
-        sg.theme("SystemDefaultForReal")
-
-        col_00 = sg.Column(
-            [[sg.Text("Waiting for info", size=(150, 2), font="Any 10", key="ST")]]
-        )
-
-        col_0 = sg.Column(
-            [
-                [sg.Text("NOW RCLONE", font="Any 14")],
-                [
-                    sg.Multiline(
-                        default_text="Waiting for info",
-                        size=(50, 25),
-                        font="Any 10",
-                        write_only=True,
-                        key="-ML0-",
-                        autoscroll=True,
-                        auto_refresh=True,
-                    )
-                ],
-            ],
-            element_justification="c",
-            expand_x=True,
-            expand_y=True,
-        )
-
-        col_1 = sg.Column(
-            [
-                [sg.Text("NOW MOVING", font="Any 14")],
-                [
-                    sg.Multiline(
-                        default_text="Waiting for info",
-                        size=(50, 25),
-                        font="Any 10",
-                        write_only=True,
-                        key="-ML1-",
-                        autoscroll=True,
-                        auto_refresh=True,
-                    )
-                ],
-            ],
-            element_justification="c",
-            expand_x=True,
-            expand_y=True,
-        )
-
-        col_2 = sg.Column(
-            [
-                [sg.Text("FINISHED", font="Any 14")],
-                [
-                    sg.Multiline(
-                        default_text="Waiting for info",
-                        size=(50, 25),
-                        font="Any 10",
-                        write_only=True,
-                        key="-ML2-",
-                        autoscroll=True,
-                        auto_refresh=True,
-                    )
-                ],
-            ],
-            element_justification="c",
-            expand_x=True,
-            expand_y=True,
-        )
-
-        layout_root = [[col_00], [col_0, col_1, col_2]]
-
-        window_root = sg.Window(
-            "rclone",
-            layout_root,
-            alpha_channel=0.99,
-            location=(0, 0),
-            finalize=True,
-            resizable=True,
-        )
-        window_root.set_min_size(window_root.size)
-
-        window_root["-ML0-"].expand(True, True, True)
-        window_root["-ML1-"].expand(True, True, True)
-        window_root["-ML2-"].expand(True, True, True)
-
-        return window_root
 
 def patch_http_connection_pool(**constructor_kwargs):
     """
@@ -2388,6 +2102,295 @@ def check_if_dl(info_dict, videos):
     vid_name = f"{_id}_{_title}"
 
     return videos.get(vid_name)
+
+
+try:
+
+    import PySimpleGUI as sg
+    _SUPPORT_PYSIMP = True
+except Exception:
+    _SUPPORT_PYSIMP = False
+
+
+if _SUPPORT_PYSIMP:
+
+    def init_gui_root():
+
+        logger = logging.getLogger("init_gui_root")
+
+        sg.theme("SystemDefaultForReal")
+
+        col_0 = sg.Column(
+            [
+                [sg.Text("WAITING TO DL", font="Any 14")],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(70, 40),
+                        font=("Courier New Bold", 10),
+                        write_only=True,
+                        key="-ML0-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+            ],
+            element_justification="l",
+            expand_x=True,
+            expand_y=True,
+        )
+
+        col_00 = sg.Column(
+            [
+                [
+                    sg.Text(
+                        "Waiting for info",
+                        size=(80, 2),
+                        font=("Courier New Bold", 12),
+                        key="ST",
+                    )
+                ]
+            ]
+        )
+        col_1 = sg.Column(
+            [
+                [sg.Text("NOW DOWNLOADING/CREATING FILE", font="Any 14")],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(90, 35),
+                        font=("Courier New Bold", 11),
+                        write_only=True,
+                        key="-ML1-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(90, 5),
+                        font=("Courier New Bold", 10),
+                        write_only=True,
+                        key="-ML3-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
+
+        col_2 = sg.Column(
+            [
+                [sg.Text("DOWNLOADED/STOPPED/ERRORS", font="Any 14")],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(70, 40),
+                        font=("Courier New Bold", 10),
+                        write_only=True,
+                        key="-ML2-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+            ],
+            element_justification="r",
+            expand_x=True,
+            expand_y=True,
+        )
+
+        layout_root = [[col_00], [col_0, col_1, col_2]]
+
+        window_root = sg.Window(
+            "async_downloader",
+            layout_root,
+            alpha_channel=0.99,
+            location=(0, 0),
+            finalize=True,
+            resizable=True,
+        )
+        window_root.set_min_size(window_root.size)
+
+        window_root["-ML0-"].expand(True, True, True)
+        window_root["-ML1-"].expand(True, True, True)
+        window_root["-ML2-"].expand(True, True, True)
+        window_root["-ML3-"].expand(True, True, True)
+
+        return window_root
+
+    def init_gui_console():
+
+        
+        logger = logging.getLogger("init_gui_cons")
+        
+
+
+        sg.theme("SystemDefaultForReal")
+
+        col_pygui = sg.Column(
+            [
+                [sg.Text("Select DL", font="Any 14")],
+                [sg.Input(key="-IN-", font="Any 10", focus=True)],
+                [
+                    sg.Multiline(
+                        size=(50, 12),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML-",
+                        reroute_cprint=True,
+                        auto_refresh=True,
+                        autoscroll=True,
+                    )
+                ],
+                [
+                    sg.Checkbox(
+                        "PauseRep",
+                        key="-PASRES-",
+                        default=False,
+                        enable_events=True,
+                    ),
+                    sg.Checkbox(
+                        "ResRep",
+                        key="-RESETREP-",
+                        default=False,
+                        enable_events=True,
+                    ),
+                    sg.Checkbox(
+                        "WkInit", key="-WKINIT-", default=True, enable_events=True
+                    ),
+                    sg.Button("+PasRes"),
+                    sg.Button("-PasRes"),
+                    sg.Button("DLStatus", key="-DL-STATUS"),
+                    sg.Button("Info"),
+                    sg.Button("ToFile"),
+                    sg.Button("+runwk", key="IncWorkerRun"),
+                    sg.Button("-runwk", key="DecWorkerRun"),
+                    sg.Button("#vidwk", key="NumVideoWorkers"),
+                    sg.Button("TimePasRes"),
+                    sg.Button("Pause"),
+                    sg.Button("Resume"),
+                    sg.Button("Reset"),
+                    sg.Button("Stop"),
+                    sg.Button("Exit"),
+                ],
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
+
+        layout_pygui = [[col_pygui]]
+
+        window_console = sg.Window(
+            "Console",
+            layout_pygui,
+            alpha_channel=0.99,
+            location=(0, 500),
+            finalize=True,
+            resizable=True,
+        )
+        window_console.set_min_size(window_console.size)
+        window_console["-ML-"].expand(True, True, True)
+
+        window_console.bring_to_front()
+
+        return window_console
+
+    def init_gui_rclone():
+
+        logger = logging.getLogger("rclone-san")
+
+
+        sg.theme("SystemDefaultForReal")
+
+        col_00 = sg.Column(
+            [[sg.Text("Waiting for info", size=(150, 2), font="Any 10", key="ST")]]
+        )
+
+        col_0 = sg.Column(
+            [
+                [sg.Text("NOW RCLONE", font="Any 14")],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(50, 25),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML0-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
+
+        col_1 = sg.Column(
+            [
+                [sg.Text("NOW MOVING", font="Any 14")],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(50, 25),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML1-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
+
+        col_2 = sg.Column(
+            [
+                [sg.Text("FINISHED", font="Any 14")],
+                [
+                    sg.Multiline(
+                        default_text="Waiting for info",
+                        size=(50, 25),
+                        font="Any 10",
+                        write_only=True,
+                        key="-ML2-",
+                        autoscroll=True,
+                        auto_refresh=True,
+                    )
+                ],
+            ],
+            element_justification="c",
+            expand_x=True,
+            expand_y=True,
+        )
+
+        layout_root = [[col_00], [col_0, col_1, col_2]]
+
+        window_root = sg.Window(
+            "rclone",
+            layout_root,
+            alpha_channel=0.99,
+            location=(0, 0),
+            finalize=True,
+            resizable=True,
+        )
+        window_root.set_min_size(window_root.size)
+
+        window_root["-ML0-"].expand(True, True, True)
+        window_root["-ML1-"].expand(True, True, True)
+        window_root["-ML2-"].expand(True, True, True)
+
+        return window_root
+
+
+
 
 
 '''
