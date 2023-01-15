@@ -176,6 +176,10 @@ class WorkersInit:
     async def _task(self, url_key):
         try:            
             if url_key == "KILL":
+                async with async_lock(self.lock):               
+                    self.running.remove(url_key)
+                while self.running_count:
+                    await asyncio.sleep(0)                
                 self.logger.debug(f"[{url_key}] end tasks worker init: exit")
                 self.asyncdl.t3.stop()
                 self.exit.set()
@@ -535,18 +539,14 @@ class FrontEndGUI:
             self.logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
         finally:
             if self.list_nwmon:
-                self.logger.info(
-                    f"DL MEDIA: {naturalsize(median([el[1] for el in self.list_nwmon]),True)}ps"
-                )
+                self.logger.info(f"DL MEDIA: {naturalsize(median([el[1] for el in self.list_nwmon]),True)}ps")
                 _str_nwmon = ", ".join(
                     [
                         f'{el[0].strftime("%H:%M:")}{(el[0].second + (el[0].microsecond / 1000000)):06.3f}'
                         for el in self.list_nwmon
                     ]
                 )
-                self.logger.debug(
-                    f"[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}"
-                )
+                self.logger.debug(f"[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}")
             self.logger.debug("[upt_window_periodic] BYE")
 
     @long_operation_in_thread
@@ -2062,14 +2062,14 @@ class AsyncDL:
             self.t3.start()
             self.loop = asyncio.get_running_loop()
 
-                        
-            if self.args.aria2c:
-                ainit_aria2c = sync_to_async(init_aria2c, self.ex_winit)
-                _tasks_to_wait_dl.update({asyncio.create_task(ainit_aria2c(self.args)): "aria2"})
-            if self.args.enproxy:
-                ainit_proxies = sync_to_async(init_proxies, self.ex_winit)
-                _tasks_to_wait_dl.update({asyncio.create_task(
-                        ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
+            if not self.args.nodl:
+                if self.args.aria2c:
+                    ainit_aria2c = sync_to_async(init_aria2c, self.ex_winit)
+                    _tasks_to_wait_dl.update({asyncio.create_task(ainit_aria2c(self.args)): "aria2"})
+                if self.args.enproxy:
+                    ainit_proxies = sync_to_async(init_proxies, self.ex_winit)
+                    _tasks_to_wait_dl.update({asyncio.create_task(
+                            ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
                 
             
             self.get_videos_cached() #bloquea pero de todas formas necesitamos el resultado para progresir
@@ -2416,29 +2416,24 @@ class AsyncDL:
             logger.info("*********** FINAL SUMMARY ****************************")
             logger.info("******************************************************")
             logger.info("******************************************************\n\n")
-            #logger.info("")
             logger.info(f"Request to DL: [{len(info_dict['videos']['urls'])}]\n\n")
-            #logger.info("")
             logger.info(f"         Already DL: [{len(info_dict['videosaldl']['urls'])}]")
             logger.info(f"         Same requests: [{len(info_dict['videossamevideo']['urls'])}]")
             logger.info(f"         Videos to DL: [{len(info_dict['videos2dl']['urls'])}]\n\n")
-            #logger.info(f"")
             logger.info(f"                 OK DL: [{len(videos_okdl)}]")
             logger.info(f"                 ERROR DL: [{len(videos_kodl)}]")
             logger.info(f"                     ERROR init DL: [{len(videos_koinit)}]")
             logger.info(f"                         UNSUP URLS: [{len(_videos_url_notsupported)}]")
             logger.info(f"                         NOTVALID URLS: [{len(_videos_url_notvalid)}]")
-            logger.info(f"                         TO CHECK URLS: [{len(_videos_url_tocheck)}\n\n]")
-            #logger.info("")
-            logger.info("*********** VIDEO RESULT LISTS **************************")
-            logger.info("")
+            logger.info(f"                         TO CHECK URLS: [{len(_videos_url_tocheck)}]\n\n")
+            logger.info("*********** VIDEO RESULT LISTS **************************\n\n")
             if tab_valdl:
-                logger.info("Videos ALREADY DL:")
+                logger.info("Videos ALREADY DL:\n")
                 logger.info(f"%no%\n\n{tab_valdl}\n\n")
             else:
                 logger.info("Videos ALREADY DL: []")
             if tab_vsamevideo:
-                logger.info("SAME requests:")
+                logger.info("SAME requests:\n")
                 logger.info(f"%no%\n\n{tab_vsamevideo}\n\n")
                 time.sleep(1)
             else:
