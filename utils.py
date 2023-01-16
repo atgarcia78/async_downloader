@@ -21,7 +21,7 @@ from concurrent.futures import(
 from datetime import datetime, timedelta
 
 from pathlib import Path
-from queue import Queue
+#from queue import Queue
 from bisect import bisect
 from typing import Optional, List, Tuple, Union, Dict, Coroutine, Any, Callable, TypeVar, Awaitable, Iterable
 
@@ -669,7 +669,7 @@ class OutputLogger:
 
 def init_logging(file_path=None):
 
-    PATH_LOGS = Path(Path.home(), "Projects/common/logs")
+    #PATH_LOGS = Path(Path.home(), "Projects/common/logs")
     if not file_path:
         config_file = Path(Path.home(), "Projects/common/logging.json")
     else:

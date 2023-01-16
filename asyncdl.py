@@ -1000,8 +1000,8 @@ class AsyncDL:
             self.url_pl_list = {}
             _url_list = {}
 
-            filecaplinks = Path(Path.home(), "Projects/common/logs/captured_links.txt")
-            prevfilecaplinks = Path(Path.home(), "Projects/common/logs/prev_captured_links.txt")
+            filecaplinks = Path(PATH_LOGS, "captured_links.txt")
+            prevfilecaplinks = Path(PATH_LOGS, "prev_captured_links.txt")
             if self.args.caplinks and filecaplinks.exists():
                 if self.STOP.is_set():
                     raise Exception("STOP")
@@ -2332,7 +2332,7 @@ class AsyncDL:
         videos_kodl = []
         videos_koinit = []
 
-        local_storage = Path(Path.home(), "Projects/common/logs/files_cached.json")
+        local_storage = Path(PATH_LOGS, "files_cached.json")
 
         with open(local_storage, "r") as f:
             _temp = json.load(f)
@@ -2488,7 +2488,7 @@ class AsyncDL:
         else:
             videos_ko_str = ""
 
-        with open("/Users/antoniotorres/Projects/common/logs/error_links.txt", "w") as file:
+        with open(Path(PATH_LOGS, "error_links.txt"), "w") as file:
             file.write(videos_ko_str)
 
         return info_dict

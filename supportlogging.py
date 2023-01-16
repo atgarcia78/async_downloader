@@ -6,9 +6,19 @@ supportlogging - Python3 Logging
 import logging
 import logging.handlers
 
+
 from logging.config import ConvertingList, ConvertingDict, valid_ident
 from logging.handlers import QueueHandler, QueueListener
-from multiprocess import Queue
+
+_MULTIPROCESS = True
+try:
+    from multiprocess import Queue # type: ignore
+except ImportError:
+    logging.error("Please install multiprocess")
+    from multiprocessing import Queue
+    _MULTIPROCESS = False
+    
+
 import atexit
 import shutil
 
@@ -151,7 +161,8 @@ class QueueListenerHandler(QueueHandler):
     def emit(self, record):
         return super().emit(record)
 
-    
+
+
     
 
             
