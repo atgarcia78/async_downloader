@@ -225,7 +225,8 @@ class ProgressTimer:
         return(f"{self.elapsed_seconds():.2f}")
 
     def reset(self):
-        self._last_ts += self.elapsed_seconds()
+        #self._last_ts += self.elapsed_seconds()
+        self._last_ts = self.TIMER_FUNC()
 
     def elapsed_seconds(self) -> float:
         return self.TIMER_FUNC() - self._last_ts
@@ -241,15 +242,17 @@ class ProgressTimer:
 
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
-    UPDATE_TIMESPAN_S = 1.0#CONF_INTERVAL_GUI#1.0
-    AVERAGE_TIMESPAN_S = 5.0#5.0
+    #UPDATE_TIMESPAN_S = 1.0#CONF_INTERVAL_GUI#1.0
+    #AVERAGE_TIMESPAN_S = 5.0#5.0
 
-    def __init__(self, initial_bytes=0):
+    def __init__(self, initial_bytes: int=0, upt_time: Union[int, float]=1.0, ave_time: Union[int, float]=5.0):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
         self.last_value = None
+        self.UPDATE_TIMESPAN_S = float(upt_time)#1.0#CONF_INTERVAL_GUI#1.0
+        self.AVERAGE_TIMESPAN_S = float(ave_time)#5.0#5.0
 
-    def __call__(self, byte_counter):
+    def __call__(self, byte_counter: int):
         time_now = self.TIMER_FUNC()
 
         # only append data older than 50ms
@@ -290,6 +293,7 @@ class SmoothETA:
         return value
 
 
+_SUPPORT_SELENIUM = True
 try:
     from selenium.webdriver import Firefox, FirefoxOptions
     from selenium.webdriver.common.by import By
@@ -299,68 +303,32 @@ try:
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.common.exceptions import WebDriverException, TimeoutException
 
-    _SUPPORT_SELENIUM = True
+    
 except Exception:
     _SUPPORT_SELENIUM = False
 
+_SUPPORT_PROXY = True
 try:
     import proxy
-    _SUPPORT_PROXY = True
+    
 except Exception:
     _SUPPORT_PROXY = False
 
 
+_SUPPORT_ARIA2P = True
 try:
     import aria2p
     from aria2p.utils import human_readable_timedelta
-    _SUPPORT_ARIA2P = True
+    
 except Exception:
     _SUPPORT_ARIA2P = False
 
+_SUPPORT_HTTPX = True
 try:
     import httpx
-    _SUPPORT_HTTPX = True
+    
 except Exception:
     _SUPPORT_HTTPX = False
-
-
-
-_SUPPORT_YTDL = False
-try:
-    import yt_dlp
-    _SUPPORT_YTDL = True
-    
-    from yt_dlp.extractor.commonwebdriver import (
-        CONFIG_EXTRACTORS,
-        SeleniumInfoExtractor,
-        StatusStop,
-        dec_on_exception,
-        dec_retry_error,
-        limiter_1,
-        limiter_5,
-        limiter_15,
-        limiter_non,
-        ReExtractInfo,
-        ConnectError,
-        StatusError503,
-        my_dec_on_exception,
-    )
-
-    from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
-    from yt_dlp.mylogger import MyLogger
-    from yt_dlp.utils import (
-        get_domain,
-        js_to_json,
-        prepend_extension,
-        sanitize_filename,
-        smuggle_url,
-        traverse_obj,
-        try_get,
-        unsmuggle_url,
-    )
-except Exception:
-    _SUPPORT_YTDL = False
-    
 
 
 def _for_print_entry(entry):
@@ -437,7 +405,13 @@ def sync_to_async(func, exe=None):
     async def run_in_executor(*args, **kwargs):
         
         ctx = contextvars.copy_context()        
-        pfunc = functools.partial(ctx.run, func, *args, **kwargs)
+        if (_func:=kwargs.get("func")):
+            _kwargs = {k:v for k,v in kwargs.items() if k != "func"}
+        else:
+            _func = func
+            _kwargs = kwargs
+
+        pfunc = functools.partial(ctx.run, _func, *args, **_kwargs)
     
         return await asyncio.get_running_loop().run_in_executor(exe, pfunc)
 
@@ -469,11 +443,11 @@ async def async_lock(lock):
             pass
 
 
-def long_operation_in_thread(func) -> Callable[[Callable], asyncio.Event]:
+def long_operation_in_thread(func) -> Callable[[Callable], threading.Event]:
     
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
-        stop_event = asyncio.Event()
+        stop_event = threading.Event()
         thread = threading.Thread(target=func, args=args, kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
         thread.start()
         return stop_event
@@ -496,30 +470,20 @@ def long_operation_in_process(func):
 
     return wrapper
 
-async def async_wait_time(n: Union[int, float], events: Union[List[asyncio.Event], Tuple[asyncio.Event, ...], asyncio.Event, None] = None):
+async def async_wait_time(n: Union[int, float]):
+    return await async_waitfortasks(timeout=n)
 
-    if not events:
-        events = [asyncio.Event()]  # dummy
-    elif isinstance(events, asyncio.Event):
-        events = [events]
-
-    _started = time.monotonic()
-    while not any([_ev.is_set() for _ev in events]):
-        if (_t := (time.monotonic() - _started)) >= n:
-            return _t
-        await asyncio.sleep(0)
-
-def wait_time(n, event=None):
+def wait_time(n: Union[int, float], event: Union[threading.Event, None] = None):
     _started = time.monotonic()
     if not event:
-        event = threading.Event()  # dummy
- 
-    while not event.is_set():
-        if (_t := (time.monotonic() - _started)) >= n:
-            return _t
-        else:
-            time.sleep(CONF_INTERVAL_GUI)
-    return
+        time.sleep(n)  # dummy
+        return time.monotonic() - _started
+    else:
+        _res = event.wait(timeout=n)
+        if not _res:
+            return time.monotonic() - _started
+        else: return
+
 
 async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] = None, timeout: Union[float, None] = None, events: Union[Iterable, asyncio.Event, None] = None)->dict:
     
@@ -597,12 +561,7 @@ async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] 
     return res
 
 
-
-
-
-async def async_wait_until(
-    timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI
-):
+async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
 
     if not cor:
@@ -620,9 +579,7 @@ async def async_wait_until(
             await async_wait_time(interv)
 
 
-def wait_until(
-    timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI
-):
+def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
 
     if not statement:
@@ -900,280 +857,313 @@ if _SUPPORT_ARIA2P:
         
         return _proc
 
+if _SUPPORT_HTTPX:
 
-
-
-
-
-URLS_API_GETMYIP = {
-    "httpbin": {"url": "https://httpbin.org/get", "key": "origin"},
-    "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
-    "ipapi": {"url": "http://ip-api.com/json", "key": "query"}
-}
-
-
-def get_myip(key=None, timeout=1, api="ipify", shell=False, stop_event=None):
-
-    if api not in URLS_API_GETMYIP:
-        raise Exception("api not supported")
-    
-    _urlapi = URLS_API_GETMYIP[api]['url']
-    _keyapi = URLS_API_GETMYIP[api]['key']
-
-    if not shell:
-        
-        _proxies = {'all://': f'http://127.0.0.1:{key}'} if key != None else None
-
-        try:
-            myip = try_get(httpx.get(_urlapi, timeout=httpx.Timeout(timeout=timeout), proxies=_proxies, follow_redirects=True), lambda x: x.json().get(_keyapi)) # type: ignore
-            return myip
-        except Exception as e:
-            return "timeout"
-    
-    else:
-        _proxy = ""
-        if key: _proxy = f"-x http://127.0.0.1:{key} "
-        _cmd = f"curl {_proxy}-s {_urlapi}"
-        proc_curl = subprocess.Popen(
-            _cmd.split(" "),
-            encoding="utf-8",
-            stdout=subprocess.PIPE,
-        )
-        t0 = time.monotonic()
-        while True:
-            proc_curl.poll()
-            if proc_curl.returncode == 0:
-                return try_get(proc_curl.stdout, lambda x: json.loads(x.read().replace("\n", "")).get(_keyapi) if x else None)
-            elif proc_curl.returncode == None:
-                if time.monotonic() - t0 > timeout:
-                    proc_curl.kill()
-                    proc_curl.poll()
-                    return "timeout"
-                elif try_get(stop_event, lambda x: x.is_set() if x else False):
-                    proc_curl.kill()
-                    proc_curl.poll()
-                    return "stop_event"
-                time.sleep(0.2)
-                continue
-            else:
-                return f"error: {proc_curl.returncode}"
-
-
-from ipaddress import ip_address
-
-def is_ipaddr(res):
-    try:
-        ip_address(res)
-        return True
-    except Exception as e:
-        return False
-
-from concurrent.futures import as_completed
-
-def get_myiptryall(key=None, timeout=1, shell=False):
-
-    logger = logging.getLogger('test')
-    stop_event = threading.Event()
-    exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
-    futures = {exe.submit(get_myip, key=key, timeout=timeout, api=api, shell=shell, stop_event=stop_event): api for api in URLS_API_GETMYIP}
-    for el in as_completed(futures):
-        if not el.exception() and is_ipaddr(_res:=el.result()):
-            exe.shutdown(wait=False, cancel_futures=True)
-            return _res
-        else: continue
-
-
-def test_proxies_rt(routing_table, timeout=1):
-    logger = logging.getLogger("asyncdl")
-
-    logger.info(f"[init_proxies] starting test proxies")
-
-    with ThreadPoolExecutor() as exe:
-        futures = {
-            exe.submit(get_myiptryall, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())
-        }
-
-    bad_pr = []
-
-    for fut in futures:
-        _ip = fut.result()
-        # logger.debug(f"[{futures[fut]} test: {_ip} expect res: {routing_table[futures[fut]]} > {_ip == routing_table[futures[fut]]}")
-        if _ip != routing_table[futures[fut]]:
-            logger.info(
-                f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}"
-            )
-            bad_pr.append(routing_table[futures[fut]])
-
-    return bad_pr
-
-
-def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, timeout=1):
-    logger = logging.getLogger("asyncdl")
-    cmd_gost = [
-        f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
-        for i, ip in enumerate(list_ips)
-    ]
-    routing_table = {
-        CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)
+    URLS_API_GETMYIP = {
+        "httpbin": {"url": "https://httpbin.org/get", "key": "origin"},
+        "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
+        "ipapi": {"url": "http://ip-api.com/json", "key": "query"}
     }
-    proc_gost = []
-    for cmd in cmd_gost:
 
-        # logger.info(cmd)
-        _proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
-        )
-        _proc.poll()
-        if _proc.returncode:
-            logger.error(f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
-            raise Exception("init proxies error")
+    def get_myip(key=None, timeout=1, api="ipify", shell=False, stop_event=None):
+
+        if api not in URLS_API_GETMYIP:
+            raise Exception("api not supported")
+        
+        _urlapi = URLS_API_GETMYIP[api]['url']
+        _keyapi = URLS_API_GETMYIP[api]['key']
+
+        if not shell:
+            
+            _proxies = {'all://': f'http://127.0.0.1:{key}'} if key != None else None
+
+            try:
+                myip = try_get(httpx.get(_urlapi, timeout=httpx.Timeout(timeout=timeout), proxies=_proxies, follow_redirects=True), lambda x: x.json().get(_keyapi)) # type: ignore
+                return myip
+            except Exception as e:
+                return "timeout"
+        
         else:
-            proc_gost.append(_proc)
-        time.sleep(0.05)
-    _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
-    logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
-    _res_bad = test_proxies_rt(routing_table, timeout=timeout)
-    _line_ps_pr = []
-    for _ip in _res_bad:
-        if (_temp:=try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
-            _line_ps_pr.append(_temp)    
-    logger.info(f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] ps_print [{len(_line_ps_pr)}]")
-    for proc in proc_gost:
-        proc.kill()
-        proc.poll()
+            _proxy = ""
+            if key: _proxy = f"-x http://127.0.0.1:{key} "
+            _cmd = f"curl {_proxy}-s {_urlapi}"
+            proc_curl = subprocess.Popen(
+                _cmd.split(" "),
+                encoding="utf-8",
+                stdout=subprocess.PIPE,
+            )
+            t0 = time.monotonic()
+            while True:
+                proc_curl.poll()
+                if proc_curl.returncode == 0:
+                    return try_get(proc_curl.stdout, lambda x: json.loads(x.read().replace("\n", "")).get(_keyapi) if x else None)
+                elif proc_curl.returncode == None:
+                    if time.monotonic() - t0 > timeout:
+                        proc_curl.kill()
+                        proc_curl.poll()
+                        return "timeout"
+                    elif try_get(stop_event, lambda x: x.is_set() if x else False):
+                        proc_curl.kill()
+                        proc_curl.poll()
+                        return "stop_event"
+                    time.sleep(0.2)
+                    continue
+                else:
+                    return f"error: {proc_curl.returncode}"
 
-    cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
-    with open(cached_res, "w") as f:
-        _test = "\n".join(_res_bad)
-        f.write(_test)
+    from ipaddress import ip_address
 
-    return _res_bad
+    def is_ipaddr(res):
+        try:
+            ip_address(res)
+            return True
+        except Exception as e:
+            return False
 
-def get_ips(name):
-    res = subprocess.run(
-        f"dscacheutil -q host -a name {name}".split(" "),
-        encoding="utf-8",
-        capture_output=True,
-    ).stdout
-    return re.findall(r"ip_address: (.+)", res)
+    from concurrent.futures import as_completed
+
+    def get_myiptryall(key=None, timeout=1, shell=False):
+
+        logger = logging.getLogger('test')
+        stop_event = threading.Event()
+        exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
+        futures = {exe.submit(get_myip, key=key, timeout=timeout, api=api, shell=shell, stop_event=stop_event): api for api in URLS_API_GETMYIP}
+        for el in as_completed(futures):
+            if not el.exception() and is_ipaddr(_res:=el.result()):
+                exe.shutdown(wait=False, cancel_futures=True)
+                return _res
+            else: continue
 
 
-from itertools import zip_longest
+    def test_proxies_rt(routing_table, timeout=1):
+        logger = logging.getLogger("asyncdl")
 
-def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT)->Tuple[List, Dict]:
+        logger.info(f"[init_proxies] starting test proxies")
 
-    logger = logging.getLogger("asyncDL")
-
-    logger.info(f"[init_proxies] start")
-
-    IPS_SSL = []
-    CONF_PROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_PROXIES_COUNTRIES]
-    for domain in CONF_PROXIES_DOMAINS:
-        IPS_SSL += get_ips(domain)
-
-    cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
-    if cached_res.exists() and (
-        (datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds
-        < 7200
-    ):  # every 2h we check the proxies
-        with open(cached_res, "r") as f:
-            _content = f.read()
-        _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
-    else:
-        _bad_ips = test_proxies_raw(IPS_SSL, port)
-
-    for _ip in _bad_ips:
-        if _ip in IPS_SSL:
-            IPS_SSL.remove(_ip)
-
-    _ip_main = random.choice(IPS_SSL)
-
-    IPS_SSL.remove(_ip_main)
-
-    _ips = random.sample(IPS_SSL, num * (size + 1))
-
-    def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
-
-        args = [iter(iterable)] * n
-        if incomplete == 'fill':
-            return zip_longest(*args, fillvalue=fillvalue)
-        if incomplete == 'strict':
-            return zip(*args, strict=True)  # type: ignore
-        if incomplete == 'ignore':
-            return zip(*args)
-        else:
-            raise ValueError('Expected fill, strict, or ignore')
-
-    FINAL_IPS = list(grouper(_ips, (size + 1)))
-
-    cmd_gost_s = []
-
-    routing_table = {}
-
-    for j in range(size + 1):
-
-        cmd_gost_s.extend(
-            [
-                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
-                for i, ip in enumerate(FINAL_IPS)
-            ]
-        )
-
-        routing_table.update(
-            {
-                (CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j]
-                for i, ip in enumerate(FINAL_IPS)
+        with ThreadPoolExecutor() as exe:
+            futures = {
+                exe.submit(get_myiptryall, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())
             }
-        )
 
-    cmd_gost_main = [
-        f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
-    ]
-    routing_table.update({CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
+        bad_pr = []
 
-    cmd_gost_group = [
-        f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)
-    ]
+        for fut in futures:
+            _ip = fut.result()
+            # logger.debug(f"[{futures[fut]} test: {_ip} expect res: {routing_table[futures[fut]]} > {_ip == routing_table[futures[fut]]}")
+            if _ip != routing_table[futures[fut]]:
+                logger.info(
+                    f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}"
+                )
+                bad_pr.append(routing_table[futures[fut]])
 
-    cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
+        return bad_pr
 
-    logger.debug(f"[init_proxies] {cmd_gost}")
-    logger.debug(f"[init_proxies] {routing_table}")
 
-    proc_gost = []
-
-    try:
+    def test_proxies_raw(list_ips, port=CONF_PROXIES_HTTPPORT, timeout=1):
+        logger = logging.getLogger("asyncdl")
+        cmd_gost = [
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
+            for i, ip in enumerate(list_ips)
+        ]
+        routing_table = {
+            CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)
+        }
+        proc_gost = []
         for cmd in cmd_gost:
-            logger.debug(cmd)
-            _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+
+            # logger.info(cmd)
+            _proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True
+            )
             _proc.poll()
             if _proc.returncode:
-                logger.error(
-                    f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]"
-                )
+                logger.error(f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
                 raise Exception("init proxies error")
             else:
                 proc_gost.append(_proc)
             time.sleep(0.05)
+        _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
+        logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
+        _res_bad = test_proxies_rt(routing_table, timeout=timeout)
+        _line_ps_pr = []
+        for _ip in _res_bad:
+            if (_temp:=try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
+                _line_ps_pr.append(_temp)    
+        logger.info(f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] ps_print [{len(_line_ps_pr)}]")
+        for proc in proc_gost:
+            proc.kill()
+            proc.poll()
 
-        logger.info("[init_proxies] done")        
-        return proc_gost, routing_table
-    
-    except Exception as e:
-        logger.exception(repr(e))    
-        if proc_gost:
-            for proc in proc_gost:
-                try:
-                    proc.kill()
-                    proc.poll()
-                except Exception as e:
-                    pass
-        return [], {}
+        cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
+        with open(cached_res, "w") as f:
+            _test = "\n".join(_res_bad)
+            f.write(_test)
+
+        return _res_bad
+
+    def get_ips(name):
+        res = subprocess.run(
+            f"dscacheutil -q host -a name {name}".split(" "),
+            encoding="utf-8",
+            capture_output=True,
+        ).stdout
+        return re.findall(r"ip_address: (.+)", res)
+
+
+    from itertools import zip_longest
+
+    def init_proxies(num, size, port=CONF_PROXIES_HTTPPORT)->Tuple[List, Dict]:
+
+        logger = logging.getLogger("asyncDL")
+
+        logger.info(f"[init_proxies] start")
+
+        IPS_SSL = []
+        CONF_PROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_PROXIES_COUNTRIES]
+        for domain in CONF_PROXIES_DOMAINS:
+            IPS_SSL += get_ips(domain)
+
+        cached_res = Path(Path.home(), "Projects/common/logs/bad_proxies.txt")
+        if cached_res.exists() and (
+            (datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds
+            < 7200
+        ):  # every 2h we check the proxies
+            with open(cached_res, "r") as f:
+                _content = f.read()
+            _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
+        else:
+            _bad_ips = test_proxies_raw(IPS_SSL, port)
+
+        for _ip in _bad_ips:
+            if _ip in IPS_SSL:
+                IPS_SSL.remove(_ip)
+
+        _ip_main = random.choice(IPS_SSL)
+
+        IPS_SSL.remove(_ip_main)
+
+        _ips = random.sample(IPS_SSL, num * (size + 1))
+
+        def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
+
+            args = [iter(iterable)] * n
+            if incomplete == 'fill':
+                return zip_longest(*args, fillvalue=fillvalue)
+            if incomplete == 'strict':
+                return zip(*args, strict=True)  # type: ignore
+            if incomplete == 'ignore':
+                return zip(*args)
+            else:
+                raise ValueError('Expected fill, strict, or ignore')
+
+        FINAL_IPS = list(grouper(_ips, (size + 1)))
+
+        cmd_gost_s = []
+
+        routing_table = {}
+
+        for j in range(size + 1):
+
+            cmd_gost_s.extend(
+                [
+                    f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
+                    for i, ip in enumerate(FINAL_IPS)
+                ]
+            )
+
+            routing_table.update(
+                {
+                    (CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j]
+                    for i, ip in enumerate(FINAL_IPS)
+                }
+            )
+
+        cmd_gost_main = [
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
+        ]
+        routing_table.update({CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
+
+        cmd_gost_group = [
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)
+        ]
+
+        cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
+
+        logger.debug(f"[init_proxies] {cmd_gost}")
+        logger.debug(f"[init_proxies] {routing_table}")
+
+        proc_gost = []
+
+        try:
+            for cmd in cmd_gost:
+                logger.debug(cmd)
+                _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                _proc.poll()
+                if _proc.returncode:
+                    logger.error(
+                        f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]"
+                    )
+                    raise Exception("init proxies error")
+                else:
+                    proc_gost.append(_proc)
+                time.sleep(0.05)
+
+            logger.info("[init_proxies] done")        
+            return proc_gost, routing_table
         
+        except Exception as e:
+            logger.exception(repr(e))    
+            if proc_gost:
+                for proc in proc_gost:
+                    try:
+                        proc.kill()
+                        proc.poll()
+                    except Exception as e:
+                        pass
+            return [], {}
+            
+
+
+_SUPPORT_YTDL = True
+try:
+    import yt_dlp
+
+except Exception:
+    _SUPPORT_YTDL = False
+    
 
 if _SUPPORT_YTDL:
 
+    from yt_dlp.extractor.commonwebdriver import (
+        CONFIG_EXTRACTORS,
+        SeleniumInfoExtractor,
+        StatusStop,
+        dec_on_exception,
+        dec_retry_error,
+        limiter_1,
+        limiter_5,
+        limiter_15,
+        limiter_non,
+        ReExtractInfo,
+        ConnectError,
+        StatusError503,
+        my_dec_on_exception,
+    )
+
+    from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
+    from yt_dlp.mylogger import MyLogger
+    from yt_dlp.utils import (
+        get_domain,
+        js_to_json,
+        prepend_extension,
+        sanitize_filename,
+        smuggle_url,
+        traverse_obj,
+        try_get,
+        unsmuggle_url,
+    )
     from yt_dlp import YoutubeDL
+    
 
     class myYTDL(YoutubeDL):
         def __init__(self, *args, **kwargs):
@@ -2104,10 +2094,10 @@ def check_if_dl(info_dict, videos):
     return videos.get(vid_name)
 
 
+_SUPPORT_PYSIMP = True
 try:
-
     import PySimpleGUI as sg
-    _SUPPORT_PYSIMP = True
+    
 except Exception:
     _SUPPORT_PYSIMP = False
 

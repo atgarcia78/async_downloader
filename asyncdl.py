@@ -207,6 +207,7 @@ class FrontEndGUI:
         self.pasres_time_in_pause = 1
         self.reset_repeat = False
         self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
+        self.dl_media_str = None
 
     
     def close(self):
@@ -520,26 +521,31 @@ class FrontEndGUI:
             self.list_nwmon = []
             init_bytes_recv = psutil.net_io_counters().bytes_recv
             speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
-            
+            ds = None
             while not stop_upt.is_set():
                 
-                if self.asyncdl.list_dl and progress_timer.has_elapsed(
-                    seconds=CONF_INTERVAL_GUI
-                ):
-                    _recv = psutil.net_io_counters().bytes_recv
-                    ds = speedometer(_recv)
-                    if short_progress_timer.has_elapsed(seconds=10*CONF_INTERVAL_GUI):
-                        self.list_nwmon.append((datetime.now(), ds))
-                    msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(ds,True)}ps"
-                    self.update_window("all", nwmon=msg)
+                if self.asyncdl.list_dl:
+                    
+                    if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                        _recv = psutil.net_io_counters().bytes_recv
+                        ds = speedometer(_recv)
+                        
+                        msg = f"RECV: {naturalsize(_recv - init_bytes_recv,True)}  DL: {naturalsize(ds,True)}ps"
+                        self.update_window("all", nwmon=msg)
+                        if short_progress_timer.has_elapsed(seconds=10*CONF_INTERVAL_GUI):
+                            self.list_nwmon.append((datetime.now(), ds))
+                    else:
+                        time.sleep(CONF_INTERVAL_GUI/4)
                 else:
-                    time.sleep(CONF_INTERVAL_GUI/2)
+                    time.sleep(CONF_INTERVAL_GUI)
+                    progress_timer.reset()
+                    short_progress_timer.reset()
                     
         except Exception as e:
             self.logger.exception(f"[upt_window_periodic]: error: {repr(e)}")
         finally:
             if self.list_nwmon:
-                self.logger.info(f"DL MEDIA: {naturalsize(median([el[1] for el in self.list_nwmon]),True)}ps")
+                self.dl_media_str = f"DL MEDIA: {naturalsize(median([el[1] for el in self.list_nwmon]),True)}ps"
                 _str_nwmon = ", ".join(
                     [
                         f'{el[0].strftime("%H:%M:")}{(el[0].second + (el[0].microsecond / 1000000)):06.3f}'
@@ -565,6 +571,7 @@ class FrontEndGUI:
                         self.window_console.write_event_value("Pause", ','.join(list(map(str,_list))))
 
                         wait_time(self.pasres_time_in_pause, event=stop_event)
+
                         self.window_console.write_event_value("Resume", ','.join(list(map(str,_list))))
                         wait_time(
                             self.pasres_time_from_resume_to_pause, event=stop_event
@@ -644,9 +651,10 @@ class AsyncDL:
 
         self.routing_table = {}
         self.proc_gost = []
-        if not self.args.nodl:            
-            if self.args.enproxy:
-                self.stop_proxy = self.run_proxy_http()
+        # if not self.args.nodl:            
+        #     if self.args.enproxy:
+        #         self.shutdown_proxy = Event()
+        #         self.stop_proxy = self.run_proxy_http()
         
     @property
     def main_task(self):
@@ -661,22 +669,25 @@ class AsyncDL:
         
         stop_event: Event = kwargs["stop_event"]
         log_level = kwargs.get('log_level', 'INFO')
-
-        with proxy.Proxy(
-            [
-                "--log-level",
-                log_level,
-                "--plugins",
-                "proxy.plugin.ProxyPoolByHostPlugin",
-            ]
-        ) as p:
-            logger = logging.getLogger("proxy")
-            try:
-                logger.debug(p.flags)
-                while not stop_event.is_set():
-                    time.sleep(CONF_INTERVAL_GUI)
-            except BaseException:
-                logger.error("context manager proxy")
+        try:
+            with proxy.Proxy(
+                [
+                    "--log-level",
+                    log_level,
+                    "--plugins",
+                    "proxy.plugin.ProxyPoolByHostPlugin",
+                ]
+            ) as p:
+                logger = logging.getLogger("proxy")
+                try:
+                    logger.debug(p.flags)
+                    #while not stop_event.is_set():
+                    #    time.sleep(CONF_INTERVAL_GUI)
+                    stop_event.wait()
+                except BaseException:
+                    logger.error("context manager proxy")
+        finally:
+            self.shutdown_proxy.set()
 
     def get_videos_cached(self):
 
@@ -2067,6 +2078,8 @@ class AsyncDL:
                     ainit_aria2c = sync_to_async(init_aria2c, self.ex_winit)
                     _tasks_to_wait_dl.update({asyncio.create_task(ainit_aria2c(self.args)): "aria2"})
                 if self.args.enproxy:
+                    self.shutdown_proxy = Event()
+                    self.stop_proxy = self.run_proxy_http()
                     ainit_proxies = sync_to_async(init_proxies, self.ex_winit)
                     _tasks_to_wait_dl.update({asyncio.create_task(
                             ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
@@ -2505,6 +2518,8 @@ class AsyncDL:
             try:
                 if not self.STOP.is_set():
                     self.t2.stop()
+                    if hasattr(self, 'FEgui') and self.FEgui.dl_media_str:
+                        logger.info(f"[close] {self.FEgui.dl_media_str}")
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
 
@@ -2528,16 +2543,15 @@ class AsyncDL:
                     except BaseException as e:
                         logger.exception(f"[close] {repr(e)}")
 
-            if hasattr(self, 'stop_proxy'):
-                stops = [self.stop_proxy]
-                logger.info("[close] proxy")
-                for _stop in stops:
-                    try:
-                        if _stop:
-                            _stop.set()
-                            wait_time(5)
-                    except BaseException as e:
-                        logger.exception(f"[close] {_stop} {repr(e)}")
+            try:
+                if hasattr(self, 'stop_proxy'):                
+                    logger.info("[close] proxy")
+                    self.stop_proxy.set()
+                    logger.info("[close] waiting for http proxy shutdown")
+                    self.shutdown_proxy.wait()
+                    logger.info("[close] OK shutdown")
+            except BaseException as e:
+                logger.exception(f"[close] {repr(e)}")
 
             try:
                 logger.info("[close] kill processes")

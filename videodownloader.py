@@ -339,7 +339,7 @@ class VideoDownloader:
 
     async def pause(self):
         if self.pause_event and self.info_dl['status'] == "downloading":            
-            self.resume_event.clear()
+            #self.resume_event.clear()
             self.pause_event.set()
 
     async def resume(self):
