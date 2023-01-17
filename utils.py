@@ -21,17 +21,13 @@ from concurrent.futures import(
 from datetime import datetime, timedelta
 
 from pathlib import Path
-#from queue import Queue
 from bisect import bisect
 from typing import Optional, List, Tuple, Union, Dict, Coroutine, Any, Callable, TypeVar, Awaitable, Iterable
-
-_T = TypeVar('_T', bound=Callable[...,Any])
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
 
-# 1048576 #512000 #1048576 #4194304
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 80
@@ -214,6 +210,50 @@ class MyAsyncioEvent:
 
     def __call__(self):
         self.aevent = asyncio.Event()
+
+
+class MySyncAsyncEvent:
+
+    def __init__(self, name: Union[str, None]=None):
+        if name:
+            self.name = name
+        self._cause = "noinfo"
+        self.event = threading.Event()
+        self.aevent = asyncio.Event()
+        self._flag = False
+
+    def set(self, cause: Union[str, None]="noinfo"):
+
+        self.aevent.set()
+        self.event.set()
+        if cause == None:
+            cause = "noinfo"
+        self._cause = cause
+        if not self._flag:
+            self._flag = True
+
+    def is_set(self)->Union[str, bool]:
+        """Return True if and only if the internal flag is true."""
+
+        if self._flag:
+            return self._cause
+        else:
+            return False
+
+
+    def clear(self):
+
+        self.aevent.clear()
+        self.event.clear()
+        self._flag = False
+        self._cause = "noinfo"
+
+    def wait(self, timeout: Union[float, None]=None)->bool:
+        return self.event.wait(timeout=timeout)
+
+    async def async_wait(self):
+        return await self.aevent.wait()
+    
 
 class ProgressTimer:
     TIMER_FUNC = time.monotonic
@@ -473,7 +513,7 @@ def long_operation_in_process(func):
 async def async_wait_time(n: Union[int, float]):
     return await async_waitfortasks(timeout=n)
 
-def wait_time(n: Union[int, float], event: Union[threading.Event, None] = None):
+def wait_time(n: Union[int, float], event: Union[threading.Event, MySyncAsyncEvent, None] = None):
     _started = time.monotonic()
     if not event:
         time.sleep(n)  # dummy
@@ -485,10 +525,10 @@ def wait_time(n: Union[int, float], event: Union[threading.Event, None] = None):
         else: return
 
 
-async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] = None, timeout: Union[float, None] = None, events: Union[Iterable, asyncio.Event, None] = None)->dict:
+async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] = None, timeout: Union[float, None] = None, events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None, cancel_tasks=True)->dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
     
     _final_wait = {}    
-    _tasks = {}
+    _tasks: dict[asyncio.Task, str] = {}
 
     if fs:        
         if not isinstance(fs, Iterable):
@@ -511,8 +551,15 @@ async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] 
             if hasattr(ev, 'name'):
                 return f"_{ev.name}"
             return ""
+        
+        _tasks_events = {}
 
-        _tasks_events = {asyncio.create_task(event.wait()): f"event{getter(event)}" for event in events}
+        for event in events:
+            if isinstance(event, asyncio.Event):
+                _tasks_events.update({asyncio.create_task(event.wait()): f"event{getter(event)}"})
+            elif isinstance(event, MySyncAsyncEvent):
+                _tasks_events.update({asyncio.create_task(event.async_wait()): f"event{getter(event)}"})
+
         
         _final_wait.update(_tasks_events)
            
@@ -525,16 +572,19 @@ async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] 
             
     done, pending = await asyncio.wait(_final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
 
-    res = {}
+    res: dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]] = {}
     try:        
-        if not done:             
-            res = {"timeout": timeout}
+        if not done:
+            if timeout:             
+                res = {"timeout": timeout}
+            else:
+                raise Exception("not done with no timeout")
         else:
             _task = done.pop()
             _label = _final_wait.get(_task, "")
             if _label.startswith("event"):
                 
-                def getname(x, task):
+                def getname(x, task)->Union[str, asyncio.Task]:
                     if "event_" in x:
                         return x.split("event_")[1]
                     else: return task
@@ -549,15 +599,33 @@ async def async_waitfortasks(fs: Union[Iterable, Coroutine, asyncio.Task, None] 
     except Exception as e:        
         res = {"exception": e}    
     finally:
-        for p in pending:
-            p.cancel()
-        if not res.get("result"):
-            for _task in _tasks:
-                _task.cancel()
-                pending.add(_task)
-        if pending:
-            await asyncio.wait(pending)
-    
+        try:
+            if cancel_tasks:
+                for p in pending:
+                    p.cancel()
+                if not res.get("result"):
+                    for _task in _tasks:
+                        _task.cancel()
+                        pending.add(_task)
+                if pending:
+                    await asyncio.wait(pending)
+            else:
+                if res.get("result"):
+                    for p in pending:
+                        p.cancel()
+                    await asyncio.wait(pending)
+                else:
+                    pending_ev = []
+                    for p in pending:
+                        _label = _final_wait.get(p, "")
+                        if _label.startswith("event"): 
+                            p.cancel()
+                            pending_ev.append(p)
+                    if pending_ev:
+                        await asyncio.wait(pending_ev)
+                    res.update({"pending" : _tasks})
+        except Exception:
+            pass
     return res
 
 
@@ -690,6 +758,8 @@ def init_logging(file_path=None):
             logger.setLevel(logging.INFO)
 
     logger = logging.getLogger("proxy.http.proxy.server")
+    logger.setLevel(logging.WARNING)
+    logger = logging.getLogger("proxy.core.base.tcp_server")
     logger.setLevel(logging.WARNING)
 
 
@@ -1370,6 +1440,8 @@ if _SUPPORT_YTDL:
 
     def get_format_id(info_dict, _formatid)->dict:
 
+        if not info_dict: return {}
+        
         if _req_fts := info_dict.get("requested_formats"):
             for _ft in _req_fts:
                 if _ft["format_id"] == _formatid:
@@ -2439,7 +2511,5 @@ class SignalHandler:
         self.triggered = True
 
 
-
-
-
 '''
+

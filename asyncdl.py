@@ -56,6 +56,7 @@ from utils import (
     ProgressTimer,
     SpeedometerMA,
     Union,
+    Iterable,
     proxy,
     async_lock
 )
@@ -71,7 +72,6 @@ class WorkersRun:
         self.asyncdl = asyncdl
         self.max = self.asyncdl.workers
         self.running = set()
-        self.onhold = set()
         self.waiting = deque()
         self.tasks = {}
         self.logger = logging.getLogger("WorkersRun")
@@ -95,8 +95,6 @@ class WorkersRun:
     
     async def add_dl(self, dl, url_key):
         
-        await dl.async_init()
-        
         async with self.alock:
             self.logger.debug(f"[{url_key}] add dl to worker run. Running[{self.running_count}] Waiting[{len(self.waiting)}]")
             if self.running_count >= self.max:
@@ -112,33 +110,24 @@ class WorkersRun:
     async def _task(self, dl, url_key):
         try:
             
-            pending = []
             if dl.info_dl["status"] not in ("init_manipulating", "done"):
-                done, pending = await asyncio.wait([asyncio.create_task(dl.run_dl()), asyncio.create_task(dl.on_hold_event.wait())], return_when=asyncio.FIRST_COMPLETED)
-            
-            if not dl.on_hold_event.is_set():
-                await self.asyncdl.run_callback(dl, url_key)            
-            else:
-                self.onhold.add((dl, url_key))
+                await async_waitfortasks(dl.run_dl())
+
+            await self.asyncdl.run_callback(dl, url_key)
+
             async with self.alock:               
                 self.running.remove((dl, url_key))
                 if self.waiting:
                     if self.running_count < self.max:
                         dl2, url2 = self.waiting.popleft()
                         self._start_task(dl2, url2)
-            
-            if dl.on_hold_event.is_set():
-                if pending:
-                    await asyncio.wait(pending)
-                dl.on_hold_event.clear()
-                self.onhold.remove((dl, url_key))
-                await self.asyncdl.run_callback(dl, url_key)
+
 
         except Exception as e:
             self.logger.exception(f"[{url_key}] error {repr(e)}")
         finally:
             self.logger.debug(f"[{url_key}] end task worker run")
-            if not self.waiting and not self.running and not self.onhold:
+            if not self.waiting and not self.running:
                 self.logger.debug(f"[{url_key}] end tasks worker run: exit")
                 self.exit.set()
 
@@ -630,7 +619,6 @@ class AsyncDL:
         self.totalbytes2dl = 0
         self.launch_time = datetime.now()
 
-        #self.main_task = None
         self.ex_winit = ThreadPoolExecutor(thread_name_prefix="ex_wkinit")
         
         self.lock = Lock()
@@ -656,13 +644,7 @@ class AsyncDL:
         #         self.shutdown_proxy = Event()
         #         self.stop_proxy = self.run_proxy_http()
         
-    @property
-    def main_task(self):
-        return self._main_task
-
-    @main_task.setter
-    def main_task(self, task: asyncio.Task):
-        self._main_task: asyncio.Task = task
+    
     
     @long_operation_in_thread
     def run_proxy_http(self, *args, **kwargs):

@@ -27,7 +27,7 @@ from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
 from utils import (async_ex_in_executor, naturalsize, prepend_extension,
                    sync_to_async, traverse_obj, try_get, MyAsyncioEvent,
-                   Union)
+                   Union, async_waitfortasks, MySyncAsyncEvent)
 
 FORCE_TO_HTTP = []#['doodstream'] 
 
@@ -74,7 +74,6 @@ class VideoDownloader:
                                 "." + self.info_dict.get('ext', 'mp4')),
             'backup_http': self.args.use_http_failover,
             'fromplns': VideoDownloader._PLNS,
-            'onhold': VideoDownloader._QUEUE,
             'error_message': ""
         }
             
@@ -111,25 +110,16 @@ class VideoDownloader:
         })
         
 
-        self.pause_event = MyAsyncioEvent("pause")
-        self.resume_event = MyAsyncioEvent("resume")
-        self.stop_event = MyAsyncioEvent("stop")
-        self.end_tasks = MyAsyncioEvent("end_tasks")
-        self.reset_event = MyAsyncioEvent("reset")
-        self.on_hold_event = MyAsyncioEvent("on_hold")         
+        self.pause_event = MySyncAsyncEvent("pause")
+        self.resume_event = MySyncAsyncEvent("resume")
+        self.stop_event = MySyncAsyncEvent("stop")
+        self.end_tasks = MySyncAsyncEvent("end_tasks")
+        self.reset_event = MySyncAsyncEvent("reset")
+
+        self.alock = asyncio.Lock()     
         
         self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
 
-
-    
-    async def async_init(self):
-        self.pause_event()
-        self.resume_event()
-        self.stop_event()
-        self.end_tasks()
-        self.reset_event()
-        self.on_hold_event()
-        self.alock = asyncio.Lock()
 
     @property
     def index(self):
@@ -251,11 +241,10 @@ class VideoDownloader:
         await self.reset("hard")
 
     async def reset(self, cause: Union[str, None] = None):
-        if self.reset_event and self.info_dl['status'] == "downloading":
+        if self.info_dl['status'] == "downloading":
             _wait_tasks = []
             if not self.reset_event.is_set():
-                #if self.pause_event.is_set():
-                #    self.resume_event.set()
+
                 self.reset_event.set(cause)                      
                 await asyncio.sleep(0)                
                 for dl in self.info_dl['downloaders']:
@@ -263,7 +252,7 @@ class VideoDownloader:
                         _tasks = [_task for _task in dl.tasks if not _task.done() and not _task.cancelled() and _task not in [asyncio.current_task()]]
                         if _tasks:
                             for _t in _tasks: _t.cancel()
-                        #_wait_tasks.extend(try_get([_task for _task in dl.tasks if not _task.done() and not _task.cancelled() and _task not in [asyncio.current_task()]], lambda x: [_t for _t in x if any([(_res:=_t.cancel()), not _res])]))
+
                             _wait_tasks.extend(_tasks)
                 
             else:
@@ -306,16 +295,12 @@ class VideoDownloader:
             list_reset = traverse_obj(self.info_dl['fromplns'], (plid, 'in_reset'))        
             if list_reset and dict_dl:
                 plns = [dl for key,dl in dict_dl.items() if key in list_reset]  # type: ignore
-                _tasks_all.extend([asyncio.create_task(dl.end_tasks.wait()) for dl in plns])
+                _tasks_all.extend([asyncio.create_task(dl.end_tasks.async_wait()) for dl in plns])
                 
         logger.debug(f"{premsg} endtasks {_tasks_all}")
         if _tasks_all:
-            _2tasks = {asyncio.wait(_tasks_all): 'tasks',  asyncio.create_task(self.stop_event.wait()): 'stop'}
-            done, pending = await asyncio.wait(_2tasks, return_when=asyncio.FIRST_COMPLETED)
-            for _el in pending: 
-                if _2tasks.get(_el) == 'tasks':  # type: ignore
-                    for _t in _tasks_all: _t.cancel()
-                else: _el.cancel()
+            await async_waitfortasks(_tasks_all, events=self.stop_event)
+
 
     async def stop(self, cause=None):
         try:
@@ -361,33 +346,31 @@ class VideoDownloader:
                 tasks_run_0 = [asyncio.create_task(dl.fetch_async()) for i, dl in enumerate(self.info_dl['downloaders']) if i == 0 and dl.status not in ("init_manipulating", "done")]
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] tasks run {len(tasks_run_0)}")
             
-                if tasks_run_0:
-                    
-                    done, _ = await asyncio.wait(tasks_run_0)
-                    
-                    if len(self.info_dl['downloaders']) > 1:
-                        tasks_run_1 = [asyncio.create_task(dl.fetch_async()) for i, dl in enumerate(self.info_dl['downloaders']) if i == 1 and dl.status not in ("init_manipulating", "done")]
-                        if tasks_run_1:
-                            done1, _ = await asyncio.wait(tasks_run_1)
-                            done = done.union(done1)
+                done = set()
+                
+                if tasks_run_0:                    
+                    done, _ = await asyncio.wait(tasks_run_0)                    
+                
+                if len(self.info_dl['downloaders']) > 1:
+                    tasks_run_1 = [asyncio.create_task(dl.fetch_async()) for i, dl in enumerate(self.info_dl['downloaders']) if i == 1 and dl.status not in ("init_manipulating", "done")]
+                    if tasks_run_1:
+                        done1, _ = await asyncio.wait(tasks_run_1)
+                        done = done.union(done1)
                             
-                    if done:
-                        for d in done:
-                            try:                        
-                                d.result()  
-                            except Exception as e:
-                                lines = traceback.format_exception(*sys.exc_info())                
-                                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
+                if done:
+                    for d in done:
+                        try:                        
+                            d.result()  
+                        except Exception as e:
+                            lines = traceback.format_exception(*sys.exc_info())                
+                            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
                                 
             
                 if self.stop_event.is_set():
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] salida tasks with stop event")
 
-                elif self.on_hold_event.is_set():
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] salida tasks with on hold event")
                 
-                else:
-                    
+                else:                    
                     res = sorted(list(set([dl.status for dl in self.info_dl['downloaders']]))) 
 
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] salida tasks {res}")
