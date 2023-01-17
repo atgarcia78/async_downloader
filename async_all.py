@@ -28,9 +28,7 @@ def main():
     try:            
         uvloop.install()
         asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-        loop = asyncio.get_event_loop()
-        asyncDL.main_task = loop.create_task(asyncDL.async_ex())
-        loop.run_until_complete(asyncDL.main_task)
+        asyncio.run(asyncDL.async_ex())
         asyncDL.get_results_info()
     except BaseException as e:
         logger.exception(f"[main] {repr(e)}")

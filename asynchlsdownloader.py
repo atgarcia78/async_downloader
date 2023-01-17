@@ -386,7 +386,7 @@ class AsyncHLSDownloader:
                         logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:{self.key_cache[fragment.key.absolute_uri]}")
                         logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:{fragment.key.iv}" )
 
-            logger.info(
+            logger.debug(
                 f"{self.premsg}[{self.count}/{self.n_workers}]: Frags already DL: {len(self.fragsdl())}, Frags not DL: {len(self.fragsnotdl())}, Frags to request: {len(self.frags_to_dl)}"
             )
             logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
@@ -522,7 +522,7 @@ class AsyncHLSDownloader:
         _print_proxy = _proxy.split(":")[-1] if _proxy else None
 
         logger.debug(
-            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: get video dict: {_reset_url}"
+            f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: get video dict: {_reset_url}"
         )
 
         _info = None
@@ -542,7 +542,7 @@ class AsyncHLSDownloader:
                 _info = self.multi_extract_info(
                     _reset_url,
                     proxy=_proxy,
-                    msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:",
+                    msg=f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:",
                 )
                 
                 self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
@@ -554,30 +554,21 @@ class AsyncHLSDownloader:
                     _info = self.multi_extract_info(
                         _reset_url,
                         proxy=_proxy,
-                        msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:",
+                        msg=f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:",
                     )
 
                     self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
 
             if _info:
-                info_reset = get_format_id(
-                    traverse_obj(
-                        _info,
-                        (
-                            "entries",
-                            int(self.video_downloader.info_dict["playlist_index"]) - 1,
-                        ),
-                    ),
-                    self.info_dict["format_id"],
-                )
+                info_reset = try_get(traverse_obj(_info,("entries",int(self.video_downloader.info_dict["playlist_index"]) - 1)), lambda x: get_format_id(x, self.info_dict["format_id"]) if x else None)
 
         else:
 
             _info = self.multi_extract_info(
                 _reset_url,
                 proxy=_proxy,
-                msg=f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:",
+                msg=f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:",
             )
 
             if _info:
@@ -585,41 +576,36 @@ class AsyncHLSDownloader:
 
         if not info_reset:
             raise AsyncHLSDLErrorFatal(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:  fails no descriptor"
+                f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:  fails no descriptor"
             )            
 
-        logger.info(
-            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: format extracted info video ok"
-        )
-        logger.debug(
-            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: format extracted info video ok\n%no%{_for_print(info_reset)}"
-        )
+        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: format extracted info video ok")
+        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: format extracted info video ok\n%no%{_for_print(info_reset)}")
 
         try:
             self.prep_reset(info_reset)
             return True
         except Exception as e:
             logger.exception(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: Exception occurred when reset: {repr(e)} {_for_print(info_reset)}"
+                f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: Exception occurred when reset: {repr(e)} {_for_print(info_reset)}"
             )
             raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
     
     def resetdl(self, cause=None):
 
+        logger.info(f"{self.premsg}:RESET[{self.n_reset}] cause[{cause}] fromplns[{self.fromplns}]")
+
         try:
 
             if cause and str(cause) == "403":
 
-                if not self.fromplns:
-                    self.video_downloader.on_hold_event.set()
-                    self.video_downloader.info_dl['onhold'].put_nowait(self.video_downloader)
                 
-                logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] start wait in reset cause 403")
-                if not wait_time(CONF_HLS_RESET_403_TIME, event=self.video_downloader.stop_event ):
+                logger.info(f"{self.premsg}:RESET[{self.n_reset}] start wait in reset cause 403")
+                if not wait_time(CONF_HLS_RESET_403_TIME, event=self.video_downloader.stop_event):
                     return
                 
-                logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] fin wait in reset cause 403")
+                logger.info(f"{self.premsg}:RESET[{self.n_reset}] fin wait in reset cause 403")
 
             
             if self.enproxy:
@@ -653,7 +639,7 @@ class AsyncHLSDownloader:
                 with (_sem := self.video_downloader.info_dl["fromplns"]["ALL"]["sem"]):
 
                     logger.debug(
-                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] in sem"
+                        f"{self.premsg}:RESET[{self.n_reset}] in sem"
                     )
                     
                     if _sem._initial_value == 1:
@@ -665,7 +651,7 @@ class AsyncHLSDownloader:
 
                     with (_sem2 := self.video_downloader.info_dl["fromplns"][self.fromplns]["sem"]):
 
-                        logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] in sem2" )
+                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}] in sem2" )
                         
                         if  _sem2._initial_value == 1: _first=True
                         else: _first=False
@@ -687,7 +673,7 @@ class AsyncHLSDownloader:
                 self.get_reset_info(_webpage_url)
 
         except Exception as e:
-            logger.exception(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: outer Exception occurred when reset: {repr(e)}")
+            logger.exception(f"{self.premsg}:RESET[{self.n_reset}]: outer Exception occurred when reset: {repr(e)}")
             raise
         else:
             if self.fromplns and cause in ("403", "hard"):                
@@ -695,12 +681,12 @@ class AsyncHLSDownloader:
                     self.video_downloader.info_dl["fromplns"][self.fromplns]["in_reset"].remove(self.video_downloader.info_dict["playlist_index"])
                 except Exception as e:
                     logger.warning(
-                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['downloading']}"
+                        f"{self.premsg}:RESET[{self.n_reset}]: error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['downloading']}"
                     )
 
                 if not self.video_downloader.info_dl["fromplns"][self.fromplns]["in_reset"]:
 
-                    logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: end of resets fromplns [{self.fromplns}]")
+                    logger.info(f"{self.premsg}:RESET[{self.n_reset}]: end of resets fromplns [{self.fromplns}]")
 
                     self.video_downloader.info_dl["fromplns"][self.fromplns]["reset"].set()
                     self.video_downloader.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
@@ -713,21 +699,15 @@ class AsyncHLSDownloader:
                         self.video_downloader.info_dl["fromplns"]["ALL"]["reset"].wait()
                 else:
                     logger.info(
-                        f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: waits for rest scenes to start DL [{self.fromplns}]"
+                        f"{self.premsg}:RESET[{self.n_reset}]: waits for rest scenes to start DL [{self.fromplns}]"
                     )
                     self.video_downloader.info_dl["fromplns"][self.fromplns]["reset"].wait()
 
                 NakedSwordBaseIE._STATUS = "NORMAL"
             
             self.n_reset += 1
-            logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]: exit reset" )
-            if not self.fromplns and cause == "403":
-                try:
-                    dl = self.video_downloader.info_dl['onhold'].get(block=False, timeout=0)
-                    dl.on_hold_event.clear()
-                    logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}] clear onhold event fort [{dl.info_dict['id']}][{dl.info_dict['title']}]")
-                except Exception as e:
-                    pass
+            logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset" )
+
 
     def prep_reset(self, info_reset):
 
@@ -802,14 +782,14 @@ class AsyncHLSDownloader:
 
             except Exception as e:
                 logger.debug(
-                    f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:prep_reset error with i = [{i}] \n\ninfo_dict['fragments'] {len(self.info_dict['fragments'])}\n\n{[str(f) for f in self.info_dict['fragments']]}\n\ninfo_frag {len(self.info_frag)}"
+                    f"{self.premsg}:RESET[{self.n_reset}]:prep_reset error with i = [{i}] \n\ninfo_dict['fragments'] {len(self.info_dict['fragments'])}\n\n{[str(f) for f in self.info_dict['fragments']]}\n\ninfo_frag {len(self.info_frag)}"
                 )  
                 raise
 
         if not self.frags_to_dl:
             self.status = "init_manipulating"
         else:
-            logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
+            logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:prep_reset:OK {self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
     async def check_speed(self):
         def getter(x):
@@ -819,7 +799,7 @@ class AsyncHLSDownloader:
 
         _num_chunks = self._CONF_HLS_MIN_N_TO_CHECK_SPEED
 
-        pending = None
+        
         _max_bd_detected = 0
         prog = ProgressTimer()
 
@@ -840,7 +820,7 @@ class AsyncHLSDownloader:
                     if not _input_speed:
                         continue
                 
-                if "KILL" in _input_speed:
+                if isinstance(_input_speed, tuple) and isinstance(_input_speed[0], str) and _input_speed[0] == "KILL":
                     return
 
                 _speed.append(_input_speed)
@@ -1015,8 +995,7 @@ class AsyncHLSDownloader:
                             )
                         )
 
-                if pending:
-                    await asyncio.wait(pending)
+               
                 await asyncio.sleep(0)
 
         except Exception as e:
@@ -1024,8 +1003,6 @@ class AsyncHLSDownloader:
                 f"{self.premsg}[{self.count}/{self.n_workers}][check_speed] {repr(e)}"
             )
         finally:
-            if pending:
-                await asyncio.wait(pending)
             self._speed.extend(_speed)
             logger.debug(
                 f"{self.premsg}[{self.count}/{self.n_workers}][check_speed] bye"
@@ -1102,9 +1079,11 @@ class AsyncHLSDownloader:
                         q = _res.get("result")
                         if q == None:
                             continue
-                        elif q == "KILL":
+                        elif isinstance(q, str) and q == "KILL":
                             logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:[worker-{nco}]: KILL")
                             return
+
+                    assert(isinstance(q, int))
 
                     logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:[worker-{nco}]: frag[{q}]\n{self.info_frag[q - 1]}")
 
@@ -1157,64 +1136,35 @@ class AsyncHLSDownloader:
 
                                     if res.status_code == 403:
                                         if self.fromplns:
-                                            _wait_tasks = (
-                                                await self.video_downloader.reset_plns(
-                                                    "403"
-                                                )
-                                            )
-
+                                            _wait_tasks = await self.video_downloader.reset_plns("403")
                                         else:
-                                            _wait_tasks = (
-                                                await self.video_downloader.reset("403")
-                                            )
-
-                                        logger.debug(
-                                            f"{self._premsg}: wait_tasks\n{_wait_tasks}\n{print_tasks(_wait_tasks)}"
-                                        )
+                                            _wait_tasks = await self.video_downloader.reset("403")
+                                        logger.debug(f"{self._premsg}: wait_tasks\n{_wait_tasks}\n{print_tasks(_wait_tasks)}")
                                         if _wait_tasks:
-                                            done, pending = await asyncio.wait(
-                                                _wait_tasks
-                                            )
-                                            logger.debug(
-                                                f"{self._premsg}: wait_tasks result\nDONE\n{done}\nPENDING\n{pending}"
-                                            )
-
+                                            done, pending = await asyncio.wait(_wait_tasks)
+                                            logger.debug(f"{self._premsg}: wait_tasks result\nDONE\n{done}\nPENDING\n{pending}")
                                         return
-
                                     elif res.status_code >= 400:
-                                        raise AsyncHLSDLError(
-                                            f"Frag:{str(q)} resp code:{str(res)}"
-                                        )
+                                        raise AsyncHLSDLError(f"Frag:{str(q)} resp code:{str(res)}")
                                     else:
-                                        _hsize = int_or_none(
-                                            res.headers.get("content-length")
-                                        )
+                                        _hsize = int_or_none(res.headers.get("content-length"))
                                         if _hsize:
                                             self.info_frag[q - 1]["headersize"] = _hsize
 
                                             if not self.filesize:
                                                 async with self._LOCK:
-                                                    self.filesize = _hsize * len(
-                                                        self.info_dict["fragments"]
-                                                    )
+                                                    self.filesize = _hsize * len(self.info_dict["fragments"])
                                                 async with self.video_downloader.alock:
-                                                    self.video_downloader.info_dl[
-                                                        "filesize"
-                                                    ] += self.filesize
+                                                    self.video_downloader.info_dl["filesize"] += self.filesize
                                         else:
-                                            logger.warning(
-                                                f"{self._premsg}: Frag:{str(q)} _hsize is None"
-                                            )
-                                            continue
-                                            
+                                            logger.warning(f"{self._premsg}: Frag:{str(q)} _hsize is None")
+                                            continue                                           
 
 
                                         if self.info_frag[q - 1]["downloaded"]:
 
                                             if filename_exists:
-                                                _size = self.info_frag[q - 1][
-                                                    "size"
-                                                ] = (await os.stat(filename)).st_size
+                                                _size = self.info_frag[q - 1]["size"] = (await os.stat(filename)).st_size
                                                 if _size and (
                                                     _hsize - 100
                                                     <= _size
@@ -1269,21 +1219,14 @@ class AsyncHLSDownloader:
                                             chunk_size=_chunk_size
                                         ):
 
-                                            if (
-                                                self.video_downloader.pause_event.is_set()
-                                            ):
-                                                self._speed.append(
-                                                    (datetime.now(), "pause")
-                                                )
+                                            if (self.video_downloader.pause_event.is_set()):
+                                                self._speed.append((datetime.now(), "pause"))
 
                                                 await async_waitfortasks(events=(self.video_downloader.resume_event, self.video_downloader.reset_event, self.video_downloader.stop_event))
 
                                                 self.video_downloader.pause_event.clear()
                                                 self.video_downloader.resume_event.clear()
-                                                self._speed.append(
-                                                    (datetime.now(), "resume")
-                                                )
-
+                                                self._speed.append((datetime.now(), "resume"))
 
                                             _timechunk = time.monotonic() - _started
                                             self.info_frag[q - 1][
@@ -1503,29 +1446,6 @@ class AsyncHLSDownloader:
         try:
 
             while True:
-
-                if self.video_downloader.on_hold_event.is_set():
-
-                    logger.info(
-                        f"{self.premsg}[{self.count}/{self.n_workers}][fetch_async]: waiting on hold"
-                    )
-
-                    async def prop(ev):
-                        return not ev.is_set()
-
-                    try:
-                    
-                        await async_wait_until(300, cor=prop,args=(self.video_downloader.on_hold_event,), interv=5)
-                        logger.info(
-                            f"{self.premsg}[{self.count}/{self.n_workers}][fetch_async]: end waiting on hold for action of colleague"
-                        )
-
-                    except Exception as e:
-                        logger.info(
-                            f"{self.premsg}[{self.count}/{self.n_workers}][fetch_async]: end waiting on hold for timeout"
-                        )
-
-                        self.video_downloader.on_hold_event.clear()
 
                 logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}] TASKS INIT")
 
