@@ -24,6 +24,14 @@ from pathlib import Path
 from bisect import bisect
 from typing import Optional, List, Tuple, Union, Dict, Coroutine, Any, Callable, TypeVar, Awaitable, Iterable
 
+from asgiref.sync import (
+#    ThreadSensitiveContext,
+#    async_to_sync,
+#    iscoroutinefunction,
+    sync_to_async,
+)
+#from asgiref.timeout import timeout
+
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
@@ -435,27 +443,6 @@ def _for_print_videos(videos):
     elif isinstance(videos, list):
         _videos = [_for_print(_vid) for _vid in _videos]
         return _videos
-
-
-def sync_to_async(func, exe=None):
-    
-    if not exe:
-        exe = ThreadPoolExecutor(thread_name_prefix="sync2async")
-
-    async def run_in_executor(*args, **kwargs):
-        
-        ctx = contextvars.copy_context()        
-        if (_func:=kwargs.get("func")):
-            _kwargs = {k:v for k,v in kwargs.items() if k != "func"}
-        else:
-            _func = func
-            _kwargs = kwargs
-
-        pfunc = functools.partial(ctx.run, _func, *args, **_kwargs)
-    
-        return await asyncio.get_running_loop().run_in_executor(exe, pfunc)
-
-    return run_in_executor
 
 
 async def async_ex_in_executor(executor: ThreadPoolExecutor, func: Callable, /, *args, **kwargs):
@@ -1280,10 +1267,10 @@ if _SUPPORT_YTDL:
             return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore 
        
         async def async_extract_info(self, *args, **kwargs)->dict:
-            return await async_ex_in_executor(self.executor, self.extract_info, *args, **kwargs)  # type: ignore 
+            return await sync_to_async(self.extract_info, executor=self.executor)(*args, **kwargs)  
             
         async def async_process_ie_result(self, *args, **kwargs)->dict:
-            return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)  # type: ignore 
+            return await sync_to_async(self.process_ie_result, executor=self.executor)(*args, **kwargs)  
 
     class ProxyYTDL(YoutubeDL):
         def __init__(self, **kwargs):
@@ -1346,10 +1333,10 @@ if _SUPPORT_YTDL:
             return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore 
        
         async def async_extract_info(self, *args, **kwargs)->dict:
-            return await async_ex_in_executor(self.executor, self.extract_info, *args, **kwargs)  # type: ignore 
+            return await sync_to_async(self.extract_info, executor=self.executor)(*args, **kwargs)  
             
         async def async_process_ie_result(self, *args, **kwargs)->dict:
-            return await async_ex_in_executor(self.executor, self.process_ie_result, *args, **kwargs)  # type: ignore 
+            return await sync_to_async(self.process_ie_result, executor=self.executor)(*args, **kwargs)  
 
     def get_extractor(url, ytdl):
 

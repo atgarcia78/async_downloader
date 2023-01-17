@@ -18,9 +18,9 @@ import aiofiles.os as os
 import httpx
 
 from utils import (CONF_DASH_SPEED_PER_WORKER, EMA, _for_print_entry,
-                   async_ex_in_executor, async_wait_time, int_or_none,
+                   async_wait_time, int_or_none,
                    naturalsize, print_norm_time, smuggle_url, try_get,
-                   unsmuggle_url)
+                   unsmuggle_url, sync_to_async, ProxyYTDL)
 
 logger = logging.getLogger("async_DASH_DL")
 
@@ -310,20 +310,17 @@ class AsyncDASHDownloader:
 
     async def fetch(self, nco):
 
+        client = httpx.AsyncClient(proxies=self._proxy, limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
+
         try:
 
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: init worker")
-
-            
-            client = httpx.AsyncClient(proxies=self._proxy, limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
             
             while not any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
-
-                q = await self.frags_queue.get()
                 
+                q = await self.frags_queue.get()                
                 if any([self.video_downloader.stop_event.is_set(), self.video_downloader.reset_event.is_set()]):
                     return
-
                 if q == "KILL":
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: KILL")
                     break  
@@ -545,7 +542,6 @@ class AsyncDASHDownloader:
                             self.info_frag[q - 1]['skipped'] = True
                             break
                         
-
         finally:    
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker{nco}]: bye worker")
             async with self._LOCK:
@@ -620,7 +616,7 @@ class AsyncDASHDownloader:
 
                                 try:
 
-                                    await async_ex_in_executor(self.ex_dl, self.reset)
+                                    await sync_to_async(self.reset, executor=self.ex_dl)()
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     if ((_t:=time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
@@ -655,7 +651,7 @@ class AsyncDASHDownloader:
                                 
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                                 try:
-                                    await async_ex_in_executor(self.ex_dl, self.reset)
+                                    await sync_to_async(self.reset, executor=self.ex_dl)()
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
@@ -781,15 +777,15 @@ class AsyncDASHDownloader:
         _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
         
         if self.status == "done":
-            msg = f"[DASH][{self.info_dict['format_id']}]:  Completed \n"
+            return f"[DASH][{self.info_dict['format_id']}]:  Completed \n"
         elif self.status == "init":
-            msg = f"[DASH][{self.info_dict['format_id']}]:  Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"           
+            return f"[DASH][{self.info_dict['format_id']}]:  Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"           
         elif self.status == "error":
             _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
-            msg = f"[DASH][{self.info_dict['format_id']}]:  ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+            return f"[DASH][{self.info_dict['format_id']}]:  ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
         elif self.status == "stop":
             _rel_size_str = f'{naturalsize(self.down_size)}/{naturalsize(self.filesize)}' if self.filesize else '--'
-            msg = f"[DASH][{self.info_dict['format_id']}]:  STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
+            return f"[DASH][{self.info_dict['format_id']}]:  STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n"
         elif self.status == "downloading":
             
             _down_size = self.down_size
@@ -819,18 +815,18 @@ class AsyncDASHDownloader:
             self.down_temp = _down_size
             self.started = time.monotonic()             
                 
-            msg = f"[DASH][{self.info_dict['format_id']}]:  WK[{self.count:2d}/{self.n_workers:2d}] DL[{_speed_str}] FR[{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+            return f"[DASH][{self.info_dict['format_id']}]:  WK[{self.count:2d}/{self.n_workers:2d}] DL[{_speed_str}] FR[{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] ETA[{_eta_str}]\n"
             
             
         elif self.status == "init_manipulating":                   
-            msg = f"[DASH][{self.info_dict['format_id']}]: Waiting for Ensambling \n"
+            return f"[DASH][{self.info_dict['format_id']}]: Waiting for Ensambling \n"
         elif self.status == "manipulating":
             if self.filename.exists(): _size = self.filename.stat().st_size
             else: _size = 0  
             _str = f'[{naturalsize(_size)}/{naturalsize(self.filesize)}]({(_size/self.filesize)*100:.2f}%)' if self.filesize else f'[{naturalsize(_size)}]'       
-            msg = f"[DASH][{self.info_dict['format_id']}]: Ensambling {_str} \n"       
+            return f"[DASH][{self.info_dict['format_id']}]: Ensambling {_str} \n"       
         
         
-        return msg
+        
         
         

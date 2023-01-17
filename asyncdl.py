@@ -31,7 +31,6 @@ from utils import (
     _for_print,
     _for_print_videos,
     sync_to_async,
-    async_ex_in_executor,
     async_wait_time,
     async_waitfortasks,
     get_chain_links,
@@ -1768,7 +1767,7 @@ class AsyncDL:
                         async def async_videodl_init(*args, **kwargs)->VideoDownloader:
                             if not self.is_ready_to_dl.is_set():
                                 await self.is_ready_to_dl.wait()
-                            return await sync_to_async(VideoDownloader, self.ex_winit)(*args, **kwargs) # type: ignore
+                            return await sync_to_async(VideoDownloader, executor=self.ex_winit)(*args, **kwargs) # type: ignore
 
                         dl = await async_videodl_init(self.info_videos[urlkey]["video_info"], 
                                 self.ytdl, self.args, self.hosts_downloading, self.alock, self.hosts_alock)
@@ -2034,15 +2033,11 @@ class AsyncDL:
         self.hosts_alock = asyncio.Lock()
 
         
-        self.async_prepare_for_dl = sync_to_async(self._prepare_for_dl, self.ex_winit)
-        self.async_prepare_entry_pl_for_dl = sync_to_async(
-            self._prepare_entry_pl_for_dl, self.ex_winit
-        )
+        self.async_prepare_for_dl = sync_to_async(self._prepare_for_dl, executor=self.ex_winit)
+        self.async_prepare_entry_pl_for_dl = sync_to_async(self._prepare_entry_pl_for_dl, executor=self.ex_winit)
        
-        self.async_check_if_aldl = sync_to_async(self._check_if_aldl, self.ex_winit)
-        self.async_check_if_same_video = sync_to_async(
-            self._check_if_same_video, self.ex_winit
-        )
+        self.async_check_if_aldl = sync_to_async(self._check_if_aldl, executor=self.ex_winit)
+        self.async_check_if_same_video = sync_to_async(self._check_if_same_video, executor=self.ex_winit)
 
         tasks_gui = []
         tasks_to_wait = {}
@@ -2057,12 +2052,12 @@ class AsyncDL:
 
             if not self.args.nodl:
                 if self.args.aria2c:
-                    ainit_aria2c = sync_to_async(init_aria2c, self.ex_winit)
+                    ainit_aria2c = sync_to_async(init_aria2c, executor=self.ex_winit)
                     _tasks_to_wait_dl.update({asyncio.create_task(ainit_aria2c(self.args)): "aria2"})
                 if self.args.enproxy:
                     self.shutdown_proxy = Event()
                     self.stop_proxy = self.run_proxy_http()
-                    ainit_proxies = sync_to_async(init_proxies, self.ex_winit)
+                    ainit_proxies = sync_to_async(init_proxies, executor=self.ex_winit)
                     _tasks_to_wait_dl.update({asyncio.create_task(
                             ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
                 

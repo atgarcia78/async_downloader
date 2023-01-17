@@ -8,10 +8,8 @@ import logging
 import os as syncos
 import random
 import re
-import sys
 import threading
 import time
-import traceback
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
@@ -38,9 +36,7 @@ from utils import (
     SpeedometerMA,
     _for_print,
     _for_print_entry,
-    async_ex_in_executor,
     async_wait_time,
-    async_wait_until,
     dec_retry_error,
     get_format_id,
     int_or_none,
@@ -54,10 +50,10 @@ from utils import (
     traverse_obj,
     try_get,
     wait_time,
-    YoutubeDL,
     myYTDL,
     async_waitfortasks,
-    Union
+    Union,
+    MySyncAsyncEvent
 )
 
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
@@ -188,7 +184,7 @@ class AsyncHLSDownloader:
 
                     if self.fromplns:
                         if not self.video_downloader.info_dl["fromplns"].get("ALL"):
-                            _all_temp = threading.Event()
+                            _all_temp = MySyncAsyncEvent()
                             _all_temp.set()
                             self.video_downloader.info_dl["fromplns"]["ALL"] = {
                                 "sem": threading.BoundedSemaphore(value=1),
@@ -199,7 +195,7 @@ class AsyncHLSDownloader:
                         if not self.video_downloader.info_dl["fromplns"].get(
                             self.fromplns
                         ):
-                            temp = threading.Event()
+                            temp = MySyncAsyncEvent()
                             temp.set()
 
                             self.video_downloader.info_dl["fromplns"][self.fromplns] = {
@@ -484,9 +480,9 @@ class AsyncHLSDownloader:
                 f.write(_frag)
 
         except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.debug(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:[get_init_section] {repr(e)} \n{'!!'.join(lines)}"
+            
+            logger.exception(
+                f"{self.premsg}[{self.count}/{self.n_workers}]:[get_init_section] {repr(e)}"
             )
             raise
 
@@ -1319,9 +1315,9 @@ class AsyncHLSDownloader:
                             # logger.info(f"{self.premsg}[{self.count}/{self.n_workers}]:[worker-{nco}]: cancelled exception")
                             self.info_frag[q - 1]["error"].append(repr(e))
                             self.info_frag[q - 1]["downloaded"] = False
-                            lines = traceback.format_exception(*sys.exc_info())
-                            logger.debug(
-                                f"{self._premsg}: CancelledError: \n{'!!'.join(lines)}"
+                            
+                            logger.exception(
+                                f"{self._premsg}: CancelledError: {repr(e)}"
                             )
                             if await os.path.exists(filename):
                                 _size = (await os.stat(filename)).st_size
@@ -1353,7 +1349,7 @@ class AsyncHLSDownloader:
                         except Exception as e:
                             self.info_frag[q - 1]["error"].append(repr(e))
                             self.info_frag[q - 1]["downloaded"] = False
-                            lines = traceback.format_exception(*sys.exc_info())
+                            
                             if not "httpx" in str(
                                 e.__class__
                             ) and not "AsyncHLSDLError" in str(e.__class__):
@@ -1361,8 +1357,8 @@ class AsyncHLSDownloader:
                                     f"{self._premsg}: error {str(e.__class__)}"
                                 )
 
-                            logger.debug(
-                                f"{self._premsg}: error {repr(e)} \n{'!!'.join(lines)}"
+                            logger.exception(
+                                f"{self._premsg}: error {repr(e)}"
                             )
                             self.info_frag[q - 1]["n_retries"] += 1
                             if await os.path.exists(filename):
@@ -1416,7 +1412,7 @@ class AsyncHLSDownloader:
         self.kill = asyncio.Event()
         self.frags_queue = asyncio.Queue()
 
-        self.areset = sync_to_async(self.resetdl, self.ex_dl)
+        self.areset = sync_to_async(self.resetdl, executor=self.ex_dl)
 
         for frag in self.frags_to_dl:
             self.frags_queue.put_nowait(frag)
@@ -1433,7 +1429,7 @@ class AsyncHLSDownloader:
                 self.video_downloader.info_dl["fromplns"], ("ALL", "reset")
             )
             if _event:
-                await async_ex_in_executor(self.ex_dl, _event.wait) # type: ignore
+                await _event.async_wait() # type: ignore
             self.video_downloader.info_dl["fromplns"][self.fromplns]["downloading"].add(
                 self.video_downloader.info_dict["playlist_index"]
             )
@@ -1514,13 +1510,7 @@ class AsyncHLSDownloader:
 
                             if _cause := self.video_downloader.reset_event.is_set():
 
-                                dump_init_task = [
-                                    asyncio.create_task(
-                                        async_ex_in_executor(
-                                            self.ex_dl, self.dump_init_file
-                                        )
-                                    )
-                                ]
+                                dump_init_task = [asyncio.create_task(sync_to_async(self.dump_init_file, executor=self.ex_dl)())]
 
                                 await asyncio.wait(
                                     dump_init_task + check_task + upt_task
@@ -1572,11 +1562,9 @@ class AsyncHLSDownloader:
                                         continue
 
                                     except Exception as e:
-                                        lines = traceback.format_exception(
-                                            *sys.exc_info()
-                                        )
-                                        logger.debug(
-                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}"
+                                       
+                                        logger.exception(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]"
                                         )
                                         self.status = "error"
                                         await self.clean_when_error()
@@ -1621,12 +1609,9 @@ class AsyncHLSDownloader:
                                         self.n_reset -= 1
                                         continue
 
-                                    except Exception as e:
-                                        lines = traceback.format_exception(
-                                            *sys.exc_info()
-                                        )
-                                        logger.debug(
-                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]\n{'!!'.join(lines)}"
+                                    except Exception as e:                                        
+                                        logger.exception(
+                                            f"{self.premsg}[{self.count}/{self.n_workers}]:RESET[{self.n_reset}]:ERROR reset couldnt progress:[{repr(e)}]"
                                         )
                                         self.status = "error"
                                         await self.clean_when_error()
@@ -1659,7 +1644,7 @@ class AsyncHLSDownloader:
             )
             self.status = "error"
         finally:
-            await async_ex_in_executor(self.ex_dl, self.dump_init_file)
+            await sync_to_async(self.dump_init_file, executor=self.ex_dl)()
             if self.fromplns:
                 try:
                     self.video_downloader.info_dl["fromplns"][self.fromplns][
@@ -1795,10 +1780,8 @@ class AsyncHLSDownloader:
         except Exception as e:
             if self.filename.exists():
                 self.filename.unlink()
-            lines = traceback.format_exception(*sys.exc_info())
-            logger.debug(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:Exception ocurred: \n{'!!'.join(lines)}"
-            )
+            
+            logger.exception(f"{self.premsg}[{self.count}/{self.n_workers}]:Exception ocurred: {repr(e)}")
             self.status = "error"
             self.sync_clean_when_error()
             raise

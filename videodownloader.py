@@ -3,8 +3,6 @@ import logging
 import shlex
 import shutil
 import subprocess
-import sys
-import traceback
 from urllib.parse import urlparse
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -25,8 +23,8 @@ from asyncdashdownloader import AsyncDASHDownloader
 from asyncffmpegdownloader import AsyncFFMPEGDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import (async_ex_in_executor, naturalsize, prepend_extension,
-                   sync_to_async, traverse_obj, try_get, MyAsyncioEvent,
+from utils import (naturalsize, prepend_extension,
+                   sync_to_async, traverse_obj, try_get,
                    Union, async_waitfortasks, MySyncAsyncEvent)
 
 FORCE_TO_HTTP = []#['doodstream'] 
@@ -362,8 +360,8 @@ class VideoDownloader:
                         try:                        
                             d.result()  
                         except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())                
-                            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}\n{'!!'.join(lines)}")
+                                         
+                            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_dl] error fetch_async: {repr(e)}")
                                 
             
                 if self.stop_event.is_set():
@@ -474,11 +472,11 @@ class VideoDownloader:
     async def run_manip(self):
 
 
-        aget_subts_files = sync_to_async(self._get_subts_files, self.ex_videodl)
-        apostffmpeg = sync_to_async(self.syncpostffmpeg, self.ex_videodl)
+        aget_subts_files = sync_to_async(self._get_subts_files, executor=self.ex_videodl)
+        apostffmpeg = sync_to_async(self.syncpostffmpeg, executor=self.ex_videodl)
         initproc = partial(subprocess.CompletedProcess, None, None)
-        armtree = sync_to_async(partial(shutil.rmtree, ignore_errors=True), self.ex_videodl)
-        amove = sync_to_async(shutil.move, self.ex_videodl)
+        armtree = sync_to_async(partial(shutil.rmtree, ignore_errors=True), executor=self.ex_videodl)
+        amove = sync_to_async(shutil.move, executor=self.ex_videodl)
 
         blocking_tasks = []
        
@@ -493,7 +491,7 @@ class VideoDownloader:
                 
            
 
-            blocking_tasks = [asyncio.create_task(async_ex_in_executor(self.ex_videodl, dl.ensamble_file)) 
+            blocking_tasks = [asyncio.create_task(sync_to_async(dl.ensamble_file, executor=self.ex_videodl)()) 
                                 for dl in self.info_dl['downloaders'] if (
                                     not any(_ in str(type(dl)).lower() for _ in ('aria2', 'ffmpeg')) and dl.status == 'manipulating')]
             
@@ -509,8 +507,8 @@ class VideoDownloader:
                     try:
                         _ = d.result()
                     except Exception as e:
-                        lines = traceback.format_exception(*sys.exc_info())                
-                        logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: {repr(e)}\n{'!!'.join(lines)}")
+                                      
+                        logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: {repr(e)}")
             
             res = True
             for dl in self.info_dl['downloaders']:
@@ -543,9 +541,8 @@ class VideoDownloader:
                             res = await amove(self.info_dl['downloaders'][0].filename, temp_filename)
                             if (res == temp_filename): rc = 0
 
-                        except Exception as e:
-                            lines = traceback.format_exception(*sys.exc_info())                
-                            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
+                        except Exception as e:                                            
+                            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating {repr(e)}")
                             
                     if rc == 0 and (await myaiofiles.os.path.exists(temp_filename)):
                                                                 
@@ -647,8 +644,8 @@ class VideoDownloader:
             else: self.info_dl['status'] = "error"
                                
         except Exception as e:
-            lines = traceback.format_exception(*sys.exc_info())                
-            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating\n{'!!'.join(lines)}")
+                        
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: error when manipulating {repr(e)}")
             if blocking_tasks:
                 for t in blocking_tasks: t.cancel()
                 await asyncio.wait(blocking_tasks)

@@ -29,7 +29,6 @@ from utils import (
     none_to_zero,
     try_get,
     traverse_obj,
-    async_ex_in_executor,
     async_lock,
     limiter_non,
     async_wait_time,
@@ -580,6 +579,7 @@ class AsyncHTTPDownloader:
             self.get_parts_to_dl()
     
     async def fetch(self, i):
+        
         try:
             client = httpx.AsyncClient(
                 proxies=try_get(self.proxies, lambda x: x[i]),
@@ -838,7 +838,7 @@ class AsyncHTTPDownloader:
             self._ALOCK = asyncio.Lock()
 
             self.first_data = asyncio.Event()
-            self.areset = sync_to_async(self.resetdl, self.ex_dl)
+            self.areset = sync_to_async(self.resetdl, executor=self.ex_dl)
 
             while True:
             

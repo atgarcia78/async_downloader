@@ -29,7 +29,6 @@ from utils import (
 
     ProgressTimer,
     ProxyYTDL,    
-    async_ex_in_executor,
     async_lock,
      get_format_id,
     limiter_non,
@@ -353,28 +352,28 @@ class AsyncARIA2CDownloader:
             
             async def add_uris()->aria2p.Download:
                 async with self._decor:
-                    return (await async_ex_in_executor(self.ex_dl, self.aria2_client.add_uris, self.uris, options=self.opts)) # type: ignore
-
+                    return await sync_to_async(self.aria2_client.add_uris, executor=self.ex_dl)(self.uris, options=self.opts) 
+                
             if (_dl:=await add_uris()):
                 self.dl_cont = _dl
 
 
             if hasattr(self, 'dl_cont'):
-                self.async_update = sync_to_async(self.dl_cont.update, self.ex_dl)
+                self.async_update = sync_to_async(self.dl_cont.update, executor=self.ex_dl)
                 self.async_pause = sync_to_async(
-                    partial(self.aria2_client.pause, [self.dl_cont]), self.ex_dl
+                    partial(self.aria2_client.pause, [self.dl_cont]), executor=self.ex_dl
                 )
                 self.async_resume = sync_to_async(
-                    partial(self.aria2_client.resume, [self.dl_cont]), self.ex_dl
+                    partial(self.aria2_client.resume, [self.dl_cont]), executor=self.ex_dl
                 )
                 self.async_remove = sync_to_async(
                     partial(self.aria2_client.remove, [self.dl_cont], clean=False),
-                    self.ex_dl,
+                    executor=self.ex_dl,
                 )
 
                 self.async_restart = sync_to_async(
                     partial(self.aria2_client.remove, [self.dl_cont], files=True, clean=True),
-                    self.ex_dl,
+                    executor=self.ex_dl,
                 )
 
                 _tstart = time.monotonic()
