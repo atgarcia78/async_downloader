@@ -1221,7 +1221,16 @@ if _SUPPORT_YTDL:
     )
     from yt_dlp import YoutubeDL
     
-
+    def ies_close(ies):
+        if not ies:
+            return
+        for ie, ins in ies.items():
+            if close := getattr(ins, "close", None):
+                try:
+                    close()                    
+                except Exception as e:
+                    pass
+                    
     class myYTDL(YoutubeDL):
         def __init__(self, *args, **kwargs):
             self.close: bool = kwargs.get("close", True)
@@ -1233,30 +1242,19 @@ if _SUPPORT_YTDL:
 
         def __exit__(self, *args, **kwargs):
             if self.close:
-                ies = self._ies_instances
-                if not ies:
-                    return
-                for _, ins in ies.items():
-                    if close := getattr(ins, "close", None):
-                        try:
-                            close()
-                        except Exception as e:
-                            pass
+                ies_close(self._ies_instances)
 
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *args, **kwargs):
-            ies = self._ies_instances
-            if not ies:
-                return
-            for _, ins in ies.items():
-                if close := getattr(ins, "close", None):
-                    try:
-                        close()
-                    except Exception as e:
-                        pass
+            ies_close(self._ies_instances)
         
+        
+        def shutdown(self):
+            ies_close(self._ies_instances)
+
+
         def extract_info(self, *args, **kwargs)->Union[dict, None]:
             return super().extract_info(*args, **kwargs)
 
@@ -1299,30 +1297,18 @@ if _SUPPORT_YTDL:
 
         def __exit__(self, *args, **kwargs):
             if self.close:
-                ies = self._ies_instances
-                if not ies:
-                    return
-                for ie, ins in ies.items():
-                    if close := getattr(ins, "close", None):
-                        try:
-                            close()
-                        except Exception as e:
-                            pass
+                ies_close(self._ies_instances)
 
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *args, **kwargs):
-            ies = self._ies_instances
-            if not ies:
-                return
-            for ie, ins in ies.items():
-                if close := getattr(ins, "close", None):
-                    try:
-                        close()
-                    except Exception as e:
-                        pass
+            ies_close(self._ies_instances)
 
+        
+        def shutdown(self):
+            ies_close(self._ies_instances)    
+            
         def extract_info(self, *args, **kwargs)->Union[dict, None]:
             return super().extract_info(*args, **kwargs)
 

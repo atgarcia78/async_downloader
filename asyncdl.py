@@ -130,7 +130,6 @@ class WorkersRun:
                 self.logger.debug(f"[{url_key}] end tasks worker run: exit")
                 self.exit.set()
 
-
 class WorkersInit:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
@@ -183,7 +182,6 @@ class WorkersInit:
         except Exception as e:
             self.logger.exception(f"[{url_key}] error {repr(e)}")
 
-
 class FrontEndGUI:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
@@ -196,16 +194,9 @@ class FrontEndGUI:
         self.reset_repeat = False
         self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
         self.dl_media_str = None
+        self.stop_upt_window = self.upt_window_periodic()
+        self.stop_pasres = self.pasres_periodic()
 
-    
-    def close(self):
-        if hasattr(self, 'window_console') and self.window_console:
-            self.window_console.close()            
-            del self.window_console
-        if hasattr(self, 'window_root') and self.window_root:
-            self.window_root.close()            
-            del self.window_root
-    
     async def gui_root(self, event, values):
 
         try:        
@@ -578,7 +569,97 @@ class FrontEndGUI:
         finally:
             logger.debug("[pasres_periodic] BYE")
 
+    def close(self):
+        self.stop_upt_window.set()
+        self.stop_pasres.set()
+        if hasattr(self, 'window_console') and self.window_console:
+            self.window_console.close()            
+            del self.window_console
+        if hasattr(self, 'window_root') and self.window_root:
+            self.window_root.close()            
+            del self.window_root
 
+class NWSetUp:
+
+    def __init__(self, asyncdl):
+        self.asyncdl = asyncdl
+        self.logger = logging.getLogger("setupnw")
+        self.shutdown_proxy = Event()
+        self.routing_table = {}
+        self.proc_gost = []
+        self.proc_aria2c = None
+        self.exe = ThreadPoolExecutor(thread_name_prefix="setupnw")
+        self.stop_proxy = self.run_proxy_http()
+        self._tasks_init = {}
+        if self.asyncdl.args.aria2c:
+            ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+            _tasks_init_aria2c = {asyncio.create_task(ainit_aria2c(self.asyncdl.args)): "aria2"}
+            self._tasks_init.update(_tasks_init_aria2c)
+        if self.asyncdl.args.enproxy:
+            ainit_proxies = sync_to_async(init_proxies, executor=self.exe)
+            _task_init_proxies = {asyncio.create_task(
+                            ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"}
+            self._tasks_init.update(_task_init_proxies)
+      
+    async def init(self):       
+
+        if self._tasks_init:
+            done, _= await asyncio.wait(self._tasks_init)
+            for task in done:
+                try:
+                    if self._tasks_init[task] == "aria2":
+                        self.proc_aria2c = task.result()
+                    else:
+                        self.proc_gost, self.routing_table = task.result()
+                        self.asyncdl.ytdl.params['routing_table'] = self.routing_table
+                except Exception as e:
+                    logger.exception(f"[async_ex] {repr(e)}")
+    
+    @long_operation_in_thread
+    def run_proxy_http(self, *args, **kwargs):
+        
+        stop_event: Event = kwargs["stop_event"]
+        log_level = kwargs.get('log_level', 'INFO')
+        try:
+            with proxy.Proxy(
+                [
+                    "--log-level",
+                    log_level,
+                    "--plugins",
+                    "proxy.plugin.ProxyPoolByHostPlugin",
+                ]
+            ) as p:
+                logger = logging.getLogger("proxy")
+                try:
+                    logger.debug(p.flags)
+                    stop_event.wait()
+                except BaseException:
+                    logger.error("context manager proxy")
+        finally:
+            self.shutdown_proxy.set()
+
+    def close(self):
+        
+        self.logger.info("[close] proxy")
+        self.stop_proxy.set()
+        self.logger.info("[close] waiting for http proxy shutdown")
+        self.shutdown_proxy.wait()
+        self.logger.info("[close] OK shutdown")
+        
+        if self.proc_gost:
+            self.logger.info("[close] gost")
+            for proc in self.proc_gost:
+                try:
+                    proc.kill()
+                except BaseException as e:
+                    self.logger.exception(f"[close] {repr(e)}")
+
+        if self.proc_aria2c:
+            self.logger.info("[close] aria2c")
+            self.proc_aria2c.kill()
+        
+
+            
 class AsyncDL:
 
     def __init__(self, args):
@@ -636,48 +717,20 @@ class AsyncDL:
             logger=logger.info,
         )
 
-        self.routing_table = {}
-        self.proc_gost = []
+        # self.routing_table = {}
+        # self.proc_gost = []
         # if not self.args.nodl:            
         #     if self.args.enproxy:
         #         self.shutdown_proxy = Event()
         #         self.stop_proxy = self.run_proxy_http()
         
     
-    
-    @long_operation_in_thread
-    def run_proxy_http(self, *args, **kwargs):
-        
-        stop_event: Event = kwargs["stop_event"]
-        log_level = kwargs.get('log_level', 'INFO')
-        try:
-            with proxy.Proxy(
-                [
-                    "--log-level",
-                    log_level,
-                    "--plugins",
-                    "proxy.plugin.ProxyPoolByHostPlugin",
-                ]
-            ) as p:
-                logger = logging.getLogger("proxy")
-                try:
-                    logger.debug(p.flags)
-                    #while not stop_event.is_set():
-                    #    time.sleep(CONF_INTERVAL_GUI)
-                    stop_event.wait()
-                except BaseException:
-                    logger.error("context manager proxy")
-        finally:
-            self.shutdown_proxy.set()
-
     def get_videos_cached(self):
 
         """
         In local storage, files are saved wihtin the file files.cached.json in 5 groups each in different volumnes.
         If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.
         """
-
-        
 
         local_storage = LocalStorage()
 
@@ -2032,7 +2085,6 @@ class AsyncDL:
         self.alock = asyncio.Lock()
         self.hosts_alock = asyncio.Lock()
 
-        
         self.async_prepare_for_dl = sync_to_async(self._prepare_for_dl, executor=self.ex_winit)
         self.async_prepare_entry_pl_for_dl = sync_to_async(self._prepare_entry_pl_for_dl, executor=self.ex_winit)
        
@@ -2041,7 +2093,6 @@ class AsyncDL:
 
         tasks_gui = []
         tasks_to_wait = {}
-        _tasks_to_wait_dl = {}
 
         try:
 
@@ -2051,50 +2102,21 @@ class AsyncDL:
             self.loop = asyncio.get_running_loop()
 
             if not self.args.nodl:
-                if self.args.aria2c:
-                    ainit_aria2c = sync_to_async(init_aria2c, executor=self.ex_winit)
-                    _tasks_to_wait_dl.update({asyncio.create_task(ainit_aria2c(self.args)): "aria2"})
-                if self.args.enproxy:
-                    self.shutdown_proxy = Event()
-                    self.stop_proxy = self.run_proxy_http()
-                    ainit_proxies = sync_to_async(init_proxies, executor=self.ex_winit)
-                    _tasks_to_wait_dl.update({asyncio.create_task(
-                            ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"})
+                self.nwsetup = NWSetUp(self)
                 
-            
-            self.get_videos_cached() #bloquea pero de todas formas necesitamos el resultado para progresir
+            self.get_videos_cached() #bloquea pero de todas formas necesitamos el resultado para progresar
             
             self.WorkersInit = WorkersInit(self)
-            self.WorkersRun = WorkersRun(self)
-            
+            self.WorkersRun = WorkersRun(self)            
             tasks_to_wait.update({asyncio.create_task(self.get_list_videos()): "task_get_videos"})
                     
-            if _tasks_to_wait_dl:
-                done, pending = await asyncio.wait(_tasks_to_wait_dl)
-
-                for d in done:
-                    try:
-                        _res = d.result()
-                        if _tasks_to_wait_dl[d] == "aria2":
-                            self.proc_aria2c = _res
-                        else:
-                            self.proc_gost, self.routing_table = _res
-                            self.ytdl.params["routing_table"] = self.routing_table
-
-                    except Exception as e:
-                        logger.exception(f"[async_ex] {repr(e)}")
-            
-            self.is_ready_to_dl.set()
-
             if not self.args.nodl:
-
+                await self.nwsetup.init()
+                self.is_ready_to_dl.set()
                 _res = await async_waitfortasks(events=(self.getlistvid_first, self.getlistvid_done))                
                 if _res.get("event") == "first" or len(self.videos_to_dl) > 0:
                     self.FEgui = FrontEndGUI(self)
-                    self.stop_upt_window = self.FEgui.upt_window_periodic()
-                    self.stop_pasres = self.FEgui.pasres_periodic()
-                    self.gui_task = asyncio.create_task(self.FEgui.gui())
-                    tasks_gui = [self.gui_task]
+                    tasks_gui = [asyncio.create_task(self.FEgui.gui())]                   
                     tasks_to_wait.update({asyncio.create_task(self.WorkersRun.exit.wait()): f"task_workers_run"})
 
             done, _ = await asyncio.wait(tasks_to_wait)
@@ -2118,25 +2140,14 @@ class AsyncDL:
                     await dl.stop()
             await asyncio.sleep(0)
             raise
-        finally:
-            if hasattr(self, 'stop_upt_window'):
-                self.stop_upt_window.set()
-                await asyncio.sleep(0)
-            if hasattr(self, 'stop_pasres'):
-                self.stop_pasres.set()
-                await asyncio.sleep(0)
+        finally:            
             if hasattr(self, 'FEgui'):
                 self.FEgui.stop.set()
                 await asyncio.sleep(0)
                 if tasks_gui:
-                    done, _ = await asyncio.wait(tasks_gui)
-                    self.FEgui.close()
-                    await asyncio.sleep(0)
-                    if any(
-                        isinstance(_e, KeyboardInterrupt)
-                        for _e in [d.exception() for d in done]
-                    ):
-                        raise KeyboardInterrupt            
+                    await async_waitfortasks(tasks_gui)
+                self.FEgui.close()
+          
             logger.info(f"[async_ex] BYE")
 
             
@@ -2470,21 +2481,6 @@ class AsyncDL:
 
         return info_dict
 
-    def ies_close(self):
-
-        ies = self.ytdl._ies_instances
-
-        if not ies:
-            return
-
-        for ie, ins in ies.items():
-
-            if close := getattr(ins, "close", None):
-                try:
-                    close()
-                    logger.debug(f"[close][{ie}] closed ok")
-                except Exception as e:
-                    logger.exception(f"[close][{ie}] {repr(e)}")
 
     def close(self):
 
@@ -2501,39 +2497,13 @@ class AsyncDL:
                 logger.exception(f"[close] {repr(e)}")
 
             try:
-                if hasattr(self, 'proc_aria2c'):
-                    logger.info("[close] aria2c")
-                    self.proc_aria2c.kill()
+                if hasattr(self, 'nwsetup'):
+                    self.nwsetup.close()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
-
+                
             try:
-                self.ies_close()
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")
-
-            if self.proc_gost:
-                logger.info("[close] gost")
-                for proc in self.proc_gost:
-                    try:
-                        proc.kill()
-                    except BaseException as e:
-                        logger.exception(f"[close] {repr(e)}")
-
-            try:
-                if hasattr(self, 'stop_proxy'):                
-                    logger.info("[close] proxy")
-                    self.stop_proxy.set()
-                    logger.info("[close] waiting for http proxy shutdown")
-                    self.shutdown_proxy.wait()
-                    logger.info("[close] OK shutdown")
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")
-
-            try:
-                logger.info("[close] kill processes")
-                kill_processes(logger=logger, rpcport=self.args.rpcport)
-
+                self.ytdl.shutdown()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
 
@@ -2543,6 +2513,12 @@ class AsyncDL:
                         vdl.shutdown()
                     except Exception as e:
                         logger.exception(f"[close] {repr(e)}")
+
+            try:
+                logger.info("[close] kill processes")
+                kill_processes(logger=logger, rpcport=self.args.rpcport)
+            except BaseException as e:
+                logger.exception(f"[close] {repr(e)}")
 
 
         except BaseException as e:
