@@ -321,16 +321,15 @@ class VideoDownloader:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}]: {repr(e)}")
 
     async def pause(self):
-        if self.pause_event and self.info_dl['status'] == "downloading":            
+        if self.info_dl['status'] == "downloading":            
             #self.resume_event.clear()
             self.pause_event.set()
 
     async def resume(self):
-        if self.resume_event and self.info_dl['status'] == "downloading": 
+        if self.info_dl['status'] == "downloading": 
             if self.pause_event.is_set():
                 self.resume_event.set()
-    
-        
+      
     async def run_dl(self):
         
         self.info_dl['ytdl'].params['stop_dl'][str(self.index)] = self.stop_event

@@ -579,13 +579,14 @@ class AsyncARIA2CDownloader:
                         raise
 
 
-            if hasattr(self, 'dl_cont') and self.dl_cont.status == "complete":
-                self._speed.append((datetime.now(), "complete"))
-                self.status = "done"
-                return
+            if hasattr(self, 'dl_cont'):
+                if self.dl_cont.status == "complete":
+                    self._speed.append((datetime.now(), "complete"))
+                    self.status = "done"
+                    return
             
-            elif hasattr(self, 'dl_cont') and self.dl_cont.status == "error":
-                raise AsyncARIA2CDLError("error")
+                if self.dl_cont.status == "error":
+                    raise AsyncARIA2CDLError("error")
 
         except BaseException as e:
             if isinstance(e, KeyboardInterrupt):

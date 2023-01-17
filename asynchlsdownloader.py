@@ -1461,7 +1461,6 @@ class AsyncHLSDownloader:
                     self.status = "downloading"
 
                     upt_task = [asyncio.create_task(self.upt_status())]
-                    # check_task = [asyncio.create_task(self.check_speed())]
                     check_task = []
                     self.tasks = [
                         asyncio.create_task(

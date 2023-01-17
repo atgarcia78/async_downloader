@@ -81,7 +81,7 @@
                 "filtermodules"
             ],
             "maxBytes": 6310720,
-            "backupCount": 24,
+            "backupCount": 10,
             "encoding": "utf8"
         },
         "queue_listener": {

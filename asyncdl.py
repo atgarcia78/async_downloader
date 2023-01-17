@@ -66,6 +66,7 @@ logger = logging.getLogger("asyncDL")
 
 from collections import deque
 
+
 class WorkersRun:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
@@ -488,7 +489,7 @@ class FrontEndGUI:
 
         self.list_all_old = list_res
 
-    @long_operation_in_thread
+    @long_operation_in_thread(name='uptwinthr')
     def upt_window_periodic(self, *args, **kwargs):
 
         stop_upt = kwargs["stop_event"]
@@ -534,7 +535,7 @@ class FrontEndGUI:
                 self.logger.debug(f"[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}")
             self.logger.debug("[upt_window_periodic] BYE")
 
-    @long_operation_in_thread
+    @long_operation_in_thread(name='pasresthr')
     def pasres_periodic(self, *args, **kwargs):
 
         self.logger.debug("[pasres_periodic] START")
@@ -615,7 +616,7 @@ class NWSetUp:
                 except Exception as e:
                     logger.exception(f"[async_ex] {repr(e)}")
     
-    @long_operation_in_thread
+    @long_operation_in_thread(name='proxythr')
     def run_proxy_http(self, *args, **kwargs):
         
         stop_event: Event = kwargs["stop_event"]
@@ -658,85 +659,28 @@ class NWSetUp:
             self.logger.info("[close] aria2c")
             self.proc_aria2c.kill()
         
+class LocalVideos:
+    def __init__(self, asyncdl):
+        self.asyncdl = asyncdl
+        self.logger = logging.getLogger('videoscached')
+        self.file_ready: Event = self.get_videos_cached()
 
-            
-class AsyncDL:
+    def ready(self):
+        self.file_ready.wait()
 
-    def __init__(self, args):
-
-        # args
-        self.args = args
-        self.workers = self.args.w
-        self.init_nworkers = self.args.winit if self.args.winit > 0 else self.args.w
-
-        # youtube_dl
-        self.ytdl = init_ytdl(self.args)
-
-        # listas, dicts con videos
-        self.info_videos = {}
-        self.videos_cached = {}
-
-        self.list_videos = []
-        self.list_initnok = []
-        self.list_unsup_urls = []
-        self.list_notvalid_urls = []
-        self.list_urls_to_check = []
-
-        self.list_dl = {}
-        self.videos_to_dl = []
-
-        self.num_videos_to_check = 0
-        self.num_videos_pending = 0
-       
-        self.wkinit_stop = False
-
-        self.list_pasres = set()
-
-        # contadores sobre número de workers init, workers run y workers manip
-
-        self.hosts_downloading = {}
-
-        self.totalbytes2dl = 0
-        self.launch_time = datetime.now()
-
-        self.ex_winit = ThreadPoolExecutor(thread_name_prefix="ex_wkinit")
-        
-        self.lock = Lock()
-
-        self.t1 = Timer(
-            "execution",
-            text="[timers] Time spent with data preparation for the init workers: {:.2f}",
-            logger=logger.info,
-        )
-        self.t2 = Timer(
-            "execution", text="[timers] Time spent with DL: {:.2f}", logger=logger.info
-        )
-        self.t3 = Timer(
-            "execution",
-            text="[timers] Time spent by init workers: {:.2f}",
-            logger=logger.info,
-        )
-
-        # self.routing_table = {}
-        # self.proc_gost = []
-        # if not self.args.nodl:            
-        #     if self.args.enproxy:
-        #         self.shutdown_proxy = Event()
-        #         self.stop_proxy = self.run_proxy_http()
-        
-    
-    def get_videos_cached(self):
+    @long_operation_in_thread(name='vidcachthr')
+    def get_videos_cached(self, *args, **kwargs):
 
         """
         In local storage, files are saved wihtin the file files.cached.json in 5 groups each in different volumnes.
         If any of the volumes can't be accesed in real time, the local storage info of that volume will be used.
         """
 
+        _finished: Event = kwargs['stop_event']
+        
         local_storage = LocalStorage()
 
-        logger.info(
-            f"[videos_cached] start scanning - dlnocaching [{self.args.nodlcaching}]"
-        )
+        self.logger.info(f"[videos_cached] start scanning - dlnocaching [{self.asyncdl.args.nodlcaching}]")
 
         videos_cached = {}
         last_time_sync = {}
@@ -751,7 +695,7 @@ class AsyncDL:
                 videos_cached = {}
                 last_time_sync = local_storage._last_time_sync
 
-                if self.args.nodlcaching:
+                if self.asyncdl.args.nodlcaching:
                     for _vol, _folder in local_storage.config_folders.items():
                         if _vol != "local":
                             videos_cached.update(local_storage._data_from_file[_vol])
@@ -834,7 +778,7 @@ class AsyncDL:
                                         _links = get_chain_links(_video_path)
                                         if _links[-1] == file:
                                             if len(_links) > 2:
-                                                logger.debug(
+                                                self.logger.debug(
                                                     f'[videos_cached] \nfile not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}'
                                                 )
                                                 for _link in _links[0:-1]:
@@ -844,7 +788,7 @@ class AsyncDL:
                                                         _link,
                                                         (
                                                             int(
-                                                                self.launch_time.timestamp()
+                                                                self.asyncdl.launch_time.timestamp()
                                                             ),
                                                             file.stat().st_mtime,
                                                         ),
@@ -853,7 +797,7 @@ class AsyncDL:
 
                                             videos_cached.update({_name: str(file)})
                                         else:
-                                            logger.warning(
+                                            self.logger.warning(
                                                 f'[videos_cached] \n**file not symlink: {str(file)}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links])}'
                                             )
 
@@ -864,7 +808,7 @@ class AsyncDL:
                                         _links = get_chain_links(file)
                                         if _links[-1] == _video_path:
                                             if len(_links) > 2:
-                                                logger.debug(
+                                                self.logger.debug(
                                                     f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}'
                                                 )
                                                 for _link in _links[0:-1]:
@@ -874,7 +818,7 @@ class AsyncDL:
                                                         _link,
                                                         (
                                                             int(
-                                                                self.launch_time.timestamp()
+                                                                self.asyncdl.launch_time.timestamp()
                                                             ),
                                                             _video_path.stat().st_mtime,
                                                         ),
@@ -898,7 +842,7 @@ class AsyncDL:
                                                     }
                                                 )
                                         else:
-                                            logger.warning(
+                                            self.logger.warning(
                                                 f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links])}\nvideopath not symlink: {str(_video_path)}'
                                             )
 
@@ -909,7 +853,7 @@ class AsyncDL:
                                             _file := _links_file[-1]
                                         ) == _links_video_path[-1]:
                                             if len(_links_file) > 2:
-                                                logger.debug(
+                                                self.logger.debug(
                                                     f'[videos_cached] \nfile symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}'
                                                 )
                                                 for _link in _links_file[0:-1]:
@@ -919,14 +863,14 @@ class AsyncDL:
                                                         _link,
                                                         (
                                                             int(
-                                                                self.launch_time.timestamp()
+                                                                self.asyncdl.launch_time.timestamp()
                                                             ),
                                                             _file.stat().st_mtime,
                                                         ),
                                                         follow_symlinks=False,
                                                     )
                                             if len(_links_video_path) > 2:
-                                                logger.debug(
+                                                self.logger.debug(
                                                     f'[videos_cached] \nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}'
                                                 )
                                                 for _link in _links_video_path[0:-1]:
@@ -936,7 +880,7 @@ class AsyncDL:
                                                         _link,
                                                         (
                                                             int(
-                                                                self.launch_time.timestamp()
+                                                                self.asyncdl.launch_time.timestamp()
                                                             ),
                                                             _file.stat().st_mtime,
                                                         ),
@@ -962,18 +906,18 @@ class AsyncDL:
                                                 )
 
                                         else:
-                                            logger.warning(
+                                            self.logger.warning(
                                                 f'[videos_cached] \n**file symlink: {str(file)}\n\t\t{" -> ".join([str(_l) for _l in _links_file])}\nvideopath symlink: {str(_video_path)}\n\t\t{" -> ".join([str(_l) for _l in _links_video_path])}'
                                             )
 
                     except Exception as e:
-                        logger.error(
+                        self.logger.error(
                             f"[videos_cached][{list_folders_to_scan[folder]}] {repr(e)}"
                         )
 
                     else:
                         last_time_sync.update(
-                            {list_folders_to_scan[folder]: str(self.launch_time)}
+                            {list_folders_to_scan[folder]: str(self.asyncdl.launch_time)}
                         )
 
                 try:
@@ -981,27 +925,95 @@ class AsyncDL:
                     local_storage.dump_info(videos_cached, last_time_sync)
 
                     if _repeated:
-                        logger.warning(
+                        self.logger.warning(
                             "[videos_cached] Please check videos repeated in logs"
                         )
-                        logger.debug(f"[videos_cached] videos repeated: \n {_repeated}")
+                        self.logger.debug(f"[videos_cached] videos repeated: \n {_repeated}")
 
                     if _dont_exist:
-                        logger.warning(
+                        self.logger.warning(
                             "[videos_cached] Please check videos dont exist in logs"
                         )
-                        logger.debug(
+                        self.logger.debug(
                             f"[videos_cached] videos dont exist: \n {_dont_exist}"
                         )
 
                 except Exception as e:
-                    logger.exception(f"[videos_cached] {repr(e)}")
+                    self.logger.exception(f"[videos_cached] {repr(e)}")
 
-            logger.info(f"[videos_cached] Total videos cached: [{len(videos_cached)}]")
-            self.videos_cached = videos_cached
+            self.logger.info(f"[videos_cached] Total videos cached: [{len(videos_cached)}]")
+            
+            self.asyncdl.videos_cached = videos_cached
+            
+            _finished.set()
 
         except Exception as e:
-            logger.exception(f"[videos_cached] {repr(e)}")
+            self.logger.exception(f"[videos_cached] {repr(e)}")
+
+class AsyncDL:
+
+    def __init__(self, args):
+
+        # args
+        self.args = args
+        self.workers = self.args.w
+        self.init_nworkers = self.args.winit if self.args.winit > 0 else self.args.w
+
+        # youtube_dl
+        self.ytdl = init_ytdl(self.args)
+
+        # listas, dicts con videos
+        self.info_videos = {}
+        self.videos_cached = {}
+
+        self.list_videos = []
+        self.list_initnok = []
+        self.list_unsup_urls = []
+        self.list_notvalid_urls = []
+        self.list_urls_to_check = []
+
+        self.list_dl = {}
+        self.videos_to_dl = []
+
+        self.num_videos_to_check = 0
+        self.num_videos_pending = 0
+       
+        self.wkinit_stop = False
+
+        self.list_pasres = set()
+
+        # contadores sobre número de workers init, workers run y workers manip
+
+        self.hosts_downloading = {}
+
+        self.totalbytes2dl = 0
+        self.launch_time = datetime.now()
+
+        self.ex_winit = ThreadPoolExecutor(thread_name_prefix="ex_wkinit")
+        
+        self.lock = Lock()
+
+        self.t1 = Timer(
+            "execution",
+            text="[timers] Time spent with data preparation for the init workers: {:.2f}",
+            logger=logger.info,
+        )
+        self.t2 = Timer(
+            "execution", text="[timers] Time spent with DL: {:.2f}", logger=logger.info
+        )
+        self.t3 = Timer(
+            "execution",
+            text="[timers] Time spent by init workers: {:.2f}",
+            logger=logger.info,
+        )
+
+        # self.routing_table = {}
+        # self.proc_gost = []
+        # if not self.args.nodl:            
+        #     if self.args.enproxy:
+        #         self.shutdown_proxy = Event()
+        #         self.stop_proxy = self.run_proxy_http()
+        
 
     async def cancel_all_tasks(self):
         self.STOP.set()
@@ -2096,6 +2108,7 @@ class AsyncDL:
 
         try:
 
+            self.localstorage = LocalVideos(self)
             self.t1.start()
             self.t2.start()
             self.t3.start()
@@ -2104,7 +2117,7 @@ class AsyncDL:
             if not self.args.nodl:
                 self.nwsetup = NWSetUp(self)
                 
-            self.get_videos_cached() #bloquea pero de todas formas necesitamos el resultado para progresar
+            self.localstorage.ready() #bloquea pero de todas formas necesitamos el resultado para progresar
             
             self.WorkersInit = WorkersInit(self)
             self.WorkersRun = WorkersRun(self)            
@@ -2150,7 +2163,6 @@ class AsyncDL:
           
             logger.info(f"[async_ex] BYE")
 
-            
     def get_results_info(self):
         def _getter(url: str, vid: dict)->str:
             webpageurl = try_get(traverse_obj(vid, ("video_info", "webpage_url")), lambda x: str(x) if x else None)  
@@ -2480,7 +2492,6 @@ class AsyncDL:
             file.write(videos_ko_str)
 
         return info_dict
-
 
     def close(self):
 
