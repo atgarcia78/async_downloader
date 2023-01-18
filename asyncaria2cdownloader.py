@@ -481,9 +481,6 @@ class AsyncARIA2CDownloader:
                     continue
                 elif len_ap_list(_speed, _input_speed) > CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED:
 
-                    #_speed.append(_input_speed)
-
-                    #if len(_speed) > CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED:
 
                     if any(
                         [
@@ -492,7 +489,6 @@ class AsyncARIA2CDownloader:
                             all([el[1] == _speed[-1][1] and el[0] < getter(el[1]) for el in _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED:]]),
                             # all([(_speed[i][1] == _speed[-1][1]) and (_speed[i + 1][0] < _speed[i][0] * 0.9) for i in range(len(_speed) - CONF_ARIA2C_N_CHUNKS_CHECK_SPEED, len(_speed) - 1)]),
                         ]):
-                        #self.video_downloader.reset_event.set()
                         
                         _str_speed = ", ".join(
                             [
@@ -504,7 +500,6 @@ class AsyncARIA2CDownloader:
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset\n{_str_speed}")
                         await self.video_downloader.reset()
                         break
-                        #_speed = []
 
                     else:
                         #_speed = _speed[-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED//2:]

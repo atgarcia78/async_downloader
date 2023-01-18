@@ -1,4 +1,3 @@
-
 from selenium.webdriver import Firefox, FirefoxOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
@@ -6,18 +5,25 @@ from selenium.webdriver.firefox.service import Service
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.common.exceptions import WebDriverException, TimeoutException
+import json
 import copy
+import time
 import logging
 from backoff import constant, on_exception
 import threading
 import shutil
 import tempfile
+from yt_dlp.utils import try_get, traverse_obj
+from yt_dlp.extractor.commonwebdriver import StatusStop
+from typing import Callable
+import re
+import html
 
 logger = logging.getLogger("mydriver")
 retry_on_driver_except = on_exception(constant, WebDriverException, max_tries=3, raise_on_giveup=True, interval=2)
 
 
-class MyDriver(Firefox):
+class MyDriver:
 
     _LOCK = threading.Lock()
     _PROF = '/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium'
@@ -86,7 +92,7 @@ class MyDriver(Firefox):
             try:
                 _driver = Firefox(service=serv, options=opts)
                 _driver.maximize_window()
-                self.wait_until(driver=_driver, timeout=0.5)
+                self.wait_until(driver=_driver, timeout=1)
                 _driver.set_script_timeout(20)
                 _driver.set_page_load_timeout(25)
                 return _driver
@@ -195,7 +201,7 @@ class MyDriver(Firefox):
 
     def scan_har_for_json(self, _valid_url, _method="GET", _all=False, timeout=10, inclheaders=False, check_event=None):
 
-        _hints = self.scan_for_request(_valid_url,  _method=_method, _mimetype="json", _all=_all, timeout=timeout, inclheaders=inclheaders, check_event=None)
+        _hints = self.scan_har_for_request(_valid_url,  _method=_method, _mimetype="json", _all=_all, timeout=timeout, inclheaders=inclheaders, check_event=None)
 
         def func_getter(x):
             _info_json = json.loads(re.sub('[\t\n]', '', html.unescape(x.get('content')))) if x.get('content') else ""
