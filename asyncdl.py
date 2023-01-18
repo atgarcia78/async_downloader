@@ -23,9 +23,6 @@ from tabulate import tabulate
 
 from utils import (
     CONF_INTERVAL_GUI,
-    CONF_PROXIES_MAX_N_GR_HOST,
-    CONF_PROXIES_N_GR_VIDEO,
-    CONF_PROXIES_HTTPPORT,
     PATH_LOGS,
     LocalStorage,
     _for_print,
@@ -38,7 +35,7 @@ from utils import (
     init_aria2c,
     init_gui_console,
     init_gui_root,
-    init_proxies,
+    TorGuardProxies,
     init_ytdl,
     is_playlist_extractor,
     js_to_json,
@@ -56,10 +53,10 @@ from utils import (
     SpeedometerMA,
     Union,
     Iterable,
-    proxy,
     async_lock
 )
 
+import proxy
 from videodownloader import VideoDownloader
 
 logger = logging.getLogger("asyncDL")
@@ -597,9 +594,8 @@ class NWSetUp:
             _tasks_init_aria2c = {asyncio.create_task(ainit_aria2c(self.asyncdl.args)): "aria2"}
             self._tasks_init.update(_tasks_init_aria2c)
         if self.asyncdl.args.enproxy:
-            ainit_proxies = sync_to_async(init_proxies, executor=self.exe)
-            _task_init_proxies = {asyncio.create_task(
-                            ainit_proxies(CONF_PROXIES_MAX_N_GR_HOST, CONF_PROXIES_N_GR_VIDEO, port=CONF_PROXIES_HTTPPORT)): "proxies"}
+            ainit_proxies = sync_to_async(TorGuardProxies.init_proxies, executor=self.exe)
+            _task_init_proxies = {asyncio.create_task(ainit_proxies()): "proxies"}
             self._tasks_init.update(_task_init_proxies)
       
     async def init(self):       
@@ -949,6 +945,73 @@ class LocalVideos:
 
         except Exception as e:
             self.logger.exception(f"[videos_cached] {repr(e)}")
+
+    def get_files_same_id(self):
+
+        
+        config_folders = {
+            "local": Path(Path.home(), "testing"),
+            "pandaext4": Path("/Volumes/Pandaext4/videos"),
+            "datostoni": Path("/Volumes/DatosToni/videos"),
+            "wd1b": Path("/Volumes/WD1B/videos"),
+            "wd5": Path("/Volumes/WD5/videos"),
+            "wd8_1": Path("/Volumes/WD8_1/videos"),
+        }
+
+        list_folders = []
+
+        for _vol, _folder in config_folders.items():
+            if not _folder.exists():
+                self.logger.error(
+                    f"failed {_folder}, let get previous info saved in previous files"
+                )
+
+            else:
+                list_folders.append(_folder)
+
+        files_cached = []
+        for folder in list_folders:
+
+            self.logger.info(">>>>>>>>>>>STARTS " + str(folder))
+
+            files = []
+            try:
+
+                files = [
+                    file
+                    for file in folder.rglob("*")
+                    if file.is_file()
+                    and not file.is_symlink()
+                    and not "videos/_videos/" in str(file)
+                    and not file.stem.startswith(".")
+                    and (file.suffix.lower() in (".mp4", ".mkv", ".ts", ".zip"))
+                ]
+
+            except Exception as e:
+                self.logger.info(f"[get_files_cached][{folder}] {repr(e)}")
+
+            for file in files:
+
+                _res = file.stem.split("_", 1)
+                if len(_res) == 2:
+                    _id = _res[0]
+
+                else:
+                    _id = sanitize_filename(file.stem, restricted=True).upper()
+
+                files_cached.append((_id, str(file)))
+
+        _res_dict = {}
+        for el in files_cached:
+            for item in files_cached:
+                if (el != item) and (item[0] == el[0]):
+                    if not _res_dict.get(el[0]):
+                        _res_dict[el[0]] = set([el[1], item[1]])
+                    else:
+                        _res_dict[el[0]].update([el[1], item[1]])
+        _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
+        return _ord_res_dict
+
 
 class AsyncDL:
 

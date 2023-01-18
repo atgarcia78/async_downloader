@@ -31,7 +31,6 @@ FORCE_TO_HTTP = []#['doodstream']
 
 logger = logging.getLogger("video_DL")
 
-from threading import Lock
 
 class VideoDownloader:
 

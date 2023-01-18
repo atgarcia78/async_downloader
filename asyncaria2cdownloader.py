@@ -26,7 +26,6 @@ from utils import (
     CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO,
     CONFIG_EXTRACTORS,
-
     ProgressTimer,
     ProxyYTDL,    
     async_lock,
@@ -43,7 +42,6 @@ from utils import (
     async_waitfortasks,
     Union,
     Iterable
-
 )
 
 logger = logging.getLogger("async_ARIA2C_DL")
@@ -182,7 +180,8 @@ class AsyncARIA2CDownloader:
                     if not self.ytdl.params.get("sem"):
                         self.ytdl.params.update({"sem": {}})
                     self.ytdl.params["sem"].update({self._host: _temp})
-
+            
+            assert isinstance(_temp, Lock)
             self.sem = _temp
             
         else:

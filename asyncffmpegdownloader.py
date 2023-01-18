@@ -25,7 +25,46 @@ from yt_dlp.utils import (
 
 from yt_dlp.postprocessor.ffmpeg import EXT_TO_OUT_FORMATS, FFmpegPostProcessor
 
-from utils import parse_ffmpeg_time_string, compute_prefix, naturalsize
+from utils import naturalsize
+
+
+def parse_ffmpeg_time_string(time_string):
+    time = 0
+    reg1 = re.match(
+        r"((?P<H>\d\d?):)?((?P<M>\d\d?):)?(?P<S>\d\d?)(\.(?P<f>\d{1,3}))?", time_string
+    )
+    reg2 = re.match(r"\d+(?P<U>s|ms|us)", time_string)
+    if reg1:
+        if reg1.group("H") is not None:
+            time += 3600 * int(reg1.group("H"))
+        if reg1.group("M") is not None:
+            time += 60 * int(reg1.group("M"))
+        time += int(reg1.group("S"))
+        if reg1.group("f") is not None:
+            time += int(reg1.group("f")) / 1_000
+    elif reg2:
+        time = int(reg2.group("U"))
+        if reg2.group("U") == "ms":
+            time /= 1_000
+        elif reg2.group("U") == "us":
+            time /= 1_000_000
+    return time
+
+
+def compute_prefix(match):
+    res = int(match.group("E"))
+    if match.group("f") is not None:
+        res += int(match.group("f"))
+    if match.group("U") is not None:
+        if match.group("U") == "g":
+            res *= 1_000_000_000
+        elif match.group("U") == "m":
+            res *= 1_000_000
+        elif match.group("U") == "k":
+            res *= 1_000
+    return res
+
+
 
 
 logger = logging.getLogger("async_FFMPEG_DL")
@@ -49,7 +88,7 @@ class AsyncFFmpegFD(FFmpegFD):
         urls = [f['url'] for f in info_dict.get('requested_formats', [])] or [info_dict['url']]
         ffpp = FFmpegPostProcessor(downloader=self)
         if not ffpp.available:
-            self.report_error('m3u8 download detected but ffmpeg could not be found. Please install')
+            logger.error('m3u8 download detected but ffmpeg could not be found. Please install')
             return False
         ffpp.check_version()
 
@@ -93,7 +132,7 @@ class AsyncFFmpegFD(FFmpegFD):
                 proxy = 'http://%s' % proxy
 
             if proxy.startswith('socks'):
-                self.report_warning(
+                logger.warning(
                     '%s does not support SOCKS proxies. Downloading is likely to fail. '
                     'Consider adding --hls-prefer-native to your command.' % self.get_basename())
 
@@ -177,11 +216,11 @@ class AsyncFFmpegFD(FFmpegFD):
         elif ext == 'unknown_video':
             ext = determine_ext(remove_end(tmpfilename, '.part'))
             if ext == 'unknown_video':
-                self.report_warning(
+                logger.warning(
                     'The video format is unknown and cannot be downloaded by ffmpeg. '
                     'Explicitly set the extension in the filename to attempt download in that format')
             else:
-                self.report_warning(f'The video format is unknown. Trying to download as {ext} according to the filename')
+                logger.warning(f'The video format is unknown. Trying to download as {ext} according to the filename')
                 args += ['-f', EXT_TO_OUT_FORMATS.get(ext, ext)]
         else:
             args += ['-f', EXT_TO_OUT_FORMATS.get(ext, ext)]

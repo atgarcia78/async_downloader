@@ -1710,49 +1710,37 @@ class AsyncHLSDownloader:
                     ].set()
 
             except Exception as e:
-                logger.warning(
-                    f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['in_reset']}"
-                )
+                logger.warning(f"{self.premsg}[{self.count}/{self.n_workers}] error when removing [{self.video_downloader.info_dict['playlist_index']}] from {self.video_downloader.info_dl['fromplns'][self.fromplns]['in_reset']}")
 
-    def dump_init_file(self):  
-
-        init_data = {
-            el["frag"]: el["headersize"] for el in self.info_frag if el["headersize"]
-        }
-        logger.debug(
-            f"{self.premsg}[{self.count}/{self.n_workers}] init data\n{init_data}"
-        )
+    def dump_init_file(self):
+        init_data = {el["frag"]: el["headersize"] for el in self.info_frag if el["headersize"]}
         with open(self.init_file, "w") as f:
             json.dump(init_data, f)
-
+        logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}] init data\n{init_data}")
+        
     async def clean_when_error(self):
-
         for f in self.info_frag:
             if f["downloaded"] == False:
-
                 if await os.path.exists(f["file"]):
                     await os.remove(f["file"])
 
     def sync_clean_when_error(self):
-
         for f in self.info_frag:
             if f["downloaded"] == False:
                 if f["file"].exists():
                     f["file"].unlink()
 
+    
     def ensamble_file(self):
 
         self.status = "manipulating"
-        logger.debug(
-            f"{self.premsg}[{self.count}/{self.n_workers}]: Fragments DL \n{self.fragsdl()}"
-        )
+        logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]: Fragments DL \n{self.fragsdl()}")
 
         _skipped = 0
         
         try:
-            logger.debug(
-                f"{self.premsg}[{self.count}/{self.n_workers}]:{self.filename}"
-            )
+            logger.debug(f"{self.premsg}[{self.count}/{self.n_workers}]:{self.filename}")
+            
             with open(self.filename, mode="wb") as dest:
                 
                 for f in self.info_frag:
@@ -1778,8 +1766,7 @@ class AsyncHLSDownloader:
 
         except Exception as e:
             if self.filename.exists():
-                self.filename.unlink()
-            
+                self.filename.unlink()            
             logger.exception(f"{self.premsg}[{self.count}/{self.n_workers}]:Exception ocurred: {repr(e)}")
             self.status = "error"
             self.sync_clean_when_error()
@@ -1818,12 +1805,12 @@ class AsyncHLSDownloader:
                 res.append(frag)
         return res
 
-    def format_frags(self):
-        import math
-
-        return f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
-
+    
     def print_hookup(self):
+
+        def format_frags():
+            import math
+            return f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
 
         _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
         _proxy = self._proxy["http://"].split(":")[-1] if hasattr(self, '_proxy') else None
@@ -1831,21 +1818,21 @@ class AsyncHLSDownloader:
         if self.status == "done":
             return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed \n")
         elif self.status == "init":
-            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n")
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Waiting to DL [{_filesize_str}] [{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n")
         elif self.status == "error":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
                 if self.filesize
                 else "--"
             )
-            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] ERROR [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n")
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] ERROR [{_rel_size_str}] [{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n")
         elif self.status == "stop":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
                 if self.filesize
                 else "--"
             )
-            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}]\n")
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] STOPPED [{_rel_size_str}] [{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n")
         elif self.status == "downloading":
 
             _eta_smooth_str = "--"
@@ -1887,7 +1874,7 @@ class AsyncHLSDownloader:
                 else "-----"
             )
 
-            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] WK[{self.count:2d}/{self.n_workers:2d}] FR[{self.n_dl_fragments:{self.format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]")
+            return(f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] WK[{self.count:2d}/{self.n_workers:2d}] FR[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}] PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]")
 
         elif self.status == "init_manipulating":
             return(f"[HLS][{self.info_dict['format_id']}]: Waiting for Ensambling \n")
