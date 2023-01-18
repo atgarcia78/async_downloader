@@ -2169,12 +2169,13 @@ class AsyncDL:
         tasks_gui = []
         tasks_to_wait = {}
 
+        self.t1.start()
+        self.t2.start()
+        self.t3.start()
+        
         try:
 
             self.localstorage = LocalVideos(self)
-            self.t1.start()
-            self.t2.start()
-            self.t3.start()
             self.loop = asyncio.get_running_loop()
 
             if not self.args.nodl:

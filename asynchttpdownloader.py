@@ -88,7 +88,7 @@ class AsyncHTTPDownloader:
 
         self.uris = [unquote(self.video_url)]
 
-        self.ytdl: myYTDL = self.video_downloader.info_d["ytdl"]
+        self.ytdl: myYTDL = self.video_downloader.info_dl["ytdl"]
 
         self.proxies = None
 
