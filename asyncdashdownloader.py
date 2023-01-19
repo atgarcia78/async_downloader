@@ -17,12 +17,51 @@ import aiofiles
 import aiofiles.os as os
 import httpx
 
-from utils import (CONF_DASH_SPEED_PER_WORKER, EMA, _for_print_entry,
+from utils import (CONF_DASH_SPEED_PER_WORKER, _for_print_entry,
                    async_wait_time, int_or_none,
                    naturalsize, print_norm_time, smuggle_url, try_get,
                    unsmuggle_url, sync_to_async, ProxyYTDL)
 
 logger = logging.getLogger("async_DASH_DL")
+
+
+class EMA:
+    """
+    Exponential moving average: smoothing to give progressively lower
+    weights to older values.
+
+    Parameters
+    ----------
+    smoothing  : float, optional
+        Smoothing factor in range [0, 1], [default: 0.3].
+        Increase to give more weight to recent values.
+        Ranges from 0 (yields old value) to 1 (yields new value).
+    """
+
+    def __init__(self, smoothing=0.3):
+        self.alpha = smoothing
+        self.last = 0
+        self.calls = 0
+
+    def reset(self):
+        self.last = 0
+        self.calls = 0
+
+    def __call__(self, x=None):
+        """
+        Parameters
+        ----------
+        x  : float
+            New value to include in EMA.
+        """
+        beta = 1 - self.alpha
+        if x is not None:
+            self.last = self.alpha * x + beta * self.last
+            self.calls += 1
+        return self.last / (1 - beta**self.calls) if self.calls else self.last
+
+
+
 
 class AsyncDASHDLErrorFatal(Exception):
     

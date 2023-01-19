@@ -268,41 +268,6 @@ class SmoothETA:
         self.last_value = time_now + value
         return value
 
-class EMA:
-    """
-    Exponential moving average: smoothing to give progressively lower
-    weights to older values.
-
-    Parameters
-    ----------
-    smoothing  : float, optional
-        Smoothing factor in range [0, 1], [default: 0.3].
-        Increase to give more weight to recent values.
-        Ranges from 0 (yields old value) to 1 (yields new value).
-    """
-
-    def __init__(self, smoothing=0.3):
-        self.alpha = smoothing
-        self.last = 0
-        self.calls = 0
-
-    def reset(self):
-        self.last = 0
-        self.calls = 0
-
-    def __call__(self, x=None):
-        """
-        Parameters
-        ----------
-        x  : float
-            New value to include in EMA.
-        """
-        beta = 1 - self.alpha
-        if x is not None:
-            self.last = self.alpha * x + beta * self.last
-            self.calls += 1
-        return self.last / (1 - beta**self.calls) if self.calls else self.last
-
 class SignalHandler:
     def __init__(self):
         signal.signal(signal.SIGINT, self.exit_gracefully)
@@ -616,7 +581,7 @@ def init_argparser():
     )
     parser.add_argument(
         "--aria2c",
-        help="use of external aria2c running in port [PORT]. By default PORT=6800. PORT 0 to disable",
+        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
         default="6800",
         type=str,
     )
