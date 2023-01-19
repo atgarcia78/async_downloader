@@ -280,7 +280,7 @@ class SignalHandler:
 
 class long_operation_in_thread:
     def __init__(self, name: str) -> None:
-        self.name = name
+        self.name = name #name of thread for logging
     
     def __call__(self, func):
         name = self.name
@@ -300,8 +300,7 @@ class long_operation_in_thread:
 async def async_waitfortasks(
         fs: Union[Iterable, Coroutine, asyncio.Task, None] = None, 
         timeout: Union[float, None] = None, 
-        events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None,
-        cancel_tasks=True
+        events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None
 )->dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
     
     _final_wait = {}    
@@ -374,36 +373,22 @@ async def async_waitfortasks(
                 _results = [_d.result() for _d in d if not _d.exception()]
                 if len(_results) == 1: _results = _results[0] 
                 res = {"result": _results}
+    
     except Exception as e:        
         res = {"exception": e}    
     finally:
-        try:
-            if cancel_tasks:
-                for p in pending:
-                    p.cancel()
-                if not res.get("result"):
+        try:        
+            for p in pending:
+                p.cancel()
+                if _final_wait.get(p) == "tasks":
                     for _task in _tasks:
                         _task.cancel()
                         pending.add(_task)
-                if pending:
-                    await asyncio.wait(pending)
-            else:
-                if res.get("result"):
-                    for p in pending:
-                        p.cancel()
-                    await asyncio.wait(pending)
-                else:
-                    pending_ev = []
-                    for p in pending:
-                        _label = _final_wait.get(p, "")
-                        if _label.startswith("event"): 
-                            p.cancel()
-                            pending_ev.append(p)
-                    if pending_ev:
-                        await asyncio.wait(pending_ev)
-                    res.update({"pending" : _tasks})
+            if pending:
+                await asyncio.wait(pending)
+
         except Exception:
-            pass
+            pass    
     return res
 
 

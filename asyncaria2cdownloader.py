@@ -104,14 +104,7 @@ class AsyncARIA2CDownloader:
             if not x:
                 value, key_text = ("", "")
             else:
-                value, key_text = try_get(
-                    [
-                        (v, kt)
-                        for k, v in self._CONFIG.items()
-                        if any(x == (kt := _) for _ in k)
-                    ],
-                    lambda y: y[0],
-                ) or ("", "")
+                value, key_text = try_get([(v, sk) for k, v in self._CONFIG.items() for sk in k if sk == x], lambda y: y[0]) or ("", "")
 
             if value:
                 self.special_extr = True
