@@ -19,14 +19,12 @@ from yt_dlp.utils import (
     traverse_obj,
     decodeArgument,
     shell_quote,
-    
-    
+
 )
 
 from yt_dlp.postprocessor.ffmpeg import EXT_TO_OUT_FORMATS, FFmpegPostProcessor
 
 from utils import naturalsize
-
 
 def parse_ffmpeg_time_string(time_string):
     time = 0
@@ -50,7 +48,6 @@ def parse_ffmpeg_time_string(time_string):
             time /= 1_000_000
     return time
 
-
 def compute_prefix(match):
     res = int(match.group("E"))
     if match.group("f") is not None:
@@ -64,15 +61,11 @@ def compute_prefix(match):
             res *= 1_000
     return res
 
-
-
-
 logger = logging.getLogger("async_FFMPEG_DL")
 
-
 class AsyncFFmpegFD(FFmpegFD):
-    
-    def _get_cmd(self, args, exe=None):                 
+
+    def _get_cmd(self, args, exe=None):
 
         str_args = [decodeArgument(a) for a in args]
 
@@ -80,7 +73,7 @@ class AsyncFFmpegFD(FFmpegFD):
             exe = os.path.basename(str_args[0])
 
         logger.debug(f'{exe} command line: {shell_quote(str_args)}')
-        
+
         return shell_quote(str_args)
 
     async def _async_call_downloader(self, tmpfilename, info_dict, queue):
@@ -230,7 +223,7 @@ class AsyncFFmpegFD(FFmpegFD):
         args = [encodeArgument(opt) for opt in args]
         args.append(encodeFilename(ffpp._ffmpeg_filename_argument(tmpfilename), True))
         args.extend(['-progress', 'pipe:1', '-stats_period', '0.2']) #progress stats to stdout every 0.2secs
-        
+
         try:
             start_time, end_time, total_time_to_dl  = None, None, None
             if "duration" in info_dict.keys() and info_dict["duration"] is not None and info_dict['duration'] != 0:
@@ -249,17 +242,16 @@ class AsyncFFmpegFD(FFmpegFD):
                 elif start_time is not None and end_time is not None:
                     total_time_to_dl = end_time - start_time
                 started = time.time()
-                if "filesize" in info_dict.keys() and info_dict["filesize"]:                    
-                    total_filesize = info_dict["filesize"] * total_time_to_dl / info_dict['duration']                    
+                if "filesize" in info_dict.keys() and info_dict["filesize"]:
+                    total_filesize = info_dict["filesize"] * total_time_to_dl / info_dict['duration']
                 elif "filesize_approx" in info_dict.keys() and info_dict["filesize_approx"]:
-                    total_filesize = info_dict["filesize_approx"] * total_time_to_dl / info_dict['duration']                    
+                    total_filesize = info_dict["filesize_approx"] * total_time_to_dl / info_dict['duration']
                 else:
                     total_filesize = 0
-                   
+
             else:
                 total_filesize = 0
-              
-            
+
             status = {
                 'filename': tmpfilename,
                 'status': 'downloading',
@@ -269,34 +261,33 @@ class AsyncFFmpegFD(FFmpegFD):
                 'duration': info_dict.get('duration'),
                 'elapsed': time.time() - started,
                 'downloaded_bytes': 0
-                
+
             }
-            
+
             logger.debug(f"[{info_dict['id']}][{info_dict['title']}]\n{status}")
-            
+
             queue.put_nowait(status)
-            
+
             cmd = self._get_cmd(args)
 
             progress_pattern = re.compile(
                     r'(frame=\s*(?P<frame>\S+)\nfps=\s*(?P<fps>\S+)\nstream_0_0_q=\s*(?P<stream_0_0_q>\S+)\n)?bitrate=\s*(?P<bitrate>\S+)\ntotal_size=\s*(?P<total_size>\S+)\nout_time_us=\s*(?P<out_time_us>\S+)\nout_time_ms=\s*(?P<out_time_ms>\S+)\nout_time=\s*(?P<out_time>\S+)\ndup_frames=\s*(?P<dup_frames>\S+)\ndrop_frames=\s*(?P<drop_frames>\S+)\nspeed=\s*(?P<speed>\S+)\nprogress=\s*(?P<progress>\S+)')
 
-            
-            proc = await asyncio.create_subprocess_shell(cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE) 
-            
+            proc = await asyncio.create_subprocess_shell(cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+
             async def read_stream(stream):
-                
+
                 try:
-                    
+
                     ffpmeg_stdout_buffer = ""
-                    
+
                     while not proc.returncode:
-                        try:                        
+                        try:
                             line = await stream.readline()
                         except (asyncio.LimitOverrunError, ValueError):
                             continue
-                        status.update({'elapsed': time.time() - started})   
-                        if line: 
+                        status.update({'elapsed': time.time() - started})
+                        if line:
                             ffmpeg_stdout = line.decode('utf-8')
                             logger.debug(f"[{info_dict['id']}][{info_dict['title']}]: {ffmpeg_stdout}")
                             ffpmeg_stdout_buffer += ffmpeg_stdout
@@ -331,11 +322,11 @@ class AsyncFFmpegFD(FFmpegFD):
                         'status': 'finished',
                         'downloaded_bytes': total_filesize
                     })
-                    logger.debug(f"[{info_dict['id']}][{info_dict['title']}]\n{status}")  
+                    logger.debug(f"[{info_dict['id']}][{info_dict['title']}]\n{status}")
                     queue.put_nowait(status)
                 except Exception as e:
                     logger.exception(repr(e))
-            
+
             await asyncio.gather(read_stream(proc.stdout), proc.wait())
 
         except Exception as e:
@@ -345,7 +336,7 @@ class AsyncFFMPEGDLErrorFatal(Exception):
     """Error during info extraction."""
 
     def __init__(self, msg, exc_info=None):
-        
+
         super().__init__(msg)
 
         self.exc_info = exc_info
@@ -354,123 +345,113 @@ class AsyncFFMPEGDLError(Exception):
     """Error during info extraction."""
 
     def __init__(self, msg, exc_info=None):
-        
+
         super().__init__(msg)
 
         self.exc_info = exc_info
 
 class AsyncFFMPEGDownloader():
-    
-    
+
     _EX_FFMPEG = ThreadPoolExecutor(thread_name_prefix="ex_ffmpegdl")
-        
-    
+
     def __init__(self, video_dict, vid_dl):
-        
+
         try:
 
             self.info_dict = video_dict.copy()
-            self.video_downloader = vid_dl                
-            
-                            
-            self.ytdl = self.video_downloader.info_dl['ytdl']              
-        
+            self.video_downloader = vid_dl
+
+            self.ytdl = self.video_downloader.info_dl['ytdl']
+
             self.ffmpegfd = AsyncFFmpegFD(self.ytdl, {})
-                        
-                        
+
             self.download_path = self.info_dict['download_path']
-            
-            self.download_path.mkdir(parents=True, exist_ok=True) 
-            if (_filename:=self.info_dict.get('_filename')):            
-                
+
+            self.download_path.mkdir(parents=True, exist_ok=True)
+            if (_filename := self.info_dict.get('_filename')):
+
                 self.filename = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
             else:
-                _filename = self.info_dict.get('filename')            
+                _filename = self.info_dict.get('filename')
                 self.filename = Path(self.download_path, _filename.stem + "." + self.info_dict['format_id'] + "." + self.info_dict['ext'])
 
             self.filesize = self.info_dict.get('filesize') or self.info_dict.get('filesize_approx')
-            
+
             self.down_size = 0
             self.dl_cont = {}
-            
+
             self.status = 'init'
             self.error_message = ""
-             
+
             self.reset_event = None
         except Exception as e:
             logger.exception(repr(e))
             raise
 
-
     async def update_info_dl(self):
-        
+
         self.downsize_ant = 0
-        
+
         while True:
             status = await self.queue.get()
             async with self.video_downloader.alock:
                 if not self.filesize and status.get('total_bytes'):
                     self.filesize = status.get('total_bytes')
                     self.video_downloader.info_dl['filesize'] += self.filesize
-                self.down_size = status.get('downloaded_bytes')                
+                self.down_size = status.get('downloaded_bytes')
                 self.video_downloader.info_dl['down_size'] += (self.down_size - self.downsize_ant)
-            
+
             self.downsize_ant = self.down_size
-            
+
             if status.get('eta', 10000) < 3600:
-                _eta = datetime.timedelta(seconds=status.get('eta'))                    
+                _eta = datetime.timedelta(seconds=status.get('eta'))
                 _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
             else: _eta_str = "--"
-            
+
             if status.get('speed'):
                 _speed_str = f"{naturalsize(status.get('speed'),True)}ps"
             else:
                 _speed_str = "--"
-            
+
             _progress_str = f'{(self.down_size/self.filesize)*100:5.2f}%' if self.filesize else '--'
-                
+
             self.dl_cont.update({'speed_str': _speed_str, 'eta_str': _eta_str, 'progress_str': _progress_str})
-            
-                        
+
             if status.get('status') == 'finished':
                 break
-                
+
             await asyncio.sleep(0)
-            
-         
+
     async def fetch_async(self):
-        
+
         self.status = "downloading"
         self.queue = asyncio.Queue()
         try:
            task_dl = asyncio.create_task(self.ffmpegfd._async_call_downloader(str(self.filename), self.info_dict, self.queue))
            task_upt = asyncio.create_task(self.update_info_dl())
-           
+
            done, _ = await asyncio.wait([task_upt, task_dl])
-           
-        
+
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] error {repr(e)}")
             self.status = "error"
         finally:
-            
+
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL completed")
             self.status = "done"
-                
 
     def print_hookup(self):
-        
+
         msg = ""
-        
+
         if self.status == "done":
             msg = f"[FFMPEG]: Completed\n"
         elif self.status == "init":
-            msg = f"[FFMPEG]: Waiting to DL\n"       
+            msg = f"[FFMPEG]: Waiting to DL\n"
         elif self.status == "error":
-            msg = f"[FFMPEG]: ERROR\n"        
-        elif self.status == "downloading":             
+            msg = f"[FFMPEG]: ERROR\n"
+        elif self.status == "downloading":
             msg = f"[FFMPEG]: DL[{self.dl_cont.get('speed_str') or '--'}] PR[{self.dl_cont.get('progress_str') or '--'}] ETA[{self.dl_cont.get('eta_str') or '--'}]\n"
-            
+
         return msg
-        
-               
+

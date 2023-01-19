@@ -9,7 +9,7 @@ import logging
 import sys
 import time
 from concurrent.futures import (
-    CancelledError, 
+    CancelledError,
     ThreadPoolExecutor
 )
 from pathlib import Path
@@ -44,13 +44,11 @@ from utils import (
     myYTDL
 )
 
-
 from threading import Lock
 
 from urllib.parse import unquote
 
 logger = logging.getLogger("async_http_DL")
-
 
 class AsyncHTTPDLErrorFatal(Exception):
     def __init__(self, msg, exc_info=None):
@@ -59,14 +57,12 @@ class AsyncHTTPDLErrorFatal(Exception):
 
         self.exc_info = exc_info
 
-
 class AsyncHTTPDLError(Exception):
     def __init__(self, msg, exc_info=None):
 
         super().__init__(msg)
 
         self.exc_info = exc_info
-
 
 retry = my_dec_on_exception(Exception, max_tries=3, raise_on_giveup=True, interval=1)
 
@@ -166,14 +162,7 @@ class AsyncHTTPDownloader:
                         limiter_non.ratelimit("transp", delay=True),
                         self.n_parts
                     )
-                value, key_text = try_get(
-                    [
-                        (v, kt)
-                        for k, v in self._CONFIG.items()
-                        if any(x == (kt := _) for _ in k)
-                    ],
-                    lambda y: y[0],
-                ) or ("", "")
+                value, key_text = try_get([(v, sk) for k, v in self._CONFIG.items() for sk in k if sk == x], lambda y: y[0]) or ("", "")
                 if value:
                     self.special_extr = True
                     return (
@@ -181,12 +170,12 @@ class AsyncHTTPDownloader:
                         value["maxsplits"],
                     )
                 else:
-                    
+
                     return (
                         limiter_non.ratelimit("transp", delay=True),
                         self.n_parts
                     )
-            
+
             _extractor = self.info_dict.get("extractor_key").lower()
             self.auto_pasres = False
             _sem = False
@@ -221,7 +210,6 @@ class AsyncHTTPDownloader:
             else:
                 self.sem = contextlib.nullcontext()
 
-            
             with self.sem:
 
                 _mult_ranges, _filesize = self.check_server()
@@ -270,7 +258,7 @@ class AsyncHTTPDownloader:
                 )
 
             except Exception as e:
-                
+
                 logger.exception(
                     f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[check_server] {repr(e)}"
                 )
@@ -284,7 +272,7 @@ class AsyncHTTPDownloader:
             return _check_server() or (None, None)
 
     def upt_hsize(self, i, offset=None):
-        
+
         @dec_retry_error
         @self._decor
         def _upt_hsize():
@@ -418,7 +406,7 @@ class AsyncHTTPDownloader:
                 )
 
         except Exception as e:
-            
+
             logger.debug(
                 f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[create parts] {repr(e)})"
             )
@@ -507,7 +495,7 @@ class AsyncHTTPDownloader:
             self.status = "manipulating"
 
     async def rate_limit(self):
-        
+
         @self._decor
         async def _rate_limit():
             await asyncio.sleep(0)
@@ -557,7 +545,7 @@ class AsyncHTTPDownloader:
         _reset_info = self.ytdl.sanitize_info(self.ytdl.extract_info(_reset_url, download=False))
         if not _reset_info: raise AsyncHTTPDLError("no video info")
         return get_format_id(_reset_info, self.info_dict["format_id"])
-        
+
     def resetdl(self):
         _wurl = self.info_dict.get("webpage_url")
         _webpage_url = (
@@ -577,9 +565,9 @@ class AsyncHTTPDownloader:
         self.n_parts_dl = 0
         with self.sem:
             self.get_parts_to_dl()
-    
+
     async def fetch(self, i):
-        
+
         try:
             client = httpx.AsyncClient(
                 proxies=try_get(self.proxies, lambda x: x[i]),
@@ -605,11 +593,11 @@ class AsyncHTTPDownloader:
 
                 await asyncio.sleep(0)
 
-                while True:  
+                while True:
                     try:
                         await asyncio.sleep(0)
                         async with aiofiles.open(tempfilename, mode="ab") as f:
-                            
+
                             if any(
                                 [
                                     self.video_downloader.stop_event.is_set(),
@@ -621,7 +609,7 @@ class AsyncHTTPDownloader:
                                 await self.video_downloader.resume_event.wait()
                                 self.video_downloader.pause_event.clear()
                                 self.video_downloader.resume_event.clear()
-                            
+
                             await self.rate_limit()
 
                             await asyncio.sleep(0)
@@ -636,7 +624,7 @@ class AsyncHTTPDownloader:
                                 await self.video_downloader.resume_event.wait()
                                 self.video_downloader.pause_event.clear()
                                 self.video_downloader.resume_event.clear()
-                            
+
                             async with client.stream(
                                 "GET",
                                 self.parts[part - 1]["url"],
@@ -713,7 +701,7 @@ class AsyncHTTPDownloader:
                                                 "down_size"
                                             ] += _iter_bytes
                                         num_bytes_downloaded = res.num_bytes_downloaded
-                                        
+
                                         self.parts[part - 1]["nchunks_dl"][nth_key] += 1
                                         # _median = median(
                                         #     self.parts[part - 1]["time2dlchunks"][
@@ -820,7 +808,7 @@ class AsyncHTTPDownloader:
                             )
                             raise AsyncHTTPDLErrorFatal(f"MaxNumRepeats part[{part}]")
                     except Exception as e:
-                        
+
                         logger.exception(
                             f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{i}]: [fetch-res] part[{part}] error unexpected: {repr(e)})"
                         )
@@ -841,7 +829,7 @@ class AsyncHTTPDownloader:
             self.areset = sync_to_async(self.resetdl, executor=self.ex_dl)
 
             while True:
-            
+
                 self.count = self._NUM_WORKERS
                 self.parts_queue = asyncio.Queue()
                 for part in self.parts_to_dl:
@@ -858,11 +846,11 @@ class AsyncHTTPDownloader:
                 self.progress_timer = ProgressTimer()
                 self.smooth_eta = SmoothETA()
                 self.status = "downloading"
-                
-                try:                    
+
+                try:
 
                     upt_task = [asyncio.create_task(self.upt_status())]
-                    
+
                     async with async_lock(self.sem):
                         self.tasks = [
                             asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)
@@ -872,7 +860,7 @@ class AsyncHTTPDownloader:
                     for d in done:
                         try:
                             d.result()
-                        except Exception as e:                            
+                        except Exception as e:
                             logger.exception(
                                 f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}"
                             )
@@ -885,24 +873,21 @@ class AsyncHTTPDownloader:
                     elif self.video_downloader.reset_event.is_set():
                         self.video_downloader.end_tasks.set()
                         await asyncio.wait(upt_task)
-                        await self.areset()                                                    
+                        await self.areset()
                     else:
                         if (_parts_not_dl := await asyncio.to_thread(self.partsnotdl)):
                             self.status = "error"
                         else:
-                            self.status = "init_manipulating"                        
-                        
+                            self.status = "init_manipulating"
+
                         self.video_downloader.end_tasks.set()
                         await asyncio.wait(upt_task)
                         return
-                
+
                 except Exception as e:
                     logger.exception(
                         f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] {repr(e)}"
                     )
-                   
-                    
-                
 
         except Exception as e:
             logger.exception(

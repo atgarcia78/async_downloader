@@ -22,7 +22,6 @@ import html
 logger = logging.getLogger("mydriver")
 retry_on_driver_except = on_exception(constant, WebDriverException, max_tries=3, raise_on_giveup=True, interval=2)
 
-
 class MyDriver:
 
     _LOCK = threading.Lock()
@@ -34,7 +33,6 @@ class MyDriver:
         self.host = kwargs.get('host', None)
         self.port = kwargs.get('port', None)
         self.driver = self.get_driver()
-
 
     @retry_on_driver_except
     def get_driver(self):
@@ -86,7 +84,6 @@ class MyDriver:
 
         serv = Service(log_path="/dev/null")
 
-        
         def return_driver():
             _driver = None
             try:
@@ -102,7 +99,7 @@ class MyDriver:
                     _driver.quit()
                     shutil.rmtree(tempdir, ignore_errors=True)
                 raise WebDriverException(str(e))
-                
+
         with MyDriver._LOCK:
             return(return_driver())
 
@@ -110,13 +107,12 @@ class MyDriver:
     def get_har(self, _method="GET", _mimetype=None):
 
         try:
-        
+
             _res = try_get(self.driver.execute_async_script("HAR.triggerExport().then(arguments[0]);"), lambda x: x.get('entries') if x else None)
 
         except Exception as e:
             logger.exception(f"[get_har] {str(e)}")
             raise
-
 
         _res_filt = [el for el in _res if all([traverse_obj(el, ('request', 'method')) in _method, int(traverse_obj(el, ('response', 'bodySize'), default='0')) >= 0, not any([_ in traverse_obj(el, ('response', 'content', 'mimeType'), default='') for _ in ('image', 'css', 'font', 'octet-stream')])])]
 
@@ -152,7 +148,7 @@ class MyDriver:
 
                 _hint.update({'url': _url})
                 if inclheaders:
-                    _req_headers = {val[0]: val[1] for header in traverse_obj(entry, ('request', 'headers')) if header['name'] != 'Host' and (val := list(header.values()))}
+                    _req_headers = {header['name']: header['value'] for header in traverse_obj(entry, ('request', 'headers')) if header['name'] != 'Host'}
                     _hint = {'headers': _req_headers}
 
                 if response:
@@ -180,7 +176,7 @@ class MyDriver:
                 if _all:
                     return (_list_hints)
                 else:
-                    return 
+                    return
             else:
                 if _all:
                     _list_hints_old = _list_hints
@@ -242,7 +238,6 @@ class MyDriver:
         finally:
             if tempdir:
                 shutil.rmtree(tempdir, ignore_errors=True)
-
 
     def get(self, *args, **kwargs):
         return self.driver.get(*args, **kwargs)

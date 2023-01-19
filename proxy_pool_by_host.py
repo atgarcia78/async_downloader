@@ -38,9 +38,6 @@ DEFAULT_HTTPS_ACCESS_LOG_FORMAT = '{client_ip}:{client_port} - ' + \
     '{upstream_proxy_host}:{upstream_proxy_port} - ' + \
     '{response_bytes} bytes - {connection_time_ms} ms'
 
-
-
-
 class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
     """Proxy pool plugin simply acts as a proxy adapter for proxy.py itself.
 
@@ -77,23 +74,21 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
                 return request
         except ValueError:
             pass
-        
-    
+
         key = re.findall(r'__routing=([^_]+)__', str(request.host))
-        
+
         if key:
             ##logger.info(f"Key is {key[0]}")
             _proxy = f'http://127.0.0.1:{key[0]}'
             self._endpoint = Url.from_bytes(bytes_(_proxy))
-            
+
             _h = bytes_(re.sub(r'(__routing=([^_]+)__.)', '', text_(request.host)))
             request.host = _h
             ##logger.info(f"request.host {request.host}")
             if request.has_header(b'host'):
                 request.del_header(b'host')
                 request.add_header(b'host',_h)
-                
-        
+
         # If chosen proxy is the local instance, bypass upstream proxies
         #assert self._endpoint.port and self._endpoint.hostname
         if not self._endpoint:
@@ -144,20 +139,18 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         # For log sanity (i.e. to avoid None:None), expose upstream host:port from headers
         host, port = None, None
 
-        
         url = Url.from_bytes(request.host)
         assert url.hostname
         host, port = url.hostname.decode('utf-8'), url.port
         ##logger.info(f"{host}:{port}")
         if '__routing=' in host:
             host = re.sub(r'(__routing=([^_]+)__.)', '', host)
-            _h = bytes_(f'{host}:{port}') if port else bytes_(f'{host}')  
+            _h = bytes_(f'{host}:{port}') if port else bytes_(f'{host}')
             request.host = _h
             if request.has_header(b'host'):
                 request.del_header(b'host')
-                request.add_header(b'host',_h)            
-        
-        
+                request.add_header(b'host',_h)
+
         port = port if port else (
             443 if request.is_https_tunnel else 80
         )
@@ -167,7 +160,7 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
             host, port, path, request.method,
         ]
         ##logger.info(request.header(b'host'))
-        ##logger.info(request.host)    
+        ##logger.info(request.host)
         # Queue original request optionally with auth headers to upstream proxy
         if self._endpoint.has_credentials:
             assert self._endpoint.username and self._endpoint.password

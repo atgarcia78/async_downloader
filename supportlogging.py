@@ -1,11 +1,10 @@
 """
-supportlogging - Python3 Logging 
+supportlogging - Python3 Logging
 
 """
 
 import logging
 import logging.handlers
-
 
 from logging.config import ConvertingList, ConvertingDict, valid_ident
 from logging.handlers import QueueHandler, QueueListener
@@ -17,7 +16,6 @@ except ImportError:
     logging.error("Please install multiprocess")
     from multiprocessing import Queue
     _MULTIPROCESS = False
-    
 
 import atexit
 import shutil
@@ -25,7 +23,6 @@ import shutil
 from copy import copy
 
 from textwrap import fill
-
 
 MAPPING = {
     'DEBUG'   : 34, # white
@@ -38,15 +35,12 @@ MAPPING = {
 PREFIX = '\033['
 SUFFIX = '\033[0m'
 
-
 class Wintxt(logging.StreamHandler):
-    
-    _GUI_LOG = None    
-     
-    def __init__(self, stream=None):   
-        super().__init__(self)       
-     
-    
+
+    _GUI_LOG = None
+
+    def __init__(self, stream=None):
+        super().__init__(self)
 
 class FileFormatter(logging.Formatter):
 
@@ -58,7 +52,7 @@ class FileFormatter(logging.Formatter):
 class ColoredFormatter(logging.Formatter):
 
     def format(self, record):
-        
+
         colored_record = copy(record)
         levelname = colored_record.levelname
         seq = MAPPING.get(levelname, 37) # default white
@@ -67,7 +61,7 @@ class ColoredFormatter(logging.Formatter):
         colored_record.levelname = colored_levelname
         #if 'proxy.' in colored_record.name:
         #    colored_record.name = colored_record.name.split('.')[0]
-        # if colored_record.msg.startswith("%no%"): 
+        # if colored_record.msg.startswith("%no%"):
         #     colored_record.msg = colored_record.msg[4:]
         if '%no%' in colored_record.msg:
             colored_record.msg = colored_record.msg.replace("%no%", "")
@@ -76,7 +70,7 @@ class ColoredFormatter(logging.Formatter):
             lines = colored_record.msg.splitlines()
             colored_lines = []
             col = shutil.get_terminal_size().columns
-            for line in lines:                
+            for line in lines:
                 _lines = fill(line, (col-56-2), replace_whitespace=False)
                 colored_lines += _lines.splitlines()
             _indent = "\n" + " "*56
@@ -95,11 +89,10 @@ class FilterModule(logging.Filter):
         else: return True
 
 class FilterMsg(logging.Filter):
-    
+
     def __init__(self, patterns):
         super().__init__()
         self._patterns = patterns
-        
 
     def filter(self, record):
         for pattern in self._patterns:
@@ -108,16 +101,13 @@ class FilterMsg(logging.Filter):
                     if text in record.msg:
                         return False
         else: return True
-        
-        
-        
+
 def _resolve_handlers(l):
     if not isinstance(l, ConvertingList):
         return l
 
     # Indexing the list performs the evaluation.
     return [l[i] for i in range(len(l))]
-
 
 def _resolve_queue(q):
     if not isinstance(q, ConvertingDict):
@@ -136,7 +126,6 @@ def _resolve_queue(q):
 
     q['__resolved_value__'] = result
     return result
-
 
 class QueueListenerHandler(QueueHandler):
 
@@ -161,10 +150,3 @@ class QueueListenerHandler(QueueHandler):
     def emit(self, record):
         return super().emit(record)
 
-
-
-    
-
-            
-    
- 
