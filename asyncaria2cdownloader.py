@@ -37,7 +37,6 @@ from utils import (
     sync_to_async,
     traverse_obj,
     try_get,
-    unsmuggle_url,
     myYTDL,
     async_waitfortasks,
     Union,
