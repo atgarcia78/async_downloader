@@ -4,7 +4,7 @@ import json
 import logging
 import shutil
 import time
-from concurrent.futures import ThreadPoolExecutor, wait
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from itertools import zip_longest
 
@@ -52,16 +52,15 @@ from utils import (
     ProgressTimer,
     SpeedometerMA,
     Union,
-    Iterable,
     async_lock
 )
 
 import proxy
 from videodownloader import VideoDownloader
+from collections import deque
 
 logger = logging.getLogger("asyncDL")
 
-from collections import deque
 
 class WorkersRun:
     def __init__(self, asyncdl):
@@ -126,6 +125,7 @@ class WorkersRun:
                 self.logger.debug(f"[{url_key}] end tasks worker run: exit")
                 self.exit.set()
 
+
 class WorkersInit:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
@@ -177,6 +177,7 @@ class WorkersInit:
 
         except Exception as e:
             self.logger.exception(f"[{url_key}] error {repr(e)}")
+
 
 class FrontEndGUI:
     def __init__(self, asyncdl):
@@ -263,13 +264,13 @@ class FrontEndGUI:
         if event == sg.WIN_CLOSED:
             return "break"
         elif event in ["Exit"]:
-            self.logger.info(f"[gui_console] event Exit")
+            self.logger.info("[gui_console] event Exit")
             await self.asyncdl.cancel_all_tasks()
         elif event in ["-WKINIT-"]:
             self.asyncdl.wkinit_stop = not self.asyncdl.wkinit_stop
             sg.cprint(
-                f"Worker inits: BLOCKED"
-            ) if self.asyncdl.wkinit_stop else sg.cprint(f"Worker inits: RUNNING")
+                "Worker inits: BLOCKED"
+            ) if self.asyncdl.wkinit_stop else sg.cprint("Worker inits: RUNNING")
         elif event in ["-PASRES-"]:
             if not values["-PASRES-"]:
                 self.pasres_repeat = False
@@ -341,7 +342,7 @@ class FrontEndGUI:
                     else:
                         self.asyncdl.args.parts = _nvidworkers
                         if self.asyncdl.list_dl:
-                            for _,dl in self.asyncdl.list_dl.items():
+                            for _, dl in self.asyncdl.list_dl.items():
                                 await dl.change_numvidworkers(_nvidworkers)
                         else:
                             sg.cprint("DL list empty")
@@ -361,12 +362,12 @@ class FrontEndGUI:
 
             else:
                 _index_list = []
-                if (_values := values.get(event)): #from thread pasres
+                if (_values := values.get(event)):  # from thread pasres
                     _index_list = [int(el) for el in _values.split(',')]
                 elif (not (_values := values["-IN-"]) or _values.lower() == "all"):
-                    _index_list = [int(dl.index) for _,dl in self.asyncdl.list_dl.items()]
+                    _index_list = [int(dl.index) for _, dl in self.asyncdl.list_dl.items()]
                 else:
-                    if any([any([not el.isdecimal(), int(el) == 0, int(el) > len(self.asyncdl.list_dl)])  for el in values["-IN-"].replace(" ", "").split(",")]):
+                    if any([any([not el.isdecimal(), int(el) == 0, int(el) > len(self.asyncdl.list_dl)]) for el in values["-IN-"].replace(" ", "").split(",")]):
                         sg.cprint("there are characters not decimal or equal to 0 or out of bound of number of dl")
                     else:
                         _index_list = [int(el) for el in values["-IN-"].replace(" ", "").split(",")]
@@ -401,7 +402,7 @@ class FrontEndGUI:
                         sg.cprint(f"[pause-resume autom] after: {list(self.asyncdl.list_pasres)}")
 
                     if event == "ToFile":
-                        with open((_file := Path(Path.home(),"testing", f"{self.asyncdl.launch_time.strftime('%Y%m%d_%H%M')}.json")), "w") as f:
+                        with open((_file := Path(Path.home(), "testing", f"{self.asyncdl.launch_time.strftime('%Y%m%d_%H%M')}.json")), "w") as f:
                             f.write(
                                 f'{{"entries": [{", ".join(info)}]}}'
                             )
@@ -449,10 +450,15 @@ class FrontEndGUI:
         list_upt = {}
         list_res = {}
 
-        trans = {"manip": ("init_manipulating", "manipulating"),
-                "finish": ("error", "done", "stop"), "init": "init", "downloading": "downloading"}
+        trans = {
+            "manip": ("init_manipulating", "manipulating"),
+            "finish": ("error", "done", "stop"),
+            "init": "init",
+            "downloading": "downloading"
+        }
 
-        if status == "all": _status = ("init", "downloading", "manip", "finish")
+        if status == "all":
+            _status = ("init", "downloading", "manip", "finish")
         else:
             if isinstance(status, str):
                 _status = (status,)
@@ -478,8 +484,9 @@ class FrontEndGUI:
         if hasattr(self, 'window_root') and self.window_root:
             self.window_root.write_event_value("all", list_upt)
 
-        for st,val in self.list_all_old.items():
-            if st not in list_res: list_res.update({st:val})
+        for st, val in self.list_all_old.items():
+            if st not in list_res:
+                list_res.update({st: val})
 
         self.list_all_old = list_res
 
@@ -542,16 +549,16 @@ class FrontEndGUI:
                     _list := list(self.asyncdl.list_pasres)
                 ):
                     if not self.reset_repeat:
-                        self.window_console.write_event_value("Pause", ','.join(list(map(str,_list))))
+                        self.window_console.write_event_value("Pause", ','.join(list(map(str, _list))))
 
                         wait_time(self.pasres_time_in_pause, event=stop_event)
 
-                        self.window_console.write_event_value("Resume", ','.join(list(map(str,_list))))
+                        self.window_console.write_event_value("Resume", ','.join(list(map(str, _list))))
                         wait_time(
                             self.pasres_time_from_resume_to_pause, event=stop_event
                         )
                     else:
-                        self.window_console.write_event_value("Reset",','.join(list(map(str,_list))))
+                        self.window_console.write_event_value("Reset", ','.join(list(map(str, _list))))
                         wait_time(
                             self.pasres_time_from_resume_to_pause, event=stop_event
                         )
@@ -573,6 +580,7 @@ class FrontEndGUI:
         if hasattr(self, 'window_root') and self.window_root:
             self.window_root.close()
             del self.window_root
+
 
 class NWSetUp:
 
@@ -598,7 +606,7 @@ class NWSetUp:
     async def init(self):
 
         if self._tasks_init:
-            done, _= await asyncio.wait(self._tasks_init)
+            done, _ = await asyncio.wait(self._tasks_init)
             for task in done:
                 try:
                     if self._tasks_init[task] == "aria2":
@@ -651,6 +659,7 @@ class NWSetUp:
         if self.proc_aria2c:
             self.logger.info("[close] aria2c")
             self.proc_aria2c.kill()
+
 
 class LocalVideos:
     def __init__(self, asyncdl):
@@ -978,7 +987,7 @@ class LocalVideos:
                     for file in folder.rglob("*")
                     if file.is_file()
                     and not file.is_symlink()
-                    and not "videos/_videos/" in str(file)
+                    and "videos/_videos/" not in str(file)
                     and not file.stem.startswith(".")
                     and (file.suffix.lower() in (".mp4", ".mkv", ".ts", ".zip"))
                 ]
@@ -1007,6 +1016,7 @@ class LocalVideos:
                         _res_dict[el[0]].update([el[1], item[1]])
         _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
         return _ord_res_dict
+
 
 class AsyncDL:
 
@@ -1077,7 +1087,7 @@ class AsyncDL:
         await asyncio.sleep(0)
         try_get(self.ytdl.params["stop"], lambda x: x.set())
         if self.list_dl:
-            for i,dl in self.list_dl.items():
+            for i, dl in self.list_dl.items():
                 await dl.stop("exit")
                 await asyncio.sleep(0)
 
@@ -1253,7 +1263,7 @@ class AsyncDL:
                     else:
                         _get_name = False
 
-                    async def process_playlist(_get:bool, _kinfo:Union[dict,None]=None):
+                    async def process_playlist(_get: bool, _kinfo: Union[dict, None] = None):
 
                         while True:
                             try:
@@ -1268,7 +1278,7 @@ class AsyncDL:
                                     logger.info(
                                         f"[get_videos][url_playlist_list][{self._count_pl}/{len(self.url_pl_list) + len(self.url_pl_list2)}] processing {_url}"
                                     )
-                                _errormsg = None
+                                # _errormsg = None
                                 if _kinfo:
                                     _info = _kinfo
                                 else:
@@ -1280,7 +1290,7 @@ class AsyncDL:
                                             raise Exception("no info")
                                     except Exception as e:
                                         logger.warning(
-                                            f"[url_playlist_list] {_url} {type(e).__name__}"
+                                            f"[url_playlist_list] {_url} {repr(e)}"
                                         )
                                         logger.debug(
                                             f"[url_playlist_list] {_url} {repr(e)}"
@@ -1572,7 +1582,7 @@ class AsyncDL:
 
             return vid_path_str
 
-    def _check_if_same_video(self, url_to_check: str)->Union[str, None]:
+    def _check_if_same_video(self, url_to_check: str) -> Union[str, None]:
 
         info = self.info_videos[url_to_check]["video_info"]
 
@@ -1591,7 +1601,7 @@ class AsyncDL:
                     ):
                         return urlkey
 
-    def _prepare_for_dl(self, url: str, put: bool=True)->None:
+    def _prepare_for_dl(self, url: str, put: bool = True) -> None:
         self.info_videos[url].update({"todl": True})
         if _id := self.info_videos[url]["video_info"].get("id"):
             self.info_videos[url]["video_info"]["id"] = (
@@ -1627,7 +1637,7 @@ class AsyncDL:
                 self.num_videos_to_check += 1
                 self.num_videos_pending += 1
 
-    def _prepare_entry_pl_for_dl(self, entry: dict)->None:
+    def _prepare_entry_pl_for_dl(self, entry: dict) -> None:
 
         _type = entry.get("_type", "video")
         if _type == "playlist":
@@ -1786,7 +1796,7 @@ class AsyncDL:
                         self.info_videos[url_key]["error"].append(_error)
                         self.info_videos[url_key]["status"] = "initnok"
 
-                        logger.error(f"[init_callback]: [{url_key}]: [{_pending}/{_to_check}] [{url_key}] init nok - {_error}" )
+                        logger.error(f"[init_callback]: [{url_key}]: [{_pending}/{_to_check}] [{url_key}] init nok - {_error}")
                         return
 
                 else:
@@ -1882,13 +1892,18 @@ class AsyncDL:
                         await go_for_dl(urlkey, infdict, extradict)
                     ) and not self.args.nodl:
 
-                        async def async_videodl_init(*args, **kwargs)->VideoDownloader:
+                        async def async_videodl_init(*args, **kwargs) -> VideoDownloader:
                             if not self.is_ready_to_dl.is_set():
                                 await self.is_ready_to_dl.wait()
-                            return await sync_to_async(VideoDownloader, executor=self.ex_winit)(*args, **kwargs) # type: ignore
+                            return await sync_to_async(VideoDownloader, executor=self.ex_winit)(*args, **kwargs)  # type: ignore
 
-                        dl = await async_videodl_init(self.info_videos[urlkey]["video_info"],
-                                self.ytdl, self.args, self.hosts_downloading, self.alock, self.hosts_alock)
+                        dl = await async_videodl_init(
+                            self.info_videos[urlkey]["video_info"],
+                            self.ytdl, self.args,
+                            self.hosts_downloading,
+                            self.alock,
+                            self.hosts_alock
+                        )
 
                         logger.debug(
                             f"[init_callback]: [{url_key}]: [{dl.info_dict['id']}][{dl.info_dict['title']}]: {dl.info_dl}"
@@ -2024,7 +2039,7 @@ class AsyncDL:
                                         try:
                                             await self.async_prepare_for_dl(_url, put=False)
                                             if self.wkinit_stop:
-                                                logger.info(f"[init_callback]: [{url_key}]: BLOCKED" )
+                                                logger.info(f"[init_callback]: [{url_key}]: BLOCKED")
 
                                                 while self.wkinit_stop:
                                                     await async_wait_time(5)
@@ -2040,7 +2055,7 @@ class AsyncDL:
                                                     _url, infdict=_entry
                                                 )
 
-                                        except Exception as e:
+                                        except Exception:
                                             raise
                                         finally:
                                             async with self.alock:
@@ -2063,7 +2078,7 @@ class AsyncDL:
 
             except Exception as e:
                 self.list_initnok.append((vid, f"Error:{repr(e)}"))
-                logger.error(f"[init_callback]: [{url_key}]: [{_pending}/{_to_check}] [{url_key}] init nok - Error:{repr(e)}" )
+                logger.error(f"[init_callback]: [{url_key}]: [{_pending}/{_to_check}] [{url_key}] init nok - Error:{repr(e)}")
                 self.list_urls_to_check.append((url_key, repr(e)))
                 self.info_videos[url_key]["error"].append(
                     f"DL constructor error:{repr(e)}"
@@ -2108,7 +2123,7 @@ class AsyncDL:
 
             elif dl.info_dl["status"] == "stop":
                 logger.debug(f"[run_callback][{url_key}]: STOPPED")
-                self.info_videos[url_key]["error"].append(f"dl stopped")
+                self.info_videos[url_key]["error"].append("dl stopped")
                 self.info_videos[url_key]["status"] = "nok"
 
             elif dl.info_dl["status"] == "error":
@@ -2168,7 +2183,7 @@ class AsyncDL:
             if not self.args.nodl:
                 self.nwsetup = NWSetUp(self)
 
-            self.localstorage.ready() #bloquea pero de todas formas necesitamos el resultado para progresar
+            self.localstorage.ready()  # bloquea pero de todas formas necesitamos el resultado para progresar
 
             self.WorkersInit = WorkersInit(self)
             self.WorkersRun = WorkersRun(self)
@@ -2181,7 +2196,7 @@ class AsyncDL:
                 if _res.get("event") == "first" or len(self.videos_to_dl) > 0:
                     self.FEgui = FrontEndGUI(self)
                     tasks_gui = [asyncio.create_task(self.FEgui.gui())]
-                    tasks_to_wait.update({asyncio.create_task(self.WorkersRun.exit.wait()): f"task_workers_run"})
+                    tasks_to_wait.update({asyncio.create_task(self.WorkersRun.exit.wait()): "task_workers_run"})
 
             done, _ = await asyncio.wait(tasks_to_wait)
             for d in done:
@@ -2212,10 +2227,10 @@ class AsyncDL:
                     await async_waitfortasks(tasks_gui)
                 self.FEgui.close()
 
-            logger.info(f"[async_ex] BYE")
+            logger.info("[async_ex] BYE")
 
     def get_results_info(self):
-        def _getter(url: str, vid: dict)->str:
+        def _getter(url: str, vid: dict) -> str:
             webpageurl = try_get(traverse_obj(vid, ("video_info", "webpage_url")), lambda x: str(x) if x else None)
             originalurl = try_get(traverse_obj(vid, ("video_info", "original_url")), lambda x: str(x) if x else None)
             playlist = traverse_obj(vid, ("video_info", "playlist"))
@@ -2348,7 +2363,7 @@ class AsyncDL:
                         logger.info(f"Videos to DL: [{_tv2dl}]")
                         logger.info(f"%no%\n\n\n{tab_v2dl}\n\n\n")
                     else:
-                        logger.info(f"Videos to DL: []")
+                        logger.info("Videos to DL: []")
 
                 except Exception as e:
                     logger.exception(f"[print_videos] {repr(e)}")
@@ -2509,23 +2524,23 @@ class AsyncDL:
                 logger.info("Videos TOTAL ERROR DL:")
                 logger.info(f"%no%\n\n{videos_kodl} \n[{_path_str}-u {' -u '.join(videos_kodl)}]")
             else:
-                logger.info(f"Videos TOTAL ERROR DL: []")
+                logger.info("Videos TOTAL ERROR DL: []")
             if videos_koinit:
-                logger.info(f"Videos ERROR INIT DL:")
+                logger.info("Videos ERROR INIT DL:")
                 logger.info(f"%no%\n\n{videos_koinit} \n[{_path_str}-u {' -u '.join(videos_koinit)}]")
             if _videos_url_notsupported:
-                logger.info(f"Unsupported URLS:")
+                logger.info("Unsupported URLS:")
                 logger.info(f"%no%\n\n{_videos_url_notsupported}")
             if _videos_url_notvalid:
-                logger.info(f"Not Valid URLS:")
+                logger.info("Not Valid URLS:")
                 logger.info(f"%no%\n\n{_videos_url_notvalid}")
             if _videos_url_tocheck:
-                logger.info(f"To check URLS:")
+                logger.info("To check URLS:")
                 logger.info(f"%no%\n\n{_videos_url_tocheck}")
-            logger.info(f"*****************************************************")
-            logger.info(f"*****************************************************")
-            logger.info(f"*****************************************************")
-            logger.info(f"*****************************************************")
+            logger.info("*****************************************************")
+            logger.info("*****************************************************")
+            logger.info("*****************************************************")
+            logger.info("*****************************************************")
         except Exception as e:
             logger.exception(f"[get_results] {repr(e)}")
 
@@ -2569,7 +2584,7 @@ class AsyncDL:
                 logger.exception(f"[close] {repr(e)}")
 
             if self.list_dl:
-                for _,vdl in self.list_dl.items():
+                for _, vdl in self.list_dl.items():
                     try:
                         vdl.shutdown()
                     except Exception as e:

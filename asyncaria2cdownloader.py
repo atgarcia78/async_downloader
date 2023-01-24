@@ -461,9 +461,9 @@ class AsyncARIA2CDownloader:
             else:
                 return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 2.25
 
-        def len_ap_list(l, el):
-            l.append(el)
-            return len(l)
+        def len_ap_list(_list, el):
+            _list.append(el)
+            return len(_list)
 
         _speed = []
 
