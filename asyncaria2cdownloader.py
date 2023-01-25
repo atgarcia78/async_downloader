@@ -161,7 +161,7 @@ class AsyncARIA2CDownloader:
             "min-split-size": CONF_ARIA2C_MIN_SIZE_SPLIT,
         }
 
-        self.premsg = f"{self.premsg}"
+        self.premsg = f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]"
         self.opts = self.aria2_client.get_global_options()
         for key, value in opts_dict.items():
             if not isinstance(value, list):
@@ -340,9 +340,9 @@ class AsyncARIA2CDownloader:
                             return urlunparse(list(_url_as_dict.values()))
 
                         except Exception as e:
-                            _msg = f"host[{self._host}] proxy[({i}){{_proxy}}]: {str(e)}"
+                            _msg = f"host[{self._host}] proxy[({i}){_proxy}]: {str(e)}"
                             logger.error(
-                                f"{self.premsg}[{self.info_dict.get('original_url')}] init uris {_msg}"
+                                f"{self.premsg}[{self.info_dict.get('original_url')}] ERROR init uris {_msg}"
                             )
                             raise
                         finally:
@@ -354,11 +354,11 @@ class AsyncARIA2CDownloader:
                         return
                     elif (_e := _res.get("exception")):
                         raise AsyncARIA2CDLError(
-                            f"couldnt get index proxy: {repr(_e)}")
+                            f"couldnt get uris: {repr(_e)}")
                     else:
                         _uris = _res.get("result", [])
 
-                    assert (isinstance(_uris, list))
+                    assert _uris and isinstance(_uris, list)
 
                     self.uris = _uris * self._nsplits
 
