@@ -700,41 +700,55 @@ class myIP:
     def get_myip(cls, key=None, timeout=1):
         return cls.get_myiptryall(key=key, timeout=timeout)
 
+
 def get_myip(key=None, timeout=2):
     return myIP.get_ip(key=key, timeout=timeout)
 
+
 class TorGuardProxies:
     CONF_TORPROXIES_LIST_HTTPPORTS = [489, 23, 7070, 465, 993, 282, 778, 592]
-    CONF_TORPROXIES_COUNTRIES = ["fn", "no", "bg", "pg", "it", "fr", "sp", "ire", "ice", "cz", "aus", "ger", "uk", "uk.man", "ro", "slk", "nl", "hg", "bul"]
-    CONF_TORPROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_TORPROXIES_COUNTRIES]
+    CONF_TORPROXIES_COUNTRIES = [
+        "fn", "no", "bg", "pg", "it", "fr", "sp", "ire",
+        "ice", "cz", "aus", "ger", "uk", "uk.man", "ro",
+        "slk", "nl", "hg", "bul"
+    ]
+    CONF_TORPROXIES_DOMAINS = [
+        f"{cc}.secureconnect.me"
+        for cc in CONF_TORPROXIES_COUNTRIES
+    ]
     CONF_TORPROXIES_NOK = Path(PATH_LOGS, 'bad_proxies.txt')
 
     @classmethod
     def test_proxies_rt(cls, routing_table, timeout=2):
         logger = logging.getLogger("torguardprx")
-        logger.info(f"[init_proxies] starting test proxies")
+        logger.info("[init_proxies] starting test proxies")
         with ThreadPoolExecutor() as exe:
-            futures = {exe.submit(get_myip, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())}
+            futures = {exe.submit(get_myip, key=_key, timeout=timeout): _key
+                       for _key in list(routing_table.keys())}
 
         bad_pr = []
 
         for fut in futures:
             _ip = fut.result()
             if _ip != routing_table[futures[fut]]:
-                logger.info(f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}")
+                logger.info(
+                    f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}")
                 bad_pr.append(routing_table[futures[fut]])
 
         return bad_pr
 
     @classmethod
-    def test_proxies_raw(cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2):
+    def test_proxies_raw(
+        cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2
+    ):
         logger = logging.getLogger("torguardprx")
         cmd_gost = [
             f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
             for i, ip in enumerate(list_ips)
         ]
         routing_table = {
-            CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)
+            CONF_PROXIES_BASE_PORT + 2000 + i: ip
+            for i, ip in enumerate(list_ips)
         }
         proc_gost = []
         for cmd in cmd_gost:
@@ -776,11 +790,11 @@ class TorGuardProxies:
         return re.findall(r"ip_address: (.+)", res)
 
     @classmethod
-    def init_proxies(cls, num=CONF_PROXIES_MAX_N_GR_HOST, size=CONF_PROXIES_N_GR_VIDEO, port=CONF_TORPROXIES_HTTPPORT)->Tuple[List, Dict]:
+    def init_proxies(cls, num=CONF_PROXIES_MAX_N_GR_HOST, size=CONF_PROXIES_N_GR_VIDEO, port=CONF_TORPROXIES_HTTPPORT, timeout=2)->Tuple[List, Dict]:
 
         logger = logging.getLogger("torguardprx")
 
-        logger.info(f"[init_proxies] start")
+        logger.info("[init_proxies] start")
 
         IPS_SSL = []
 
@@ -796,7 +810,7 @@ class TorGuardProxies:
                 _content = f.read()
             _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
         else:
-            _bad_ips = cls.test_proxies_raw(IPS_SSL, port)
+            _bad_ips = cls.test_proxies_raw(IPS_SSL, port=port, timeout=timeout)
 
         for _ip in _bad_ips:
             if _ip in IPS_SSL:

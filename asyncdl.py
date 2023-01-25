@@ -596,11 +596,16 @@ class NWSetUp:
         self._tasks_init = {}
         if self.asyncdl.args.aria2c:
             ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
-            _tasks_init_aria2c = {asyncio.create_task(ainit_aria2c(self.asyncdl.args)): "aria2"}
+            _tasks_init_aria2c = {
+                asyncio.create_task(ainit_aria2c(self.asyncdl.args)): "aria2"
+            }
             self._tasks_init.update(_tasks_init_aria2c)
         if self.asyncdl.args.enproxy:
-            ainit_proxies = sync_to_async(TorGuardProxies.init_proxies, executor=self.exe)
-            _task_init_proxies = {asyncio.create_task(ainit_proxies()): "proxies"}
+            ainit_proxies = sync_to_async(
+                TorGuardProxies.init_proxies, executor=self.exe)
+            _task_init_proxies = {
+                asyncio.create_task(ainit_proxies()): "proxies"
+            }            
             self._tasks_init.update(_task_init_proxies)
 
     async def init(self):
