@@ -326,8 +326,8 @@ class AsyncARIA2CDownloader:
 
                         except Exception as e:
                             _msg = f"host: {self._host} proxy[{i}]: {_proxy} count: {self.video_downloader.hosts_dl[self._host]['count']}"
-                            logger.exception(
-                                f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] init uris {repr(e)} - {str(e)} {_msg}"
+                            logger.error(
+                                f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][{self.info_dict.get('original_url')}] init uris {repr(e)} {_msg}"
                             )
                             raise
                         finally:
