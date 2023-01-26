@@ -604,7 +604,7 @@ class NWSetUp:
                 TorGuardProxies.init_proxies, executor=self.exe)
             _task_init_proxies = {
                 asyncio.create_task(ainit_proxies()): "proxies"
-            }            
+            }
             self._tasks_init.update(_task_init_proxies)
 
     async def init(self):

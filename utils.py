@@ -901,11 +901,11 @@ class TorGuardProxies:
             return [], {}
 
 ############################################################
-#"""                     IP PROXY                     """
+# """                     IP PROXY                     """
 ############################################################
 
 ############################################################
-#"""                     YTDLP                           """
+# """                     YTDLP                           """
 ############################################################
 from yt_dlp.extractor.commonwebdriver import (
     CONFIG_EXTRACTORS,
@@ -937,6 +937,7 @@ from yt_dlp.utils import (
 )
 from yt_dlp import YoutubeDL
 
+
 def ies_close(ies):
     if not ies:
         return
@@ -944,14 +945,24 @@ def ies_close(ies):
         if close := getattr(ins, "close", None):
             try:
                 close()
-            except Exception as e:
+            except Exception:
                 pass
+
+
+def get_extractor(url, ytdl):
+
+    ies = ytdl._ies
+    for ie_key, ie in ies.items():
+        if ie.suitable(url) and (ie_key != "Generic"):
+            return (ie_key, ie)
+    return ("Generic", ies["Generic"])
 
 
 class myYTDL(YoutubeDL):
     def __init__(self, *args, **kwargs):
         self.close: bool = kwargs.get("close", True)
-        self.executor: ThreadPoolExecutor = kwargs.get("executor", ThreadPoolExecutor(thread_name_prefix="myYTDL"))
+        self.executor: ThreadPoolExecutor = kwargs.get(
+            "executor", ThreadPoolExecutor(thread_name_prefix="myYTDL"))
         super().__init__(*args, **kwargs)  # type: ignore
 
     def __enter__(self):
@@ -977,20 +988,23 @@ class myYTDL(YoutubeDL):
     def shutdown(self):
         ies_close(self._ies_instances)
 
-    def extract_info(self, *args, **kwargs)->Union[dict, None]:
+    def extract_info(self, *args, **kwargs) -> Union[dict, None]:
         return super().extract_info(*args, **kwargs)
 
-    def process_ie_result(self, *args, **kwargs)->dict:
+    def process_ie_result(self, *args, **kwargs) -> dict:
         return super().process_ie_result(*args, **kwargs)
 
-    def sanitize_info(self, *args, **kwargs)->dict:
+    def sanitize_info(self, *args, **kwargs) -> dict:
         return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore
 
-    async def async_extract_info(self, *args, **kwargs)->dict:
-        return await sync_to_async(self.extract_info, executor=self.executor)(*args, **kwargs)
+    async def async_extract_info(self, *args, **kwargs) -> dict:
+        return await sync_to_async(
+            self.extract_info, executor=self.executor)(*args, **kwargs)
 
-    async def async_process_ie_result(self, *args, **kwargs)->dict:
-        return await sync_to_async(self.process_ie_result, executor=self.executor)(*args, **kwargs)
+    async def async_process_ie_result(self, *args, **kwargs) -> dict:
+        return await sync_to_async(
+            self.process_ie_result, executor=self.executor)(*args, **kwargs)
+
 
 class ProxyYTDL(YoutubeDL):
     def __init__(self, **kwargs):
@@ -1000,7 +1014,8 @@ class ProxyYTDL(YoutubeDL):
         verbose = kwargs.get("verbose", False)
         verboseplus = kwargs.get("verboseplus", False)
         self.close = kwargs.get("close", True)
-        self.executor = kwargs.get("executor", ThreadPoolExecutor(thread_name_prefix="proxyYTDL"))
+        self.executor = kwargs.get(
+            "executor", ThreadPoolExecutor(thread_name_prefix="proxyYTDL"))
         opts["quiet"] = quiet
         opts["verbose"] = verbose
         opts["verboseplus"] = verboseplus
@@ -1012,7 +1027,7 @@ class ProxyYTDL(YoutubeDL):
         )
         opts["proxy"] = proxy
 
-        super().__init__(params=opts, auto_init="no_verbose_header") # type:  ignore
+        super().__init__(params=opts, auto_init="no_verbose_header")  # type: ignore
 
     def __enter__(self):
         return self
@@ -1027,31 +1042,33 @@ class ProxyYTDL(YoutubeDL):
     async def __aexit__(self, *args, **kwargs):
         ies_close(self._ies_instances)
 
+    def is_playlist(self, url):
+        ie_key, ie = get_extractor(url, self)
+        if ie_key == "Generic":
+            return (True, ie_key)
+        else:
+            return (ie._RETURN_TYPE == 'playlist', ie_key)
+
     def shutdown(self):
         ies_close(self._ies_instances)
 
-    def extract_info(self, *args, **kwargs)->Union[dict, None]:
+    def extract_info(self, *args, **kwargs) -> Union[dict, None]:
         return super().extract_info(*args, **kwargs)
 
-    def process_ie_result(self, *args, **kwargs)->dict:
+    def process_ie_result(self, *args, **kwargs) -> dict:
         return super().process_ie_result(*args, **kwargs)
 
-    def sanitize_info(self, *args, **kwargs)->dict:
+    def sanitize_info(self, *args, **kwargs) -> dict:
         return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore
 
-    async def async_extract_info(self, *args, **kwargs)->dict:
-        return await sync_to_async(self.extract_info, executor=self.executor)(*args, **kwargs)
+    async def async_extract_info(self, *args, **kwargs) -> dict:
+        return await sync_to_async(
+            self.extract_info, executor=self.executor)(*args, **kwargs)
 
-    async def async_process_ie_result(self, *args, **kwargs)->dict:
-        return await sync_to_async(self.process_ie_result, executor=self.executor)(*args, **kwargs)
+    async def async_process_ie_result(self, *args, **kwargs) -> dict:
+        return await sync_to_async(
+            self.process_ie_result, executor=self.executor)(*args, **kwargs)
 
-def get_extractor(url, ytdl):
-
-    ies = ytdl._ies
-    for ie_key, ie in ies.items():
-        if ie.suitable(url) and (ie_key != "Generic"):
-            return (ie_key, ie)
-    return ("Generic", ies["Generic"])
 
 def is_playlist_extractor(url, ytdl):
 
@@ -1072,6 +1089,7 @@ def is_playlist_extractor(url, ytdl):
 
     return (_is_pl, ie_key)
 
+
 def init_ytdl(args):
 
     logger = logging.getLogger("yt_dlp")
@@ -1089,7 +1107,11 @@ def init_ytdl(args):
         "extractor_retries": 1,
         "http_headers": headers,
         "proxy": args.proxy,
-        "logger": MyLogger(logger, quiet=args.quiet, verbose=args.verbose, superverbose=args.vv),
+        "logger": MyLogger(
+            logger,
+            quiet=args.quiet,
+            verbose=args.verbose,
+            superverbose=args.vv),
         "verbose": args.verbose,
         "quiet": args.quiet,
         "format": args.format,
@@ -1132,9 +1154,11 @@ def init_ytdl(args):
 
     return ytdl
 
-def get_format_id(info_dict, _formatid)->dict:
 
-    if not info_dict: return {}
+def get_format_id(info_dict, _formatid) -> dict:
+
+    if not info_dict:
+        return {}
 
     if _req_fts := info_dict.get("requested_formats"):
         for _ft in _req_fts:
