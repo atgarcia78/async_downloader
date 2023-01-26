@@ -341,7 +341,7 @@ class AsyncARIA2CDownloader:
 
                         except Exception as e:
                             _msg = f"host[{self._host}] proxy[({i}){_proxy}]: {str(e)}"
-                            logger.error(
+                            logger.debug(
                                 f"{self.premsg}[{self.info_dict.get('original_url')}] ERROR init uris {_msg}"
                             )
                             raise
