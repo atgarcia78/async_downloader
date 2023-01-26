@@ -37,7 +37,6 @@ from utils import (
     init_gui_root,
     TorGuardProxies,
     init_ytdl,
-    is_playlist_extractor,
     js_to_json,
     kill_processes,
     long_operation_in_thread,
@@ -1068,11 +1067,13 @@ class AsyncDL:
 
         self.t1 = Timer(
             "execution",
-            text="[timers] Time spent with data preparation for the init workers: {:.2f}",
+            text="[timers] Time for extracting info by init workers: {:.2f}",
             logger=logger.info,
         )
         self.t2 = Timer(
-            "execution", text="[timers] Time spent with DL: {:.2f}", logger=logger.info
+            "execution",
+            text="[timers] Time DL: {:.2f}",
+            logger=logger.info
         )
         self.t3 = Timer(
             "execution",
@@ -1220,7 +1221,7 @@ class AsyncDL:
 
                         if self.STOP.is_set():
                             raise Exception("STOP")
-                        is_pl, ie_key = is_playlist_extractor(_elurl, self.ytdl)
+                        is_pl, ie_key = self.ytdl.is_playlist(_elurl)
 
                         if not is_pl:
 
@@ -1459,8 +1460,8 @@ class AsyncDL:
                                                 (
                                                     is_pl,
                                                     ie_key,
-                                                ) = is_playlist_extractor(
-                                                    _ent["url"], self.ytdl
+                                                ) = self.ytdl.is_playlist(
+                                                    _ent["url"]
                                                 )
                                                 _error = _ent.get("error")
                                                 if not is_pl or _error:

@@ -947,11 +947,12 @@ def ies_close(ies):
             except Exception as e:
                 pass
 
+
 class myYTDL(YoutubeDL):
     def __init__(self, *args, **kwargs):
         self.close: bool = kwargs.get("close", True)
         self.executor: ThreadPoolExecutor = kwargs.get("executor", ThreadPoolExecutor(thread_name_prefix="myYTDL"))
-        super().__init__(*args, **kwargs) # type: ignore
+        super().__init__(*args, **kwargs)  # type: ignore
 
     def __enter__(self):
         return self
@@ -965,6 +966,13 @@ class myYTDL(YoutubeDL):
 
     async def __aexit__(self, *args, **kwargs):
         ies_close(self._ies_instances)
+
+    def is_playlist(self, url):
+        ie_key, ie = get_extractor(url, self)
+        if ie_key == "Generic":
+            return (True, ie_key)
+        else:
+            return (ie._RETURN_TYPE == 'playlist', ie_key)
 
     def shutdown(self):
         ies_close(self._ies_instances)
