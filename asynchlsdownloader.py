@@ -667,7 +667,7 @@ class AsyncHLSDownloader:
         except Exception as e:
             logger.exception(f"{self.premsg}:RESET[{self.n_reset}]: outer Exception occurred when reset: {repr(e)}")
             raise
-        else:
+        finally:
             if self.fromplns and cause in ("403", "hard"):
                 try:
                     self.video_downloader.info_dl["fromplns"][self.fromplns]["in_reset"].remove(self.video_downloader.info_dict["playlist_index"])
@@ -1346,10 +1346,11 @@ class AsyncHLSDownloader:
                                 e.__class__
                             ) and "AsyncHLSDLError" not in str(e.__class__):
                                 logger.exception(
-                                    f"{self._premsg}: error {str(e.__class__)}"
+                                    f"{self._premsg}: error {repr(e)}"
                                 )
 
-                            logger.exception(
+                            else:
+                                logger.debug(
                                 f"{self._premsg}: error {repr(e)}"
                             )
                             self.info_frag[q - 1]["n_retries"] += 1

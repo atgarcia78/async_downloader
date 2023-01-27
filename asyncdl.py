@@ -591,7 +591,7 @@ class NWSetUp:
         self.proc_gost = []
         self.proc_aria2c = None
         self.exe = ThreadPoolExecutor(thread_name_prefix="setupnw")
-        self.stop_proxy = self.run_proxy_http()
+        
         self._tasks_init = {}
         if self.asyncdl.args.aria2c:
             ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
@@ -600,6 +600,7 @@ class NWSetUp:
             }
             self._tasks_init.update(_tasks_init_aria2c)
         if self.asyncdl.args.enproxy:
+            self.stop_proxy = self.run_proxy_http()
             ainit_proxies = sync_to_async(
                 TorGuardProxies.init_proxies, executor=self.exe)
             _task_init_proxies = {
@@ -646,19 +647,20 @@ class NWSetUp:
 
     def close(self):
 
-        self.logger.info("[close] proxy")
-        self.stop_proxy.set()
-        self.logger.info("[close] waiting for http proxy shutdown")
-        self.shutdown_proxy.wait()
-        self.logger.info("[close] OK shutdown")
+        if self.asyncdl.args.enproxy:
+            self.logger.info("[close] proxy")
+            self.stop_proxy.set()
+            self.logger.info("[close] waiting for http proxy shutdown")
+            self.shutdown_proxy.wait()
+            self.logger.info("[close] OK shutdown")
 
-        if self.proc_gost:
-            self.logger.info("[close] gost")
-            for proc in self.proc_gost:
-                try:
-                    proc.kill()
-                except BaseException as e:
-                    self.logger.exception(f"[close] {repr(e)}")
+            if self.proc_gost:
+                self.logger.info("[close] gost")
+                for proc in self.proc_gost:
+                    try:
+                        proc.kill()
+                    except BaseException as e:
+                        self.logger.exception(f"[close] {repr(e)}")
 
         if self.proc_aria2c:
             self.logger.info("[close] aria2c")
