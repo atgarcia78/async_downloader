@@ -1,7 +1,6 @@
 import argparse
 import asyncio
 import contextlib
-import contextvars
 import copy
 import functools
 import json
@@ -14,44 +13,104 @@ import signal
 import subprocess
 import threading
 import time
-from concurrent.futures import(
+import PySimpleGUI as sg
+from concurrent.futures import (
     ThreadPoolExecutor,
-    wait as waitfut,
-    FIRST_COMPLETED as first_completed_fut)
-from datetime import datetime, timedelta
+)
+from datetime import datetime
 
 from pathlib import Path
 from bisect import bisect
-from typing import Optional, List, Tuple, Union, Dict, Coroutine, Any, Callable, TypeVar, Awaitable, Iterable, cast
+from typing import (
+    List,
+    Tuple,
+    Union,
+    Dict,
+    Coroutine,
+    Any,
+    Iterable)
 
 from asgiref.sync import (
-
     sync_to_async,
 )
+from concurrent.futures import as_completed
+from ipaddress import ip_address
+import httpx
+
+from yt_dlp.extractor.commonwebdriver import (
+    CONFIG_EXTRACTORS,
+    SeleniumInfoExtractor,
+    StatusStop,
+    dec_on_exception,
+    dec_retry_error,
+    limiter_1,
+    limiter_5,
+    limiter_15,
+    limiter_non,
+    ReExtractInfo,
+    ConnectError,
+    StatusError503,
+    my_dec_on_exception,
+)
+
+from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
+from yt_dlp.mylogger import MyLogger
+from yt_dlp.utils import (
+    get_domain,
+    js_to_json,
+    prepend_extension,
+    sanitize_filename,
+    smuggle_url,
+    traverse_obj,
+    try_get,
+    unsmuggle_url,
+)
+from yt_dlp import YoutubeDL
+
+assert unsmuggle_url
+assert smuggle_url
+assert prepend_extension
+assert get_domain
+assert NakedSwordBaseIE
+assert CONFIG_EXTRACTORS
+assert SeleniumInfoExtractor
+assert StatusStop
+assert dec_on_exception
+assert dec_retry_error
+assert limiter_1
+assert limiter_5
+assert limiter_15
+assert limiter_non
+assert ReExtractInfo
+assert ConnectError
+assert StatusError503
+assert my_dec_on_exception
+
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
 
-CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
+CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support\
+/Firefox/Profiles/b33yk6rw.selenium"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 80
-
 CONF_TORPROXIES_HTTPPORT = 7070
-
-CONF_PROXIES_MAX_N_GR_HOST = 10 # 10
+CONF_PROXIES_MAX_N_GR_HOST = 10  # 10
 CONF_PROXIES_N_GR_VIDEO = 8  # 8
 CONF_PROXIES_BASE_PORT = 12000
 
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400  # 102400 * 1.5# 102400
-CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = 240#120
-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED//4#60
+CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = _min = 240  # 120
+
+CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min//4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
 CONF_AUTO_PASRES = ["doodstream"]
+
 
 class LocalStorage:
 
@@ -140,7 +199,8 @@ class LocalStorage:
                 _temp[_vol].update({key: val})
 
         shutil.copy(
-            str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
+            str(LocalStorage.local_storage),
+            str(LocalStorage.prev_local_storage)
         )
 
         with open(LocalStorage.local_storage, "w") as f:
@@ -148,9 +208,10 @@ class LocalStorage:
 
         self._data_from_file = _temp
 
+
 class MySyncAsyncEvent:
 
-    def __init__(self, name: Union[str, None]=None):
+    def __init__(self, name: Union[str, None] = None):
         if name:
             self.name = name
         self._cause = "noinfo"
@@ -158,17 +219,17 @@ class MySyncAsyncEvent:
         self.aevent = asyncio.Event()
         self._flag = False
 
-    def set(self, cause: Union[str, None]="noinfo"):
+    def set(self, cause: Union[str, None] = "noinfo"):
 
         self.aevent.set()
         self.event.set()
-        if cause == None:
+        if cause is None:
             cause = "noinfo"
         self._cause = cause
         if not self._flag:
             self._flag = True
 
-    def is_set(self)->Union[str, bool]:
+    def is_set(self) -> Union[str, bool]:
         """Return True if and only if the internal flag is true."""
 
         if self._flag:
@@ -183,11 +244,12 @@ class MySyncAsyncEvent:
         self._flag = False
         self._cause = "noinfo"
 
-    def wait(self, timeout: Union[float, None]=None)->bool:
+    def wait(self, timeout: Union[float, None] = None) -> bool:
         return self.event.wait(timeout=timeout)
 
     async def async_wait(self):
         return await self.aevent.wait()
+
 
 class ProgressTimer:
     TIMER_FUNC = time.monotonic
@@ -196,10 +258,10 @@ class ProgressTimer:
         self._last_ts = self.TIMER_FUNC()
 
     def __repr__(self):
-        return(f"{self.elapsed_seconds():.2f}")
+        return (f"{self.elapsed_seconds():.2f}")
 
     def reset(self):
-        #self._last_ts += self.elapsed_seconds()
+        #  self._last_ts += self.elapsed_seconds()
         self._last_ts = self.TIMER_FUNC()
 
     def elapsed_seconds(self) -> float:
@@ -214,17 +276,20 @@ class ProgressTimer:
         self._last_ts += elapsed_seconds - elapsed_seconds % seconds
         return True
 
+
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
-    #UPDATE_TIMESPAN_S = 1.0#CONF_INTERVAL_GUI#1.0
-    #AVERAGE_TIMESPAN_S = 5.0#5.0
+    #  UPDATE_TIMESPAN_S = 1.0#CONF_INTERVAL_GUI#1.0
+    #  AVERAGE_TIMESPAN_S = 5.0#5.0
 
-    def __init__(self, initial_bytes: int=0, upt_time: Union[int, float]=1.0, ave_time: Union[int, float]=5.0):
+    def __init__(
+            self, initial_bytes: int = 0, upt_time: Union[int, float] = 1.0,
+            ave_time: Union[int, float] = 5.0):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
         self.last_value = None
-        self.UPDATE_TIMESPAN_S = float(upt_time)#1.0#CONF_INTERVAL_GUI#1.0
-        self.AVERAGE_TIMESPAN_S = float(ave_time)#5.0#5.0
+        self.UPDATE_TIMESPAN_S = float(upt_time)  # 1.0#CONF_INTERVAL_GUI#1.0
+        self.AVERAGE_TIMESPAN_S = float(ave_time)  # 5.0#5.0
 
     def __call__(self, byte_counter: int):
         time_now = self.TIMER_FUNC()
@@ -234,15 +299,19 @@ class SpeedometerMA:
             self.ts_data.append((time_now, byte_counter))
 
         # remove older entries
-        idx = max(0, bisect(self.ts_data, (time_now - self.AVERAGE_TIMESPAN_S,)) - 1)
+        idx = max(0, bisect(self.ts_data,
+                            (time_now - self.AVERAGE_TIMESPAN_S,)) - 1)
         self.ts_data[0:idx] = ()
 
         diff_time = time_now - self.ts_data[0][0]
-        speed = (byte_counter - self.ts_data[0][1]) / diff_time if diff_time else None
+        if diff_time:
+            speed = (byte_counter - self.ts_data[0][1])/diff_time
+        speed = None
         if self.timer.has_elapsed(seconds=self.UPDATE_TIMESPAN_S):
             self.last_value = speed
 
         return self.last_value or speed
+
 
 class SmoothETA:
     def __init__(self):
@@ -266,6 +335,7 @@ class SmoothETA:
         self.last_value = time_now + value
         return value
 
+
 class SignalHandler:
     def __init__(self):
         signal.signal(signal.SIGINT, self.exit_gracefully)
@@ -276,29 +346,34 @@ class SignalHandler:
         print("Exiting gracefully")
         self.KEEP_PROCESSING = False
 
+
 class long_operation_in_thread:
     def __init__(self, name: str) -> None:
-        self.name = name #name of thread for logging
+        self.name = name  # name of thread for logging
 
     def __call__(self, func):
         name = self.name
+
         @functools.wraps(func)
-        def wrapper(*args, **kwargs)->threading.Event:
+        def wrapper(*args, **kwargs) -> threading.Event:
             stop_event = threading.Event()
-            thread = threading.Thread(target=func, name=name, args=args, kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
+            thread = threading.Thread(target=func, name=name, args=args,
+                                      kwargs={"stop_event": stop_event,
+                                              **kwargs}, daemon=True)
             thread.start()
             return stop_event
         return wrapper
 
 ############################################################
-#"""                     SYNC ASYNC                     """
+# """                     SYNC ASYNC                     """
 ############################################################
+
 
 async def async_waitfortasks(
         fs: Union[Iterable, Coroutine, asyncio.Task, None] = None,
         timeout: Union[float, None] = None,
         events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None
-)->dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
+) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
 
     _final_wait = {}
     _tasks: dict[asyncio.Task, str] = {}
@@ -312,7 +387,8 @@ async def async_waitfortasks(
 
             _tasks.update({_el: "task"})
 
-        _one_task_to_wait_tasks = asyncio.create_task(asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED))
+        _one_task_to_wait_tasks = asyncio.create_task(
+            asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED))
 
         _final_wait.update({_one_task_to_wait_tasks: "tasks"})
 
@@ -329,22 +405,29 @@ async def async_waitfortasks(
 
         for event in events:
             if isinstance(event, asyncio.Event):
-                _tasks_events.update({asyncio.create_task(event.wait()): f"event{getter(event)}"})
+                _tasks_events.update(
+                    {asyncio.create_task(event.wait()):
+                     f"event{getter(event)}"})
             elif isinstance(event, MySyncAsyncEvent):
-                _tasks_events.update({asyncio.create_task(event.async_wait()): f"event{getter(event)}"})
+                _tasks_events.update(
+                    {asyncio.create_task(event.async_wait()):
+                     f"event{getter(event)}"})
 
         _final_wait.update(_tasks_events)
 
     if not _final_wait:
         if timeout:
-            _tasks.update({asyncio.create_task(asyncio.sleep(timeout*2)): "task"})
+            _tasks.update(
+                {asyncio.create_task(asyncio.sleep(timeout*2)): "task"})
             _final_wait.update(_tasks)
         else:
             return {"timeout": "nothing to await"}
 
-    done, pending = await asyncio.wait(_final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait(
+        _final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
 
-    res: dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]] = {}
+    res: dict[str, Union[float, Exception,
+                         Iterable, asyncio.Task, str, Any]] = {}
 
     try:
         if not done:
@@ -357,17 +440,19 @@ async def async_waitfortasks(
             _label = _final_wait.get(_task, "")
             if _label.startswith("event"):
 
-                def getname(x, task)->Union[str, asyncio.Task]:
+                def getname(x, task) -> Union[str, asyncio.Task]:
                     if "event_" in x:
                         return x.split("event_")[1]
-                    else: return task
+                    else:
+                        return task
 
                 res = {"event": getname(_label, _task)}
 
             elif fs:
                 d, p = _task.result()
                 _results = [_d.result() for _d in d if not _d.exception()]
-                if len(_results) == 1: _results = _results[0]
+                if len(_results) == 1:
+                    _results = _results[0]
                 res = {"result": _results}
 
     except Exception as e:
@@ -387,8 +472,10 @@ async def async_waitfortasks(
             pass
     return res
 
+
 @contextlib.asynccontextmanager
-async def async_lock(lock: Union[threading.Lock, contextlib.nullcontext, None]=None):
+async def async_lock(lock: Union[threading.Lock,
+                                 contextlib.nullcontext, None] = None):
 
     if (isinstance(lock, contextlib.nullcontext)) or not lock:
         try:
@@ -404,10 +491,14 @@ async def async_lock(lock: Union[threading.Lock, contextlib.nullcontext, None]=N
         finally:
             await loop.run_in_executor(executor, lock.release)
 
+
 async def async_wait_time(n: Union[int, float]):
     return await async_waitfortasks(timeout=n)
 
-def wait_time(n: Union[int, float], event: Union[threading.Event, MySyncAsyncEvent, None] = None):
+
+def wait_time(n: Union[int, float],
+              event: Union[threading.Event,
+                           MySyncAsyncEvent, None] = None):
     _started = time.monotonic()
     if not event:
         time.sleep(n)  # dummy
@@ -416,9 +507,12 @@ def wait_time(n: Union[int, float], event: Union[threading.Event, MySyncAsyncEve
         _res = event.wait(timeout=n)
         if not _res:
             return time.monotonic() - _started
-        else: return
+        else:
+            return
 
-async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
+
+async def async_wait_until(
+        timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
 
     if not cor:
@@ -430,12 +524,15 @@ async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CO
         _cor = cor
 
     while not (await _cor(*args, **kwargs)):
-        if (_t := (time.monotonic() - _started)) >= timeout:
+        if ((time.monotonic() - _started)) >= timeout:
             raise TimeoutError()
         else:
             await async_wait_time(interv)
 
-def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
+
+def wait_until(
+        timeout, statement=None, args=(None,), kwargs={},
+        interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
 
     if not statement:
@@ -447,22 +544,23 @@ def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INT
         func = statement
 
     while not func(*args, **kwargs):
-        if (_t := (time.monotonic() - _started)) >= timeout:
+        if ((time.monotonic() - _started)) >= timeout:
             raise TimeoutError()
         else:
             time.sleep(interv)
 
 ############################################################
-#"""                     SYNC ASYNC                     """
+# """                     SYNC ASYNC                     """
 ############################################################
 
 ############################################################
-#"""                     INIT                     """
+# """                     INIT                     """
 ############################################################
+
 
 def init_logging(file_path=None):
 
-    #PATH_LOGS = Path(Path.home(), "Projects/common/logs")
+    # PATH_LOGS = Path(Path.home(), "Projects/common/logs")
     if not file_path:
         config_file = Path(Path.home(), "Projects/common/logging.json")
     else:
@@ -487,16 +585,19 @@ def init_logging(file_path=None):
     logger = logging.getLogger("proxy.core.base.tcp_server")
     logger.setLevel(logging.WARNING)
 
+
 def init_argparser():
 
     UA_LIST = [
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:108.0) Gecko/20100101 Firefox/108.0"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:108.0) \
+Gecko/20100101 Firefox/108.0"
     ]
 
     parser = argparse.ArgumentParser(
         description="Async downloader videos / playlist videos HLS / HTTP"
     )
-    parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
+    parser.add_argument("-w", help="Number of DL workers",
+                        default="5", type=int)
     parser.add_argument(
         "--winit",
         help="Number of init workers, default is same number for DL workers",
@@ -504,7 +605,8 @@ def init_argparser():
         type=int,
     )
     parser.add_argument(
-        "-p", "--parts", help="Number of workers for each DL", default="16", type=int
+        "-p", "--parts", help="Number of workers for each DL",
+        default="16", type=int
     )
     parser.add_argument(
         "--format",
@@ -513,18 +615,23 @@ def init_argparser():
         type=str,
     )
     parser.add_argument(
-        "--sort", help="Formats sort preferred", default="ext:mp4:mp4a", type=str
+        "--sort", help="Formats sort preferred",
+        default="ext:mp4:mp4a", type=str
     )
     parser.add_argument(
-        "--index", help="index of a video in a playlist", default=None, type=int
+        "--index", help="index of a video in a playlist",
+        default=None, type=int
     )
     parser.add_argument(
-        "--file", help="jsonfiles", action="append", dest="collection_files", default=[]
+        "--file", help="jsonfiles", action="append",
+        dest="collection_files", default=[]
     )
     parser.add_argument(
-        "--checkcert", help="checkcertificate", action="store_true", default=False
+        "--checkcert", help="checkcertificate",
+        action="store_true", default=False
     )
-    parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
+    parser.add_argument("--ytdlopts", help="init dict de conf", default="",
+                        type=str)
     parser.add_argument("--proxy", default=None, type=str)
     parser.add_argument("--useragent", default=UA_LIST[0], type=str)
     parser.add_argument("--first", default=None, type=int)
@@ -551,18 +658,21 @@ def init_argparser():
     parser.add_argument(
         "-v", "--verbose", help="verbose", action="store_true", default=False
     )
-    parser.add_argument("--vv", help="verbose plus", action="store_true", default=False)
+    parser.add_argument("--vv", help="verbose plus", action="store_true",
+                        default=False)
     parser.add_argument(
         "-q", "--quiet", help="quiet", action="store_true", default=False
     )
     parser.add_argument(
         "--aria2c",
-        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
+        help="use of external aria2c running in port [PORT]. By default \
+PORT=6800. Set to 'no' to disable",
         default="6800",
         type=str,
     )
     parser.add_argument("--nosymlinks", action="store_true", default=False)
-    parser.add_argument("--use-http-failover", action="store_true", default=False)
+    parser.add_argument("--use-http-failover", action="store_true",
+                        default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=False)
     parser.add_argument("--no-embed", action="store_true", default=False)
@@ -600,6 +710,7 @@ def init_argparser():
 
     return args
 
+
 def find_in_ps(pattern, value=None):
     res = subprocess.run(
             ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
@@ -610,11 +721,13 @@ def find_in_ps(pattern, value=None):
     if not value or str(value) in mobj:
         return mobj
 
+
 def init_aria2c(args):
 
     logger = logging.getLogger("asyncDL")
 
-    if (mobj := find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport)):
+    if (mobj := find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+",
+                           value=args.rpcport)):
         mobj.sort()
         args.rpcport = int(mobj[-1]) + 100
 
@@ -626,24 +739,24 @@ def init_aria2c(args):
     )
 
     _proc.poll()
-    if _proc.returncode not in (0,None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport):
-        raise Exception(f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
+    if (_proc.returncode not in
+        (0, None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+",
+                                    value=args.rpcport)):
+        raise Exception(f"[init_aria2c] couldnt run aria2c in port \
+{args.rpcport} - {_proc}")
 
     logger.info(f"[init_aria2c] {_proc} - running on port: {args.rpcport}")
 
     return _proc
 
 ############################################################
-#"""                     INIT                     """
+# """                     INIT                     """
 ############################################################
 
 ############################################################
-#"""                     IP PROXY                     """
+# """                     IP PROXY                     """
 ############################################################
 
-from concurrent.futures import as_completed
-from ipaddress import ip_address
-import httpx
 
 class myIP:
     URLS_API_GETMYIP = {
@@ -659,7 +772,8 @@ class myIP:
             encoding="utf-8",
             capture_output=True,
         ).stdout
-        _tavg = try_get(re.findall(r"= [^\/]+\/([^\/]+)\/", res), lambda x: float(x[0]))
+        _tavg = try_get(re.findall(r"= [^\/]+\/([^\/]+)\/", res),
+                        lambda x: float(x[0]))
         return {"ip": ip, "time": _tavg}
 
     @classmethod
@@ -673,8 +787,11 @@ class myIP:
 
         try:
 
-            _proxies = {'all://': f'http://127.0.0.1:{key}'} if key != None else None
-            myip = try_get(httpx.get(_urlapi, timeout=httpx.Timeout(timeout=timeout), proxies=_proxies, follow_redirects=True), lambda x: x.json().get(_keyapi)) # type: ignore
+            _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
+            myip = try_get(httpx.get(
+                _urlapi, timeout=httpx.Timeout(timeout=timeout),
+                proxies=_proxies, follow_redirects=True),  # type: ignore
+                lambda x: x.json().get(_keyapi))
             return myip
         except Exception as e:
             return repr(e)
@@ -686,15 +803,17 @@ class myIP:
             try:
                 ip_address(res)
                 return True
-            except Exception as e:
+            except Exception:
                 return False
         exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
-        futures = {exe.submit(cls.get_ip, key=key, timeout=timeout, api=api): api for api in cls.URLS_API_GETMYIP}
+        futures = {exe.submit(cls.get_ip, key=key, timeout=timeout, api=api):
+                   api for api in cls.URLS_API_GETMYIP}
         for el in as_completed(futures):
             if not el.exception() and is_ipaddr(_res := el.result()):
                 exe.shutdown(wait=False, cancel_futures=True)
                 return _res
-            else: continue
+            else:
+                continue
 
     @classmethod
     def get_myip(cls, key=None, timeout=1):
@@ -732,7 +851,8 @@ class TorGuardProxies:
             _ip = fut.result()
             if _ip != routing_table[futures[fut]]:
                 logger.info(
-                    f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}")
+                    f"[{futures[fut]}] test: {_ip} expect res: \
+{routing_table[futures[fut]]}")
                 bad_pr.append(routing_table[futures[fut]])
 
         return bad_pr
@@ -743,7 +863,8 @@ class TorGuardProxies:
     ):
         logger = logging.getLogger("torguardprx")
         cmd_gost = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} \
+-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
             for i, ip in enumerate(list_ips)
         ]
         routing_table = {
@@ -753,22 +874,27 @@ class TorGuardProxies:
         proc_gost = []
         for cmd in cmd_gost:
 
-            _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, shell=True)
             _proc.poll()
             if _proc.returncode:
-                logger.error(f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
+                logger.error(f"[init_proxies] returncode[{_proc.returncode}]\
+ to cmd[{cmd}]")
                 raise Exception("init proxies error")
             else:
                 proc_gost.append(_proc)
             time.sleep(0.05)
-        _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
+        _res_ps = subprocess.run(["ps"], encoding="utf-8",
+                                 capture_output=True).stdout
         logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
         _res_bad = cls.test_proxies_rt(routing_table, timeout=timeout)
         _line_ps_pr = []
         for _ip in _res_bad:
-            if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
+            if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps),
+                                 lambda x: x.group() if x else None)):
                 _line_ps_pr.append(_temp)
-        logger.info(f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] ps_print [{len(_line_ps_pr)}]")
+        logger.info(f"[init_proxies] check in ps print equal number of\
+ bad ips: res_bad [{len(_res_bad)}] ps_print [{len(_line_ps_pr)}]")
         for proc in proc_gost:
             proc.kill()
             proc.poll()
@@ -790,7 +916,13 @@ class TorGuardProxies:
         return re.findall(r"ip_address: (.+)", res)
 
     @classmethod
-    def init_proxies(cls, num=CONF_PROXIES_MAX_N_GR_HOST, size=CONF_PROXIES_N_GR_VIDEO, port=CONF_TORPROXIES_HTTPPORT, timeout=2)->Tuple[List, Dict]:
+    def init_proxies(
+        cls,
+        num=CONF_PROXIES_MAX_N_GR_HOST,
+        size=CONF_PROXIES_N_GR_VIDEO,
+        port=CONF_TORPROXIES_HTTPPORT,
+        timeout=2
+    ) -> Tuple[List, Dict]:
 
         logger = logging.getLogger("torguardprx")
 
@@ -803,14 +935,16 @@ class TorGuardProxies:
 
         cached_res = cls.CONF_TORPROXIES_NOK
         if cached_res.exists() and (
-            (datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds
+            (datetime.now() - datetime.fromtimestamp(
+                cached_res.stat().st_mtime)).seconds
             < 7200
         ):  # every 2h we check the proxies
             with open(cached_res, "r") as f:
                 _content = f.read()
             _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
         else:
-            _bad_ips = cls.test_proxies_raw(IPS_SSL, port=port, timeout=timeout)
+            _bad_ips = cls.test_proxies_raw(IPS_SSL, port=port,
+                                            timeout=timeout)
 
         for _ip in _bad_ips:
             if _ip in IPS_SSL:
@@ -844,7 +978,8 @@ class TorGuardProxies:
 
             cmd_gost_s.extend(
                 [
-                    f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
+                    f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} \
+-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
                     for i, ip in enumerate(FINAL_IPS)
                 ]
             )
@@ -857,12 +992,15 @@ class TorGuardProxies:
             )
 
         cmd_gost_main = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} -F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} \
+-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
         ]
-        routing_table.update({CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
+        routing_table.update(
+            {CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
 
         cmd_gost_group = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899"
+            for i in range(num)
         ]
 
         cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
@@ -875,11 +1013,13 @@ class TorGuardProxies:
         try:
             for cmd in cmd_gost:
                 logger.debug(cmd)
-                _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                         stderr=subprocess.PIPE, shell=True)
                 _proc.poll()
                 if _proc.returncode:
                     logger.error(
-                        f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]"
+                        f"[init_proxies] returncode[{_proc.returncode}] \
+to cmd[{cmd}]"
                     )
                     raise Exception("init proxies error")
                 else:
@@ -896,7 +1036,7 @@ class TorGuardProxies:
                     try:
                         proc.kill()
                         proc.poll()
-                    except Exception as e:
+                    except Exception:
                         pass
             return [], {}
 
@@ -907,35 +1047,6 @@ class TorGuardProxies:
 ############################################################
 # """                     YTDLP                           """
 ############################################################
-from yt_dlp.extractor.commonwebdriver import (
-    CONFIG_EXTRACTORS,
-    SeleniumInfoExtractor,
-    StatusStop,
-    dec_on_exception,
-    dec_retry_error,
-    limiter_1,
-    limiter_5,
-    limiter_15,
-    limiter_non,
-    ReExtractInfo,
-    ConnectError,
-    StatusError503,
-    my_dec_on_exception,
-)
-
-from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
-from yt_dlp.mylogger import MyLogger
-from yt_dlp.utils import (
-    get_domain,
-    js_to_json,
-    prepend_extension,
-    sanitize_filename,
-    smuggle_url,
-    traverse_obj,
-    try_get,
-    unsmuggle_url,
-)
-from yt_dlp import YoutubeDL
 
 
 def ies_close(ies):
@@ -1027,7 +1138,8 @@ class ProxyYTDL(YoutubeDL):
         )
         opts["proxy"] = proxy
 
-        super().__init__(params=opts, auto_init="no_verbose_header")  # type: ignore
+        super().__init__(params=opts,
+                         auto_init="no_verbose_header")  # type: ignore
 
     def __enter__(self):
         return self
@@ -1096,7 +1208,9 @@ def init_ytdl(args):
 
     headers = {
         "User-Agent": args.useragent,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept":
+            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,\
+    */*;q=0.8",
         "Connection": "keep-alive",
         "Accept-Language": "en,es-ES;q=0.5",
         "Accept-Encoding": "gzip, deflate",
@@ -1170,21 +1284,26 @@ def get_format_id(info_dict, _formatid) -> dict:
     return {}
 
 ############################################################
-#"""                     YTDLP                           """
+# """                     YTDLP                           """
 ############################################################
+
 
 def print_tasks(tasks):
     return "\n".join(
-        [f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks]
+        [f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}"
+         for task in tasks]
     )
+
 
 def print_threads(threads):
     return "\n".join(
         [f"{thread.getName()} : {repr(thread._target)}" for thread in threads]
     )
 
+
 def none_to_zero(item):
     return 0 if not item else item
+
 
 def get_chain_links(f):
     _links = []
@@ -1199,6 +1318,7 @@ def get_chain_links(f):
             break
     return _links
 
+
 def kill_processes(logger=None, rpcport=None):
 
     def _log(msg):
@@ -1207,7 +1327,8 @@ def kill_processes(logger=None, rpcport=None):
     try:
 
         term = (
-            (subprocess.run(["tty"], encoding="utf-8", capture_output=True).stdout)
+            (subprocess.run(["tty"], encoding="utf-8",
+                            capture_output=True).stdout)
             .splitlines()[0]
             .replace("/dev/", "")
         )
@@ -1219,16 +1340,20 @@ def kill_processes(logger=None, rpcport=None):
         if rpcport:
             _aria2cstr = f"aria2c.+--rpc-listen-port {rpcport}.+"
         else:
-            _aria2cstr = f"aria2cDUMMY"
+            _aria2cstr = "aria2cDUMMY"
         mobj = re.findall(
-            rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/Firefox.app/Contents/MacOS/firefox-bin.+))",
+            rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|\
+{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/\
+Firefox.app/Contents/MacOS/firefox-bin.+))",
             res,
         )
         mobj2 = re.findall(
-            rf"\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ",
+            rf"\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/\
+MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ",
             res,
         )
-        mobj3 = re.findall(rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+async_all\.py))", res)
+        mobj3 = re.findall(rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+async_all\.py))",
+                           res)
         if mobj:
             proc_to_kill = list(set(mobj))
             results = [
@@ -1273,8 +1398,10 @@ def kill_processes(logger=None, rpcport=None):
         _log(f"[kill_processes_proxy]: {repr(e)}")
         raise
 
+
 def int_or_none(res):
     return int(res) if res else None
+
 
 def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
 
@@ -1309,8 +1436,9 @@ def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
         elif abs_bytes < unit and gnu:
             return f"{(base * abs_bytes / unit):{format_}}{s}"
     if gnu:
-        return f"{(base * abs_bytes / unit):{format_}}{s}" # type: ignore
-    return f"{(base*abs_bytes/unit):{format_}} {s}" # type: ignore
+        return f"{(base * abs_bytes / unit):{format_}}{s}"  # type: ignore
+    return f"{(base*abs_bytes/unit):{format_}} {s}"  # type: ignore
+
 
 def print_norm_time(time):
     """Time in secs"""
@@ -1322,6 +1450,7 @@ def print_norm_time(time):
     seconds = time
 
     return f"{hour:.0f}h:{minutes:.0f}min:{seconds:.0f}secs"
+
 
 def patch_http_connection_pool(**constructor_kwargs):
     """
@@ -1339,7 +1468,9 @@ def patch_http_connection_pool(**constructor_kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPConnectionPool, self).__init__(*args, **kwargs)
 
-    poolmanager.pool_classes_by_scheme["http"] = MyHTTPConnectionPool # type: ignore
+    poolmanager.pool_classes_by_scheme[  # type: ignore
+        "http"] = MyHTTPConnectionPool
+
 
 def patch_https_connection_pool(**constructor_kwargs):
     """
@@ -1357,11 +1488,14 @@ def patch_https_connection_pool(**constructor_kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPSConnectionPool, self).__init__(*args, **kwargs)
 
-    poolmanager.pool_classes_by_scheme["https"] = MyHTTPSConnectionPool # type: ignore
+    poolmanager.pool_classes_by_scheme[  # type: ignore
+        "https"] = MyHTTPSConnectionPool
+
 
 def check_if_dl(info_dict, videos):
 
-    if not (_id := info_dict.get("id")) or not (_title := info_dict.get("title")):
+    if (not (_id := info_dict.get("id")) or
+            not (_title := info_dict.get("title"))):
         return False
 
     _title = sanitize_filename(_title, restricted=True).upper()
@@ -1370,14 +1504,13 @@ def check_if_dl(info_dict, videos):
     return videos.get(vid_name)
 
 ############################################################
-#"""                     PYSIMPLEGUI                     """
+# """                     PYSIMPLEGUI                     """
 ############################################################
 
-import PySimpleGUI as sg
 
 def init_gui_root():
 
-    logger = logging.getLogger("init_gui_root")
+    #  logger = logging.getLogger("init_gui_root")
 
     sg.theme("SystemDefaultForReal")
 
@@ -1483,9 +1616,10 @@ def init_gui_root():
 
     return window_root
 
+
 def init_gui_console():
 
-    logger = logging.getLogger("init_gui_cons")
+    #  logger = logging.getLogger("init_gui_cons")
 
     sg.theme("SystemDefaultForReal")
 
@@ -1559,8 +1693,9 @@ def init_gui_console():
     return window_console
 
 ############################################################
-#"""                     PYSIMPLEGUI                     """
+# """                     PYSIMPLEGUI                    """
 ############################################################
+
 
 def wait_for_change_ip(logger):
 
@@ -1584,7 +1719,7 @@ def wait_for_change_ip(logger):
                 _new_ip = None
         _old_ip = _new_ip
         logger.info(f"new old ip: {_old_ip}")
-        _proc_open = subprocess.run(["open", "/Applications/Torguard.app"])
+        subprocess.run(["open", "/Applications/Torguard.app"])
         time.sleep(5)
         n = 0
         _new_ip = None
@@ -1599,6 +1734,7 @@ def wait_for_change_ip(logger):
                 _new_ip = None
                 time.sleep(2)
 
+
 def cmd_extract_info(url, proxy=None, pl=False, upt=False):
     if pl:
         opt = "-J"
@@ -1611,11 +1747,13 @@ def cmd_extract_info(url, proxy=None, pl=False, upt=False):
     cmd = f"yt-dlp {opt} {pr}{url}"
     print(cmd)
     if not upt:
-        res = subprocess.run(cmd.split(" "), encoding="utf-8", capture_output=True)
+        res = subprocess.run(cmd.split(" "), encoding="utf-8",
+                             capture_output=True)
         if res.returncode != 0:
             raise Exception(res.stderr)
         else:
             return json.loads(res.stdout.splitlines()[0])
+
 
 async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
     if pl:
@@ -1631,9 +1769,10 @@ async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
         logger = logging.getLogger("test")
     logger.info(cmd)
 
-    proc = await asyncio.create_subprocess_shell(
+    await asyncio.create_subprocess_shell(
         cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
+
 
 def _for_print_entry(entry):
     if not entry:
@@ -1671,6 +1810,7 @@ def _for_print_entry(entry):
 
     return _entry
 
+
 def _for_print(info):
     if not info:
         return
@@ -1680,6 +1820,7 @@ def _for_print(info):
         return _info
     else:
         return _for_print_entry(_info)
+
 
 def _for_print_videos(videos):
     if not videos:
@@ -1697,4 +1838,3 @@ def _for_print_videos(videos):
     elif isinstance(videos, list):
         _videos = [_for_print(_vid) for _vid in _videos]
         return _videos
-
