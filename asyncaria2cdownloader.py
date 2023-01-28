@@ -41,7 +41,7 @@ from utils import (
     async_waitfortasks
 )
 
-logger = logging.getLogger("async_ARIA2C_DL")
+logger = logging.getLogger('async_ARIA2C_DL')
 
 
 class AsyncARIA2CDLErrorFatal(Exception):
@@ -66,40 +66,40 @@ class AsyncARIA2CDownloader:
         self.vid_dl = vid_dl
         self.enproxy = enproxy
         self.aria2_client = aria2p.API(aria2p.Client(port=port))
-        self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
+        self.ytdl: myYTDL = self.vid_dl.info_dl['ytdl']
 
         self.proxies = [i for i in range(CONF_PROXIES_MAX_N_GR_HOST)]
 
-        self.video_url = unquote(self.info_dict.get("url"))
+        self.video_url = unquote(self.info_dict.get('url'))
         self.uris = [self.video_url]
         self._host = urlparse(self.video_url).netloc
 
-        self.headers = self.info_dict.get("http_headers")
+        self.headers = self.info_dict.get('http_headers')
 
-        self.download_path = self.info_dict["download_path"]
+        self.download_path = self.info_dict['download_path']
 
         self.download_path.mkdir(parents=True, exist_ok=True)
 
         _filename = self.info_dict.get(
-            "_filename") or self.info_dict.get("filename")
+            '_filename') or self.info_dict.get('filename')
         self.filename = Path(
             self.download_path,
-            f"{_filename.stem}.{self.info_dict['format_id']}.\
-                aria2.{self.info_dict['ext']}")
+            f'{_filename.stem}.{self.info_dict["format_id"]}.aria2.{self.info_dict["ext"]}'
+            )
 
-        self.filesize = none_to_zero((self.info_dict.get("filesize", 0)))
+        self.filesize = none_to_zero((self.info_dict.get('filesize', 0)))
         self.down_size = 0
 
-        self.status = "init"
-        self.error_message = ""
+        self.status = 'init'
+        self.error_message = ''
 
-        self.n_workers = self.vid_dl.info_dl["n_workers"]
+        self.n_workers = self.vid_dl.info_dl['n_workers']
 
         self.count_init = 0
 
-        self.last_progress_str = "--"
+        self.last_progress_str = '--'
 
-        self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_aria2dl")
+        self.ex_dl = ThreadPoolExecutor(thread_name_prefix='ex_aria2dl')
 
         self.prep_init()
 
@@ -107,27 +107,27 @@ class AsyncARIA2CDownloader:
 
         def getter(x):
             if not x:
-                value, key_text = ("", "")
+                value, key_text = ('', '')
             else:
                 value, key_text = try_get(
                     [(v, sk) for k, v in self._CONFIG.items()
                         for sk in k if sk == x], lambda y: y[0]
-                ) or ("", "")
+                ) or ('', '')
 
             if value:
                 self.special_extr = True
-                limit = value["ratelimit"].ratelimit(key_text, delay=True)
-                maxplits = value["maxsplits"]
+                limit = value['ratelimit'].ratelimit(key_text, delay=True)
+                maxplits = value['maxsplits']
             else:
                 self.special_extr = False
-                limit = limiter_non.ratelimit("transp", delay=True)
+                limit = limiter_non.ratelimit('transp', delay=True)
                 maxplits = self.n_workers
 
             _sem = False
             if maxplits < 16:  # or x in ['']:
                 _sem = True
                 if x in CONF_ARIA2C_EXTR_GROUP:
-                    self._mode = "group"
+                    self._mode = 'group'
 
             if x in CONF_AUTO_PASRES:
                 self.auto_pasres = True
@@ -135,14 +135,14 @@ class AsyncARIA2CDownloader:
             return (_sem, limit, maxplits)
 
         self._extractor = try_get(self.info_dict.get(
-            "extractor_key"), lambda x: x.lower())
+            'extractor_key'), lambda x: x.lower())
         self.auto_pasres = False
         self.special_extr = False
-        self._mode = "simple"
+        self._mode = 'simple'
         _sem, self._decor, self._nsplits = getter(self._extractor)
 
         if not self.enproxy:
-            self._mode = "noproxy"
+            self._mode = 'noproxy'
 
         self.n_workers = self._nsplits
         if self.filesize:
@@ -151,18 +151,18 @@ class AsyncARIA2CDownloader:
                 self.n_workers = _nsplits
 
         opts_dict = {
-            "split": self.n_workers,
-            "header": '\n'.join(
-                [f"{key}: {value}"
+            'split': self.n_workers,
+            'header': '\n'.join(
+                [f'{key}: {value}'
                     for key, value in self.headers.items()]),
-            "dir": str(self.download_path),
-            "out": self.filename.name,
-            "uri-selector": "inorder",
-            "min-split-size": CONF_ARIA2C_MIN_SIZE_SPLIT,
+            'dir': str(self.download_path),
+            'out': self.filename.name,
+            'uri-selector': 'inorder',
+            'min-split-size': CONF_ARIA2C_MIN_SIZE_SPLIT,
         }
 
-        self.premsg = f"[{self.info_dict['id']}][{self.info_dict['title']}]\
-[{self.info_dict['format_id']}]"
+        self.premsg = f'[{self.info_dict["id"]}][{self.info_dict["title"]}]' +\
+                      f'[{self.info_dict["format_id"]}]'
         self.opts = self.aria2_client.get_global_options()
         for key, value in opts_dict.items():
             if not isinstance(value, list):
@@ -173,19 +173,18 @@ class AsyncARIA2CDownloader:
                 rc = self.opts.set(key, value)
                 if not rc:
                     logger.warning(
-                        f"{self.premsg} couldnt set [{key}] to [{value}]"
-                    )
+                        f'{self.premsg} couldnt set [{key}] to [{value}]')
 
-        if (_sem and self._mode == "noproxy"):
+        if (_sem and self._mode == 'noproxy'):
 
-            with self.ytdl.params.get("lock", contextlib.nullcontext()):
+            with self.ytdl.params.get('lock', contextlib.nullcontext()):
 
                 if not (_temp := traverse_obj(self.ytdl.params,
-                                              ("sem", self._host))):
+                                              ('sem', self._host))):
                     _temp = Lock()
-                    if not self.ytdl.params.get("sem"):
-                        self.ytdl.params.update({"sem": {}})
-                    self.ytdl.params["sem"].update({self._host: _temp})
+                    if not self.ytdl.params.get('sem'):
+                        self.ytdl.params.update({'sem': {}})
+                    self.ytdl.params['sem'].update({self._host: _temp})
 
             assert isinstance(_temp, Lock)
             self.sem = _temp
@@ -198,11 +197,11 @@ class AsyncARIA2CDownloader:
     async def init(self):
 
         try:
-            if self._mode == "noproxy":
+            if self._mode == 'noproxy':
                 self._index_proxy = -1
                 self._proxy = None
                 self.uris = [
-                    unquote(self.info_dict.get("url"))] * self.n_workers
+                    unquote(self.info_dict.get('url'))] * self.n_workers
 
             else:
                 self._proxy = None
@@ -211,40 +210,40 @@ class AsyncARIA2CDownloader:
                     if not self.vid_dl.hosts_dl.get(self._host):
                         queue_ = asyncio.Queue()
                         self.vid_dl.hosts_dl.update(
-                            {self._host: {"count": 0,
-                                          "queue": queue_}})
+                            {self._host: {'count': 0,
+                                          'queue': queue_}})
 
                         for el in random.sample(self.proxies,
                                                 len(self.proxies)):
                             queue_.put_nowait(el)
 
                 _res = await async_waitfortasks(
-                    self.vid_dl.hosts_dl[self._host]["queue"].get(),
+                    self.vid_dl.hosts_dl[self._host]['queue'].get(),
                     events=(self.vid_dl.reset_event,
                             self.vid_dl.stop_event))
-                if _res.get("event"):
+                if _res.get('event'):
                     return
-                elif (_e := _res.get("exception")):
+                elif (_e := _res.get('exception')):
                     raise AsyncARIA2CDLError(
-                        f"couldnt get index proxy: {repr(_e)}")
+                        f'couldnt get index proxy: {repr(_e)}')
                 else:
-                    self._index_proxy = _res.get("result", -1)
+                    self._index_proxy = _res.get('result', -1)
                     if self._index_proxy is None or\
                         not isinstance(self._index_proxy, int) or\
                             self._index_proxy == -1:
                         raise AsyncARIA2CDLError(
-                            f"couldnt get index proxy: {self._index_proxy}")
-                    self.vid_dl.hosts_dl[self._host]["count"] += 1
+                            f'couldnt get index proxy: {self._index_proxy}')
+                    self.vid_dl.hosts_dl[self._host]['count'] += 1
 
-                _init_url = self.info_dict.get("webpage_url")
+                _init_url = self.info_dict.get('webpage_url')
                 if self.special_extr:
                     _init_url = smuggle_url(
-                        _init_url, {"indexdl": self.vid_dl.index})
+                        _init_url, {'indexdl': self.vid_dl.index})
 
-                if self._mode == "simple":
+                if self._mode == 'simple':
                     _proxy_port = CONF_PROXIES_BASE_PORT+self._index_proxy*100
-                    self._proxy = f"http://127.0.0.1:{_proxy_port}"
-                    self.opts.set("all-proxy", self._proxy)
+                    self._proxy = f'http://127.0.0.1:{_proxy_port}'
+                    self.opts.set('all-proxy', self._proxy)
 
                     try:
                         _ytdl_opts = self.ytdl.params.copy()
@@ -259,7 +258,7 @@ class AsyncARIA2CDownloader:
                                     await proxy_ytdl.async_extract_info(
                                         _init_url)
                                 ),
-                                self.info_dict["format_id"],
+                                self.info_dict['format_id'],
                             )
 
                         _proxy_info_url = try_get(
@@ -271,7 +270,7 @@ class AsyncARIA2CDownloader:
 {self._proxy} init uri: {_proxy_info_url}\n{proxy_info}"
                         )
                         if not _proxy_info_url:
-                            raise AsyncARIA2CDLError("couldnt get video url")
+                            raise AsyncARIA2CDLError('couldnt get video url')
                         self.uris = [_proxy_info_url]
 
                     except Exception as e:
@@ -284,10 +283,10 @@ class AsyncARIA2CDownloader:
                     self.opts.set("split", self.n_workers)
                     await asyncio.sleep(0)
 
-                elif self._mode == "group":
+                elif self._mode == 'group':
                     _port = CONF_PROXIES_BASE_PORT+self._index_proxy*100+50
-                    self._proxy = f"http://127.0.0.1:{_port}"
-                    self.opts.set("all-proxy", self._proxy)
+                    self._proxy = f'http://127.0.0.1:{_port}'
+                    self.opts.set('all-proxy', self._proxy)
 
                     _uris = []
 
@@ -300,7 +299,7 @@ class AsyncARIA2CDownloader:
                         _gr = CONF_PROXIES_N_GR_VIDEO
 
                     self.n_workers = _gr * self._nsplits
-                    self.opts.set("split", self.n_workers)
+                    self.opts.set('split', self.n_workers)
 
                     async def get_uri(i):
 
@@ -309,9 +308,9 @@ class AsyncARIA2CDownloader:
                         _ytdl_opts = self.ytdl.params.copy()
                         _proxy_port = CONF_PROXIES_BASE_PORT + \
                             self._index_proxy*100+i
-                        _proxy = f"http://127.0.0.1:{_proxy_port}"
+                        _proxy = f'http://127.0.0.1:{_proxy_port}'
                         logger.debug(
-                            f"{self.premsg} proxy ip{i} {_proxy}"
+                            f'{self.premsg} proxy ip{i} {_proxy}'
                         )
 
                         try:
@@ -326,7 +325,7 @@ class AsyncARIA2CDownloader:
                                         await proxy_ytdl.async_extract_info(
                                             _init_url)
                                     ),
-                                    self.info_dict["format_id"],
+                                    self.info_dict['format_id'],
                                 )
 
                             _url = try_get(proxy_info['url'], lambda x:
@@ -338,7 +337,7 @@ class AsyncARIA2CDownloader:
 
                             if not _url:
                                 raise AsyncARIA2CDLError(
-                                    "couldnt get video url")
+                                    'couldnt get video url')
 
                             _url_as_dict = urlparse(_url)._asdict()
                             _url_as_dict["netloc"] = f"__routing=\
@@ -360,13 +359,13 @@ class AsyncARIA2CDownloader:
                             get_uri(i)): i for i in range(1, _gr + 1)},
                         events=(self.vid_dl.reset_event,
                                 self.vid_dl.stop_event))
-                    if _res.get("event"):
+                    if _res.get('event'):
                         return
-                    elif (_e := _res.get("exception")):
+                    elif (_e := _res.get('exception')):
                         raise AsyncARIA2CDLError(
-                            f"couldnt get uris: {repr(_e)}")
+                            f'couldnt get uris: {repr(_e)}')
                     else:
-                        _uris = _res.get("result", [])
+                        _uris = _res.get('result', [])
 
                     assert _uris and isinstance(_uris, list)
 
@@ -515,16 +514,16 @@ count_init: {self.count_init}"
                     self._qspeed.get(),
                     events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
 
-                if _res.get("event"):
+                if _res.get('event'):
                     break
-                elif (_e := _res.get("exception")):
+                elif (_e := _res.get('exception')):
                     raise AsyncARIA2CDLError(
-                        f"couldnt get index proxy: {repr(_e)}")
-                elif not (_input_speed := _res.get("result")):
+                        f'couldnt get index proxy: {repr(_e)}')
+                elif not (_input_speed := _res.get('result')):
                     await asyncio.sleep(0)
                     continue
                 elif isinstance(_input_speed, tuple) and isinstance(
-                        _input_speed[0], str) and _input_speed[0] == "KILL":
+                        _input_speed[0], str) and _input_speed[0] == 'KILL':
                     break
                 elif self.block_init:
                     await asyncio.sleep(0)
@@ -551,7 +550,7 @@ count_init: {self.count_init}"
                                 (el[2].microsecond / 1000000)
                             return f'{el[2].strftime("%H:%M:")}{_secs:06.3f}'
 
-                        _str_speed = ", ".join(
+                        _str_speed = ', '.join(
                             [
                                 f'({_strdate(el)}, \
                                     {{"speed": {el[0]}, "connec": {el[1]}}})'
@@ -559,16 +558,14 @@ count_init: {self.count_init}"
                             ]
                         )
                         logger.info(
-                            f"{self.premsg}[check_speed] speed reset: \
-n_el_speed[{len(_speed)}]")
+                            f'{self.premsg}[check_speed] speed reset: ' +
+                            f'n_el_speed[{len(_speed)}]')
                         logger.debug(
-                            f"{self.premsg}[check_speed] speed reset\
-\n{_str_speed}")
+                            f'{self.premsg}[check_speed] speed reset\n{_str_speed}')
                         await self.vid_dl.reset()
                         break
 
                     else:
-                        # _speed = _speed[-_index//2:]
                         _speed[0:_min_check -
                                _index+1] = ()
                         await asyncio.sleep(0)
@@ -580,10 +577,10 @@ n_el_speed[{len(_speed)}]")
 
         except Exception as e:
             logger.exception(
-                f"{self.premsg}[check_speed] {str(e)}")
+                f'{self.premsg}[check_speed] {str(e)}')
         finally:
             logger.debug(
-                f"{self.premsg}[check_speed] bye")
+                f'{self.premsg}[check_speed] bye')
 
     async def fetch(self):
 
@@ -593,12 +590,10 @@ n_el_speed[{len(_speed)}]")
         try:
 
             while (hasattr(self, 'dl_cont') and self.dl_cont.status in [
-                    "active", "paused", "waiting"]):
-
+                    'active', 'paused', 'waiting']):
                 try:
-
                     if self.vid_dl.pause_event.is_set():
-                        self._speed.append((datetime.now(), "pause"))
+                        self._speed.append((datetime.now(), 'pause'))
                         await self.async_pause()
                         await asyncio.sleep(0)
 
@@ -609,13 +604,13 @@ n_el_speed[{len(_speed)}]")
 
                         async with self._decor:
                             await self.async_resume()
-                        self._speed.append((datetime.now(), "resume"))
+                        self._speed.append((datetime.now(), 'resume'))
                         await asyncio.sleep(0)
                         self.vid_dl.pause_event.clear()
                         self.vid_dl.resume_event.clear()
                         self.progress_timer.reset()
 
-                        if _res.get("event") in ("stop", "reset"):
+                        if _res.get('event') in ('stop', 'reset'):
                             return
 
                     elif any([self.vid_dl.stop_event.is_set(),
@@ -641,7 +636,7 @@ n_el_speed[{len(_speed)}]")
                         self.down_size = self.dl_cont.completed_length
 
                         async with self.vid_dl.alock:
-                            self.vid_dl.info_dl["down_size"] += _incsize
+                            self.vid_dl.info_dl['down_size'] += _incsize
 
                     await asyncio.sleep(0)
 
@@ -650,49 +645,49 @@ n_el_speed[{len(_speed)}]")
                         raise
 
             if hasattr(self, 'dl_cont'):
-                if self.dl_cont.status == "complete":
-                    self._speed.append((datetime.now(), "complete"))
-                    self.status = "done"
+                if self.dl_cont.status == 'complete':
+                    self._speed.append((datetime.now(), 'complete'))
+                    self.status = 'done'
                     return
 
-                if self.dl_cont.status == "error":
-                    raise AsyncARIA2CDLError("error")
+                if self.dl_cont.status == 'error':
+                    raise AsyncARIA2CDLError('error')
 
         except BaseException as e:
             if isinstance(e, KeyboardInterrupt):
                 raise
-            if self._mode != "noproxy":
-                _msg = f"host: {self._host} proxy: {self._proxy} count: \
-{self.vid_dl.hosts_dl[self._host]['count']}"
+            if self._mode != 'noproxy':
+                _msg = f'host: {self._host} proxy: {self._proxy} count: ' +\
+                       f'{self.vid_dl.hosts_dl[self._host]["count"]}'
             else:
-                _msg = ""
-            if hasattr(self, 'dl_cont') and self.dl_cont.status == "error":
-                _msg_error = f"{repr(e)} - {self.dl_cont.error_message}"
+                _msg = ''
+            if hasattr(self, 'dl_cont') and self.dl_cont.status == 'error':
+                _msg_error = f'{repr(e)} - {self.dl_cont.error_message}'
             else:
                 _msg_error = repr(e)
             logger.error(
-                f"{self.premsg}[fetch] {_msg}error: {_msg_error}")
-            self._speed.append((datetime.now(), "error"))
-            self.status = "error"
+                f'{self.premsg}[fetch] {_msg}error: {_msg_error}')
+            self._speed.append((datetime.now(), 'error'))
+            self.status = 'error'
             self.error_message = _msg_error
 
     async def fetch_async(self):
 
         self.progress_timer = ProgressTimer()
-        self.status = "downloading"
+        self.status = 'downloading'
         self._speed = []
 
         try:
             while True:
                 async with async_lock(self.sem):
                     try:
-                        self._speed.append((datetime.now(), "init"))
+                        self._speed.append((datetime.now(), 'init'))
                         await self.init()
-                        if self.status in ("done", "error"):
+                        if self.status in ('done', 'error'):
                             return
                         elif self.vid_dl.stop_event.is_set():
-                            self._speed.append((datetime.now(), "stop"))
-                            if self.status == "stop":
+                            self._speed.append((datetime.now(), 'stop'))
+                            if self.status == 'stop':
                                 return
                             self.vid_dl.stop_event.clear()
                             self.block_init = True
@@ -700,11 +695,11 @@ n_el_speed[{len(_speed)}]")
                                 await self.async_restart()
                                 async with self.vid_dl.alock:
                                     self.vid_dl.info_dl[
-                                        "down_size"] -= self.down_size
+                                        'down_size'] -= self.down_size
                                 self.down_size = 0
                                 continue
                         elif self.vid_dl.reset_event.is_set():
-                            self._speed.append((datetime.now(), "reset"))
+                            self._speed.append((datetime.now(), 'reset'))
                             self.vid_dl.reset_event.clear()
                             self.block_init = True
                             if hasattr(self, 'dl_cont'):
@@ -716,13 +711,13 @@ n_el_speed[{len(_speed)}]")
                             self._qspeed = asyncio.Queue()
                             check_task = [
                                 asyncio.create_task(self.check_speed())]
-                            self._speed.append((datetime.now(), "fetch"))
+                            self._speed.append((datetime.now(), 'fetch'))
                             await self.fetch()
-                            if self.status in ("done", "error"):
+                            if self.status in ('done', 'error'):
                                 return
                             elif self.vid_dl.stop_event.is_set():
-                                self._speed.append((datetime.now(), "stop"))
-                                if self.status == "stop":
+                                self._speed.append((datetime.now(), 'stop'))
+                                if self.status == 'stop':
                                     return
                                 self.vid_dl.stop_event.clear()
                                 self.block_init = True
@@ -730,11 +725,11 @@ n_el_speed[{len(_speed)}]")
                                     await self.async_restart()
                                     async with self.vid_dl.alock:
                                         self.vid_dl.info_dl[
-                                            "down_size"] -= self.down_size
+                                            'down_size'] -= self.down_size
                                     self.down_size = 0
                                     continue
                             elif self.vid_dl.reset_event.is_set():
-                                self._speed.append((datetime.now(), "reset"))
+                                self._speed.append((datetime.now(), 'reset'))
                                 self.vid_dl.reset_event.clear()
                                 self.block_init = True
                                 if hasattr(self, 'dl_cont'):
@@ -742,61 +737,56 @@ n_el_speed[{len(_speed)}]")
                                     continue
                         finally:
                             self._qspeed.put_nowait(
-                                ("KILL", "KILL", datetime.now()))
+                                ('KILL', 'KILL', datetime.now()))
                             await asyncio.sleep(0)
                             if check_task:
                                 await asyncio.wait(check_task)
                     except BaseException as e:
                         if isinstance(e, KeyboardInterrupt):
                             raise
-                        if self._mode != "noproxy":
-                            _msg = f"host: {self._host} proxy: {self._proxy} \
-count: {self.vid_dl.hosts_dl[self._host]['count']}"
+                        if self._mode != 'noproxy':
+                            _msg = f'host: {self._host} proxy: {self._proxy} ' +\
+                                   f'count: {self.vid_dl.hosts_dl[self._host]["count"]}'
                         else:
-                            _msg = ""
-                        if hasattr(
-                            self, 'dl_cont') and self.dl_cont.status == \
-                                "error":
-                            _msg_error = f"{repr(e)} - \
-{self.dl_cont.error_message}"
+                            _msg = ''
+                        if hasattr(self, 'dl_cont') and self.dl_cont.status == 'error':
+                            _msg_error = f'{repr(e)} - {self.dl_cont.error_message}'
                         else:
                             _msg_error = repr(e)
                         logger.error(
-                            f"{self.premsg}[fetch_async] {_msg} error: \
-{_msg_error}"
+                            f'{self.premsg}[fetch_async] {_msg} error: {_msg_error}'
                         )
-                        self.status = "error"
+                        self.status = 'error'
                         self.error_message = _msg_error
                     finally:
-                        if self._mode != "noproxy" and hasattr(
-                            self, '_index_proxy') and self._index_proxy \
-                            and isinstance(
-                                self._index_proxy, int) and \
-                                self._index_proxy >= 0:
+                        if all([
+                                self._mode != 'noproxy', hasattr(self, '_index_proxy'),
+                                self._index_proxy, isinstance(self._index_proxy, int),
+                                self._index_proxy >= 0]):  # type: ignore
+
                             async with self.vid_dl.master_hosts_alock:
-                                self.vid_dl.hosts_dl[self._host]["count"] -= 1
+                                self.vid_dl.hosts_dl[self._host]['count'] -= 1
                                 self.vid_dl.hosts_dl[self._host][
-                                    "queue"].put_nowait(
+                                    'queue'].put_nowait(
                                     self._index_proxy)
                             self._proxy = None
 
         except BaseException as e:
             logger.exception(
-                f"{self.premsg}[fetch_async] {repr(e)}"
-            )
+                f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
             def _print_el(el):
                 if isinstance(el, str):
                     return el
                 else:
-                    return {"status": el.status, "speed": el.download_speed}
+                    return {'status': el.status, 'speed': el.download_speed}
 
             def _strdate(el):
                 _secs = el[0].second +\
                     (el[0].microsecond / 1000000)
                 return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
 
-            _str_speed = ", ".join(
+            _str_speed = ', '.join(
                 [
                     f'({_strdate(el)}, \
                         {_print_el(el[1])})'
@@ -805,29 +795,26 @@ count: {self.vid_dl.hosts_dl[self._host]['count']}"
             )
 
             logger.debug(
-                f"{self.premsg}[fetch_async] exiting [{len(self._speed)}]\n\
-{_str_speed}"
-            )
+                f'{self.premsg}[fetch_async] exiting [{len(self._speed)}]\n{_str_speed}')
 
     def print_hookup(self):
 
-        msg = ""
+        msg = ''
 
-        if self.status == "done":
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]: Completed\n"
-        elif self.status == "init":
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]: Waiting \
-[{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]\n"
-        elif self.status == "error":
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]: ERROR \
-{naturalsize(self.down_size, format_='.2f')} \
-[{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]\n"
-        elif self.status == "stop":
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]: STOPPED \
-{naturalsize(self.down_size, format_='.2f')} \
-[{naturalsize(self.filesize, format_='.2f') if self.filesize else 'NA'}]\n"
-        elif self.status == "downloading":
-
+        if self.status == 'done':
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: Completed\n'
+        elif self.status == 'init':
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: Waiting ' +\
+                  f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
+        elif self.status == 'error':
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: ERROR ' +\
+                  f'{naturalsize(self.down_size, format_=".2f")} ' +\
+                  f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
+        elif self.status == 'stop':
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: STOPPED ' +\
+                  f'{naturalsize(self.down_size, format_=".2f")} ' +\
+                  f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
+        elif self.status == 'downloading':
             if not any(
                 [
                     self.block_init,
@@ -849,32 +836,34 @@ count: {self.vid_dl.hosts_dl[self._host]['count']}"
                 _connections = _temp.connections
                 _eta_str = _temp.eta_string()
 
-                msg = f"[ARIA2C][{self.info_dict['format_id']}]: HOST\
-[{self._host.split('.')[0]}] CONN[{_connections:2d}/{self.n_workers:2d}] \
-DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"
+                msg = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST' +\
+                      f'[{self._host.split(".")[0]}] ' +\
+                      f'CONN[{_connections:2d}/{self.n_workers:2d}] ' +\
+                      f'DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n'
 
             else:
 
                 if self.block_init:
-                    _substr = "INIT"
+                    _substr = 'INIT'
                 elif self.vid_dl.pause_event.is_set():
-                    _substr = "PAUSED"
+                    _substr = 'PAUSED'
                 elif self.vid_dl.reset_event.is_set():
-                    _substr = "RESET"
+                    _substr = 'RESET'
                 elif self.vid_dl.stop_event.is_set():
-                    _substr = "STOPPED"
+                    _substr = 'STOPPED'
                 else:
-                    _substr = "UNKNOWN"
-                msg = f"[ARIA2C][{self.info_dict['format_id']}]: \
-HOST[{self._host.split('.')[0]}] {_substr} DL PR[{self.last_progress_str}]\n"
+                    _substr = 'UNKNOWN'
+                msg = f'[ARIA2C][{self.info_dict["format_id"]}]: ' +\
+                      f'HOST[{self._host.split(".")[0]}]' +\
+                      f'{_substr} DL PR[{self.last_progress_str}]\n'
 
-        elif self.status == "manipulating":
+        elif self.status == 'manipulating':
             if self.filename.exists():
                 _size = self.filename.stat().st_size
             else:
                 _size = 0
-            msg = f"[ARIA2C][{self.info_dict['format_id']}]: Ensambling \
-{naturalsize(_size, format_='.2f')} \
-[{naturalsize(self.filesize, format_='.2f')}]\n"
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: Ensambling ' +\
+                  f'{naturalsize(_size, format_=".2f")}' +\
+                  f'[{naturalsize(self.filesize, format_=".2f")}]\n'
 
         return msg

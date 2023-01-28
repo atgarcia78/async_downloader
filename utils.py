@@ -261,7 +261,7 @@ class ProgressTimer:
         return (f"{self.elapsed_seconds():.2f}")
 
     def reset(self):
-        #  self._last_ts += self.elapsed_seconds()
+        #self._last_ts += self.elapsed_seconds()
         self._last_ts = self.TIMER_FUNC()
 
     def elapsed_seconds(self) -> float:
@@ -279,17 +279,13 @@ class ProgressTimer:
 
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
-    #  UPDATE_TIMESPAN_S = 1.0#CONF_INTERVAL_GUI#1.0
-    #  AVERAGE_TIMESPAN_S = 5.0#5.0
 
-    def __init__(
-            self, initial_bytes: int = 0, upt_time: Union[int, float] = 1.0,
-            ave_time: Union[int, float] = 5.0):
+    def __init__(self, initial_bytes: int=0, upt_time: Union[int, float]=1.0, ave_time: Union[int, float]=5.0):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
         self.last_value = None
-        self.UPDATE_TIMESPAN_S = float(upt_time)  # 1.0#CONF_INTERVAL_GUI#1.0
-        self.AVERAGE_TIMESPAN_S = float(ave_time)  # 5.0#5.0
+        self.UPDATE_TIMESPAN_S = float(upt_time)
+        self.AVERAGE_TIMESPAN_S = float(ave_time)
 
     def __call__(self, byte_counter: int):
         time_now = self.TIMER_FUNC()
@@ -299,14 +295,11 @@ class SpeedometerMA:
             self.ts_data.append((time_now, byte_counter))
 
         # remove older entries
-        idx = max(0, bisect(self.ts_data,
-                            (time_now - self.AVERAGE_TIMESPAN_S,)) - 1)
+        idx = max(0, bisect(self.ts_data, (time_now - self.AVERAGE_TIMESPAN_S,)) - 1)
         self.ts_data[0:idx] = ()
 
         diff_time = time_now - self.ts_data[0][0]
-        if diff_time:
-            speed = (byte_counter - self.ts_data[0][1])/diff_time
-        speed = None
+        speed = (byte_counter - self.ts_data[0][1]) / diff_time if diff_time else None
         if self.timer.has_elapsed(seconds=self.UPDATE_TIMESPAN_S):
             self.last_value = speed
 

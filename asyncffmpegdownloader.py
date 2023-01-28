@@ -26,10 +26,12 @@ from yt_dlp.postprocessor.ffmpeg import EXT_TO_OUT_FORMATS, FFmpegPostProcessor
 
 from utils import naturalsize
 
+
 def parse_ffmpeg_time_string(time_string):
     time = 0
     reg1 = re.match(
-        r"((?P<H>\d\d?):)?((?P<M>\d\d?):)?(?P<S>\d\d?)(\.(?P<f>\d{1,3}))?", time_string
+        r"((?P<H>\d\d?):)?((?P<M>\d\d?):)?(?P<S>\d\d?)(\.(?P<f>\d{1,3}))?",
+        time_string
     )
     reg2 = re.match(r"\d+(?P<U>s|ms|us)", time_string)
     if reg1:
@@ -48,6 +50,7 @@ def parse_ffmpeg_time_string(time_string):
             time /= 1_000_000
     return time
 
+
 def compute_prefix(match):
     res = int(match.group("E"))
     if match.group("f") is not None:
@@ -61,7 +64,9 @@ def compute_prefix(match):
             res *= 1_000
     return res
 
+
 logger = logging.getLogger("async_FFMPEG_DL")
+
 
 class AsyncFFmpegFD(FFmpegFD):
 
@@ -78,10 +83,12 @@ class AsyncFFmpegFD(FFmpegFD):
 
     async def _async_call_downloader(self, tmpfilename, info_dict, queue):
 
-        urls = [f['url'] for f in info_dict.get('requested_formats', [])] or [info_dict['url']]
+        urls = [f['url'] for f in info_dict.get('requested_formats', [])] or \
+            [info_dict['url']]
         ffpp = FFmpegPostProcessor(downloader=self)
         if not ffpp.available:
-            logger.error('m3u8 download detected but ffmpeg could not be found. Please install')
+            logger.error('m3u8 download detected but ffmpeg could \
+not be found. Please install')
             return False
         ffpp.check_version()
 
