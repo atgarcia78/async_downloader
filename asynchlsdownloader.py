@@ -52,7 +52,9 @@ from utils import (
     myYTDL,
     async_waitfortasks,
     Union,
-    MySyncAsyncEvent
+    cast,
+    MySyncAsyncEvent,
+    put_sequence
 )
 
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
@@ -154,18 +156,15 @@ class AsyncHLSDownloader:
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
             self.special_extr: bool = False
             if self.enproxy:
-                self._qproxies = Queue()
-                for el1, el2 in zip(
+                _seq = zip(
                     random.sample(
                         range(CONF_PROXIES_MAX_N_GR_HOST),
-                        CONF_PROXIES_MAX_N_GR_HOST
-                    ),
+                        CONF_PROXIES_MAX_N_GR_HOST),
                     random.sample(
                         range(CONF_PROXIES_MAX_N_GR_HOST),
-                        CONF_PROXIES_MAX_N_GR_HOST
-                    ),
-                ):
-                    self._qproxies.put_nowait((el1, el2))
+                        CONF_PROXIES_MAX_N_GR_HOST))
+
+                self._qproxies = put_sequence(Queue(), _seq)
 
             _proxies = self._proxy if hasattr(self, '_proxy') else None
             self.init_client = httpx.Client(
@@ -177,12 +176,13 @@ class AsyncHLSDownloader:
                 verify=False,
             )
             self.filesize = None
-            self.premsg = f"[{self.info_dict['id']}]\
-[{self.info_dict['title']}]\
-[{self.info_dict['format_id']}]\
-[{self.count}/{self.n_workers}]"
-            self.init()
+            self.premsg = ''.join([
+                f'[{self.info_dict["id"]}]',
+                f'[{self.info_dict["title"]}]',
+                f'[{self.info_dict["format_id"]}]',
+                f'[{self.count}/{self.n_workers}]'])
 
+            self.init()
         except Exception as e:
             logger.exception(repr(e))
             self.init_client.close()
@@ -198,8 +198,8 @@ class AsyncHLSDownloader:
                     self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
                     self.auto_pasres = True
                     logger.debug(
-                        f"{self.premsg} \
-{_for_print_entry(self.info_dict)}")
+                        f'{self.premsg} ' +
+                        f'{_for_print_entry(self.info_dict)}')
                     if self.info_dict.get("playlist_title", "") not in (
                         "MostWatchedScenes",
                         "Search",
@@ -252,15 +252,14 @@ class AsyncHLSDownloader:
                         _downloaders = self.vid_dl.info_dl[
                             'fromplns'][self.fromplns]['downloaders']
                         logger.debug(
-                            f"{self.premsg}: \
-added new dl to plns [{self.fromplns}], \
-count [{len(_downloaders)}] \
-members[{list(_downloaders.keys())}]"
+                            f'{self.premsg}: ' +
+                            f'added new dl to plns [{self.fromplns}], ' +
+                            f'count [{len(_downloaders)}] ' +
+                            f'members[{list(_downloaders.keys())}]'
                         )
             except Exception as e:
                 logger.exception(
-                    f"{self.premsg}: {str(e)}"
-                )
+                    f'{self.premsg}: {str(e)}')
 
             value, key_text = try_get(
                 [
@@ -301,9 +300,11 @@ members[{list(_downloaders.keys())}]"
             self.info_dict["init_section"] = self.info_dict[
                 "fragments"][0].init_section
 
-            logger.debug(f"fragments: \n\
-{[str(f) for f in self.info_dict['fragments']]}")
-            logger.debug(f"init_section: \n{self.info_dict['init_section']}")
+            logger.debug(
+                f'fragments:\n{[str(f) for f in self.info_dict["fragments"]]}')
+
+            logger.debug(
+                f'init_section:\n{self.info_dict["init_section"]}')
 
             if _frag := self.info_dict["init_section"]:
                 _file_path = Path(str(self.fragments_base_path) + ".Frag0")
@@ -319,8 +320,10 @@ members[{list(_downloaders.keys())}]"
                                 ).content
                             }
                         )
-                        logger.debug(f"{self.premsg}:\
-{self.key_cache[_frag.key.absolute_uri]}")
+                        logger.debug(
+                            f'{self.premsg}:' +
+                            f'{self.key_cache[_frag.key.absolute_uri]}')
+
                         logger.debug(f"{self.premsg}:{_frag.key.iv}")
 
                 self.get_init_section(_url, _file_path, _frag.key)
@@ -672,24 +675,20 @@ proxy [{_print_proxy}]: Exception occurred when reset: \
 
     def resetdl(self, cause=None):
 
-        logger.info(f"{self.premsg}:RESET[{self.n_reset}] cause[{cause}] \
-fromplns[{self.fromplns}]")
+        logger.info(f"{self.premsg}:RESET[{self.n_reset}] cause[{cause}] fromplns[{self.fromplns}]")
 
         try:
 
             if cause and str(cause) == "403":
 
-                logger.info(f"{self.premsg}:RESET[{self.n_reset}] \
-start wait in reset cause 403")
-                if not wait_time(CONF_HLS_RESET_403_TIME,
-                                 event=self.vid_dl.stop_event):
+                logger.info(f"{self.premsg}:RESET[{self.n_reset}] start wait in reset cause 403")
+                if not wait_time(CONF_HLS_RESET_403_TIME, event=self.vid_dl.stop_event):
                     return
 
-                logger.info(f"{self.premsg}:RESET[{self.n_reset}] \
-fin wait in reset cause 403")
+                logger.info(f"{self.premsg}:RESET[{self.n_reset}] fin wait in reset cause 403")
 
             if self.enproxy:
-                el1, el2 = self._qproxies.get()
+                el1, el2 = cast(tuple, self._qproxies.get())
                 _proxy_port = CONF_PROXIES_BASE_PORT + el1*100 + el2
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
                 self._proxy = {"all://": _proxy}
@@ -1218,8 +1217,7 @@ increase speed: throttle[{_old_throttle} -> \
                 if _res.get("event"):
                     return
                 elif (_e := _res.get("exception")):
-                    raise AsyncHLSDLError(f"couldnt get frag from queue \
-{repr(_e)}")
+                    raise AsyncHLSDLError(f'couldnt get frag from queue {repr(_e)}')
                 else:
                     q = _res.get("result")
                     if q is None:
@@ -1230,8 +1228,8 @@ increase speed: throttle[{_old_throttle} -> \
 
                 assert isinstance(q, int)
 
-                logger.debug(f"{self.premsg}:[worker-{nco}]: frag[{q}]\n\
-{self.info_frag[q - 1]}")
+                logger.debug(
+                    f'{self.premsg}:[worker-{nco}]: frag[{q}]\n{self.info_frag[q - 1]}')
 
                 if self.vid_dl.pause_event.is_set():
                     self._speed.append((datetime.now(), "pause"))
@@ -1274,12 +1272,10 @@ increase speed: throttle[{_old_throttle} -> \
 
                     try:
 
-                        self._premsg = f"{self.premsg}:[worker-{nco}]:\
-[frag-{q}] "
+                        self._premsg = f'{self.premsg}:[worker-{nco}]:[frag-{q}] '
 
                         async with self._limit:
-                            logger.debug(f"{self._premsg}: \
-limiter speed")
+                            logger.debug(f'{self._premsg}: limiter speed')
 
                         async with aiofiles.open(
                             filename, mode="ab") as f, client.stream(
@@ -1288,9 +1284,8 @@ limiter speed")
                                 timeout=15) as res:
 
                             logger.debug(
-                                f"{self._premsg}: \
-{res.request} {res.status_code} \
-{res.reason_phrase} {res.headers}")
+                                f'{self._premsg}:{res.request}, {res.status_code}, ' +
+                                f'{res.reason_phrase}, {res.headers}')
 
                             if res.status_code == 403:
                                 if self.fromplns:
@@ -1300,22 +1295,16 @@ limiter speed")
                                     _wait_tasks = await self.vid_dl.reset(
                                         "403")
                                 logger.debug(
-                                    f"{self._premsg}: \
-wait_tasks\n{_wait_tasks}\n\
-{print_tasks(_wait_tasks)}")
+                                    f'{self._premsg}: wait_tasks\n{_wait_tasks}\n{print_tasks(_wait_tasks)}')
                                 if _wait_tasks:
                                     done, pending = await asyncio.wait(
                                         _wait_tasks)
                                     logger.debug(
-                                        f"{self._premsg}: \
-wait_tasks result\n\
-DONE\n{done}\nPENDING\n\
-{pending}")
+                                        f'{self._premsg}:wait_tasks result\nDONE\n{done}\nPENDING\n{pending}')
                                 return
                             elif res.status_code >= 400:
                                 raise AsyncHLSDLError(
-                                    f"Frag:{str(q)} \
-resp code:{str(res)}")
+                                    f'Frag:{str(q)} resp code:{str(res)}')
                             else:
                                 _hsize = int_or_none(
                                     res.headers.get("content-length"))
@@ -1333,8 +1322,7 @@ resp code:{str(res)}")
                                                 "filesize"] += self.filesize
                                 else:
                                     logger.warning(
-                                        f"{self._premsg}: \
-Frag:{str(q)} _hsize is None")
+                                        f'{self._premsg}: Frag:{str(q)} _hsize is None')
                                     continue
 
                                 if self.info_frag[q - 1]["downloaded"]:
@@ -1350,11 +1338,7 @@ Frag:{str(q)} _hsize is None")
                                         ):
 
                                             logger.debug(
-                                                f"{self._premsg}: \
-Already DL with hsize[\
-{_hsize}] and size [\
-{_size}]"
-                                            )
+                                                f'{self._premsg}:Already DL - hsize[{_hsize}] size [{_size}]')
                                             break
                                         else:
                                             await f.truncate(0)
@@ -1370,13 +1354,9 @@ Already DL with hsize[\
                                                 ] -= _size
                                     else:
                                         logger.warning(
-                                            f"{self.premsg}: frag with\
-mark downloaded but file \
-[{filename}] doesnt exists"
-                                        )
-                                        self.info_frag[q - 1][
-                                            "downloaded"
-                                        ] = False
+                                            f'{self.premsg}: frag with mark downloaded but file ' +
+                                            f'[{filename}] doesnt exists')
+                                        self.info_frag[q - 1]["downloaded"] = False
                                         async with self._LOCK:
                                             self.n_dl_fragments -= 1
 
@@ -1485,25 +1465,20 @@ mark downloaded but file \
                                 self.n_dl_fragments += 1
 
                             logger.debug(
-                                f"{self._premsg}: OK DL: total\
-[{self.n_dl_fragments}]\n\
-{self.info_frag[q - 1]}"
-                            )
+                                f'{self._premsg}: OK DL: total' +
+                                f'[{self.n_dl_fragments}]\n' +
+                                f'{self.info_frag[q - 1]}')
                             break
                         else:
                             logger.warning(
-                                f"{self._premsg}: end of streaming. \
-fragment not completed\n\
-{self.info_frag[q - 1]}"
-                            )
+                                f'{self._premsg}: end of streaming. Fragment not completed\n' +
+                                f'{self.info_frag[q - 1]}')
                             raise AsyncHLSDLError(
-                                f"fragment not completed frag[{q}]"
-                            )
+                                f"fragment not completed frag[{q}]")
 
                     except AsyncHLSDLErrorFatal as e:
 
-                        logger.debug(f"{self._premsg}: errorfatal \
-{repr(e)}")
+                        logger.debug(f"{self._premsg}: errorfatal {repr(e)}")
                         self.info_frag[q - 1]["error"].append(repr(e))
                         self.info_frag[q - 1]["downloaded"] = False
                         if await os.path.exists(filename):
@@ -1602,8 +1577,7 @@ fragment not completed\n\
                         else:
                             self.info_frag[q - 1]["error"].append(
                                 "MaxLimitRetries")
-                            logger.warning(f"{self._premsg}: \
-MaxLimitRetries:skip")
+                            logger.warning(f"{self._premsg}: MaxLimitRetries:skip")
                             self.info_frag[q - 1]["skipped"] = True
                             break
                     finally:
@@ -1639,14 +1613,12 @@ MaxLimitRetries:skip")
 
         if self.fromplns:
             _event = traverse_obj(
-                self.vid_dl.info_dl["fromplns"], ("ALL", "reset")
-            )
+                self.vid_dl.info_dl["fromplns"], ("ALL", "reset"))
             if _event:
                 await _event.async_wait()  # type: ignore
             self.vid_dl.info_dl["fromplns"][self.fromplns][
                 "downloading"].add(
-                self.vid_dl.info_dict["playlist_index"]
-            )
+                self.vid_dl.info_dict["playlist_index"])
             self.vid_dl.info_dl["fromplns"]["ALL"][
                 "downloading"].add(
                 self.fromplns
@@ -1693,9 +1665,8 @@ MaxLimitRetries:skip")
                     # self.vid_dl.end_tasks.set()
 
                     logger.debug(
-                        f"{self.premsg}[fetch_async]: done[{len(list(done))}] \
-pending[{len(list(pending))}]"
-                    )
+                        f'{self.premsg}[fetch_async]: done[{len(list(done))}] ' +
+                        f'pending[{len(list(pending))}]')
 
                     _nfragsdl = len(self.fragsdl())
                     inc_frags_dl = _nfragsdl - n_frags_dl
@@ -1752,15 +1723,11 @@ pending[{len(list(pending))}]"
                                         self._speed.append((
                                             datetime.now(), "speed"))
                                         logger.info(
-                                            f"{self.premsg}:RESET\
-[{self.n_reset}]:CAUSE[{_cause}]"
-                                        )
+                                            f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
 
                                     elif _cause == "manual":
                                         logger.info(
-                                            f"{self.premsg}:RESET\
-[{self.n_reset}]:CAUSE[{_cause}]"
-                                        )
+                                            f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
                                         continue
 
                                     try:
@@ -1779,33 +1746,26 @@ pending[{len(list(pending))}]"
                                         for _ in range(self.n_workers):
                                             self.frags_queue.put_nowait("KILL")
                                         logger.debug(
-                                            f"{self.premsg}:RESET\
-[{self.n_reset}]:OK:Pending frags \
-{len(self.fragsnotdl())}"
-                                        )
+                                            f'{self.premsg}:RESET[{self.n_reset}]:OK:Pending frags\n' +
+                                            f'{len(self.fragsnotdl())}')
                                         await asyncio.sleep(0)
                                         continue
 
                                     except Exception as e:
 
                                         logger.exception(
-                                            f"{self.premsg}:RESET\
-[{self.n_reset}]:ERROR reset \
-couldnt progress:[{repr(e)}]"
+                                            f'{self.premsg}:RESET[{self.n_reset}]:' +
+                                            f'ERROR reset couldnt progress:[{repr(e)}]'
                                         )
                                         self.status = "error"
                                         await self.clean_when_error()
                                         raise AsyncHLSDLErrorFatal(
-                                            f"{self.premsg}: ERROR reset \
-couldnt progress"
-                                        )
+                                            f'{self.premsg}: ERROR reset couldnt progress')
 
                                 else:
 
                                     logger.warning(
-                                        f"{self.premsg}:RESET[{self.n_reset}]:\
-ERROR:Max_number_of_resets"
-                                    )
+                                        f'{self.premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets')
                                     self.status = "error"
                                     await self.clean_when_error()
                                     await asyncio.sleep(0)
@@ -1821,10 +1781,8 @@ ERROR:Max_number_of_resets"
                                 if inc_frags_dl > 0:
 
                                     logger.debug(
-                                        f"{self.premsg}: [{n_frags_dl} -> \
-{inc_frags_dl}] new cycle with no \
-fatal error"
-                                    )
+                                        f'{self.premsg}: [{n_frags_dl} -> ' +
+                                        f'{inc_frags_dl}] new cycle with no fatal error')
                                     try:
                                         await self.areset()
                                         if self.vid_dl.stop_event.is_set():
@@ -1835,38 +1793,35 @@ fatal error"
                                         for _ in range(self.n_workers):
                                             self.frags_queue.put_nowait("KILL")
                                         logger.debug(
-                                            f"{self.premsg}:RESET new cycle\
-[{self.n_reset}]:OK:Pending frags \
-{len(self.fragsnotdl())}"
-                                        )
+                                            f'{self.premsg}:RESET new cycle' +
+                                            f'[{self.n_reset}]:OK:Pending frags ' +
+                                            f'{len(self.fragsnotdl())}')
                                         self.n_reset -= 1
                                         continue
 
                                     except Exception as e:
                                         logger.exception(
-                                            f"{self.premsg}:RESET\
-[{self.n_reset}]:ERROR reset \
-couldnt progress:[{repr(e)}]"
+                                            f'{self.premsg}:RESET' +
+                                            f'[{self.n_reset}]:ERROR reset ' +
+                                            f'couldnt progress:[{repr(e)}]'
                                         )
                                         self.status = "error"
                                         await self.clean_when_error()
                                         await asyncio.sleep(0)
                                         raise AsyncHLSDLErrorFatal(
-                                            f"{self.premsg}: ERROR reset \
-couldnt progress"
+                                            f'{self.premsg}: ERROR reset ' +
+                                            'couldnt progress'
                                         )
 
                                 else:
                                     logger.debug(
-                                        f"{self.premsg}: [{n_frags_dl} <-> \
-{inc_frags_dl}] no improvement, \
-lets raise an error"
-                                    )
+                                        f'{self.premsg}: [{n_frags_dl} <-> ' +
+                                        f'{inc_frags_dl}] no improvement, ' +
+                                        'lets raise an error"')
                                     self.status = "error"
                                     raise AsyncHLSDLErrorFatal(
-                                        f"{self.premsg}: no changes in number \
-of dl frags in one cycle"
-                                    )
+                                        f'{self.premsg}: no changes in number ' +
+                                        'of dl frags in one cycle')
 
                 except AsyncHLSDLErrorFatal:
                     raise
@@ -1895,9 +1850,9 @@ of dl frags in one cycle"
                         self.vid_dl.info_dict["playlist_index"])
                 except Exception:
                     logger.warning(
-                        f"{self.premsg} error when removing \
-[{self.vid_dl.info_dict['playlist_index']}] \
-                        from {_downloading}"
+                        f'{self.premsg} error when removing ' +
+                        f'[{self.vid_dl.info_dict["playlist_index"]}] ' +
+                        f'from {_downloading}'
                     )
 
                 if not self.vid_dl.info_dl["fromplns"][
@@ -1932,9 +1887,7 @@ of dl frags in one cycle"
                 "in_reset"
             ]:
                 logger.info(
-                    f"{self.premsg} end of resets fromplns \
-[{self.fromplns}]"
-                )
+                    f'{self.premsg} end of resets fromplns [{self.fromplns}]')
                 try:
                     self.vid_dl.info_dl["fromplns"]["ALL"][
                         "in_reset"
@@ -1949,10 +1902,9 @@ of dl frags in one cycle"
 
                 except Exception:
                     logger.warning(
-                        f"{self.premsg} error when removing \
-[{self.fromplns}] from \
-{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}"
-                    )
+                        f'{self.premsg} error when removing ' +
+                        f'[{self.fromplns}] from ' +
+                        f'{self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]}')
 
                 self.vid_dl.info_dl["fromplns"][self.fromplns][
                     "reset"
@@ -1960,9 +1912,9 @@ of dl frags in one cycle"
 
         except Exception:
             logger.warning(
-                f"{self.premsg} error when removing \
-[{self.vid_dl.info_dict['playlist_index']}] from\
-{self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset']}")
+                f'{self.premsg} error when removing ' +
+                f'[{self.vid_dl.info_dict["playlist_index"]}] from' +
+                f'{self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]}')
 
     def dump_init_file(self):
         init_data = {el["frag"]: el["headersize"]
@@ -2033,9 +1985,7 @@ of dl frags in one cycle"
                 )
                 if _skipped:
                     logger.warning(
-                        f"{self.premsg}: [ensamble_file] skipped frags \
-[{_skipped}]"
-                    )
+                        f'{self.premsg}: [ensamble_file] skipped frags [{_skipped}]')
             else:
                 self.status = "error"
                 self.sync_clean_when_error()
@@ -2070,31 +2020,32 @@ of dl frags in one cycle"
             self, '_proxy') else None
 
         if self.status == "done":
-            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] \
-Completed \n"
+            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed\n"
+
         elif self.status == "init":
-            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] \
-Waiting to DL [{_filesize_str}] \
-[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n"
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+                            f'Waiting to DL [{_filesize_str}] ',
+                            f'[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n'])
+
         elif self.status == "error":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
                 if self.filesize
                 else "--"
             )
-            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] \
-ERROR [{_rel_size_str}] \
-[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}\
-]\n"
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+                            f'ERROR [{_rel_size_str}] ',
+                            f'[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n'])
         elif self.status == "stop":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
                 if self.filesize
                 else "--"
             )
-            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] \
-STOPPED [{_rel_size_str}] \
-[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n"
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+                            f'STOPPED [{_rel_size_str}] ',
+                            f'[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n'])
+
         elif self.status == "downloading":
 
             _eta_smooth_str = "--"
@@ -2135,23 +2086,24 @@ STOPPED [{_rel_size_str}] \
                 else "-----"
             )
 
-            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] \
-WK[{self.count:2d}/{self.n_workers:2d}] \
-FR[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}\
-] PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}\
-]"
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+                            f'WK[{self.count:2d}/{self.n_workers:2d}] ',
+                            f'FR[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]',
+                            f'PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]'])
 
         elif self.status == "init_manipulating":
-            return f"[HLS][{self.info_dict['format_id']}]: \
-Waiting for Ensambling \n"
+            return ''.join([
+                f'[HLS][{self.info_dict["format_id"]}]: ',
+                'Waiting for Ensambling \n'])
+
         elif self.status == "manipulating":
             if self.filename.exists():
                 _size = self.filename.stat().st_size
             else:
                 _size = 0
             _str = (
-                f"[{naturalsize(_size)}/{naturalsize(self.filesize)}]\
-({(_size/self.filesize)*100:.2f}%)"
+                f'[{naturalsize(_size)}/{naturalsize(self.filesize)}]' +
+                f'({(_size/self.filesize)*100:.2f}%)'
                 if self.filesize
                 else f"[{naturalsize(_size)}]"
             )

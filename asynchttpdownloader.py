@@ -86,13 +86,13 @@ class AsyncHTTPDownloader:
 
         self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
 
-        self.proxies = None
+        #  self.proxies = None
 
         self.verifycert = False
         self.timeout = httpx.Timeout(20, connect=20)
 
-        self.limits = httpx.Limits(max_keepalive_connections=None,
-                                   max_connections=None)
+        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
+
         self.headers = self.info_dict.get("http_headers")
 
         self.init_client = httpx.Client(
@@ -119,9 +119,7 @@ class AsyncHTTPDownloader:
             )
         else:
             _filename = self.info_dict.get("filename")
-            self.download_path = Path(
-                self.base_download_path, self.info_dict["format_id"]
-            )
+            self.download_path = Path(self.base_download_path, self.info_dict["format_id"])
             self.download_path.mkdir(parents=True, exist_ok=True)
             self.filename = Path(
                 self.base_download_path,
@@ -627,7 +625,7 @@ with size {partsize} but without headersize. Re-download"
     async def fetch(self, i):
 
         client = httpx.AsyncClient(
-                proxies=try_get(self.proxies, lambda x: x[i]),
+                #  proxies=try_get(self.proxies, lambda x: x[i]),
                 limits=self.limits,
                 follow_redirects=True,
                 timeout=self.timeout,

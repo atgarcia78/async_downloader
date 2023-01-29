@@ -28,7 +28,11 @@ from typing import (
     Dict,
     Coroutine,
     Any,
-    Iterable)
+    Iterable,
+    cast
+)
+
+import queue
 
 from asgiref.sync import (
     sync_to_async,
@@ -110,6 +114,15 @@ CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
 CONF_AUTO_PASRES = ["doodstream"]
+
+
+def put_sequence(q: Union[queue.Queue, asyncio.Queue], seq: Iterable) -> Union[queue.Queue, asyncio.Queue]:
+
+    if seq:
+        queue_ = getattr(q, 'queue', getattr(q, '_queue', None))
+        assert queue_ is not None
+        queue_.extend(seq)
+    return q
 
 
 class LocalStorage:
