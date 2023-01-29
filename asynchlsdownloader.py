@@ -1826,24 +1826,18 @@ increase speed: throttle[{_old_throttle} -> \
                 except AsyncHLSDLErrorFatal:
                     raise
                 except Exception as e:
-                    logger.exception(
-                        f"{self.premsg}[fetch_async] error {repr(e)}"
-                    )
+                    logger.exception(f"{self.premsg}[fetch_async] error {repr(e)}")
                 finally:
                     await asyncio.sleep(0)
 
         except Exception as e:
-            logger.error(
-                f"{self.premsg} error {repr(e)}"
-            )
+            logger.error(f"{self.premsg} error {repr(e)}")
             self.status = "error"
         finally:
             await sync_to_async(self.dump_init_file, executor=self.ex_dl)()
             if self.fromplns:
 
-                _downloading = self.vid_dl.info_dl[
-                        "fromplns"][self.fromplns][
-                        "downloading"]
+                _downloading = self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]
                 try:
 
                     _downloading.remove(
@@ -1852,21 +1846,17 @@ increase speed: throttle[{_old_throttle} -> \
                     logger.warning(
                         f'{self.premsg} error when removing ' +
                         f'[{self.vid_dl.info_dict["playlist_index"]}] ' +
-                        f'from {_downloading}'
-                    )
+                        f'from {_downloading}')
 
                 if not self.vid_dl.info_dl["fromplns"][
                         self.fromplns]["downloading"]:
                     self.vid_dl.info_dl["fromplns"]["ALL"][
                         "downloading"].remove(self.fromplns)
 
-            logger.debug(
-                f"{self.premsg}%no%\n\n{json.dumps(self._test)}"
-            )
+            logger.debug(f'{self.premsg}%no%\n\n{json.dumps(self._test)}')
+
             self.init_client.close()
-            logger.debug(
-                f"{self.premsg}:Frags DL completed"
-            )
+            logger.debug(f'{self.premsg}:Frags DL completed')
             if (
                 not self.vid_dl.stop_event.is_set()
                 and not self.status == "error"
@@ -1878,27 +1868,21 @@ increase speed: throttle[{_old_throttle} -> \
     async def clean_from_reset(self):
 
         try:
+
             assert self.fromplns and self.vid_dl.reset_event.is_set()
-            self.vid_dl.info_dl["fromplns"][self.fromplns][
-                "in_reset"
-            ].remove(self.vid_dl.info_dict["playlist_index"])
-            if not self.vid_dl.info_dl["fromplns"][
-                self.fromplns][
-                "in_reset"
-            ]:
+
+            self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"].remove(
+                self.vid_dl.info_dict["playlist_index"])
+
+            if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
                 logger.info(
                     f'{self.premsg} end of resets fromplns [{self.fromplns}]')
+
                 try:
-                    self.vid_dl.info_dl["fromplns"]["ALL"][
-                        "in_reset"
-                    ].remove(self.fromplns)
-                    if not self.vid_dl.info_dl["fromplns"][
-                        "ALL"][
-                        "in_reset"
-                    ]:
-                        self.vid_dl.info_dl["fromplns"]["ALL"][
-                            "reset"
-                        ].set()
+
+                    self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].remove(self.fromplns)
+                    if not self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
+                        self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
 
                 except Exception:
                     logger.warning(
@@ -1906,10 +1890,10 @@ increase speed: throttle[{_old_throttle} -> \
                         f'[{self.fromplns}] from ' +
                         f'{self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]}')
 
-                self.vid_dl.info_dl["fromplns"][self.fromplns][
-                    "reset"
-                ].set()
+                self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
 
+        except AssertionError:
+            pass
         except Exception:
             logger.warning(
                 f'{self.premsg} error when removing ' +
@@ -1919,9 +1903,10 @@ increase speed: throttle[{_old_throttle} -> \
     def dump_init_file(self):
         init_data = {el["frag"]: el["headersize"]
                      for el in self.info_frag if el["headersize"]}
+
         with open(self.init_file, "w") as f:
             json.dump(init_data, f)
-        logger.debug(f"{self.premsg} init data\n{init_data}")
+        logger.debug(f'{self.premsg} init data\n{init_data}')
 
     async def clean_when_error(self):
         for f in self.info_frag:
@@ -1936,7 +1921,6 @@ increase speed: throttle[{_old_throttle} -> \
                     f["file"].unlink()
 
     def ensamble_file(self):
-
         self.status = "manipulating"
         logger.debug(f"{self.premsg}: Fragments DL \n{self.fragsdl()}")
 
@@ -1963,8 +1947,7 @@ increase speed: throttle[{_old_throttle} -> \
                                 dest.write(source.read())
                         else:
                             raise AsyncHLSDLError(
-                                f"{self.premsg}: error when ensambling: {f}"
-                            )
+                                f'{self.premsg}: error when ensambling: {f}')
                     else:
                         with open(f["file"], "rb") as source:
                             dest.write(source.read())
@@ -1972,7 +1955,7 @@ increase speed: throttle[{_old_throttle} -> \
         except Exception as e:
             if self.filename.exists():
                 self.filename.unlink()
-            logger.exception(f"{self.premsg}:Exception ocurred: {repr(e)}")
+            logger.exception(f'{self.premsg}:Exception ocurred: {repr(e)}')
             self.status = "error"
             self.sync_clean_when_error()
             raise
@@ -1981,8 +1964,7 @@ increase speed: throttle[{_old_throttle} -> \
                 rmtree(str(self.download_path), ignore_errors=True)
                 self.status = "done"
                 logger.debug(
-                    f"{self.premsg}: [ensamble_file] file ensambled"
-                )
+                    f'{self.premsg}: [ensamble_file] file ensambled')
                 if _skipped:
                     logger.warning(
                         f'{self.premsg}: [ensamble_file] skipped frags [{_skipped}]')
@@ -1990,8 +1972,7 @@ increase speed: throttle[{_old_throttle} -> \
                 self.status = "error"
                 self.sync_clean_when_error()
                 raise AsyncHLSDLError(
-                    f"{self.premsg}: error when ensambling parts"
-                )
+                    f'{self.premsg}: error when ensambling parts')
 
     def fragsnotdl(self):
         res = []
