@@ -425,17 +425,15 @@ class AsyncHLSDownloader:
                             }
                         )
                         logger.debug(
-                            f"{self.premsg}:\
-{self.key_cache[fragment.key.absolute_uri]}")
+                            f"{self.premsg}:{self.key_cache[fragment.key.absolute_uri]}")
                         logger.debug(f"{self.premsg}:{fragment.key.iv}")
 
             logger.debug(
-                f"{self.premsg}: Frags already DL: {len(self.fragsdl())}, \
-Frags not DL: {len(self.fragsnotdl())}, \
-Frags to request: {len(self.frags_to_dl)}"
-            )
-            logger.debug(f"{self.premsg}: \nFrags DL: {self.fragsdl()}\n\
-Frags not DL: {self.fragsnotdl()}")
+                f"{self.premsg}: Frags already DL: {len(self.fragsdl())}, " +
+                f"Frags not DL: {len(self.fragsnotdl())}, " +
+                f"Frags to request: {len(self.frags_to_dl)}")
+            logger.debug(
+                f"{self.premsg}: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
 
             self.n_total_fragments = len(self.info_dict["fragments"])
 
@@ -467,13 +465,12 @@ Frags not DL: {self.fragsnotdl()}")
                 _est_size = naturalsize(self.filesize)
 
             logger.debug(
-                f"{self.premsg}: total duration \
-{print_norm_time(self.totalduration)} -- \
-estimated filesize {_est_size} -- already downloaded \
-{naturalsize(self.down_size)} -- total fragments \
-{self.n_total_fragments} -- fragments already dl \
-{self.n_dl_fragments}"
-            )
+                f"{self.premsg}: total duration " +
+                f"{print_norm_time(self.totalduration)} -- " +
+                f"estimated filesize {_est_size} -- already downloaded " +
+                f"{naturalsize(self.down_size)} -- total fragments " +
+                f"{self.n_total_fragments} -- fragments already dl " +
+                f"{self.n_dl_fragments}")
 
             if self.filename.exists() and self.filename.stat().st_size > 0:
                 self.status = "done"
@@ -577,10 +574,9 @@ estimated filesize {_est_size} -- already downloaded \
         _print_proxy = _proxy.split(":")[-1] if _proxy else None
 
         logger.debug(
-            f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:\
-FIRST[{first}] proxy [{_print_proxy}]: \
-get video dict: {_reset_url}"
-        )
+            f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:" +
+            f"FIRST[{first}] proxy [{_print_proxy}]: " +
+            f"get video dict: {_reset_url}")
 
         _info = None
 
@@ -599,37 +595,33 @@ get video dict: {_reset_url}"
                 _info = self.multi_extract_info(
                     _reset_url,
                     proxy=_proxy,
-                    msg=f"{self.premsg}:RESET[{self.n_reset}]:\
-PLNS[{self.fromplns}]:FIRST[{first}] proxy \
-[{_print_proxy}]:",
-                )
+                    msg=(
+                        f"{self.premsg}:RESET[{self.n_reset}]:" +
+                        f"PLNS[{self.fromplns}]:FIRST[{first}] proxy " +
+                        f"[{_print_proxy}]:"))
 
-                self.ytdl.cache.store("nakedswordmovie",
-                                      str(self.fromplns), _info)
+                self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
             else:
-                _info = self.ytdl.cache.load("nakedswordmovie",
-                                             str(self.fromplns))
-                if not _info:
+                _info = self.ytdl.cache.load("nakedswordmovie", str(self.fromplns))
 
+                if not _info:
                     _info = self.multi_extract_info(
                         _reset_url,
                         proxy=_proxy,
-                        msg=f"{self.premsg}:RESET[{self.n_reset}]:\
-PLNS[{self.fromplns}]:FIRST[{first}] \
-proxy [{_print_proxy}]:",
-                    )
+                        msg=(
+                            f"{self.premsg}:RESET[{self.n_reset}]:" +
+                            f"PLNS[{self.fromplns}]:FIRST[{first}] " +
+                            f"proxy [{_print_proxy}]:"))
 
-                    self.ytdl.cache.store("nakedswordmovie",
-                                          str(self.fromplns), _info)
+                    self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
             if _info:
                 info_reset = try_get(traverse_obj(
                     _info,
                     (
                         "entries",
-                        int(self.vid_dl.info_dict[
-                                "playlist_index"]) - 1
+                        int(self.vid_dl.info_dict["playlist_index"]) - 1
                     )),
                     lambda x: get_format_id(
                         x, self.info_dict["format_id"]) if x else None)
@@ -639,38 +631,39 @@ proxy [{_print_proxy}]:",
             _info = self.multi_extract_info(
                 _reset_url,
                 proxy=_proxy,
-                msg=f"{self.premsg}:RESET[{self.n_reset}]:\
-PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:",
-            )
+                msg=(
+                    f"{self.premsg}:RESET[{self.n_reset}]:" +
+                    f"PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:"))
 
             if _info:
                 info_reset = get_format_id(_info, self.info_dict["format_id"])
 
         if not info_reset:
             raise AsyncHLSDLErrorFatal(
-                f"{self.premsg}:RESET[{self.n_reset}]:\
-PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: \
-fails no descriptor"
-            )
+                f"{self.premsg}:RESET[{self.n_reset}]:" +
+                f"PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: " +
+                "fails no descriptor")
 
-        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:\
-PLNS[{self.fromplns}]:FIRST[{first}] \
-proxy [{_print_proxy}]: format extracted info video ok")
-        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:\
-PLNS[{self.fromplns}]:FIRST[{first}] \
-proxy [{_print_proxy}]: format extracted info video ok\n\
-%no%{_for_print(info_reset)}")
+        logger.debug(
+            f"{self.premsg}:RESET[{self.n_reset}]:" +
+            f"PLNS[{self.fromplns}]:FIRST[{first}] " +
+            f"proxy [{_print_proxy}]: format extracted info video ok")
+
+        logger.debug(
+            f"{self.premsg}:RESET[{self.n_reset}]:" +
+            f"PLNS[{self.fromplns}]:FIRST[{first}] " +
+            f"proxy [{_print_proxy}]: format extracted info video ok\n" +
+            f"%no%{_for_print(info_reset)}")
 
         try:
             self.prep_reset(info_reset)
             return True
         except Exception as e:
             logger.exception(
-                f"{self.premsg}:RESET[{self.n_reset}]:\
-PLNS[{self.fromplns}]:FIRST[{first}] \
-proxy [{_print_proxy}]: Exception occurred when reset: \
-{repr(e)} {_for_print(info_reset)}"
-            )
+                f"{self.premsg}:RESET[{self.n_reset}]:" +
+                f"PLNS[{self.fromplns}]:FIRST[{first}] " +
+                f"proxy [{_print_proxy}]: Exception occurred when reset: " +
+                f"{repr(e)} {_for_print(info_reset)}")
             raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
     def resetdl(self, cause=None):
@@ -1799,7 +1792,6 @@ proxy [{_print_proxy}]: Exception occurred when reset: \
         for frag in self.info_frag:
             if (frag["downloaded"] is False) and not frag.get(
                     "skipped", False):
-                # res.append(frag['frag'])
                 res.append(frag)
         return res
 

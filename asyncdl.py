@@ -188,110 +188,6 @@ class WorkersInit:
             self.logger.exception(f'[{url_key}] error {repr(e)}')
 
 
-# class WorkersExtract:
-    
-#     filecaplinks = Path(PATH_LOGS, "captured_links.txt")
-#     prevfilecaplinks = Path(PATH_LOGS, "prev_captured_links.txt")
-    
-#     def __init__(self, asyncdl):
-#         self.asyncdl = asyncdl
-#         self.running = set()
-#         self.waiting = deque()
-#         self.logger = logging.getLogger('WorkersExtract')
-#         self.args = self.asyncdl.args
-
-#     async def init(self):
-
-#         url_list = []
-#         _url_list_caplinks = []
-#         _url_list_cli = []
-#         self.url_pl_list = {}
-#         _url_list = {}
-
-#         if self.args.caplinks and self.filecaplinks.exists():
-#             if self.STOP.is_set():
-#                 raise Exception("STOP")
-#             _temp = set()
-#             with open(self.filecaplinks, "r") as file:
-#                 for _url in file:
-#                     if _url := _url.strip():
-#                         _temp.add(_url)
-
-#             _url_list_caplinks = list(_temp)
-#             self.logger.info(f"[get_videos] video list caplinks:\n{_url_list_caplinks}")
-
-#             with open(self.prevfilecaplinks, "a") as file:
-#                 _text = '\n'.join(_url_list_caplinks)
-#                 file.write(f"\n\n[{self.asdyncdl.launch_time.strftime('%Y-%m-%d %H:%M')}]\n{_text}")
-
-#             with open(self.filecaplinks, "w") as file:
-#                 file.write("")
-
-#             _url_list["caplinks"] = _url_list_caplinks
-
-#         if self.args.collection:
-#             if self.STOP.is_set():
-#                 raise Exception("STOP")
-#             _url_list_cli = list(set(self.args.collection))
-#             self.logger.info(f"[get_videos] video list cli:\n{_url_list_cli}")
-#             _url_list["cli"] = _url_list_cli
-
-#         if self.args.collection_files:
-
-#             def get_info_json(file):
-#                 try:
-#                     with open(file, "r") as f:
-#                         return json.loads(js_to_json(f.read()))
-#                 except Exception as e:
-#                     self.logger.error(f"[get_list_videos] Error:{repr(e)}")
-#                     return {}
-
-#             _file_list_videos = []
-#             for file in self.args.collection_files:
-#                 info_video = get_info_json(file)
-#                 if info_video:
-#                     if info_video.get("_type", "video") != "playlist":
-#                         _file_list_videos.append(info_video)
-#                     elif (_entries := info_video.get("entries")):
-#                         _file_list_videos.extend(_entries)
-
-#             for _vid in _file_list_videos:
-#                 if not _vid.get("playlist"):
-
-#                     _url = _vid.get("webpage_url")
-#                     if not self.asyncdl.info_videos.get(_url):
-
-#                         self.asyncdl.info_videos[_url] = {
-#                             "source": "file_cli",
-#                             "video_info": _vid,
-#                             "status": "init",
-#                             "aldl": False,
-#                             "todl": True,
-#                             "error": [],
-#                         }
-
-#                         _same_video_url = await self.asyncdl.async_check_if_same_video(_url)
-
-#                         if _same_video_url:
-
-#                             self.asyncdl.info_videos[_url].update(
-#                                 {"samevideo": _same_video_url}
-#                             )
-#                             self.logger.warning(
-#                                 f"{_url}: has not been added to video list" +
-#                                 f"because it gets same video than {_same_video_url}")
-                            
-#                             await self.asyncdl.async_prepare_for_dl(_url)
-
-#                         else:
-#                             await self.asyncdl.async_prepare_for_dl(_url)
-#                             self.asyncdl.list_videos.append(
-#                                 self.asyncdl.info_videos[_url]["video_info"]
-#                             )
-#                 else:
-#                     await self.asyncdl.async_pr_entry(_vid)
-
-
 class FrontEndGUI:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
@@ -1445,7 +1341,7 @@ class AsyncDL:
                                            len(self.url_pl_list)))
                     ]
                     logger.debug(f"[url_playlist_list] initial playlists: {len(self.url_pl_list)}")
-                    
+
                     await asyncio.wait(tasks_pl_list)
 
                     logger.debug(f"[url_playlist_list] from initial playlists: {len(self.url_pl_list2)}")
@@ -1461,7 +1357,7 @@ class AsyncDL:
                                            len(self.url_pl_list2))):
                             self.url_pl_queue.put_nowait("KILL")
                         tasks_pl_list2 = [
-                            asyncio.create_task(process_playlist(_get_name))
+                            asyncio.create_task(self.process_playlist(_get_name))
                             for _ in range(
                                 min(self.init_nworkers, len(self.url_pl_list2))
                             )
@@ -1469,7 +1365,7 @@ class AsyncDL:
                         await asyncio.wait(tasks_pl_list2)
 
                     logger.info(
-                        f"[get_videos] entries from playlists:" +
+                        "[get_videos] entries from playlists:" +
                         f"{len(self._url_pl_entries)}")
                     logger.debug(
                         "[url_playlist_list] " +
@@ -1548,10 +1444,8 @@ class AsyncDL:
                         for _ent in _info["entries"]:
                             if _ent.get("error"):
                                 _ent["_type"] = "error"
-                                if not _ent.get(
-                                        "original_url"):
-                                    _ent.update(
-                                        {"original_url": _url})
+                                if not _ent.get("original_url"):
+                                    _ent.update({"original_url": _url})
                                 await self.async_pr_entry(_ent)
                                 self._url_pl_entries.append(_ent)
                                 _temp_error.append(_ent)
@@ -1622,8 +1516,7 @@ class AsyncDL:
                         if _ent.get("_type", "video") == "video" and not _ent.get("error"):
 
                             _ent = self.ytdl.sanitize_info(
-                                await self.ytdl.
-                                async_process_ie_result(
+                                await self.ytdl.async_process_ie_result(
                                     _ent, download=False
                                 )
                             )
@@ -1661,9 +1554,7 @@ class AsyncDL:
                                         f"]: playlist, nentries > 1, webpage_url " +
                                         f"== original_url: {_wurl}")
 
-                            await self.async_pr_entry(
-                                _ent
-                            )
+                            await self.async_pr_entry(_ent)
                             self._url_pl_entries += [_ent]
                         else:
                             try:
@@ -1675,8 +1566,7 @@ class AsyncDL:
                                 )
                                 _error = _ent.get("error")
                                 if not is_pl or _error:
-                                    if not _ent.get(
-                                            "original_url"):
+                                    if not _ent.get("original_url"):
                                         _ent.update(
                                             {"original_url":
                                                 _url}
@@ -1885,7 +1775,7 @@ class AsyncDL:
         else:
             logger.warning(
                 f"[prepare_entry_pl_for_dl] {_url}: has not been added to" +
-                f"info_videos because it is already")
+                "info_videos because it is already")
 
     async def init_callback(self, url_key):
         # worker que lanza la creación de los objetos VideoDownloaders,
