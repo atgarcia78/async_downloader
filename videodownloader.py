@@ -339,7 +339,7 @@ workers set to {n}")
 
         return _wait_all_tasks
 
-    async def back_from_reset_plns(self, logger, premsg):
+    async def back_from_reset_plns(self, premsg):
         _tasks_all = []
         for plid in self.info_dl['fromplns']['ALL']['in_reset']:
             dict_dl = traverse_obj(
