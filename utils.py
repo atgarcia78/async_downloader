@@ -151,6 +151,9 @@ class LocalStorage:
         self.logger = logging.getLogger("LocalStorage")
 
     def load_info(self):
+        """
+        Load from file
+        """
 
         with open(LocalStorage.local_storage, "r") as f:
             self._data_from_file = json.load(f)
@@ -161,11 +164,12 @@ class LocalStorage:
             elif "last_time_sync" in _key:
                 self._last_time_sync.update(_data)
             else:
-                self.logger.error(
-                    f"found key not registered volumen - {_key}"
-                )
+                self.logger.error(f"found key not registered volumen - {_key}")
 
-    def dump_info(self, videos_cached, last_time_sync):
+    def dump_info(self, videos_cached, last_time_sync, local=False):
+        """"
+        Dump videos_cached info to FileExistsError
+        """
 
         def getter(x):
             if "Pandaext4/videos" in x:
@@ -188,7 +192,7 @@ class LocalStorage:
         if last_time_sync:
             self._last_time_sync = last_time_sync.copy()
 
-        _temp = {
+        _upt_temp = {
             "last_time_sync": {},
             "local": {},
             "wd5": {},
@@ -199,27 +203,37 @@ class LocalStorage:
             "wd8_2": {},
         }
 
-        _temp.update({"last_time_sync": last_time_sync})
+        _upt_temp.update({"last_time_sync": last_time_sync})
 
         for key, val in videos_cached.items():
 
             _vol = getter(val)
             if not _vol:
-                self.logger.error(
-                    f"found file with not registered volumen - {val} - {key}"
-                )
+                self.logger.error(f"found file with not registered volumen - {val} - {key}")
             else:
-                _temp[_vol].update({key: val})
+                _upt_temp[_vol].update({key: val})
 
-        shutil.copy(
-            str(LocalStorage.local_storage),
-            str(LocalStorage.prev_local_storage)
-        )
+        shutil.copy(str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage))
 
-        with open(LocalStorage.local_storage, "w") as f:
-            json.dump(_temp, f)
+        if not local:
+            with open(LocalStorage.local_storage, "w") as f:
+                json.dump(_upt_temp, f)
 
-        self._data_from_file = _temp
+
+        else:
+
+            with open(LocalStorage.local_storage, "r") as f:
+                _temp = json.load(f)
+
+            _temp["local"] = _upt_temp["local"]
+            _temp["last_time_sync"]["local"] = _upt_temp["last_time_sync"]["local"]
+
+            with open(LocalStorage.local_storage, "w") as f:
+                json.dump(_temp, f)
+
+        self._data_from_file = {}  # data struct per vol
+        self._data_for_scan = {}  # data ready for scan
+        self._last_time_sync = {}
 
 
 class MySyncAsyncEvent:
@@ -274,7 +288,7 @@ class ProgressTimer:
         return (f"{self.elapsed_seconds():.2f}")
 
     def reset(self):
-        #self._last_ts += self.elapsed_seconds()
+        # self._last_ts += self.elapsed_seconds()
         self._last_ts = self.TIMER_FUNC()
 
     def elapsed_seconds(self) -> float:
