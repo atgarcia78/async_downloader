@@ -210,8 +210,7 @@ class AsyncARIA2CDownloader:
 
                 _res = await async_waitfortasks(
                     self.vid_dl.hosts_dl[self._host]['queue'].get(),
-                    events=(self.vid_dl.reset_event,
-                            self.vid_dl.stop_event))
+                    events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
                 if _res.get('event'):
                     return
                 elif (_e := _res.get('exception')):
@@ -259,8 +258,7 @@ class AsyncARIA2CDownloader:
                             unquote(x) if x else None)
                         logger.debug(
                             f'{self.premsg} mode simple, proxy ip: ' +
-                            f'{self._proxy} init uri: {_proxy_info_url}\n{proxy_info}'
-                        )
+                            f'{self._proxy} init uri: {_proxy_info_url}\n{proxy_info}')
                         if not _proxy_info_url:
                             raise AsyncARIA2CDLError('couldnt get video url')
                         self.uris = [_proxy_info_url]
@@ -324,12 +322,10 @@ class AsyncARIA2CDownloader:
                                            unquote(x) if x else None)
 
                             logger.debug(
-                                f"{self.premsg} ip{i}{_proxy} uri{i} {_url}"
-                            )
+                                f"{self.premsg} ip{i}{_proxy} uri{i} {_url}")
 
                             if not _url:
-                                raise AsyncARIA2CDLError(
-                                    'couldnt get video url')
+                                raise AsyncARIA2CDLError('couldnt get video url')
 
                             _url_as_dict = urlparse(_url)._asdict()
                             _temp = f"__routing={_proxy_port}__.{_url_as_dict['netloc']}"
@@ -339,22 +335,18 @@ class AsyncARIA2CDownloader:
                         except Exception as e:
                             _msg = f"hst[{self._host}]pr[{i}:{_proxy}]{str(e)}"
                             logger.debug(
-                                f"{self.premsg}[{self.info_dict.get('original_url')}] ERROR init uris {_msg}"
-                            )
+                                f"{self.premsg}[{self.info_dict.get('original_url')}] ERROR init uris {_msg}")
                             raise
                         finally:
                             await asyncio.sleep(0)
 
                     _res = await async_waitfortasks(
-                        {asyncio.create_task(
-                            get_uri(i)): i for i in range(1, _gr + 1)},
-                        events=(self.vid_dl.reset_event,
-                                self.vid_dl.stop_event))
+                        {asyncio.create_task(get_uri(i)): i for i in range(1, _gr + 1)},
+                        events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
                     if _res.get('event'):
                         return
                     elif (_e := _res.get('exception')):
-                        raise AsyncARIA2CDLError(
-                            f'couldnt get uris: {repr(_e)}')
+                        raise AsyncARIA2CDLError(f'couldnt get uris: {repr(_e)}')
                     else:
                         _uris = _res.get('result', [])
 
@@ -380,23 +372,17 @@ class AsyncARIA2CDownloader:
                     self.dl_cont.update, executor=self.ex_dl)
                 self.async_pause = sync_to_async(
                     partial(self.aria2_client.pause, [self.dl_cont]),
-                    executor=self.ex_dl
-                )
+                    executor=self.ex_dl)
                 self.async_resume = sync_to_async(
                     partial(self.aria2_client.resume, [self.dl_cont]),
-                    executor=self.ex_dl
-                )
+                    executor=self.ex_dl)
                 self.async_remove = sync_to_async(
-                    partial(self.aria2_client.remove, [
-                            self.dl_cont], clean=False),
-                    executor=self.ex_dl,
-                )
+                    partial(self.aria2_client.remove, [self.dl_cont], clean=False),
+                    executor=self.ex_dl)
 
                 self.async_restart = sync_to_async(
-                    partial(self.aria2_client.remove, [
-                            self.dl_cont], files=True, clean=True),
-                    executor=self.ex_dl,
-                )
+                    partial(self.aria2_client.remove, [self.dl_cont], files=True, clean=True),
+                    executor=self.ex_dl)
 
                 _tstart = time.monotonic()
 
@@ -463,13 +449,11 @@ class AsyncARIA2CDownloader:
                 if "estado=403" in _msg_error:
                     logger.warning(
                         f'{self.premsg}[init] {_msg} error: {_msg_error} '
-                        f'count_init: {self.count_init}, will RESET'
-                    )
+                        f'count_init: {self.count_init}, will RESET')
                 else:
                     logger.debug(
                         f'{self.premsg}[init] {_msg} error: {_msg_error} '
-                        f'count_init: {self.count_init}, will RESET'
-                    )
+                        f'count_init: {self.count_init}, will RESET')
 
                 await self.vid_dl.reset()
             else:
@@ -507,8 +491,7 @@ class AsyncARIA2CDownloader:
                 if _res.get('event'):
                     break
                 elif (_e := _res.get('exception')):
-                    raise AsyncARIA2CDLError(
-                        f'couldnt get index proxy: {repr(_e)}')
+                    raise AsyncARIA2CDLError(f'couldnt get index proxy: {repr(_e)}')
                 elif not (_input_speed := _res.get('result')):
                     await asyncio.sleep(0)
                     continue
@@ -762,8 +745,7 @@ class AsyncARIA2CDownloader:
                             self._proxy = None
 
         except BaseException as e:
-            logger.exception(
-                f'{self.premsg}[fetch_async] {repr(e)}')
+            logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
             def _print_el(el):
                 if isinstance(el, str):
