@@ -670,7 +670,7 @@ class VideoDownloader:
                         cmd = (
                                 "ffmpeg -y -probesize max -loglevel " +
                                 f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"" +
-                                f"-c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{temp_filename}\"")
+                                f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{temp_filename}\"")
 
                         res = initproc()
                         await apostffmpeg(cmd, res)
