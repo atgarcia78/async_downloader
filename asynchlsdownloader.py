@@ -112,10 +112,10 @@ class AsyncHLSDownloader:
             self.count: int = 0
             # cuenta de los workers activos haciendo DL. Al comienzo serán
             # igual a n_workers
-            self.video_url: str = self.info_dict["url"]  # url del format
-            self.webpage_url: str = self.info_dict["webpage_url"]
+            #  self.video_url: str = self.info_dict["url"]  # url del format
+            #  self.webpage_url: str = self.info_dict["webpage_url"]
             self.m3u8_doc = None
-            self.id: str = self.info_dict["id"]
+            #  self.id: str = self.info_dict["id"]
             self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
             self.verifycert: bool = not self.ytdl.params.get(
                 "nocheckcertificate")
@@ -125,7 +125,7 @@ class AsyncHLSDownloader:
                 max_connections=None,
                 keepalive_expiry=30,
             )
-            self.headers: dict[str, str] = self.info_dict["http_headers"]
+            #  self.headers: dict[str, str] = self.info_dict["http_headers"]
             self.base_download_path = Path(
                 str(self.info_dict["download_path"]))
             self.init_file = Path(
@@ -170,7 +170,7 @@ class AsyncHLSDownloader:
             self.init_client = httpx.Client(
                 proxies=_proxies,  # type: ignore
                 follow_redirects=True,
-                headers=self.headers,
+                headers=self.info_dict['http_headers'],
                 limits=self.limits,
                 timeout=self.timeout,
                 verify=False,
@@ -296,6 +296,12 @@ class AsyncHLSDownloader:
 
             byte_range = {}
 
+            self.m3u8_doc = try_get(
+                #  self.init_client.get(self.video_url),
+                self.init_client.get(self.info_dict['url']),
+                lambda x: x.content.decode("utf-8", "replace"),
+            )
+
             self.info_dict["fragments"] = self.get_info_fragments()
             self.info_dict["init_section"] = self.info_dict[
                 "fragments"][0].init_section
@@ -316,7 +322,7 @@ class AsyncHLSDownloader:
                         self.key_cache.update({
                             _frag.key.absolute_uri: httpx.get(
                                     _frag.key.absolute_uri,
-                                    headers=self.headers
+                                    headers=self.info_dict['http_headers']
                                 ).content
                             }
                         )
@@ -326,10 +332,11 @@ class AsyncHLSDownloader:
 
                         logger.debug(f"{self.premsg}:{_frag.key.iv}")
 
-                self.get_init_section(_url, _file_path, _frag.key)
                 self.info_init_section.update({
                     "frag": 0, "url": _url,
-                    "file": _file_path, "downloaded": True})
+                    "file": _file_path, "downloaded": False})
+
+                self.get_init_section(_url, _file_path, _frag.key)
 
             if self.init_file.exists():
                 with open(self.init_file, "r") as f:
@@ -420,7 +427,7 @@ class AsyncHLSDownloader:
                             {
                                 fragment.key.absolute_uri: httpx.get(
                                     fragment.key.absolute_uri,
-                                    headers=self.headers
+                                    headers=self.info_dict['http_headers']
                                 ).content
                             }
                         )
@@ -493,7 +500,7 @@ class AsyncHLSDownloader:
     def get_info_fragments(self):
 
         try:
-            self.m3u8_obj = self.get_m3u8_obj()
+            self.m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict['url'])
 
             if not self.m3u8_obj or not self.m3u8_obj.segments:
                 raise AsyncHLSDLError("couldnt get m3u8 file")
@@ -509,18 +516,21 @@ class AsyncHLSDownloader:
             logger.error(f"{self.premsg}[get_info_fragments] - {repr(e)}")
             raise AsyncHLSDLErrorFatal(repr(e))
 
-    def get_m3u8_obj(self):
+    # def get_m3u8_obj(self):
 
-        if not self.m3u8_doc:
-            self.m3u8_doc = try_get(
-                self.init_client.get(self.video_url),
-                lambda x: x.content.decode("utf-8", "replace"),
-            )
+    #     if not self.m3u8_doc:
+    #         self.m3u8_doc = try_get(
+    #             #  self.init_client.get(self.video_url),
+    #             self.init_client.get(self.info_dict['url']),
+    #             lambda x: x.content.decode("utf-8", "replace"),
+    #         )
 
-        return m3u8.loads(self.m3u8_doc, self.video_url)
+    #     #  return m3u8.loads(self.m3u8_doc, self.video_url)
+    #     return m3u8.loads(self.m3u8_doc, self.info_dict['url'])
 
     @dec_retry_error
     def get_init_section(self, uri, file, key):
+
         try:
             cipher = None
             if key is not None and key.method == "AES-128":
@@ -532,6 +542,8 @@ class AsyncHLSDownloader:
             _frag = res.content if not cipher else cipher.decrypt(res.content)
             with open(file, "wb") as f:
                 f.write(_frag)
+
+            self.info_init_section.update({"downloaded": True})
 
         except Exception as e:
 
@@ -798,14 +810,16 @@ class AsyncHLSDownloader:
 
     def prep_reset(self, info_reset):
 
-        self.headers = info_reset.get("http_headers")
-        self.video_url = info_reset.get("url")
+        self.info_dict.update(info_reset)
+
+        #  self.headers = info_reset.get("http_headers")
+        #  self.video_url = info_reset.get("url")
         self.init_client.close()
         _proxies = self._proxy if hasattr(self, '_proxy') else None
         self.init_client = httpx.Client(
             proxies=_proxies,  # type: ignore
             follow_redirects=True,
-            headers=self.headers,
+            headers=self.info_dict['http_headers'],
             limits=self.limits,
             timeout=self.timeout,
             verify=False
@@ -865,7 +879,7 @@ class AsyncHLSDownloader:
                         if fragment.key.absolute_uri not in self.key_cache:
                             self.key_cache[
                                 fragment.key.absolute_uri] = httpx.get(
-                                fragment.key.absolute_uri, headers=self.headers
+                                fragment.key.absolute_uri, headers=self.info_dict['http_headers']
                             ).content
 
             except Exception:
@@ -1143,7 +1157,7 @@ class AsyncHLSDownloader:
             follow_redirects=True,
             timeout=self.timeout,
             verify=self.verifycert,
-            headers=self.headers,
+            headers=self.info_dict['http_headers'],
         )
 
         try:

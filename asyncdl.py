@@ -4,6 +4,7 @@ import json
 import logging
 import shutil
 import time
+import random
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from itertools import zip_longest
@@ -112,6 +113,15 @@ class WorkersRun:
         try:
 
             if dl.info_dl['status'] not in ('init_manipulating', 'done'):
+                if dl.info_dl.get("auto_pasres"):
+                    self.asyncdl.list_pasres.add(dl.index)
+                    _msg = (
+                        f", add this dl[{dl.index}] " +
+                        f"to auto_pasres{list(self.asyncdl.list_pasres)}")
+                    self.logger.debug(
+                        f"[init_callback]: [{url_key}]" +
+                        f"[{dl.info_dict['id']}][{dl.info_dict['title']}]" +
+                        f"pause-resume update{_msg}")
                 await async_waitfortasks(dl.run_dl())
 
             await self.asyncdl.run_callback(dl, url_key)
@@ -195,8 +205,8 @@ class FrontEndGUI:
         self.list_finish = {}
         self.console_dl_status = False
         self.pasres_repeat = False
-        self.pasres_time_from_resume_to_pause = 20
-        self.pasres_time_in_pause = 1
+        self.pasres_time_from_resume_to_pause = 35
+        self.pasres_time_in_pause = 8
         self.reset_repeat = False
         self.list_all_old = {
             'init': {},
@@ -590,8 +600,15 @@ class FrontEndGUI:
 
                         wait_time(self.pasres_time_in_pause, event=stop_event)
 
-                        self.window_console.write_event_value(
-                            'Resume', ','.join(list(map(str, _list))))
+                        _time = self.pasres_time_in_pause / len(_list)
+                        for _el in _list:
+                            self.window_console.write_event_value('Resume', str(_el))
+
+                            wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
+
+                        #  self.window_console.write_event_value(
+                        #     'Resume', ','.join(list(map(str, _list))))
+
                         wait_time(
                             self.pasres_time_from_resume_to_pause,
                             event=stop_event
@@ -1321,10 +1338,11 @@ class AsyncDL:
                     self._count_pl = 0
                     self.url_pl_list2 = []
 
-                    if len(self.url_pl_list) == 1 and self.args.use_path_pl:
-                        _get_name = True
+                    if (len(self.url_pl_list) == 1 and self.args.use_path_pl
+                            and not self.args.path):
+                        _get_path_name = True
                     else:
-                        _get_name = False
+                        _get_path_name = False
 
                     if self.STOP.is_set():
                         raise Exception("STOP")
@@ -1336,7 +1354,7 @@ class AsyncDL:
                                        len(self.url_pl_list))):
                         self.url_pl_queue.put_nowait("KILL")
                     tasks_pl_list = [
-                        asyncio.create_task(self.process_playlist(_get_name))
+                        asyncio.create_task(self.process_playlist(_get_path_name))
                         for _ in range(min(self.init_nworkers,
                                            len(self.url_pl_list)))
                     ]
@@ -1357,7 +1375,7 @@ class AsyncDL:
                                            len(self.url_pl_list2))):
                             self.url_pl_queue.put_nowait("KILL")
                         tasks_pl_list2 = [
-                            asyncio.create_task(self.process_playlist(_get_name))
+                            asyncio.create_task(self.process_playlist(_get_path_name))
                             for _ in range(
                                 min(self.init_nworkers, len(self.url_pl_list2))
                             )
@@ -1380,7 +1398,7 @@ class AsyncDL:
             if not self.STOP.is_set():
                 self.t1.stop()
 
-    async def process_playlist(self, _get: bool):
+    async def process_playlist(self, _get: bool = False):
 
         while True:
             try:
@@ -1430,7 +1448,7 @@ class AsyncDL:
                     self._url_pl_entries += [_info]
 
                 else:
-                    if _get and not self.args.path:
+                    if _get:
                         _title = sanitize_filename(_info.get('title'), restricted=True)
                         _name = f"{_title}{_info.get('extractor_key')}{_info.get('id')}"
                         self.args.path = str(Path(Path.home(), "testing", _name))
@@ -2021,24 +2039,12 @@ class AsyncDL:
 
                             else:
 
-                                _msg = ""
-
                                 if not self.args.nodl:
                                     await self.WorkersRun.add_dl(dl, urlkey)
-                                    if dl.info_dl.get("auto_pasres"):
-                                        self.list_pasres.add(dl.index)
-                                        _msg = (
-                                            f", add this dl[{dl.index}] " +
-                                            f"to auto_pasres{list(self.list_pasres)}")
-                                        logger.debug(
-                                            f"[init_callback]: [{url_key}]" +
-                                            f"[{dl.info_dict['id']}][{dl.info_dict['title']}]" +
-                                            f"pause-resume update{_msg}")
 
                                 logger.debug(
                                     f"[init_callback]: [{url_key}]" +
-                                    f"[{dl.info_dict['id']}][{dl.info_dict['title']}]"
-                                    f"init OK, ready to DL{_msg}")
+                                    f"[{dl.info_dict['id']}][{dl.info_dict['title']}] init OK, ready to DL")
 
                         else:
                             async with self.alock:

@@ -837,5 +837,3 @@ class AsyncDASHDownloader:
             else: _size = 0
             _str = f'[{naturalsize(_size)}/{naturalsize(self.filesize)}]({(_size/self.filesize)*100:.2f}%)' if self.filesize else f'[{naturalsize(_size)}]'
             return f"[DASH][{self.info_dict['format_id']}]: Ensambling {_str} \n"
-
-        

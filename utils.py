@@ -67,8 +67,9 @@ from yt_dlp.utils import (
     smuggle_url,
     traverse_obj,
     try_get,
-    unsmuggle_url,
+    unsmuggle_url
 )
+
 from yt_dlp import YoutubeDL
 
 assert unsmuggle_url
@@ -89,14 +90,14 @@ assert ReExtractInfo
 assert ConnectError
 assert StatusError503
 assert my_dec_on_exception
+assert cast
 
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
 
-CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support\
-/Firefox/Profiles/b33yk6rw.selenium"
+CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 80
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -219,7 +220,6 @@ class LocalStorage:
             with open(LocalStorage.local_storage, "w") as f:
                 json.dump(_upt_temp, f)
 
-
         else:
 
             with open(LocalStorage.local_storage, "r") as f:
@@ -307,7 +307,8 @@ class ProgressTimer:
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
 
-    def __init__(self, initial_bytes: int=0, upt_time: Union[int, float]=1.0, ave_time: Union[int, float]=5.0):
+    def __init__(self, initial_bytes: int = 0, upt_time: Union[int, float] = 1.0,
+                 ave_time: Union[int, float] = 5.0):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
         self.last_value = None
@@ -377,9 +378,9 @@ class long_operation_in_thread:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> threading.Event:
             stop_event = threading.Event()
-            thread = threading.Thread(target=func, name=name, args=args,
-                                      kwargs={"stop_event": stop_event,
-                                              **kwargs}, daemon=True)
+            thread = threading.Thread(
+                target=func, name=name, args=args,
+                kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
             thread.start()
             return stop_event
         return wrapper
@@ -609,8 +610,8 @@ def init_logging(file_path=None):
 def init_argparser():
 
     UA_LIST = [
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:108.0) \
-Gecko/20100101 Firefox/108.0"
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:110.0) " +
+        "Gecko/20100101 Firefox/110.0"
     ]
 
     parser = argparse.ArgumentParser(
@@ -685,8 +686,7 @@ Gecko/20100101 Firefox/108.0"
     )
     parser.add_argument(
         "--aria2c",
-        help="use of external aria2c running in port [PORT]. By default \
-PORT=6800. Set to 'no' to disable",
+        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
         default="6800",
         type=str,
     )
@@ -710,19 +710,21 @@ PORT=6800. Set to 'no' to disable",
         args.aria2c = True
 
     if args.path and len(args.path.split("/")) == 1:
-        _path = Path(Path.home(), "testing", args.path)
-        args.path = str(_path)
+        args.path = str(Path(Path.home(), "testing", args.path))
 
     if args.vv:
         args.verbose = True
+
     args.enproxy = True
     if args.proxy == "no":
         args.enproxy = False
         args.proxy = None
+
     if args.dlcaching:
         args.nodlcaching = False
     else:
         args.nodlcaching = True
+
     if args.checkcert:
         args.nocheckcert = False
     else:
@@ -762,8 +764,8 @@ def init_aria2c(args):
     if (_proc.returncode not in
         (0, None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+",
                                     value=args.rpcport)):
-        raise Exception(f"[init_aria2c] couldnt run aria2c in port \
-{args.rpcport} - {_proc}")
+        raise Exception(
+            f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
 
     logger.info(f"[init_aria2c] {_proc} - running on port: {args.rpcport}")
 
@@ -871,8 +873,8 @@ class TorGuardProxies:
             _ip = fut.result()
             if _ip != routing_table[futures[fut]]:
                 logger.info(
-                    f"[{futures[fut]}] test: {_ip} expect res: \
-{routing_table[futures[fut]]}")
+                    f"[{futures[fut]}] test: {_ip} expect res: " +
+                    f"{routing_table[futures[fut]]}")
                 bad_pr.append(routing_table[futures[fut]])
 
         return bad_pr
@@ -883,8 +885,8 @@ class TorGuardProxies:
     ):
         logger = logging.getLogger("torguardprx")
         cmd_gost = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} \
--F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} "
+            f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
             for i, ip in enumerate(list_ips)
         ]
         routing_table = {
@@ -898,8 +900,8 @@ class TorGuardProxies:
                                      stderr=subprocess.PIPE, shell=True)
             _proc.poll()
             if _proc.returncode:
-                logger.error(f"[init_proxies] returncode[{_proc.returncode}]\
- to cmd[{cmd}]")
+                logger.error(
+                    f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
                 raise Exception("init proxies error")
             else:
                 proc_gost.append(_proc)
@@ -913,8 +915,9 @@ class TorGuardProxies:
             if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps),
                                  lambda x: x.group() if x else None)):
                 _line_ps_pr.append(_temp)
-        logger.info(f"[init_proxies] check in ps print equal number of\
- bad ips: res_bad [{len(_res_bad)}] ps_print [{len(_line_ps_pr)}]")
+        logger.info(
+            f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] " +
+            f"ps_print [{len(_line_ps_pr)}]")
         for proc in proc_gost:
             proc.kill()
             proc.poll()
@@ -998,8 +1001,8 @@ class TorGuardProxies:
 
             cmd_gost_s.extend(
                 [
-                    f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} \
--F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
+                    f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} "
+                    f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
                     for i, ip in enumerate(FINAL_IPS)
                 ]
             )
@@ -1012,8 +1015,8 @@ class TorGuardProxies:
             )
 
         cmd_gost_main = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} \
--F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} "
+            f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
         ]
         routing_table.update(
             {CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
@@ -1038,8 +1041,7 @@ class TorGuardProxies:
                 _proc.poll()
                 if _proc.returncode:
                     logger.error(
-                        f"[init_proxies] returncode[{_proc.returncode}] \
-to cmd[{cmd}]"
+                        f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]"
                     )
                     raise Exception("init proxies error")
                 else:
@@ -1082,10 +1084,14 @@ def ies_close(ies):
 
 def get_extractor(url, ytdl):
 
+    logger = logging.getLogger('asyncdl')
     ies = ytdl._ies
     for ie_key, ie in ies.items():
-        if ie.suitable(url) and (ie_key != "Generic"):
-            return (ie_key, ie)
+        try:
+            if ie.suitable(url) and (ie_key != "Generic"):
+                return (ie_key, ie)
+        except Exception as e:
+            logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
     return ("Generic", ies["Generic"])
 
 
@@ -1228,9 +1234,7 @@ def init_ytdl(args):
 
     headers = {
         "User-Agent": args.useragent,
-        "Accept":
-            "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,\
-    */*;q=0.8",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Connection": "keep-alive",
         "Accept-Language": "en,es-ES;q=0.5",
         "Accept-Encoding": "gzip, deflate",
@@ -1362,14 +1366,14 @@ def kill_processes(logger=None, rpcport=None):
         else:
             _aria2cstr = "aria2cDUMMY"
         mobj = re.findall(
-            rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|\
-{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/\
-Firefox.app/Contents/MacOS/firefox-bin.+))",
+            rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|" +
+            rf"{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/" +
+            r"Firefox.app/Contents/MacOS/firefox-bin.+))",
             res,
         )
         mobj2 = re.findall(
-            rf"\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/\
-MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ",
+            rf"\d+\s+(?:\?\?|{term})\s+/Applications/Firefox.app/Contents/" +
+            r"MacOS/firefox-bin.+--profile (/var/folders/[^\ ]+) ",
             res,
         )
         mobj3 = re.findall(rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+async_all\.py))",
