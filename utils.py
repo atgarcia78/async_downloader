@@ -605,6 +605,8 @@ def init_logging(file_path=None):
     logger.setLevel(logging.WARNING)
     logger = logging.getLogger("proxy.core.base.tcp_server")
     logger.setLevel(logging.WARNING)
+    logger = logging.getLogger("proxy.http.handler")
+    logger.setLevel(logging.ERROR)
 
 
 def init_argparser():

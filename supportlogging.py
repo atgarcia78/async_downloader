@@ -71,9 +71,9 @@ class ColoredFormatter(logging.Formatter):
             colored_lines = []
             col = shutil.get_terminal_size().columns
             for line in lines:
-                _lines = fill(line, (col-56-2), replace_whitespace=False)
+                _lines = fill(line, (col-66-2), replace_whitespace=False)
                 colored_lines += _lines.splitlines()
-            _indent = "\n" + " "*56
+            _indent = "\n" + " "*66
             colored_record.msg = f'{_indent}'.join(colored_lines)
         return logging.Formatter.format(self, colored_record)
 
