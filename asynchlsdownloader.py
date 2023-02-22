@@ -119,7 +119,7 @@ class AsyncHLSDownloader:
             self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
             self.verifycert: bool = not self.ytdl.params.get(
                 "nocheckcertificate")
-            self.timeout: httpx.Timeout = httpx.Timeout(30, connect=30)
+            self.timeout: httpx.Timeout = httpx.Timeout(15, connect=15)
             self.limits: httpx.Limits = httpx.Limits(
                 max_keepalive_connections=None,
                 max_connections=None,
@@ -1181,8 +1181,9 @@ class AsyncHLSDownloader:
 
                 assert isinstance(q, int)
 
-                logger.debug(
-                    f'{self.premsg}:[worker-{nco}]: frag[{q}]\n{self.info_frag[q - 1]}')
+                _premsg = f'{self.premsg}:[worker-{nco}]:[frag-{q}] '
+
+                logger.debug(f'{_premsg}\n{self.info_frag[q - 1]}')
 
                 if self.vid_dl.pause_event.is_set():
                     self._speed.append((datetime.now(), "pause"))
@@ -1218,51 +1219,48 @@ class AsyncHLSDownloader:
 
                     try:
 
-                        self._premsg = f'{self.premsg}:[worker-{nco}]:[frag-{q}] '
-
                         async with self._limit:
-                            logger.debug(f'{self._premsg}: limiter speed')
+                            logger.debug(f'{_premsg}: limiter speed')
 
-                        async with aiofiles.open(
-                            filename, mode="ab") as f, client.stream(
-                                "GET", url,
-                                headers=headers,
-                                timeout=15) as res:
+                        async with aiofiles.open(filename, mode="ab") as f, client.stream("GET", url, headers=headers) as res:
 
                             logger.debug(
-                                f'{self._premsg}:{res.request}, {res.status_code}, ' +
+                                f'{_premsg}:{res.request}, {res.status_code}, ' +
                                 f'{res.reason_phrase}, {res.headers}')
 
                             if res.status_code == 403:
+
                                 if self.fromplns:
                                     _wait_tasks = await self.vid_dl.reset_plns("403")
                                 else:
                                     _wait_tasks = await self.vid_dl.reset("403")
                                 logger.debug(
-                                    f'{self._premsg}: wait_tasks\n{_wait_tasks}\n{print_tasks(_wait_tasks)}')
+                                    f'{_premsg}: wait_tasks\n{_wait_tasks}\n{print_tasks(_wait_tasks)}')
                                 if _wait_tasks:
                                     done, pending = await asyncio.wait(_wait_tasks)
                                     logger.debug(
-                                        f'{self._premsg}:wait_tasks result\nDONE\n{done}\nPENDING\n{pending}')
+                                        f'{_premsg}:wait_tasks result\nDONE\n{done}\nPENDING\n{pending}')
                                 return
-                            elif res.status_code >= 400:
-                                raise AsyncHLSDLError(f'Frag:{str(q)} resp code:{str(res)}')
-                            else:
-                                _hsize = int_or_none(res.headers.get("content-length"))
-                                if _hsize:
-                                    self.info_frag[q - 1]["headersize"] = _hsize
 
-                                    if not self.filesize:
-                                        async with self._LOCK:
-                                            self.filesize = _hsize * \
-                                                len(self.info_dict[
-                                                    "fragments"])
-                                        async with self.vid_dl.alock:
-                                            self.vid_dl.info_dl[
-                                                "filesize"] += self.filesize
-                                else:
-                                    logger.warning(f'{self._premsg}: Frag:{str(q)} _hsize is None')
-                                    continue
+                            elif res.status_code >= 400:
+
+                                raise AsyncHLSDLError(f'Frag:{str(q)} resp code:{str(res)}')
+
+                            else:
+
+                                if not self.info_frag[q - 1]["headersize"]:
+                                    self.info_frag[q - 1]["headersize"] = int_or_none(res.headers.get("content-length"))
+
+                                _hsize = self.info_frag[q - 1]["headersize"]
+
+                                if not self.filesize and _hsize:
+                                    async with self._LOCK:
+                                        self.filesize = _hsize * \
+                                            len(self.info_dict[
+                                                "fragments"])
+                                    async with self.vid_dl.alock:
+                                        self.vid_dl.info_dl[
+                                            "filesize"] += self.filesize
 
                                 if self.info_frag[q - 1]["downloaded"]:
 
@@ -1270,13 +1268,13 @@ class AsyncHLSDownloader:
                                         _size = self.info_frag[q - 1][
                                             "size"] = (await os.stat(
                                                 filename)).st_size
-                                        if _size and (
+                                        if _hsize and (
                                             _hsize - 100
                                             <= _size
                                             <= _hsize + 100
-                                        ):
+                                        ) or not _hsize:
 
-                                            logger.debug(f'{self._premsg}:DL-hsize[{_hsize}] size [{_size}]')
+                                            logger.debug(f'{_premsg}:DL-hsize[{_hsize}] size [{_size}]')
                                             break
                                         else:
                                             await f.truncate(0)
@@ -1288,7 +1286,7 @@ class AsyncHLSDownloader:
                                                 self.vid_dl.info_dl["down_size"] -= _size
                                     else:
                                         logger.warning(
-                                            f'{self.premsg}: frag with mark downloaded but file ' +
+                                            f'{_premsg}: frag with mark downloaded but file ' +
                                             f'[{filename}] doesnt exists')
 
                                         self.info_frag[q - 1]["downloaded"] = False
@@ -1334,10 +1332,11 @@ class AsyncHLSDownloader:
 
                                     await f.write(data)
 
+                                    _dif = 0
                                     async with self._LOCK:
                                         self.down_size += (_iter_bytes := (
                                             res.num_bytes_downloaded - num_bytes_downloaded))
-                                        if (_dif := self.down_size - self.filesize) > 0:
+                                        if self.filesize and (_dif := self.down_size - self.filesize) > 0:
                                             self.filesize += _dif
                                         self.first_data.set()
 
@@ -1358,25 +1357,26 @@ class AsyncHLSDownloader:
 
                         _size = (await os.stat(filename)).st_size
                         _hsize = self.info_frag[q - 1]["headersize"]
-                        if _hsize - 100 <= _size <= _hsize + 100:
+
+                        if (_hsize and _hsize - 100 <= _size <= _hsize + 100) or not _hsize:
                             self.info_frag[q - 1]["downloaded"] = True
                             self.info_frag[q - 1]["size"] = _size
                             async with self._LOCK:
                                 self.n_dl_fragments += 1
                             logger.debug(
-                                f'{self._premsg}: OK DL: total' +
+                                f'{_premsg}: OK DL: total' +
                                 f'[{self.n_dl_fragments}]\n' +
                                 f'{self.info_frag[q - 1]}')
                             break
                         else:
                             logger.warning(
-                                f'{self._premsg}: end of streaming. Fragment not completed\n' +
+                                f'{_premsg}: end of streaming. Fragment not completed\n' +
                                 f'{self.info_frag[q - 1]}')
                             raise AsyncHLSDLError(f"fragment not completed frag[{q}]")
 
                     except AsyncHLSDLErrorFatal as e:
 
-                        logger.debug(f"{self._premsg}: errorfatal {repr(e)}")
+                        logger.debug(f"{_premsg}: errorfatal {repr(e)}")
                         self.info_frag[q - 1]["error"].append(repr(e))
                         self.info_frag[q - 1]["downloaded"] = False
                         if await os.path.exists(filename):
@@ -1397,7 +1397,7 @@ class AsyncHLSDownloader:
                         self.info_frag[q - 1]["error"].append(repr(e))
                         self.info_frag[q - 1]["downloaded"] = False
 
-                        logger.debug(f"{self._premsg}: CancelledError: {repr(e)}")
+                        logger.debug(f"{_premsg}: CancelledError: {repr(e)}")
                         if await os.path.exists(filename):
                             _size = (await os.stat(filename)).st_size
                             await os.remove(filename)
@@ -1420,14 +1420,14 @@ class AsyncHLSDownloader:
                             async with self.vid_dl.alock:
                                 self.vid_dl.info_dl["down_size"] -= _size
 
-                        logger.exception(f"{self._premsg}: runtime error: {repr(e)}")
+                        logger.exception(f"{_premsg}: runtime error: {repr(e)}")
                         return
 
                     except Exception as e:
                         if any([_ in (str(e.__class__)).lower() for _ in ("httpx", "asynchlsdl")]):
-                            logger.debug(f"{self._premsg}: error {repr(e)}")
+                            logger.debug(f"{_premsg}: error {repr(e)}")
                         else:
-                            logger.exception(f"{self._premsg}: error {repr(e)}")
+                            logger.exception(f"{_premsg}: error {repr(e)}")
 
                         self.info_frag[q - 1]["error"].append(repr(e))
                         self.info_frag[q - 1]["downloaded"] = False
@@ -1455,7 +1455,7 @@ class AsyncHLSDownloader:
 
                         else:
                             self.info_frag[q - 1]["error"].append("MaxLimitRetries")
-                            logger.warning(f"{self._premsg}: MaxLimitRetries:skip")
+                            logger.warning(f"{_premsg}: MaxLimitRetries:skip")
                             self.info_frag[q - 1]["skipped"] = True
                             break
                     finally:
@@ -1765,16 +1765,20 @@ class AsyncHLSDownloader:
                     if not f["size"]:
                         if f["file"].exists():
                             f["size"] = f["file"].stat().st_size
-                        if f["size"] and (
-                            f["headersize"] - 100 <= f["size"] <= f[
-                                "headersize"] + 100
-                        ):
+                            if f["headersize"]:
 
-                            with open(f["file"], "rb") as source:
-                                dest.write(source.read())
-                        else:
-                            raise AsyncHLSDLError(
-                                f'{self.premsg}: error when ensambling: {f}')
+                                if (f["headersize"] - 100 <= f["size"] <= f[
+                                        "headersize"] + 100):
+
+                                    with open(f["file"], "rb") as source:
+                                        dest.write(source.read())
+                                else:
+                                    raise AsyncHLSDLError(
+                                        f'{self.premsg}: error when ensambling: {f}')
+                            else:
+                                with open(f["file"], "rb") as source:
+                                    dest.write(source.read())
+
                     else:
                         with open(f["file"], "rb") as source:
                             dest.write(source.read())
