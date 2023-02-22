@@ -41,7 +41,6 @@ from utils import (
     int_or_none,
     limiter_non,
     limiter_0_1,
-    limiter_1,
     my_dec_on_exception,
     naturalsize,
     print_norm_time,
@@ -1577,16 +1576,18 @@ class AsyncHLSDownloader:
 
                                 if self.n_reset < self._MAX_RESETS:
 
-                                    if self.fromplns and _cause in ("403", "hard"):
-                                        await self.vid_dl.back_from_reset_plns(self.premsg)
-                                        if self.vid_dl.stop_event.is_set():
-                                            await self.clean_from_reset()
-                                            return
+                                    if _cause in ("403", "hard"):
+                                        if self.fromplns:
+                                            await self.vid_dl.back_from_reset_plns(self.premsg)
+                                            if self.vid_dl.stop_event.is_set():
+                                                await self.clean_from_reset()
+                                                return
                                         _cause = self.vid_dl.reset_event.is_set()
-                                        self._speed.append((datetime.now(), "speed"))
+                                        self._speed.append((datetime.now(), _cause))
                                         logger.info(f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
 
                                     elif _cause == "manual":
+                                        self._speed.append((datetime.now(), _cause))
                                         logger.info(f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
                                         continue
 

@@ -83,6 +83,7 @@ assert SeleniumInfoExtractor
 assert StatusStop
 assert dec_on_exception
 assert dec_retry_error
+assert limiter_0_1
 assert limiter_1
 assert limiter_5
 assert limiter_15
