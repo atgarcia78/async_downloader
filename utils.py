@@ -47,6 +47,7 @@ from yt_dlp.extractor.commonwebdriver import (
     StatusStop,
     dec_on_exception,
     dec_retry_error,
+    limiter_0_1,
     limiter_1,
     limiter_5,
     limiter_15,
@@ -99,7 +100,7 @@ CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
-CONF_HLS_RESET_403_TIME = 80
+CONF_HLS_RESET_403_TIME = 100
 CONF_TORPROXIES_HTTPPORT = 7070
 CONF_PROXIES_MAX_N_GR_HOST = 10  # 10
 CONF_PROXIES_N_GR_VIDEO = 8  # 8
@@ -1532,6 +1533,24 @@ def check_if_dl(info_dict, videos):
 ############################################################
 # """                     PYSIMPLEGUI                     """
 ############################################################
+
+
+def countdown(n, msg=None, event=None):
+
+    _pre = '[WAIT503]'
+    if msg:
+        _pre += msg
+    time.sleep(3)
+    print()
+    for i in range(n-3, 0, -1):
+        print(f'{_pre} {i}', end='\x1b[K\r', flush=True)
+        if event and event.is_set():
+            print('EVENT DETECTED')
+            print()
+            return
+        time.sleep(1)
+    print()
+    return "END"
 
 
 def init_gui_root():

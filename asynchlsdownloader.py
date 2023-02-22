@@ -40,6 +40,8 @@ from utils import (
     get_format_id,
     int_or_none,
     limiter_non,
+    limiter_0_1,
+    limiter_1,
     my_dec_on_exception,
     naturalsize,
     print_norm_time,
@@ -49,6 +51,7 @@ from utils import (
     traverse_obj,
     try_get,
     wait_time,
+    countdown,
     myYTDL,
     async_waitfortasks,
     Union,
@@ -99,6 +102,7 @@ class AsyncHLSDownloader:
     _MIN_TIME_RESETS = 15
     _CONFIG = CONFIG_EXTRACTORS.copy()
     _CLASSLOCK = threading.Lock()
+    _COUNT_PRINT = False
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
 
@@ -148,6 +152,7 @@ class AsyncHLSDownloader:
 
             self.key_cache = dict()
             self.n_reset = 0
+            self._limit_reset = limiter_0_1.ratelimit("resetdl", delay=True)
             self.throttle = 0
             self.down_size = 0
             self.status = "init"
@@ -686,9 +691,15 @@ class AsyncHLSDownloader:
 
             if cause and str(cause) == "403":
 
-                logger.info(f"{self.premsg}:RESET[{self.n_reset}] start wait in reset cause 403")
-                if not wait_time(CONF_HLS_RESET_403_TIME, event=self.vid_dl.stop_event):
-                    return
+                if not AsyncHLSDownloader._COUNT_PRINT:
+                    AsyncHLSDownloader._COUNT_PRINT = True
+                    _ev = countdown(CONF_HLS_RESET_403_TIME, msg=self.premsg, event=self.vid_dl.stop_event)
+                    AsyncHLSDownloader._COUNT_PRINT = False
+                    if not _ev:
+                        return
+                else:
+                    if not wait_time(CONF_HLS_RESET_403_TIME, event=self.vid_dl.stop_event):
+                        return
 
                 logger.info(f"{self.premsg}:RESET[{self.n_reset}] fin wait in reset cause 403")
 
@@ -1580,7 +1591,8 @@ class AsyncHLSDownloader:
                                         continue
 
                                     try:
-                                        await self.areset(_cause)
+                                        async with self._limit_reset:
+                                            await self.areset(_cause)
                                         if self.vid_dl.stop_event.is_set():
                                             return
                                         self.frags_queue = asyncio.Queue()
@@ -1627,7 +1639,8 @@ class AsyncHLSDownloader:
                                         f'{self.premsg}: [{n_frags_dl} -> ' +
                                         f'{inc_frags_dl}] new cycle with no fatal error')
                                     try:
-                                        await self.areset()
+                                        async with self._limit_reset:
+                                            await self.areset()
                                         if self.vid_dl.stop_event.is_set():
                                             return
                                         self.frags_queue = asyncio.Queue()
