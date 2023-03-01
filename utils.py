@@ -1555,13 +1555,14 @@ class CountDown:
     class TimeoutOccurred(Exception):
         pass
 
-    def __init__(self, msg=None, event=None, logger=None):
+    def __init__(self, index=None, msg=None, event=None, logger=None):
         self._pre = '[countdown][WAIT503]'
         if msg:
             self._pre += msg
         self.outer_event = event if event else threading.Event()
         self.stop_event = MySyncAsyncEvent()
         self.logger = logger if logger else logging.getLogger('asyncdl')
+        self.index = index
 
     def setup(self, interval=None, print_secs=None):
         if interval:
@@ -1577,23 +1578,29 @@ class CountDown:
     def inputimeout(self, timeout, quiet=False):
         self.echo(self.PROMPT)
         sel = selectors.DefaultSelector()
-        if not quiet:
-            sel.register(sys.stdin, selectors.EVENT_READ)
+        sel.register(sys.stdin, selectors.EVENT_READ)
         _total = 0
         events = []
+        _input = None
         while _total < timeout:
             events = sel.select(self.INTERV_TIME)
             if events:
-                break
+                key, _ = events[0]
+                _input = key.fileobj.readline().rstrip(self.LF)   # type: ignore
+                self.logger.info(f'{self._pre} Input:[{_input}]')
+                if (not quiet and _input == '') or (quiet and _input == self.index):
+                    break
+
             else:
                 if self.stop_event.is_set():
                     break
-                else:
-                    _total += self.INTERV_TIME
+
+            _total += self.INTERV_TIME
+            events = []
+            _input = None
 
         if events:
-            key, _ = events[0]
-            return key.fileobj.readline().rstrip(self.LF)   # type: ignore
+            return _input
         else:
             if not quiet:
                 self.echo(self.LF)

@@ -49,7 +49,6 @@ from utils import (
     sync_to_async,
     traverse_obj,
     try_get,
-    wait_time,
     CountDown,
     myYTDL,
     async_waitfortasks,
@@ -688,23 +687,24 @@ class AsyncHLSDownloader:
 
         try:
 
-            if cause and str(cause) == "403":
+            if str(cause) == "403":
 
-                _count = False
+                _countdown = CountDown(index=self.vid_dl.index, msg=self.premsg, event=self.vid_dl.stop_event, logger=logger)
+                _quiet = True
                 with AsyncHLSDownloader._CLASSLOCK:
                     if not AsyncHLSDownloader._COUNT_PRINT:
                         AsyncHLSDownloader._COUNT_PRINT = True
-                        _count = True
-                if _count:
-                    logger.info(f"{self.premsg}:start countdown")
-                    _countdown = CountDown(msg=self.premsg, event=self.vid_dl.stop_event, logger=logger)
-                    _ev = _countdown(CONF_HLS_RESET_403_TIME)
-                    AsyncHLSDownloader._COUNT_PRINT = False
-                    if not _ev:
-                        return
-                else:
-                    if not wait_time(CONF_HLS_RESET_403_TIME, event=self.vid_dl.stop_event):
-                        return
+                        _quiet = False
+
+                logger.info(f"{self.premsg}:start countdown")
+                _ev = _countdown(CONF_HLS_RESET_403_TIME, quiet=_quiet)
+                if not _quiet:
+                    with AsyncHLSDownloader._CLASSLOCK:
+                        if AsyncHLSDownloader._COUNT_PRINT:
+                            AsyncHLSDownloader._COUNT_PRINT = False
+
+                if not _ev:
+                    return
 
                 logger.info(f"{self.premsg}:RESET[{self.n_reset}] fin wait in reset cause 403")
 
@@ -716,7 +716,7 @@ class AsyncHLSDownloader:
 
             _wurl = self.info_dict["webpage_url"]
 
-            if self.fromplns and cause in ("403", "hard"):
+            if self.fromplns and str(cause) in ("403", "hard"):
 
                 _webpage_url = smuggle_url(
                     re.sub(r"(/scene/\d+)", "", _wurl),
