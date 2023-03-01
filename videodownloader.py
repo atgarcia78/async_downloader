@@ -329,7 +329,8 @@ class VideoDownloader:
                     dl for key, dl in dict_dl.items()  # type: ignore
                     if key in list_dl]
                 for dl, key in zip(plns, list_dl):  # type: ignore
-                    _wait_all_tasks.extend(await dl.reset(cause))
+                    if (_tasks := await dl.reset(cause)):
+                        _wait_all_tasks.extend(_tasks)
                     list_reset.add(key)  # type: ignore
                     await asyncio.sleep(0)
 

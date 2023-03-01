@@ -14,8 +14,14 @@ import subprocess
 import threading
 import time
 import PySimpleGUI as sg
+import sys
+import termios
+import selectors
+
 from concurrent.futures import (
     ThreadPoolExecutor,
+    wait as wait_thr,
+    FIRST_COMPLETED as fc_thr
 )
 from datetime import datetime
 
@@ -1536,22 +1542,123 @@ def check_if_dl(info_dict, videos):
 ############################################################
 
 
-def countdown(n, msg=None, event=None):
+class CountDown:
 
-    _pre = '[WAIT503]'
-    if msg:
-        _pre += msg
-    time.sleep(3)
-    print()
-    for i in range(n-3, 0, -1):
-        print(f'{_pre} {i}', end='\x1b[K\r', flush=True)
-        if event and event.is_set():
-            print('EVENT DETECTED')
+    DEFAULT_TIMEOUT = 30
+    INTERV_TIME = 0.25
+    N_PER_SECOND = 1 if INTERV_TIME >= 1 else int(1 / INTERV_TIME)
+    PRINT_DIF_IN_SECS = 20
+
+    LF = '\n'
+    PROMPT = ''
+
+    class TimeoutOccurred(Exception):
+        pass
+
+    def __init__(self, msg=None, event=None, logger=None):
+        self._pre = '[countdown][WAIT503]'
+        if msg:
+            self._pre += msg
+        self.outer_event = event if event else threading.Event()
+        self.stop_event = MySyncAsyncEvent()
+        self.logger = logger if logger else logging.getLogger('asyncdl')
+
+    def setup(self, interval=None, print_secs=None):
+        if interval:
+            CountDown.INTERV_TIME = interval
+            CountDown.N_PER_SECOND = 1 if CountDown.INTERV_TIME >= 1 else int(1 / CountDown.INTERV_TIME)
+        if print_secs:
+            CountDown.PRINT_DIF_IN_SECS = print_secs
+
+    def echo(self, string):
+        sys.stdout.write(string)
+        sys.stdout.flush()
+
+    def inputimeout(self, timeout, quiet=False):
+        self.echo(self.PROMPT)
+        sel = selectors.DefaultSelector()
+        if not quiet:
+            sel.register(sys.stdin, selectors.EVENT_READ)
+        _total = 0
+        events = []
+        while _total < timeout:
+            events = sel.select(self.INTERV_TIME)
+            if events:
+                break
+            else:
+                if self.stop_event.is_set():
+                    break
+                else:
+                    _total += self.INTERV_TIME
+
+        if events:
+            key, _ = events[0]
+            return key.fileobj.readline().rstrip(self.LF)   # type: ignore
+        else:
+            if not quiet:
+                self.echo(self.LF)
+                termios.tcflush(sys.stdin, termios.TCIFLUSH)
+            raise self.TimeoutOccurred
+
+    def start_countdown(self, n, quiet=False):
+
+        # _func_print = {False: functools.partial(print, end='\x1b[K\r', flush=True),
+        #                True: self.logger.info}
+
+        if not quiet:
+            end_msg = ''
+            temp = self.N_PER_SECOND
+            _func_print = functools.partial(print, end='\x1b[K\r', flush=True)
             print()
-            return
-        time.sleep(1)
-    print()
-    return "END"
+        else:
+            end_msg = 'secs to stop'
+            temp = self.N_PER_SECOND*self.PRINT_DIF_IN_SECS
+            _func_print = self.logger.info
+
+        def print_msg(x):
+            if ((x == self.N_PER_SECOND*n) or (x % temp) == 0):
+                _func_print(f'{self._pre} {x//self.N_PER_SECOND}{end_msg}')
+
+        for i in range(self.N_PER_SECOND*n, 0, -1):
+            # if not quiet:
+            #     if (i == self.N_PER_SECOND*n) or (i % self.N_PER_SECOND) == 0:
+            #         print(f'{self._pre} {i//self.N_PER_SECOND}', end='\x1b[K\r', flush=True)
+            # else:
+            #     if (i == self.N_PER_SECOND*n) or (i % (self.N_PER_SECOND*self.PRINT_DIF_IN_SECS)) == 0:
+            #         self.logger.info(f'{self._pre} {i//self.N_PER_SECOND}secs to stop\n')
+            print_msg(i)
+
+            if self.outer_event.is_set():
+                self.logger.info(f'{self._pre} {i//self.N_PER_SECOND}: EVENT DETECTED\n')
+                return
+            if self.stop_event.is_set():
+                self.logger.info(f'{self._pre} {i//self.N_PER_SECOND}: STOP FROM INPUT\n')
+                return "STOP_INPUT"
+            time.sleep(self.INTERV_TIME)
+
+        if not quiet:
+            print()
+        return "END"
+
+    def __call__(self, n=None, quiet=False):
+
+        if n is not None and isinstance(n, int) and n > 3:
+            timeout = n - 3
+        else:
+            timeout = self.DEFAULT_TIMEOUT - 3
+        self.stop_event.clear()
+        time.sleep(3)
+        with ThreadPoolExecutor() as exe:
+            futures = {exe.submit(self.start_countdown, timeout, quiet=quiet): 'count',
+                       exe.submit(self.inputimeout, timeout, quiet=quiet): 'input'}
+            done, pend = wait_thr(fs=futures, return_when=fc_thr)
+            for d in done:
+                self.stop_event.set(futures[d])
+                wait_thr(pend)
+                if futures[d] == 'input':
+                    return "INPUT"
+                else:
+                    return d.result()
 
 
 def init_gui_root():

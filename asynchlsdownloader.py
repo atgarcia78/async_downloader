@@ -50,7 +50,7 @@ from utils import (
     traverse_obj,
     try_get,
     wait_time,
-    countdown,
+    CountDown,
     myYTDL,
     async_waitfortasks,
     Union,
@@ -690,9 +690,15 @@ class AsyncHLSDownloader:
 
             if cause and str(cause) == "403":
 
-                if not AsyncHLSDownloader._COUNT_PRINT:
-                    AsyncHLSDownloader._COUNT_PRINT = True
-                    _ev = countdown(CONF_HLS_RESET_403_TIME, msg=self.premsg, event=self.vid_dl.stop_event)
+                _count = False
+                with AsyncHLSDownloader._CLASSLOCK:
+                    if not AsyncHLSDownloader._COUNT_PRINT:
+                        AsyncHLSDownloader._COUNT_PRINT = True
+                        _count = True
+                if _count:
+                    logger.info(f"{self.premsg}:start countdown")
+                    _countdown = CountDown(msg=self.premsg, event=self.vid_dl.stop_event, logger=logger)
+                    _ev = _countdown(CONF_HLS_RESET_403_TIME)
                     AsyncHLSDownloader._COUNT_PRINT = False
                     if not _ev:
                         return
