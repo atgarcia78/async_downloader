@@ -101,6 +101,7 @@ class AsyncHLSDownloader:
     _CONFIG = CONFIG_EXTRACTORS.copy()
     _CLASSLOCK = threading.Lock()
     _COUNT_PRINT = False
+    _OK_503 = MySyncAsyncEvent("ok_403")
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
 
@@ -182,8 +183,7 @@ class AsyncHLSDownloader:
             self.premsg = ''.join([
                 f'[{self.info_dict["id"]}]',
                 f'[{self.info_dict["title"]}]',
-                f'[{self.info_dict["format_id"]}]',
-                f'[{self.count}/{self.n_workers}]'])
+                f'[{self.info_dict["format_id"]}]'])
 
             self.init()
         except Exception as e:
@@ -689,13 +689,14 @@ class AsyncHLSDownloader:
 
             if str(cause) == "403":
 
-                _countdown = CountDown(index=self.vid_dl.index, msg=self.premsg, event=self.vid_dl.stop_event, logger=logger)
                 _quiet = True
                 with AsyncHLSDownloader._CLASSLOCK:
                     if not AsyncHLSDownloader._COUNT_PRINT:
                         AsyncHLSDownloader._COUNT_PRINT = True
+                        AsyncHLSDownloader._OK_503.clear()
                         _quiet = False
-
+                _countdown = CountDown(index=self.vid_dl.index, msg=self.premsg,
+                                       events=[self.vid_dl.stop_event, AsyncHLSDownloader._OK_503], logger=logger)
                 logger.info(f"{self.premsg}:start countdown")
                 _ev = _countdown(CONF_HLS_RESET_403_TIME, quiet=_quiet)
                 if not _quiet:
@@ -767,7 +768,8 @@ class AsyncHLSDownloader:
                             _webpage_url,
                             first=_first,
                         ):
-
+                            if _first:
+                                AsyncHLSDownloader._OK_503.set()
                             if _sem._initial_value == 1:
                                 _sem._initial_value = 100
                                 _sem.release(50)
@@ -1500,6 +1502,7 @@ class AsyncHLSDownloader:
 
         self._speed = []
         n_frags_dl = 0
+        self.premsg = f'[{self.vid_dl.index}]{self.premsg}'
 
         if self.fromplns:
             _event = traverse_obj(self.vid_dl.info_dl["fromplns"], ("ALL", "reset"))

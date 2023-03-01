@@ -21,7 +21,8 @@ import selectors
 from concurrent.futures import (
     ThreadPoolExecutor,
     wait as wait_thr,
-    FIRST_COMPLETED as fc_thr
+    FIRST_COMPLETED as fc_thr,
+    as_completed
 )
 from datetime import datetime
 
@@ -43,7 +44,6 @@ import queue
 from asgiref.sync import (
     sync_to_async,
 )
-from concurrent.futures import as_completed
 from ipaddress import ip_address
 import httpx
 
@@ -100,12 +100,12 @@ assert StatusError503
 assert my_dec_on_exception
 assert cast
 
-
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
+CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/110.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 100
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -253,6 +253,14 @@ class MySyncAsyncEvent:
         self.event = threading.Event()
         self.aevent = asyncio.Event()
         self._flag = False
+
+    def __repr__(self):
+        cls = self.__class__
+        status = 'set' if self._flag else 'unset'
+        _res = f"<{cls.__module__}.{cls.__qualname__} at {id(self):#x}: {status}"
+        _res += f"\n\tname: {self.name if hasattr(self, 'name') else 'noname'}"
+        _res += f"\n\tsync event: {repr(self.event)}\n\tasync event: {repr(self.aevent)}\n>"
+        return _res
 
     def set(self, cause: Union[str, None] = "noinfo"):
 
@@ -619,11 +627,6 @@ def init_logging(file_path=None):
 
 def init_argparser():
 
-    UA_LIST = [
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:110.0) " +
-        "Gecko/20100101 Firefox/110.0"
-    ]
-
     parser = argparse.ArgumentParser(
         description="Async downloader videos / playlist videos HLS / HTTP"
     )
@@ -664,7 +667,7 @@ def init_argparser():
     parser.add_argument("--ytdlopts", help="init dict de conf", default="",
                         type=str)
     parser.add_argument("--proxy", default=None, type=str)
-    parser.add_argument("--useragent", default=UA_LIST[0], type=str)
+    parser.add_argument("--useragent", default=CONF_FIREFOX_UA, type=str)
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument(
@@ -1542,27 +1545,33 @@ def check_if_dl(info_dict, videos):
 ############################################################
 
 
+class TimeoutOccurred(Exception):
+    pass
+
+
 class CountDown:
 
     DEFAULT_TIMEOUT = 30
     INTERV_TIME = 0.25
     N_PER_SECOND = 1 if INTERV_TIME >= 1 else int(1 / INTERV_TIME)
     PRINT_DIF_IN_SECS = 20
-
     LF = '\n'
     PROMPT = ''
 
-    class TimeoutOccurred(Exception):
-        pass
-
-    def __init__(self, index=None, msg=None, event=None, logger=None):
+    def __init__(self, index=None, msg=None, events=None, logger=None):
         self._pre = '[countdown][WAIT503]'
         if msg:
             self._pre += msg
-        self.outer_event = event if event else threading.Event()
-        self.stop_event = MySyncAsyncEvent()
+        if not events:
+            self.outer_events = []
+        elif isinstance(events, (list, tuple)):
+            self.outer_events = list(events)
+        else:
+            self.outer_events = [events]
+
+        self.stop_event = MySyncAsyncEvent('innerstop')
         self.logger = logger if logger else logging.getLogger('asyncdl')
-        self.index = index
+        self.index = str(index)
 
     def setup(self, interval=None, print_secs=None):
         if interval:
@@ -1575,42 +1584,53 @@ class CountDown:
         sys.stdout.write(string)
         sys.stdout.flush()
 
-    def inputimeout(self, timeout, quiet=False):
-        self.echo(self.PROMPT)
+    def posix_inputimeout(self, timeout):
+
         sel = selectors.DefaultSelector()
         sel.register(sys.stdin, selectors.EVENT_READ)
-        _total = 0
-        events = []
-        _input = None
-        while _total < timeout:
-            events = sel.select(self.INTERV_TIME)
-            if events:
-                key, _ = events[0]
-                _input = key.fileobj.readline().rstrip(self.LF)   # type: ignore
-                self.logger.info(f'{self._pre} Input:[{_input}]')
-                if (not quiet and _input == '') or (quiet and _input == self.index):
-                    break
-
-            else:
-                if self.stop_event.is_set():
-                    break
-
-            _total += self.INTERV_TIME
-            events = []
-            _input = None
+        events = sel.select(timeout)
 
         if events:
-            return _input
+            key, _ = events[0]
+            return key.fileobj.readline().rstrip(self.LF)  # type: ignore
         else:
-            if not quiet:
-                self.echo(self.LF)
-                termios.tcflush(sys.stdin, termios.TCIFLUSH)
-            raise self.TimeoutOccurred
+            raise TimeoutOccurred
+
+    def inputimeout(self, timeout, quiet=False):
+
+        _total = 0
+        _res = None
+        while _total < timeout:
+
+            try:
+                if (_events := [ev.name if hasattr(ev, 'name') else 'noname'
+                                for ev in self.outer_events + [self.stop_event] if ev.is_set()]):
+                    _res = _events
+                    break
+
+                _input = self.posix_inputimeout(self.INTERV_TIME)
+
+                if ((_input == self.index) or (not quiet and _input == '')):
+                    #  self.logger.debug(f'{self._pre} Input:[{_input}]')
+                    _res = [f"INPUT:{_input}"]
+                    break
+                else:
+                    termios.tcflush(sys.stdin, termios.TCIFLUSH)
+            except TimeoutOccurred:
+                pass
+            except Exception as e:
+                self.logger.exception(f'{self._pre} {repr(e)}')
+
+            _total += self.INTERV_TIME
+
+        if not _res:
+            time.sleep(self.INTERV_TIME)
+            _res = ["TIMEOUT_INPUT"]
+
+        self.logger.debug(f'{self._pre} return Input: {_res}')
+        return _res
 
     def start_countdown(self, n, quiet=False):
-
-        # _func_print = {False: functools.partial(print, end='\x1b[K\r', flush=True),
-        #                True: self.logger.info}
 
         if not quiet:
             end_msg = ''
@@ -1626,26 +1646,24 @@ class CountDown:
             if ((x == self.N_PER_SECOND*n) or (x % temp) == 0):
                 _func_print(f'{self._pre} {x//self.N_PER_SECOND}{end_msg}')
 
+        _res = None
         for i in range(self.N_PER_SECOND*n, 0, -1):
-            # if not quiet:
-            #     if (i == self.N_PER_SECOND*n) or (i % self.N_PER_SECOND) == 0:
-            #         print(f'{self._pre} {i//self.N_PER_SECOND}', end='\x1b[K\r', flush=True)
-            # else:
-            #     if (i == self.N_PER_SECOND*n) or (i % (self.N_PER_SECOND*self.PRINT_DIF_IN_SECS)) == 0:
-            #         self.logger.info(f'{self._pre} {i//self.N_PER_SECOND}secs to stop\n')
             print_msg(i)
 
-            if self.outer_event.is_set():
-                self.logger.info(f'{self._pre} {i//self.N_PER_SECOND}: EVENT DETECTED\n')
-                return
-            if self.stop_event.is_set():
-                self.logger.info(f'{self._pre} {i//self.N_PER_SECOND}: STOP FROM INPUT\n')
-                return "STOP_INPUT"
+            if (_events := [ev.name if hasattr(ev, 'name') else 'noname'
+                            for ev in self.outer_events + [self.stop_event] if ev.is_set()]):
+                #  self.logger.debug(f'{self._pre} {i//self.N_PER_SECOND}: EVENT DETECTED {_events}')
+                _res = _events
+                break
+
             time.sleep(self.INTERV_TIME)
 
         if not quiet:
             print()
-        return "END"
+        if not _res:
+            _res = ["TIMEOUT_COUNT"]
+        self.logger.debug(f'{self._pre} return Count: {_res}')
+        return _res
 
     def __call__(self, n=None, quiet=False):
 
@@ -1659,13 +1677,19 @@ class CountDown:
             futures = {exe.submit(self.start_countdown, timeout, quiet=quiet): 'count',
                        exe.submit(self.inputimeout, timeout, quiet=quiet): 'input'}
             done, pend = wait_thr(fs=futures, return_when=fc_thr)
-            for d in done:
-                self.stop_event.set(futures[d])
-                wait_thr(pend)
-                if futures[d] == 'input':
-                    return "INPUT"
-                else:
-                    return d.result()
+
+            try:
+                if done:
+                    for d in done:
+                        _res = d.result()
+                        if 'stop' in _res:
+                            return
+                        else:
+                            return _res
+            finally:
+                if pend:
+                    self.stop_event.set()
+                    wait_thr(pend)
 
 
 def init_gui_root():
