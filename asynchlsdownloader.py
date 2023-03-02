@@ -1240,7 +1240,10 @@ class AsyncHLSDownloader:
                         async with self._limit:
                             logger.debug(f'{_premsg}: limiter speed')
 
-                        async with aiofiles.open(filename, mode="ab") as f, client.stream("GET", url, headers=headers) as res:
+                        async with (
+                            aiofiles.open(filename, mode="ab") as f,
+                            client.stream("GET", url, headers=headers) as res
+                        ):
 
                             logger.debug(
                                 f'{_premsg}:{res.request}, {res.status_code}, ' +

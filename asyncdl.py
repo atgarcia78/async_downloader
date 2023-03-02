@@ -367,7 +367,8 @@ class FrontEndGUI:
                     else:
                         self.asyncdl.args.parts = _nvidworkers
                         if self.asyncdl.list_dl:
-                            for _, dl in self.asyncdl.list_dl.items():
+                            _copy_list_dl = self.asyncdl.list_dl.copy()
+                            for _, dl in _copy_list_dl.items():
                                 await dl.change_numvidworkers(_nvidworkers)
                         else:
                             sg.cprint('DL list empty')
@@ -386,17 +387,18 @@ class FrontEndGUI:
                 sg.cprint('DL list empty')
 
             else:
+                _copy_list_dl = self.asyncdl.list_dl.copy()
                 _index_list = []
                 if (_values := values.get(event)):  # from thread pasres
                     _index_list = [int(el) for el in _values.split(',')]
                 elif (not (_values := values['-IN-']) or _values.lower() == 'all'):
                     _index_list = [
-                        int(dl.index) for _, dl in self.asyncdl.list_dl.items()]
+                        int(dl.index) for _, dl in _copy_list_dl.items()]
                 else:
                     if any([
                             any([
                                     not el.isdecimal(), int(el) == 0,
-                                    int(el) > len(self.asyncdl.list_dl)])
+                                    int(el) > len(_copy_list_dl)])
                             for el in values['-IN-'].replace(' ', '').split(',')]):
 
                         sg.cprint('incorrect numbers of dl')
@@ -506,7 +508,9 @@ class FrontEndGUI:
             list_upt[st] = {}
             list_res[st] = {}
 
-            for i, dl in self.asyncdl.list_dl.items():
+            _copy_list_dl = self.asyncdl.list_dl.copy()
+
+            for i, dl in _copy_list_dl.items():
 
                 if dl.info_dl['status'] in trans[st]:
                     list_res[st].update({i: dl.print_hookup()})
