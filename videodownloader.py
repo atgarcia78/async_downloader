@@ -38,6 +38,7 @@ class VideoDownloader:
 
     def __init__(self, video_dict, ytdl, args, hosts_dl, alock, hosts_alock):
 
+        self.background_tasks = set()
         self.hosts_dl = hosts_dl
         self.master_alock = alock
         self.master_hosts_alock = hosts_alock
@@ -356,6 +357,9 @@ class VideoDownloader:
 
         logger.debug(f"{premsg} endtasks {_tasks_all}")
         if _tasks_all:
+            for _task in _tasks_all:
+                self.background_tasks.add(_task)
+                _task.add_done_callback(self.background_tasks.discard)
             await async_waitfortasks(_tasks_all, events=self.stop_event)
 
     async def stop(self, cause=None):
@@ -420,6 +424,9 @@ class VideoDownloader:
                 done = set()
 
                 if tasks_run_0:
+                    for _task in tasks_run_0:
+                        self.background_tasks.add(_task)
+                        _task.add_done_callback(self.background_tasks.discard)
                     done, _ = await asyncio.wait(tasks_run_0)
 
                 if len(self.info_dl['downloaders']) > 1:
@@ -429,6 +436,9 @@ class VideoDownloader:
                         if i == 1 and
                         dl.status not in ("init_manipulating", "done")]
                     if tasks_run_1:
+                        for _task in tasks_run_1:
+                            self.background_tasks.add(_task)
+                            _task.add_done_callback(self.background_tasks.discard)
                         done1, _ = await asyncio.wait(tasks_run_1)
                         done = done.union(done1)
 
@@ -634,6 +644,9 @@ class VideoDownloader:
 
             await asyncio.sleep(0)
             if blocking_tasks:
+                for _task in blocking_tasks:
+                    self.background_tasks.add(_task)
+                    _task.add_done_callback(self.background_tasks.discard)
                 done, _ = await asyncio.wait(blocking_tasks)
 
                 for d in done:

@@ -17,11 +17,11 @@ import PySimpleGUI as sg
 import sys
 import termios
 import selectors
+import atexit
 
 from concurrent.futures import (
     ThreadPoolExecutor,
     wait as wait_thr,
-    FIRST_COMPLETED as fc_thr,
     as_completed
 )
 from datetime import datetime
@@ -318,6 +318,13 @@ class ProgressTimer:
 
         self._last_ts += elapsed_seconds - elapsed_seconds % seconds
         return True
+
+    def wait_haselapsed(self, seconds: float):
+        while True:
+            if self.has_elapsed(seconds):
+                return True
+            else:
+                time.sleep(0.2)
 
 
 class SpeedometerMA:
@@ -1549,7 +1556,7 @@ class TimeoutOccurred(Exception):
     pass
 
 
-class CountDown:
+class CountDowns:
 
     DEFAULT_TIMEOUT = 30
     INTERV_TIME = 0.25
@@ -1558,10 +1565,10 @@ class CountDown:
     LF = '\n'
     PROMPT = ''
 
-    def __init__(self, index=None, msg=None, events=None, logger=None):
+    def __init__(self, events=None, logger=None):
+
         self._pre = '[countdown][WAIT503]'
-        if msg:
-            self._pre += msg
+
         if not events:
             self.outer_events = []
         elif isinstance(events, (list, tuple)):
@@ -1571,18 +1578,34 @@ class CountDown:
 
         self.stop_event = MySyncAsyncEvent('innerstop')
         self.logger = logger if logger else logging.getLogger('asyncdl')
-        self.index = str(index)
+        atexit.register(self.enable_echo, True)
+        self.index_main = 'NOTINIT'
+        self.countdowns = {}
+        self.exe = ThreadPoolExecutor(thread_name_prefix='countdown')
+        self.futures = {}
+
+    def start_input(self):
+        if 'input' not in self.futures:
+            self.futures['input'] = self.exe.submit(self.inputimeout, CONF_HLS_RESET_403_TIME)
+
+    def clean(self):
+        if not self.stop_event.is_set():
+            self.stop_event.set()
+            wait_thr([self.futures['input']])
+        if self.futures:
+            self.futures = {}
+        if self.countdowns:
+            self.logger.debug(f'{self._pre} COUNTDOWNS:\n{self.countdowns}')
+            self.countdowns = {}
+        self.index_main = 'NOTINIT'
+        self.stop_event.clear()
 
     def setup(self, interval=None, print_secs=None):
         if interval:
-            CountDown.INTERV_TIME = interval
-            CountDown.N_PER_SECOND = 1 if CountDown.INTERV_TIME >= 1 else int(1 / CountDown.INTERV_TIME)
+            CountDowns.INTERV_TIME = interval
+            CountDowns.N_PER_SECOND = 1 if CountDowns.INTERV_TIME >= 1 else int(1 / CountDowns.INTERV_TIME)
         if print_secs:
-            CountDown.PRINT_DIF_IN_SECS = print_secs
-
-    def echo(self, string):
-        sys.stdout.write(string)
-        sys.stdout.flush()
+            CountDowns.PRINT_DIF_IN_SECS = print_secs
 
     def posix_inputimeout(self, timeout):
 
@@ -1592,45 +1615,57 @@ class CountDown:
 
         if events:
             key, _ = events[0]
-            return key.fileobj.readline().rstrip(self.LF)  # type: ignore
+            _input = key.fileobj.readline().rstrip(self.LF)  # type: ignore
+            self.logger.info(f'{self._pre} input:{_input}')
+            return _input
         else:
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
             raise TimeoutOccurred
 
-    def inputimeout(self, timeout, quiet=False):
+    def enable_echo(self, enable):
+        fd = sys.stdin.fileno()
+        new = termios.tcgetattr(fd)
+        if enable:
+            new[3] |= termios.ECHO
+        else:
+            new[3] &= ~termios.ECHO
 
-        _total = 0
+        termios.tcsetattr(fd, termios.TCSANOW, new)
+
+    def inputimeout(self, timeout):
+
         _res = None
-        while _total < timeout:
+        self.enable_echo(False)
+        _start = time.monotonic()
+        while (time.monotonic() - _start) < timeout:
 
             try:
-                if (_events := [ev.name if hasattr(ev, 'name') else 'noname'
-                                for ev in self.outer_events + [self.stop_event] if ev.is_set()]):
-                    _res = _events
+                _res = [getattr(ev, 'name', 'noname')
+                        for ev in self.outer_events + [self.stop_event] if ev.is_set()]
+                if _res:
                     break
 
-                _input = self.posix_inputimeout(self.INTERV_TIME)
+                _input = self.posix_inputimeout(2)
+                if _input == '':
+                    _input = self.index_main
+                if _input in self.countdowns:
+                    self.logger.info(f'{self._pre} input[{_input}] is index video')
+                    self.countdowns[_input]['stop'].set()
 
-                if ((_input == self.index) or (not quiet and _input == '')):
-                    #  self.logger.debug(f'{self._pre} Input:[{_input}]')
-                    _res = [f"INPUT:{_input}"]
-                    break
-                else:
-                    termios.tcflush(sys.stdin, termios.TCIFLUSH)
             except TimeoutOccurred:
                 pass
             except Exception as e:
                 self.logger.exception(f'{self._pre} {repr(e)}')
 
-            _total += self.INTERV_TIME
-
         if not _res:
             time.sleep(self.INTERV_TIME)
             _res = ["TIMEOUT_INPUT"]
 
-        self.logger.debug(f'{self._pre} return Input: {_res}')
+        self.enable_echo(True)
+        self.logger.info(f'{self._pre} return Input: {_res}')
         return _res
 
-    def start_countdown(self, n, quiet=False):
+    def start_countdown(self, n, index, event=None, quiet=False):
 
         if not quiet:
             end_msg = ''
@@ -1644,16 +1679,20 @@ class CountDown:
 
         def print_msg(x):
             if ((x == self.N_PER_SECOND*n) or (x % temp) == 0):
-                _func_print(f'{self._pre} {x//self.N_PER_SECOND}{end_msg}')
+                _func_print(f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}{end_msg}")
 
         _res = None
+        _events = self.outer_events + [self.countdowns[index]['stop']]
+        if event:
+            _events += [event]
+
+        self.logger.info(f"{self.countdowns[index]['premsg']} events: {_events}")
+
         for i in range(self.N_PER_SECOND*n, 0, -1):
             print_msg(i)
 
-            if (_events := [ev.name if hasattr(ev, 'name') else 'noname'
-                            for ev in self.outer_events + [self.stop_event] if ev.is_set()]):
-                #  self.logger.debug(f'{self._pre} {i//self.N_PER_SECOND}: EVENT DETECTED {_events}')
-                _res = _events
+            _res = [getattr(ev, 'name', 'noname') for ev in _events if ev.is_set()]
+            if _res:
                 break
 
             time.sleep(self.INTERV_TIME)
@@ -1662,34 +1701,59 @@ class CountDown:
             print()
         if not _res:
             _res = ["TIMEOUT_COUNT"]
-        self.logger.debug(f'{self._pre} return Count: {_res}')
+        self.logger.debug(f"{self.countdowns[index]['premsg']} return Count: {_res}")
         return _res
 
-    def __call__(self, n=None, quiet=False):
+    def add(self, n=None, index=None, event=None, quiet=False,  msg=None):
+
+        _premsg = f'{self._pre}'
+        if msg:
+            _premsg += msg
 
         if n is not None and isinstance(n, int) and n > 3:
             timeout = n - 3
         else:
             timeout = self.DEFAULT_TIMEOUT - 3
-        self.stop_event.clear()
         time.sleep(3)
-        with ThreadPoolExecutor() as exe:
-            futures = {exe.submit(self.start_countdown, timeout, quiet=quiet): 'count',
-                       exe.submit(self.inputimeout, timeout, quiet=quiet): 'input'}
-            done, pend = wait_thr(fs=futures, return_when=fc_thr)
+        if not quiet:
+            self.index_main = index
+            self.stop_event.clear()
+            self.logger.info(f'{_premsg} index_main: ({type(self.index_main)})[{self.index_main}]')
 
-            try:
-                if done:
-                    for d in done:
-                        _res = d.result()
-                        if 'stop' in _res:
-                            return
-                        else:
-                            return _res
-            finally:
-                if pend:
-                    self.stop_event.set()
-                    wait_thr(pend)
+        self.countdowns[index] = {
+                'index': index,
+                'premsg': _premsg,
+                'timeout': timeout,
+                'quiet': quiet,
+                'status': 'running',
+                'stop': MySyncAsyncEvent(f"stopcounter[{index}]")}
+
+        _fut = self.exe.submit(self.start_countdown, timeout, index, event=event, quiet=quiet)
+        self.futures[index] = _fut
+        self.countdowns[index]['fut'] = _fut
+
+        self.logger.info(f'{_premsg} added counter \n{self.countdowns}')
+
+        done, _ = wait_thr([_fut])
+
+        self.countdowns[index]['status'] = 'done'
+
+        _res = ["ERROR"]
+        if done:
+            for d in done:
+                try:
+                    _res = d.result()
+                    if 'stop' in _res:
+                        _res = None
+                except Exception as e:
+                    self.logger.exception(f'{_premsg} error {repr(e)}')
+
+        if all([_counter['status'] == 'done' for _index, _counter in self.countdowns.items()]):
+
+            self.clean()
+
+        self.logger.info(f'{_premsg} finish wait for counter: {_res}')
+        return _res
 
 
 def init_gui_root():

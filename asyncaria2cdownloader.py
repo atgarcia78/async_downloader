@@ -64,6 +64,7 @@ class AsyncARIA2CDownloader:
 
     def __init__(self, port, enproxy, video_dict, vid_dl):
 
+        self.background_tasks = set()
         self.info_dict = video_dict.copy()
         self.vid_dl = vid_dl
         self.enproxy = enproxy
@@ -340,9 +341,11 @@ class AsyncARIA2CDownloader:
                         finally:
                             await asyncio.sleep(0)
 
-                    _res = await async_waitfortasks(
-                        {asyncio.create_task(get_uri(i)): i for i in range(1, _gr + 1)},
-                        events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
+                    _tasks = {asyncio.create_task(get_uri(i)): i for i in range(1, _gr + 1)}
+                    for _task in _tasks:
+                        self.background_tasks.add(_task)
+                        _task.add_done_callback(self.background_tasks.discard)
+                    _res = await async_waitfortasks(_tasks, events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
                     if _res.get('event'):
                         return
                     elif (_e := _res.get('exception')):
@@ -684,6 +687,8 @@ class AsyncARIA2CDownloader:
                             self._qspeed = asyncio.Queue()
                             check_task = [
                                 asyncio.create_task(self.check_speed())]
+                            self.background_tasks.add(check_task[0])
+                            check_task[0].add_done_callback(self.background_tasks.discard)
                             self._speed.append((datetime.now(), 'fetch'))
                             await self.fetch()
                             if self.status in ('done', 'error'):

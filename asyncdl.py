@@ -103,10 +103,10 @@ class WorkersRun:
     def _start_task(self, dl, url_key):
 
         self.running.add((dl, url_key))
-        self.tasks.update(
-            {
-                asyncio.create_task(self._task(dl, url_key)): dl
-            })
+        _task = asyncio.create_task(self._task(dl, url_key))
+        self.asyncdl.background_tasks.add(_task)
+        _task.add_done_callback(self.asyncdl.background_tasks.discard)
+        self.tasks.update({_task: dl})
         self.logger.debug(f'[{url_key}] task ok {self.tasks}')
 
     async def _task(self, dl, url_key):
@@ -170,8 +170,10 @@ class WorkersInit:
     def _start_task(self, url_key):
 
         self.running.add(url_key)
-        self.tasks.update(
-            {self.asyncdl.loop.create_task(self._task(url_key)): url_key})
+        _task = self.asyncdl.loop.create_task(self._task(url_key))
+        self.asyncdl.background_tasks.add(_task)
+        _task.add_done_callback(self.asyncdl.background_tasks.discard)
+        self.tasks.update({_task: url_key})
         self.logger.debug(f'[{url_key}] task ok {self.tasks}')
 
     async def _task(self, url_key):
@@ -185,8 +187,10 @@ class WorkersInit:
                 self.asyncdl.t3.stop()
                 self.exit.set()
             else:
-                await asyncio.wait(
-                    [asyncio.create_task(self.asyncdl.init_callback(url_key))])
+                _task_init = asyncio.create_task(self.asyncdl.init_callback(url_key))
+                self.asyncdl.background_tasks.add(_task_init)
+                _task_init.add_done_callback(self.asyncdl.background_tasks.discard)
+                await asyncio.wait([_task_init])
                 async with async_lock(self.lock):
                     self.running.remove(url_key)
                     if self.waiting:
@@ -647,6 +651,7 @@ class FrontEndGUI:
 class NWSetUp:
 
     def __init__(self, asyncdl):
+
         self.asyncdl = asyncdl
         self.logger = logging.getLogger('setupnw')
         self.shutdown_proxy = Event()
@@ -658,17 +663,21 @@ class NWSetUp:
         self._tasks_init = {}
         if self.asyncdl.args.aria2c:
             ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+            _task_aria2c = asyncio.create_task(ainit_aria2c(self.asyncdl.args))
+            self.asyncdl.background_tasks.add(_task_aria2c)
+            _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
             _tasks_init_aria2c = {
-                asyncio.create_task(ainit_aria2c(self.asyncdl.args)): 'aria2'
+                _task_aria2c: 'aria2'
             }
             self._tasks_init.update(_tasks_init_aria2c)
         if self.asyncdl.args.enproxy:
             self.stop_proxy = self.run_proxy_http()
             ainit_proxies = sync_to_async(
                 TorGuardProxies.init_proxies, executor=self.exe)
-            _task_init_proxies = {
-                asyncio.create_task(ainit_proxies()): 'proxies'
-            }
+            _task_proxies = asyncio.create_task(ainit_proxies())
+            self.asyncdl.background_tasks.add(_task_proxies)
+            _task_proxies.add_done_callback(self.asyncdl.background_tasks.discard)
+            _task_init_proxies = {_task_proxies: 'proxies'}
             self._tasks_init.update(_task_init_proxies)
 
     async def init(self):
@@ -1100,6 +1109,7 @@ class AsyncDL:
 
     def __init__(self, args):
 
+        self.background_tasks = set()
         # args
         self.args = args
         self.workers = self.args.w
@@ -1362,6 +1372,9 @@ class AsyncDL:
                         for _ in range(min(self.init_nworkers,
                                            len(self.url_pl_list)))
                     ]
+                    for _task in tasks_pl_list:
+                        self.background_tasks.add(_task)
+                        _task.add_done_callback(self.background_tasks.discard)
                     logger.debug(f"[url_playlist_list] initial playlists: {len(self.url_pl_list)}")
 
                     await asyncio.wait(tasks_pl_list)
@@ -1384,6 +1397,9 @@ class AsyncDL:
                                 min(self.init_nworkers, len(self.url_pl_list2))
                             )
                         ]
+                        for _task in tasks_pl_list2:
+                            self.background_tasks.add(_task)
+                            _task.add_done_callback(self.background_tasks.discard)
                         await asyncio.wait(tasks_pl_list2)
 
                     logger.info(
@@ -2186,6 +2202,8 @@ class AsyncDL:
 
                 logger.info(f"[run_callback] start to manip {dl.info_dl['title']}")
                 task_run_manip = asyncio.create_task(dl.run_manip())
+                self.background_tasks.add(task_run_manip)
+                task_run_manip.add_done_callback(self.background_tasks.discard)
                 done, _ = await asyncio.wait([task_run_manip])
 
                 for d in done:
@@ -2289,8 +2307,15 @@ class AsyncDL:
                 if _res.get("event") == "first" or len(self.videos_to_dl) > 0:
                     self.FEgui = FrontEndGUI(self)
                     tasks_gui = [asyncio.create_task(self.FEgui.gui())]
+                    self.background_tasks.add(tasks_gui[0])
+                    tasks_gui[0].add_done_callback(self.background_tasks.discard)
+
                     tasks_to_wait.update({asyncio.create_task(
                         self.WorkersRun.exit.wait()): "task_workers_run"})
+
+            for _task in tasks_to_wait:
+                self.background_tasks.add(_task)
+                _task.add_done_callback(self.background_tasks.discard)
 
             done, _ = await asyncio.wait(tasks_to_wait)
             for d in done:
