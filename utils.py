@@ -1619,13 +1619,14 @@ class CountDowns:
         else:
             self.outer_events = [events]
 
-        self.stop_event = MySyncAsyncEvent('innerstop')
+        self.inner_stop = MySyncAsyncEvent('innerstop')
         self.logger = logger if logger else logging.getLogger('asyncdl')
         atexit.register(self.enable_echo, True)
-        self.index_main = 'NOTINIT'
+        self.index_main = None
         self.countdowns = {}
         self.exe = ThreadPoolExecutor(thread_name_prefix='countdown')
         self.futures = {}
+        self.lock = threading.Lock()
         self.start_input()
 
     def start_input(self):
@@ -1634,14 +1635,13 @@ class CountDowns:
 
     def clean(self):
 
-        self.stop_event.set()
+        self.inner_stop.set()
         wait_thr([self.futures['input']])
         self.futures = {}
         if self.countdowns:
             self.logger.debug(f'{self._pre} COUNTDOWNS:\n{self.countdowns}')
             self.countdowns = {}
         #  self.index_main = 'NOTINIT'
-        #  self.stop_event.clear()
 
     def setup(self, interval=None, print_secs=None):
         if interval:
@@ -1659,7 +1659,6 @@ class CountDowns:
         if events:
             key, _ = events[0]
             _input = key.fileobj.readline().rstrip(self.LF)  # type: ignore
-            #  self.logger.info(f'{self._pre} input:{_input}')
             return _input
         else:
             termios.tcflush(sys.stdin, termios.TCIFLUSH)
@@ -1686,7 +1685,8 @@ class CountDowns:
 
             try:
                 _res = [getattr(ev, 'name', 'noname')
-                        for ev in self.outer_events + [self.stop_event] if ev.is_set()]
+                        for ev in self.outer_events + [self.inner_stop] if ev.is_set()]
+
                 if _res:
                     break
 
@@ -1714,44 +1714,50 @@ class CountDowns:
 
     def start_countdown(self, n, index, event=None, quiet=False):
 
-        if not quiet:
-            end_msg = ''
-            temp = self.N_PER_SECOND
-            _func_print = functools.partial(print, end='\x1b[K\r', flush=True)
-            print()
-        else:
-            end_msg = 'secs to stop'
-            temp = self.N_PER_SECOND*self.PRINT_DIF_IN_SECS
-            _func_print = self.logger.info
+        # if not quiet:
+        #     end_msg = ''
+        #     temp = self.N_PER_SECOND
+        #     _func_print = functools.partial(print, end='\x1b[K\r', flush=True)
+        #     print()
+        # else:
+        #     end_msg = 'secs to stop'
+        #     temp = self.N_PER_SECOND*self.PRINT_DIF_IN_SECS
+        #     _func_print = self.logger.info
 
-        def print_msg(x):
-            if ((x == self.N_PER_SECOND*n) or (x % temp) == 0):
-                _func_print(f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}{end_msg}")
+        # def print_msg(x):
+        #     if ((x == self.N_PER_SECOND*n) or (x % temp) == 0):
+        #         _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}{end_msg}"
+        #         _func_print(_msg)
+
+        def send_queue(x):
+            if ((x == self.N_PER_SECOND*n) or (x % self.N_PER_SECOND) == 0):
+                _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}"
+                self.klass._QUEUE[index].put_nowait(_msg)
 
         _res = None
         _events = self.outer_events + [self.countdowns[index]['stop']]
         if event:
             _events += [event]
 
-        #  self.logger.info(f"{self.countdowns[index]['premsg']} events: {_events}")
-
         for i in range(self.N_PER_SECOND*n, 0, -1):
-            print_msg(i)
-
+            send_queue(i)
+            #  print_msg(i)
             _res = [getattr(ev, 'name', 'noname') for ev in _events if ev.is_set()]
             if _res:
                 break
 
             time.sleep(self.INTERV_TIME)
 
-        if not quiet:
-            print()
+        self.klass._QUEUE[index].put_nowait('')
+
+        # if not quiet:
+        #     print()
         if not _res:
             _res = ["TIMEOUT_COUNT"]
         self.logger.debug(f"{self.countdowns[index]['premsg']} return Count: {_res}")
         return _res
 
-    def add(self, n=None, index=None, event=None, quiet=False,  msg=None):
+    def add(self, n=None, index=None, event=None, msg=None):
 
         _premsg = f'{self._pre}'
         if msg:
@@ -1762,10 +1768,13 @@ class CountDowns:
         else:
             timeout = self.DEFAULT_TIMEOUT - 3
         time.sleep(3)
-        if not quiet:
-            self.index_main = index
-            self.stop_event.clear()
-            self.logger.info(f'{_premsg} index_main: ({type(self.index_main)})[{self.index_main}]')
+
+        quiet = True
+        with self.lock:
+            if not self.index_main:
+                self.index_main = index
+                self.logger.info(f'{_premsg} index_main: ({type(self.index_main)})[{self.index_main}]')
+                quiet = False
 
         self.countdowns[index] = {
                 'index': index,
@@ -1775,9 +1784,9 @@ class CountDowns:
                 'status': 'running',
                 'stop': MySyncAsyncEvent(f"stopcounter[{index}]")}
 
-        if len(self.countdowns) >= self.total:
-            self.logger.info(f'{_premsg} total counts {len(self.countdowns)} added')
-            self.klass._COUNTDOWNS_READY.clear()
+        # if len(self.countdowns) >= self.total:
+        #    self.logger.info(f'{_premsg} total counts {len(self.countdowns)} added')
+        #  self.klass._COUNTDOWNS_READY.clear()
 
         _fut = self.exe.submit(self.start_countdown, timeout, index, event=event, quiet=quiet)
         self.futures[index] = _fut
@@ -1789,6 +1798,10 @@ class CountDowns:
 
         self.countdowns[index]['status'] = 'done'
 
+        with self.lock:
+            if self.index_main == index:
+                self.index_main = None
+
         _res = ["ERROR"]
         if done:
             for d in done:
@@ -1798,10 +1811,6 @@ class CountDowns:
                         _res = None
                 except Exception as e:
                     self.logger.exception(f'{_premsg} error {repr(e)}')
-
-        # if all([_counter['status'] == 'done' for _index, _counter in self.countdowns.items()]):
-
-        #     self.clean()
 
         self.logger.info(f'{_premsg} finish wait for counter: {_res}')
         return _res

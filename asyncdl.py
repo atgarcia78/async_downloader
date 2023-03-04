@@ -2719,6 +2719,13 @@ class AsyncDL:
             logger.info("[close] start to close")
 
             try:
+                from asynchlsdownloader import AsyncHLSDownloader
+                if AsyncHLSDownloader._COUNTDOWNS:
+                    AsyncHLSDownloader._COUNTDOWNS.clean()
+            except Exception as e:
+                logger.exception(f"[close] asyncdlhls countdown {repr(e)}")
+
+            try:
                 if not self.STOP.is_set():
                     self.t2.stop()
                     if hasattr(self, 'FEgui') and self.FEgui.dl_media_str:

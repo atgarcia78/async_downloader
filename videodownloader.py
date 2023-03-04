@@ -277,8 +277,8 @@ class VideoDownloader:
     async def reset_from_console(self):
 
         if 'hls' in str(type(self.info_dl['downloaders'][0])).lower():
-            if self.info_dl['downloaders'][0].fromplns:
-                await self.reset_plns("hard")
+            if (plns := self.info_dl['downloaders'][0].fromplns):
+                await self.reset_plns("403", plns=plns)
                 return
         await self.reset("hard")
 
@@ -307,10 +307,16 @@ class VideoDownloader:
 
             return _wait_tasks
 
-    async def reset_plns(self, cause: Union[str, None] = "403"):
-        self.info_dl['fromplns']['ALL']['reset'].clear()
+    async def reset_plns(self, cause: Union[str, None] = "403", plns=None):
 
-        plid_total = self.info_dl['fromplns']['ALL']['downloading']
+        if not plns:
+            self.info_dl['fromplns']['ALL']['reset'].clear()
+
+            plid_total = self.info_dl['fromplns']['ALL']['downloading']
+
+        else:
+
+            plid_total = [plns]
 
         _wait_all_tasks = []
 
@@ -341,9 +347,14 @@ class VideoDownloader:
 
         return _wait_all_tasks
 
-    async def back_from_reset_plns(self, premsg):
+    async def back_from_reset_plns(self, premsg, plns=None):
         _tasks_all = []
-        for plid in self.info_dl['fromplns']['ALL']['in_reset']:
+        if not plns:
+            plid_total = self.info_dl['fromplns']['ALL']['in_reset']
+        else:
+            plid_total = [plns]
+
+        for plid in plid_total:
             dict_dl = traverse_obj(
                 self.info_dl['fromplns'], (plid, 'downloaders'))
             list_reset = traverse_obj(
@@ -356,6 +367,7 @@ class VideoDownloader:
                     dl.end_tasks.async_wait()) for dl in plns])
 
         logger.debug(f"{premsg} endtasks {_tasks_all}")
+
         if _tasks_all:
             for _task in _tasks_all:
                 self.background_tasks.add(_task)

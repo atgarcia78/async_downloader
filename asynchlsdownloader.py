@@ -103,9 +103,11 @@ class AsyncHLSDownloader:
     _MIN_TIME_RESETS = 15
     _CONFIG = CONFIG_EXTRACTORS.copy()
     _CLASSLOCK = threading.Lock()
-    _COUNTDOWNS_READY = MySyncAsyncEvent(name="countdown", initset=True)
+    #  _COUNTDOWNS_READY = MySyncAsyncEvent(name="countdown", initset=True)
     _OK_503 = MySyncAsyncEvent("ok_403")
+    _CLEAN = MySyncAsyncEvent("clean")
     _COUNTDOWNS = None
+    _QUEUE = {}
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
 
@@ -189,6 +191,8 @@ class AsyncHLSDownloader:
                 f'[{self.info_dict["title"]}]',
                 f'[{self.info_dict["format_id"]}]'])
 
+            self.count_msg = ''
+
             self.init()
         except Exception as e:
             logger.exception(repr(e))
@@ -221,7 +225,7 @@ class AsyncHLSDownloader:
                             _all_temp.set()
                             self.vid_dl.info_dl[
                                 "fromplns"]["ALL"] = {
-                                "sem": threading.BoundedSemaphore(value=1),
+                                "sem": threading.BoundedSemaphore(value=100),
                                 "downloading": set(),
                                 "in_reset": set(),
                                 "reset": _all_temp,
@@ -685,9 +689,15 @@ class AsyncHLSDownloader:
                 f"{repr(e)} {_for_print(info_reset)}")
             raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
-    def total_in_reset(self):
+    def total_in_reset(self, plns=None):
+
+        if not plns:
+            plid_total = self.vid_dl.info_dl['fromplns']['ALL']['in_reset']
+        else:
+            plid_total = [plns]
+
         count = 0
-        for plid in self.vid_dl.info_dl['fromplns']['ALL']['in_reset']:
+        for plid in plid_total:
             count += len(self.vid_dl.info_dl['fromplns'][plid]['in_reset'])
         return count
 
@@ -699,21 +709,21 @@ class AsyncHLSDownloader:
 
             if str(cause) == "403":
 
-                _quiet = True
-                AsyncHLSDownloader._COUNTDOWNS_READY.wait()
+                #  _quiet = True
+                #  AsyncHLSDownloader._COUNTDOWNS_READY.wait()
                 with AsyncHLSDownloader._CLASSLOCK:
                     if not AsyncHLSDownloader._COUNTDOWNS:
                         if self.fromplns:
-                            _total = self.total_in_reset()
+                            _total = self.total_in_reset(plns=self.fromplns)
                         else:
                             _total = 100000
                         AsyncHLSDownloader._COUNTDOWNS = CountDowns(
                             _total, AsyncHLSDownloader, events=AsyncHLSDownloader._OK_503, logger=logger)
-                        _quiet = False
+                        #  _quiet = False
                         logger.info(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN with expected [{_total}]")
 
                 _ev = AsyncHLSDownloader._COUNTDOWNS.add(CONF_HLS_RESET_403_TIME, index=str(self.vid_dl.index),
-                                                         event=self.vid_dl.stop_event, msg=self.premsg, quiet=_quiet)
+                                                         event=self.vid_dl.stop_event, msg=self.premsg)
                 if not _ev:
                     return
 
@@ -728,6 +738,9 @@ class AsyncHLSDownloader:
             _wurl = self.info_dict["webpage_url"]
 
             if self.fromplns and str(cause) in ("403", "hard"):
+
+                if cause == "403":
+                    NakedSwordBaseIE._STATUS = "403"
 
                 _webpage_url = smuggle_url(
                     re.sub(r"(/scene/\d+)", "", _wurl),
@@ -751,16 +764,18 @@ class AsyncHLSDownloader:
 
                 with (_sem := self.vid_dl.info_dl["fromplns"]["ALL"]["sem"]):
 
-                    logger.debug(f"{self.premsg}:RESET[{self.n_reset}] in sem")
+                    # logger.debug(f"{self.premsg}:RESET[{self.n_reset}] in sem")
 
-                    _first_all = False
-                    if _sem._initial_value == 1:
-                        _first_all = True
-                        if cause == "403":
-                            NakedSwordBaseIE._STATUS = "403"
+                    # _first_all = False
+                    # if _sem._initial_value == 1:
+                    #     _first_all = True
+                    #     if cause == "403":
+                    #         NakedSwordBaseIE._STATUS = "403"
 
-                        NakedSwordBaseIE._API.logout()
-                        NakedSwordBaseIE._API.get_auth()
+                    #   NakedSwordBaseIE._API.logout()
+                    #   NakedSwordBaseIE._API.get_auth()
+
+                    assert _sem
 
                     with (_sem2 := self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"]):
 
@@ -769,22 +784,18 @@ class AsyncHLSDownloader:
                         _first = False
                         if _sem2._initial_value == 1:
                             _first = True
+                            NakedSwordBaseIE._API.logout()
+                            time.sleep(5)
+                            NakedSwordBaseIE._API.get_auth()
 
                         if self.get_reset_info(
                             _webpage_url,
                             first=_first,
                         ):
-                            # if _sem._initial_value == 1:
+                            #   if _first_all:
+                            #     AsyncHLSDownloader._OK_503.set()
                             #     _sem._initial_value = 100
                             #     _sem.release(50)
-                            # if _sem2._initial_value == 1:
-                            #     _sem2._initial_value = 100
-                            #     _sem2.release(50)
-
-                            if _first_all:
-                                AsyncHLSDownloader._OK_503.set()
-                                _sem._initial_value = 100
-                                _sem.release(50)
 
                             if _first:
                                 _sem2._initial_value = 100
@@ -804,14 +815,24 @@ class AsyncHLSDownloader:
         finally:
             if self.fromplns and cause in ("403", "hard"):
 
-                _inreset = self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]
-                try:
-                    _inreset.remove(self.vid_dl.info_dict["playlist_index"])
-                except Exception:
-                    logger.warning(
-                        f'{self.premsg}[resetdl]:RESET[{self.n_reset}]: ' +
-                        f'error when removing [{self.vid_dl.info_dict["playlist_index"]}] ' +
-                        f'from inreset[{self.fromplns}] {_inreset}')
+                with AsyncHLSDownloader._CLASSLOCK:
+
+                    _inreset = self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]
+                    try:
+                        _inreset.remove(self.vid_dl.info_dict["playlist_index"])
+                    except Exception:
+                        logger.warning(
+                            f'{self.premsg}[resetdl]:RESET[{self.n_reset}]: ' +
+                            f'error when removing [{self.vid_dl.info_dict["playlist_index"]}] ' +
+                            f'from inreset[{self.fromplns}] {_inreset}')
+
+                    if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
+
+                        logger.info(
+                            f"{self.premsg}:RESET[{self.n_reset}]: end of resets fromplns [{self.fromplns}]")
+
+                        self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
+                        self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
 
                 if self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
 
@@ -820,56 +841,64 @@ class AsyncHLSDownloader:
                         f"waits for rest scenes in [{self.fromplns}] to start DL " +
                         f"[{self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset']}]")
 
-                    self.vid_dl.reset_event.clear()
+                    #  self.vid_dl.reset_event.clear()
                     _ev_set = wait_for_either(
-                        events=(self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"], self.vid_dl.reset_event))
+                        events=(self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"], self.vid_dl.stop_event))
 
-                    if _ev_set == 'reset':
-                        self.vid_dl.reset_event.clear()
-                        self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
-                        self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset'].clear()
-                        self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
+                    if _ev_set == 'stop':
+                        return
 
-                else:
+                    # if _ev_set == 'reset':
+                    #     self.vid_dl.reset_event.clear()
+                    #     self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
+                    #     self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset'].clear()
+                    #     self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
 
-                    logger.info(
-                        f"{self.premsg}:RESET[{self.n_reset}]: end of resets fromplns [{self.fromplns}]")
-
-                    self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
-                    self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
+                with AsyncHLSDownloader._CLASSLOCK:
 
                     try:
                         self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].remove(self.fromplns)
                     except Exception:
                         pass
 
-                    if self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
-                        logger.info(
-                            f"{self.premsg}:RESET[{self.n_reset}]: " +
-                            f"all scenes in [{self.fromplns}], waiting for scenes in other plns " +
-                            f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]")
+                    if not self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
 
-                        self.vid_dl.reset_event.clear()
-                        _ev_set = wait_for_either(
-                            events=(self.vid_dl.info_dl["fromplns"]["ALL"]["reset"], self.vid_dl.reset_event))
-
-                        if _ev_set == 'reset':
-                            self.vid_dl.reset_event.clear()
-                            self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].clear()
-                            self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
-                            self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
-                    else:
                         logger.info(
                             f"{self.premsg}:RESET[{self.n_reset}]: end for all plns ")
 
                         self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
-                        self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
+                        self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=100)
 
-                        NakedSwordBaseIE._STATUS = "NORMAL"
-                        AsyncHLSDownloader._COUNTDOWNS.clean()
-                        AsyncHLSDownloader._COUNTDOWNS = None
-                        AsyncHLSDownloader._COUNTDOWNS_READY.set()
-                        AsyncHLSDownloader._OK_503.clear()
+                        # NakedSwordBaseIE._STATUS = "NORMAL"
+                        # AsyncHLSDownloader._COUNTDOWNS.clean()
+                        # AsyncHLSDownloader._COUNTDOWNS = None
+                        # AsyncHLSDownloader._COUNTDOWNS_READY.set()
+                        # AsyncHLSDownloader._OK_503.clear()
+
+                if self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
+
+                    logger.info(
+                        f"{self.premsg}:RESET[{self.n_reset}]: " +
+                        f"all scenes in [{self.fromplns}], waiting for scenes in other plns " +
+                        f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]")
+
+                    #  self.vid_dl.reset_event.clear()
+                    _ev_set = wait_for_either(
+                        events=(self.vid_dl.info_dl["fromplns"]["ALL"]["reset"], self.vid_dl.stop_event))
+
+                    if _ev_set == 'stop':
+                        return
+
+                    #  if _ev_set == 'reset':
+                    #     self.vid_dl.reset_event.clear()
+                    #     self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].clear()
+                    #     self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
+                    #     self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
+                    #  NakedSwordBaseIE._STATUS = "NORMAL"
+                    #  AsyncHLSDownloader._COUNTDOWNS.clean()
+                    #  AsyncHLSDownloader._COUNTDOWNS = None
+                    #  AsyncHLSDownloader._COUNTDOWNS_READY.set()
+                    #  AsyncHLSDownloader._OK_503.clear()
 
             self.n_reset += 1
             logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
@@ -1303,7 +1332,7 @@ class AsyncHLSDownloader:
                             if res.status_code == 403:
 
                                 if self.fromplns:
-                                    _wait_tasks = await self.vid_dl.reset_plns("403")
+                                    _wait_tasks = await self.vid_dl.reset_plns("403", plns=self.fromplns)
                                 else:
                                     _wait_tasks = await self.vid_dl.reset("403")
                                 logger.debug(
@@ -1558,6 +1587,7 @@ class AsyncHLSDownloader:
         self._speed = []
         n_frags_dl = 0
         self.premsg = f'[{self.vid_dl.index}]{self.premsg}'
+        AsyncHLSDownloader._QUEUE[str(self.vid_dl.index)] = Queue()
 
         if self.fromplns:
             _event = traverse_obj(self.vid_dl.info_dl["fromplns"], ("ALL", "reset"))
@@ -1590,6 +1620,7 @@ class AsyncHLSDownloader:
                     self.smooth_eta = SmoothETA()
                     self._test.append(("starting tasks to dl"))
                     self.status = "downloading"
+                    self.count_msg = ''
 
                     upt_task = [asyncio.create_task(self.upt_status())]
                     self.background_tasks.add(upt_task[0])
@@ -1784,14 +1815,13 @@ class AsyncHLSDownloader:
 
     async def clean_from_reset(self):
 
+        if not self.fromplns:
+            return
+
         try:
-
-            assert self.fromplns  # and self.vid_dl.reset_event.is_set()
-
             try:
                 self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"].remove(
                     self.vid_dl.info_dict["playlist_index"])
-
             except Exception:
                 logger.warning(
                     f'{self.premsg}[clean_from_reset] error when removing ' +
@@ -1799,13 +1829,12 @@ class AsyncHLSDownloader:
                     f'{self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]}')
 
             if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
+                self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
                 logger.info(f'{self.premsg} end of resets fromplns [{self.fromplns}]')
 
                 try:
 
                     self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].remove(self.fromplns)
-                    if not self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
-                        self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
 
                 except Exception:
                     logger.warning(
@@ -1813,10 +1842,9 @@ class AsyncHLSDownloader:
                         f'[{self.fromplns}] from ' +
                         f'{self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]}')
 
-                self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
+                if not self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
+                    self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
 
-        except AssertionError:
-            pass
         except Exception:
             logger.warning(
                 f'{self.premsg}[clean_from_reset] error when removing ' +
@@ -1931,6 +1959,7 @@ class AsyncHLSDownloader:
             return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
                             f'ERROR [{_rel_size_str}] ',
                             f'[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n'])
+
         elif self.status == "stop":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
@@ -1974,6 +2003,15 @@ class AsyncHLSDownloader:
                     )
                 else:
                     _eta_smooth_str = "--"
+
+            else:
+
+                if self.vid_dl.reset_event.is_set():
+                    try:
+                        self.count_msg = AsyncHLSDownloader._QUEUE[str(self.vid_dl.index)].get_nowait()
+                    except Exception:
+                        pass
+
             _dsize = _temp.get("down_size", self.down_size)
             _progress_str = (
                 f'{(_dsize/self.filesize)*100:5.2f}%'
@@ -1984,7 +2022,8 @@ class AsyncHLSDownloader:
             return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
                             f'WK[{self.count:2d}/{self.n_workers:2d}] ',
                             f'FR[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]',
-                            f'PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]'])
+                            f'PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]',
+                            f'\n{self.count_msg}'])
 
         elif self.status == "init_manipulating":
             return ''.join([
