@@ -17,7 +17,7 @@ import PySimpleGUI as sg
 import sys
 import termios
 import selectors
-import atexit
+from queue import Empty, Queue
 
 from concurrent.futures import (
     ThreadPoolExecutor,
@@ -1606,6 +1606,7 @@ class CountDowns:
     PRINT_DIF_IN_SECS = 20
     LF = '\n'
     PROMPT = ''
+    _INPUT = Queue()
 
     def __init__(self, n, klass, events=None, logger=None):
 
@@ -1621,7 +1622,7 @@ class CountDowns:
 
         self.inner_stop = MySyncAsyncEvent('innerstop')
         self.logger = logger if logger else logging.getLogger('asyncdl')
-        atexit.register(self.enable_echo, True)
+        #  atexit.register(self.enable_echo, True)
         self.index_main = None
         self.countdowns = {}
         self.exe = ThreadPoolExecutor(thread_name_prefix='countdown')
@@ -1678,8 +1679,8 @@ class CountDowns:
 
         self.logger.info(f'{self._pre} start input')
         _res = None
-        termios.tcflush(sys.stdin, termios.TCIFLUSH)
-        self.enable_echo(False)
+        #  termios.tcflush(sys.stdin, termios.TCIFLUSH)
+        #  self.enable_echo(False)
         _start = time.monotonic()
         while (time.monotonic() - _start) < timeout:
 
@@ -1690,7 +1691,7 @@ class CountDowns:
                 if _res:
                     break
 
-                _input = self.posix_inputimeout(2)
+                _input = CountDowns._INPUT.get(block=True, timeout=2)
                 if _input == '':
                     _input = self.index_main
                 if _input in self.countdowns:
@@ -1699,7 +1700,7 @@ class CountDowns:
                 else:
                     self.logger.info(f'{self._pre} input[{_input}] not index video')
 
-            except TimeoutOccurred:
+            except (TimeoutOccurred, Empty):
                 pass
             except Exception as e:
                 self.logger.exception(f'{self._pre} {repr(e)}')
@@ -1708,7 +1709,7 @@ class CountDowns:
             time.sleep(self.INTERV_TIME)
             _res = ["TIMEOUT_INPUT"]
 
-        self.enable_echo(True)
+        #  self.enable_echo(True)
         self.logger.info(f'{self._pre} return Input: {_res}')
         return _res
 
@@ -1970,6 +1971,7 @@ def init_gui_console():
                 sg.Button("+runwk", key="IncWorkerRun"),
                 sg.Button("-runwk", key="DecWorkerRun"),
                 sg.Button("#vidwk", key="NumVideoWorkers"),
+                sg.Button("StopCount"),
                 sg.Button("TimePasRes"),
                 sg.Button("Pause"),
                 sg.Button("Resume"),

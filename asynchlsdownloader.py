@@ -108,6 +108,7 @@ class AsyncHLSDownloader:
     _CLEAN = MySyncAsyncEvent("clean")
     _COUNTDOWNS = None
     _QUEUE = {}
+    _INPUT = Queue()
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
 

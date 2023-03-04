@@ -53,7 +53,8 @@ from utils import (
     ProgressTimer,
     SpeedometerMA,
     Union,
-    async_lock
+    async_lock,
+    CountDowns
 )
 
 import proxy
@@ -393,6 +394,7 @@ class FrontEndGUI:
             'Stop',
             '+PasRes',
             '-PasRes',
+            'StopCount'
         ]:
             if not self.asyncdl.list_dl:
                 sg.cprint('DL list empty')
@@ -421,7 +423,9 @@ class FrontEndGUI:
                         sg.cprint(f'[pause-resume autom] before: {list(self.asyncdl.list_pasres)}')
                     info = []
                     for _index in _index_list:
-                        if event == '+PasRes':
+                        if event == 'StopCount':
+                            CountDowns._INPUT.put_nowait(str(_index))
+                        elif event == '+PasRes':
                             self.asyncdl.list_pasres.add(_index)
                         elif event == '-PasRes':
                             self.asyncdl.list_pasres.discard(_index)
