@@ -22,7 +22,8 @@ import atexit
 from concurrent.futures import (
     ThreadPoolExecutor,
     wait as wait_thr,
-    as_completed
+    as_completed,
+    FIRST_COMPLETED as fc_thr
 )
 from datetime import datetime
 
@@ -246,13 +247,15 @@ class LocalStorage:
 
 class MySyncAsyncEvent:
 
-    def __init__(self, name: Union[str, None] = None):
+    def __init__(self, name: Union[str, None] = None, initset: bool = False):
         if name:
             self.name = name
         self._cause = "noinfo"
         self.event = threading.Event()
         self.aevent = asyncio.Event()
         self._flag = False
+        if initset:
+            self.set()
 
     def __repr__(self):
         cls = self.__class__
@@ -413,26 +416,59 @@ class long_operation_in_thread:
 ############################################################
 
 
+def wait_for_either(events, timeout=None, t_pool=None):
+    '''blocks untils one of the events gets set
+
+    PARAMETERS
+    events (list): list of threading.Event objects
+    timeout (float): timeout for events (used for polling)
+    t_pool (concurrent.futures.ThreadPoolExecutor): optional
+    '''
+
+    if any(event.is_set() for event in events):
+        # sanity check
+        pass
+    else:
+        t_pool = t_pool or ThreadPoolExecutor(max_workers=len(events))
+        tasks = {}
+
+        with t_pool:
+            tasks = {t_pool.submit(event.wait): getattr(event, 'name', 'noname') for event in events}
+            done, _ = wait_thr(tasks, timeout=timeout, return_when=fc_thr)
+            for ev in done:
+                return tasks[ev]
+
+
 async def async_waitfortasks(
         fs: Union[Iterable, Coroutine, asyncio.Task, None] = None,
         timeout: Union[float, None] = None,
-        events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None
+        events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None,
+        **kwargs
 ) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
 
     _final_wait = {}
     _tasks: dict[asyncio.Task, str] = {}
 
+    _background_tasks = kwargs.get('background_tasks', set())
+
     if fs:
         if not isinstance(fs, Iterable):
             fs = [fs]
-        for _el in fs:
-            if not isinstance(_el, asyncio.Task):
-                _el = asyncio.create_task(_el)
-
-            _tasks.update({_el: "task"})
+        for _fs in fs:
+            if not isinstance(_fs, asyncio.Task):
+                _el = asyncio.create_task(_fs)
+                _background_tasks.add(_el)
+                _el.set_name(f'[waitfortasks]{_fs.__name__}')
+                _el.add_done_callback(_background_tasks.discard)
+                _tasks.update({_el: "task"})
+            else:
+                _tasks.update({_fs: "task"})
 
         _one_task_to_wait_tasks = asyncio.create_task(
             asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED))
+
+        _background_tasks.add(_one_task_to_wait_tasks)
+        _one_task_to_wait_tasks.add_done_callback(_background_tasks.discard)
 
         _final_wait.update({_one_task_to_wait_tasks: "tasks"})
 
@@ -457,12 +493,18 @@ async def async_waitfortasks(
                     {asyncio.create_task(event.async_wait()):
                      f"event{getter(event)}"})
 
+            for _task in _tasks_events:
+                _background_tasks.add(_task)
+                _task.add_done_callback(_background_tasks.discard)
+
         _final_wait.update(_tasks_events)
 
     if not _final_wait:
         if timeout:
-            _tasks.update(
-                {asyncio.create_task(asyncio.sleep(timeout*2)): "task"})
+            _task_sleep = asyncio.create_task(asyncio.sleep(timeout*2))
+            _background_tasks.add(_task_sleep)
+            _task_sleep.add_done_callback(_background_tasks.discard)
+            _tasks.update({_task_sleep: "task"})
             _final_wait.update(_tasks)
         else:
             return {"timeout": "nothing to await"}
@@ -1565,10 +1607,11 @@ class CountDowns:
     LF = '\n'
     PROMPT = ''
 
-    def __init__(self, events=None, logger=None):
+    def __init__(self, n, klass, events=None, logger=None):
 
         self._pre = '[countdown][WAIT503]'
-
+        self.total = n
+        self.klass = klass
         if not events:
             self.outer_events = []
         elif isinstance(events, (list, tuple)):
@@ -1583,22 +1626,22 @@ class CountDowns:
         self.countdowns = {}
         self.exe = ThreadPoolExecutor(thread_name_prefix='countdown')
         self.futures = {}
+        self.start_input()
 
     def start_input(self):
         if 'input' not in self.futures:
             self.futures['input'] = self.exe.submit(self.inputimeout, CONF_HLS_RESET_403_TIME)
 
     def clean(self):
-        if not self.stop_event.is_set():
-            self.stop_event.set()
-            wait_thr([self.futures['input']])
-        if self.futures:
-            self.futures = {}
+
+        self.stop_event.set()
+        wait_thr([self.futures['input']])
+        self.futures = {}
         if self.countdowns:
             self.logger.debug(f'{self._pre} COUNTDOWNS:\n{self.countdowns}')
             self.countdowns = {}
-        self.index_main = 'NOTINIT'
-        self.stop_event.clear()
+        #  self.index_main = 'NOTINIT'
+        #  self.stop_event.clear()
 
     def setup(self, interval=None, print_secs=None):
         if interval:
@@ -1616,7 +1659,7 @@ class CountDowns:
         if events:
             key, _ = events[0]
             _input = key.fileobj.readline().rstrip(self.LF)  # type: ignore
-            self.logger.info(f'{self._pre} input:{_input}')
+            #  self.logger.info(f'{self._pre} input:{_input}')
             return _input
         else:
             termios.tcflush(sys.stdin, termios.TCIFLUSH)
@@ -1634,7 +1677,9 @@ class CountDowns:
 
     def inputimeout(self, timeout):
 
+        self.logger.info(f'{self._pre} start input')
         _res = None
+        termios.tcflush(sys.stdin, termios.TCIFLUSH)
         self.enable_echo(False)
         _start = time.monotonic()
         while (time.monotonic() - _start) < timeout:
@@ -1651,6 +1696,8 @@ class CountDowns:
                 if _input in self.countdowns:
                     self.logger.info(f'{self._pre} input[{_input}] is index video')
                     self.countdowns[_input]['stop'].set()
+                else:
+                    self.logger.info(f'{self._pre} input[{_input}] not index video')
 
             except TimeoutOccurred:
                 pass
@@ -1686,7 +1733,7 @@ class CountDowns:
         if event:
             _events += [event]
 
-        self.logger.info(f"{self.countdowns[index]['premsg']} events: {_events}")
+        #  self.logger.info(f"{self.countdowns[index]['premsg']} events: {_events}")
 
         for i in range(self.N_PER_SECOND*n, 0, -1):
             print_msg(i)
@@ -1728,11 +1775,15 @@ class CountDowns:
                 'status': 'running',
                 'stop': MySyncAsyncEvent(f"stopcounter[{index}]")}
 
+        if len(self.countdowns) >= self.total:
+            self.logger.info(f'{_premsg} total counts {len(self.countdowns)} added')
+            self.klass._COUNTDOWNS_READY.clear()
+
         _fut = self.exe.submit(self.start_countdown, timeout, index, event=event, quiet=quiet)
         self.futures[index] = _fut
         self.countdowns[index]['fut'] = _fut
 
-        self.logger.info(f'{_premsg} added counter \n{self.countdowns}')
+        self.logger.debug(f'{_premsg} added counter \n{self.countdowns}')
 
         done, _ = wait_thr([_fut])
 
@@ -1748,9 +1799,9 @@ class CountDowns:
                 except Exception as e:
                     self.logger.exception(f'{_premsg} error {repr(e)}')
 
-        if all([_counter['status'] == 'done' for _index, _counter in self.countdowns.items()]):
+        # if all([_counter['status'] == 'done' for _index, _counter in self.countdowns.items()]):
 
-            self.clean()
+        #     self.clean()
 
         self.logger.info(f'{_premsg} finish wait for counter: {_res}')
         return _res

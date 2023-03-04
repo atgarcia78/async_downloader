@@ -360,7 +360,7 @@ class VideoDownloader:
             for _task in _tasks_all:
                 self.background_tasks.add(_task)
                 _task.add_done_callback(self.background_tasks.discard)
-            await async_waitfortasks(_tasks_all, events=self.stop_event)
+            await async_waitfortasks(_tasks_all, events=self.stop_event, background_tasks=self.background_tasks)
 
     async def stop(self, cause=None):
         try:
@@ -629,10 +629,7 @@ class VideoDownloader:
                     dl.status = 'manipulating'
 
             blocking_tasks = [
-                asyncio.create_task(
-                    sync_to_async(
-                        dl.ensamble_file,
-                        executor=self.ex_videodl)())
+                asyncio.create_task(dl.ensamble_file())
                 for dl in self.info_dl['downloaders'] if (
                     not any(_ in str(type(dl)).lower()
                             for _ in ('aria2', 'ffmpeg')) and
@@ -642,7 +639,6 @@ class VideoDownloader:
                     self.info_dict.get('requested_subtitles')):
                 blocking_tasks += [asyncio.create_task(aget_subts_files())]
 
-            await asyncio.sleep(0)
             if blocking_tasks:
                 for _task in blocking_tasks:
                     self.background_tasks.add(_task)
@@ -650,11 +646,9 @@ class VideoDownloader:
                 done, _ = await asyncio.wait(blocking_tasks)
 
                 for d in done:
-
                     try:
-                        _ = d.result()
+                        d.result()
                     except Exception as e:
-
                         logger.exception(
                             f"[{self.info_dict['id']}]" +
                             f"[{self.info_dict['title']}]: [run_manip] result de dl.ensamble_file: " +

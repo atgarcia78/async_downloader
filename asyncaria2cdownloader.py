@@ -211,7 +211,8 @@ class AsyncARIA2CDownloader:
 
                 _res = await async_waitfortasks(
                     self.vid_dl.hosts_dl[self._host]['queue'].get(),
-                    events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
+                    events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
+                    background_tasks=self.background_tasks)
                 if _res.get('event'):
                     return
                 elif (_e := _res.get('exception')):
@@ -345,7 +346,9 @@ class AsyncARIA2CDownloader:
                     for _task in _tasks:
                         self.background_tasks.add(_task)
                         _task.add_done_callback(self.background_tasks.discard)
-                    _res = await async_waitfortasks(_tasks, events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
+                    _res = await async_waitfortasks(
+                        _tasks, events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
+                        background_tasks=self.background_tasks)
                     if _res.get('event'):
                         return
                     elif (_e := _res.get('exception')):
@@ -393,7 +396,8 @@ class AsyncARIA2CDownloader:
                     _res = await async_waitfortasks(
                         timeout=CONF_INTERVAL_GUI / 2,
                         events=(self.vid_dl.reset_event,
-                                self.vid_dl.stop_event))
+                                self.vid_dl.stop_event),
+                        background_tasks=self.background_tasks)
 
                     if _res.get("event"):
                         return
@@ -489,7 +493,8 @@ class AsyncARIA2CDownloader:
             while True:
                 _res = await async_waitfortasks(
                     self._qspeed.get(),
-                    events=(self.vid_dl.reset_event, self.vid_dl.stop_event))
+                    events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
+                    background_tasks=self.background_tasks)
 
                 if _res.get('event'):
                     break
@@ -576,7 +581,8 @@ class AsyncARIA2CDownloader:
                         _res = await async_waitfortasks(
                             events=(self.vid_dl.resume_event,
                                     self.vid_dl.reset_event,
-                                    self.vid_dl.stop_event))
+                                    self.vid_dl.stop_event),
+                            background_tasks=self.background_tasks)
 
                         async with self._decor:
                             await self.async_resume()

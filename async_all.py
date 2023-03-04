@@ -14,6 +14,14 @@ init_logging()
 logger = logging.getLogger("async_all")
 
 
+class GracefulExit(SystemExit):
+    pass
+
+
+def shutdown():
+    raise GracefulExit()
+
+
 def main():
 
     patch_http_connection_pool(maxsize=1000)

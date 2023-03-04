@@ -8,6 +8,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from itertools import zip_longest
+import signal
 
 from pathlib import Path
 
@@ -110,8 +111,8 @@ class WorkersRun:
         self.logger.debug(f'[{url_key}] task ok {self.tasks}')
 
     async def _task(self, dl, url_key):
-        try:
 
+        try:
             if dl.info_dl['status'] not in ('init_manipulating', 'done'):
                 if dl.info_dl.get("auto_pasres"):
                     self.asyncdl.list_pasres.add(dl.index)
@@ -122,9 +123,12 @@ class WorkersRun:
                         f"[init_callback]: [{url_key}]" +
                         f"[{dl.info_dict['id']}][{dl.info_dict['title']}]" +
                         f"pause-resume update{_msg}")
-                await async_waitfortasks(dl.run_dl())
 
-            await self.asyncdl.run_callback(dl, url_key)
+                await async_waitfortasks(
+                    dl.run_dl(), background_tasks=self.asyncdl.background_tasks)
+
+            await async_waitfortasks(
+                self.asyncdl.run_callback(dl, url_key), background_tasks=self.asyncdl.background_tasks)
 
             async with self.alock:
                 self.running.remove((dl, url_key))
@@ -187,10 +191,13 @@ class WorkersInit:
                 self.asyncdl.t3.stop()
                 self.exit.set()
             else:
-                _task_init = asyncio.create_task(self.asyncdl.init_callback(url_key))
-                self.asyncdl.background_tasks.add(_task_init)
-                _task_init.add_done_callback(self.asyncdl.background_tasks.discard)
-                await asyncio.wait([_task_init])
+                # _task_init = asyncio.create_task(self.asyncdl.init_callback(url_key))
+                # self.asyncdl.background_tasks.add(_task_init)
+                # _task_init.add_done_callback(self.asyncdl.background_tasks.discard)
+                # await asyncio.wait([_task_init])
+                await async_waitfortasks(
+                    self.asyncdl.init_callback(url_key), background_tasks=self.asyncdl.background_tasks)
+
                 async with async_lock(self.lock):
                     self.running.remove(url_key)
                     if self.waiting:
@@ -1189,6 +1196,8 @@ class AsyncDL:
                 logger.debug(f"[pending_all_tasks] {pending_tasks}")
                 logger.debug(
                     f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
+            else:
+                raise Exception("no loop")
 
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
@@ -2285,6 +2294,8 @@ class AsyncDL:
 
             self.localstorage = LocalVideos(self)
             self.loop = asyncio.get_running_loop()
+            for signame in {'SIGINT', 'SIGTERM'}:
+                self.loop.add_signal_handler(getattr(signal, signame), lambda: asyncio.create_task(self.shutdown()))
 
             if not self.args.nodl:
                 self.nwsetup = NWSetUp(self)
@@ -2303,7 +2314,8 @@ class AsyncDL:
                 await self.nwsetup.init()
                 self.is_ready_to_dl.set()
                 _res = await async_waitfortasks(
-                    events=(self.getlistvid_first, self.getlistvid_done))
+                    events=(self.getlistvid_first, self.getlistvid_done),
+                    background_tasks=self.background_tasks)
                 if _res.get("event") == "first" or len(self.videos_to_dl) > 0:
                     self.FEgui = FrontEndGUI(self)
                     tasks_gui = [asyncio.create_task(self.FEgui.gui())]
@@ -2347,6 +2359,33 @@ class AsyncDL:
                 self.FEgui.close()
 
             logger.info("[async_ex] BYE")
+
+    async def shutdown(self):
+
+        await self.print_pending_tasks()
+
+        self.STOP.set()
+        await asyncio.sleep(0)
+        try_get(self.ytdl.params["stop"], lambda x: x.set())
+        if self.list_dl:
+            for _, dl in self.list_dl.items():
+                await dl.stop()
+        await asyncio.sleep(0)
+        if hasattr(self, 'FEgui'):
+            self.FEgui.stop.set()
+            await asyncio.sleep(0)
+            self.FEgui.close()
+
+        await asyncio.sleep(0)
+
+        await self.print_pending_tasks()
+
+        tasks = [task for task in asyncio.all_tasks() if task is not asyncio.current_task()]
+
+        list(map(lambda task: task.cancel(), tasks))
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.get_results_info()
+        self.close()
 
     def get_results_info(self):
         def _getter(url: str, vid: dict) -> str:
