@@ -56,7 +56,8 @@ from utils import (
     Union,
     cast,
     MySyncAsyncEvent,
-    put_sequence
+    put_sequence,
+    async_lock
 )
 
 from functools import partial
@@ -226,7 +227,7 @@ class AsyncHLSDownloader:
                             _all_temp.set()
                             self.vid_dl.info_dl[
                                 "fromplns"]["ALL"] = {
-                                "sem": threading.BoundedSemaphore(value=100),
+                                "sem": threading.BoundedSemaphore(value=1),
                                 "downloading": set(),
                                 "in_reset": set(),
                                 "reset": _all_temp,
@@ -715,7 +716,7 @@ class AsyncHLSDownloader:
                 with AsyncHLSDownloader._CLASSLOCK:
                     if not AsyncHLSDownloader._COUNTDOWNS:
                         if self.fromplns:
-                            _total = self.total_in_reset(plns=self.fromplns)
+                            _total = self.total_in_reset(plns=None)
                         else:
                             _total = 100000
                         AsyncHLSDownloader._COUNTDOWNS = CountDowns(
@@ -765,16 +766,16 @@ class AsyncHLSDownloader:
 
                 with (_sem := self.vid_dl.info_dl["fromplns"]["ALL"]["sem"]):
 
-                    # logger.debug(f"{self.premsg}:RESET[{self.n_reset}] in sem")
+                    logger.debug(f"{self.premsg}:RESET[{self.n_reset}] in sem")
 
-                    # _first_all = False
-                    # if _sem._initial_value == 1:
-                    #     _first_all = True
-                    #     if cause == "403":
-                    #         NakedSwordBaseIE._STATUS = "403"
+                    _first_all = False
+                    if _sem._initial_value == 1:
+                        _first_all = True
+                        if cause == "403":
+                            NakedSwordBaseIE._STATUS = "403"
 
-                    #   NakedSwordBaseIE._API.logout()
-                    #   NakedSwordBaseIE._API.get_auth()
+                        NakedSwordBaseIE._API.logout()
+                        NakedSwordBaseIE._API.get_auth()
 
                     assert _sem
 
@@ -793,10 +794,10 @@ class AsyncHLSDownloader:
                             _webpage_url,
                             first=_first,
                         ):
-                            #   if _first_all:
-                            #     AsyncHLSDownloader._OK_503.set()
-                            #     _sem._initial_value = 100
-                            #     _sem.release(50)
+                            if _first_all:
+                                #  AsyncHLSDownloader._OK_503.set()
+                                _sem._initial_value = 100
+                                _sem.release(50)
 
                             if _first:
                                 _sem2._initial_value = 100
@@ -843,11 +844,12 @@ class AsyncHLSDownloader:
                         f"[{self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset']}]")
 
                     #  self.vid_dl.reset_event.clear()
-                    _ev_set = wait_for_either(
-                        events=(self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"], self.vid_dl.stop_event))
+                    #  _ev_set = wait_for_either(
+                    #    events=(self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"], self.vid_dl.stop_event))
+                    self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].wait()
 
-                    if _ev_set == 'stop':
-                        return
+                    #  if _ev_set == 'stop':
+                    #    return
 
                     # if _ev_set == 'reset':
                     #     self.vid_dl.reset_event.clear()
@@ -868,7 +870,10 @@ class AsyncHLSDownloader:
                             f"{self.premsg}:RESET[{self.n_reset}]: end for all plns ")
 
                         self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
-                        self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=100)
+                        self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
+                        self.n_reset += 1
+                        logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
+                        return
 
                         # NakedSwordBaseIE._STATUS = "NORMAL"
                         # AsyncHLSDownloader._COUNTDOWNS.clean()
@@ -883,26 +888,28 @@ class AsyncHLSDownloader:
                         f"all scenes in [{self.fromplns}], waiting for scenes in other plns " +
                         f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]")
 
-                    #  self.vid_dl.reset_event.clear()
-                    _ev_set = wait_for_either(
-                        events=(self.vid_dl.info_dl["fromplns"]["ALL"]["reset"], self.vid_dl.stop_event))
+                    self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].wait()
 
-                    if _ev_set == 'stop':
-                        return
+                    self.n_reset += 1
+                    logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
 
-                    #  if _ev_set == 'reset':
-                    #     self.vid_dl.reset_event.clear()
-                    #     self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].clear()
-                    #     self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
-                    #     self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
-                    #  NakedSwordBaseIE._STATUS = "NORMAL"
-                    #  AsyncHLSDownloader._COUNTDOWNS.clean()
-                    #  AsyncHLSDownloader._COUNTDOWNS = None
-                    #  AsyncHLSDownloader._COUNTDOWNS_READY.set()
-                    #  AsyncHLSDownloader._OK_503.clear()
+                #  self.vid_dl.reset_event.clear()
+                # _ev_set = wait_for_either(
+                #     events=(self.vid_dl.info_dl["fromplns"]["ALL"]["reset"], self.vid_dl.stop_event))
 
-            self.n_reset += 1
-            logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
+                # if _ev_set == 'stop':
+                #     return
+
+                #  if _ev_set == 'reset':
+                #     self.vid_dl.reset_event.clear()
+                #     self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].clear()
+                #     self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
+                #     self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
+                #  NakedSwordBaseIE._STATUS = "NORMAL"
+                #  AsyncHLSDownloader._COUNTDOWNS.clean()
+                #  AsyncHLSDownloader._COUNTDOWNS = None
+                #  AsyncHLSDownloader._COUNTDOWNS_READY.set()
+                #  AsyncHLSDownloader._OK_503.clear()
 
     def prep_reset(self, info_reset):
 
@@ -1333,7 +1340,7 @@ class AsyncHLSDownloader:
                             if res.status_code == 403:
 
                                 if self.fromplns:
-                                    _wait_tasks = await self.vid_dl.reset_plns("403", plns=self.fromplns)
+                                    _wait_tasks = await self.vid_dl.reset_plns("403", plns=None)
                                 else:
                                     _wait_tasks = await self.vid_dl.reset("403")
                                 logger.debug(
@@ -1590,13 +1597,15 @@ class AsyncHLSDownloader:
         self.premsg = f'[{self.vid_dl.index}]{self.premsg}'
         AsyncHLSDownloader._QUEUE[str(self.vid_dl.index)] = Queue()
 
-        if self.fromplns:
-            _event = traverse_obj(self.vid_dl.info_dl["fromplns"], ("ALL", "reset"))
-            if _event:
-                await _event.async_wait()  # type: ignore
-            self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"].add(
-                self.vid_dl.info_dict["playlist_index"])
-            self.vid_dl.info_dl["fromplns"]["ALL"]["downloading"].add(self.fromplns)
+        async with async_lock(AsyncHLSDownloader._CLASSLOCK):
+            if self.fromplns:
+                _event = traverse_obj(self.vid_dl.info_dl["fromplns"], ("ALL", "reset"))
+                #  _event = traverse_obj(self.vid_dl.info_dl["fromplns"], (self.fromplns, "reset"))
+                if _event:
+                    await _event.async_wait()  # type: ignore
+                self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"].add(
+                    self.vid_dl.info_dict["playlist_index"])
+                self.vid_dl.info_dl["fromplns"]["ALL"]["downloading"].add(self.fromplns)
 
         _tstart = time.monotonic()
 
@@ -1647,7 +1656,7 @@ class AsyncHLSDownloader:
 
                     if n_frags_dl == len(self.info_dict["fragments"]):
 
-                        await self.clean_from_reset()
+                        #  await self.clean_from_reset()
                         self.vid_dl.end_tasks.set()
                         self._qspeed.put_nowait("KILL")
                         self.kill.set()
@@ -1658,7 +1667,7 @@ class AsyncHLSDownloader:
                     else:
                         if self.vid_dl.stop_event.is_set():
 
-                            await self.clean_from_reset()
+                            #  await self.clean_from_reset()
                             self.vid_dl.end_tasks.set()
                             self.status = "stop"
                             await asyncio.wait(check_task + upt_task)
@@ -1680,9 +1689,9 @@ class AsyncHLSDownloader:
 
                                     if _cause in ("403", "hard"):
                                         if self.fromplns:
-                                            await self.vid_dl.back_from_reset_plns(self.premsg)
+                                            await self.vid_dl.back_from_reset_plns(self.premsg, plns=None)
                                             if self.vid_dl.stop_event.is_set():
-                                                await self.clean_from_reset()
+                                                #  await self.clean_from_reset()
                                                 return
                                         _cause = self.vid_dl.reset_event.is_set()
                                         self._speed.append((datetime.now(), _cause))
@@ -1791,18 +1800,19 @@ class AsyncHLSDownloader:
             self.status = "error"
         finally:
             await self.dump_init_file()
-            if self.fromplns:
-                _downloading = self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]
-                try:
-                    _downloading.remove(self.vid_dl.info_dict["playlist_index"])
-                except Exception:
-                    logger.warning(
-                        f'{self.premsg}[fetch_async] error when removing ' +
-                        f'[{self.vid_dl.info_dict["playlist_index"]}] ' +
-                        f'from downloading [{_downloading}]')
+            with AsyncHLSDownloader._CLASSLOCK:
+                if self.fromplns:
+                    _downloading = self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]
+                    try:
+                        _downloading.remove(self.vid_dl.info_dict["playlist_index"])
+                    except Exception:
+                        logger.warning(
+                            f'{self.premsg}[fetch_async] error when removing ' +
+                            f'[{self.vid_dl.info_dict["playlist_index"]}] ' +
+                            f'from downloading [{_downloading}]')
 
-                if not self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]:
-                    self.vid_dl.info_dl["fromplns"]["ALL"]["downloading"].remove(self.fromplns)
+                    if not self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]:
+                        self.vid_dl.info_dl["fromplns"]["ALL"]["downloading"].remove(self.fromplns)
 
             logger.debug(f'{self.premsg}%no%\n\n{json.dumps(self._test)}')
 

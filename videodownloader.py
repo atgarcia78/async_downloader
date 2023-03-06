@@ -341,7 +341,7 @@ class VideoDownloader:
                     list_reset.add(key)  # type: ignore
                     await asyncio.sleep(0)
 
-            self.info_dl['fromplns'][plid]['in_reset'] = list_reset
+            #  self.info_dl['fromplns'][plid]['in_reset'] = list_reset
 
             await asyncio.sleep(0)
 
