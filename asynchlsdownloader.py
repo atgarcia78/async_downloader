@@ -529,18 +529,6 @@ class AsyncHLSDownloader:
             logger.error(f"{self.premsg}[get_info_fragments] - {repr(e)}")
             raise AsyncHLSDLErrorFatal(repr(e))
 
-    # def get_m3u8_obj(self):
-
-    #     if not self.m3u8_doc:
-    #         self.m3u8_doc = try_get(
-    #             #  self.init_client.get(self.video_url),
-    #             self.init_client.get(self.info_dict['url']),
-    #             lambda x: x.content.decode("utf-8", "replace"),
-    #         )
-
-    #     #  return m3u8.loads(self.m3u8_doc, self.video_url)
-    #     return m3u8.loads(self.m3u8_doc, self.info_dict['url'])
-
     @dec_retry_error
     def get_init_section(self, uri, file, key):
 
@@ -691,18 +679,6 @@ class AsyncHLSDownloader:
                 f"{repr(e)} {_for_print(info_reset)}")
             raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
-    def total_in_reset(self, plns=None):
-
-        if not plns:
-            plid_total = self.vid_dl.info_dl['fromplns']['ALL']['in_reset']
-        else:
-            plid_total = [plns]
-
-        count = 0
-        for plid in plid_total:
-            count += len(self.vid_dl.info_dl['fromplns'][plid]['in_reset'])
-        return count
-
     def resetdl(self, cause=None):
 
         logger.info(f"{self.premsg}:RESET[{self.n_reset}] cause[{cause}] fromplns[{self.fromplns}]")
@@ -711,21 +687,14 @@ class AsyncHLSDownloader:
 
             if str(cause) == "403":
 
-                #  _quiet = True
-                #  AsyncHLSDownloader._COUNTDOWNS_READY.wait()
                 with AsyncHLSDownloader._CLASSLOCK:
                     if not AsyncHLSDownloader._COUNTDOWNS:
-                        if self.fromplns:
-                            _total = self.total_in_reset(plns=None)
-                        else:
-                            _total = 100000
                         AsyncHLSDownloader._COUNTDOWNS = CountDowns(
-                            _total, AsyncHLSDownloader, events=AsyncHLSDownloader._OK_503, logger=logger)
-                        #  _quiet = False
-                        logger.info(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN with expected [{_total}]")
+                            AsyncHLSDownloader, events=AsyncHLSDownloader._OK_503, logger=logger)
+                        logger.info(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
 
-                _ev = AsyncHLSDownloader._COUNTDOWNS.add(CONF_HLS_RESET_403_TIME, index=str(self.vid_dl.index),
-                                                         event=self.vid_dl.stop_event, msg=self.premsg)
+                _ev = AsyncHLSDownloader._COUNTDOWNS.add(
+                    CONF_HLS_RESET_403_TIME, index=str(self.vid_dl.index), event=self.vid_dl.stop_event, msg=self.premsg)
                 if not _ev:
                     return
 
@@ -843,19 +812,7 @@ class AsyncHLSDownloader:
                         f"waits for rest scenes in [{self.fromplns}] to start DL " +
                         f"[{self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset']}]")
 
-                    #  self.vid_dl.reset_event.clear()
-                    #  _ev_set = wait_for_either(
-                    #    events=(self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"], self.vid_dl.stop_event))
                     self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].wait()
-
-                    #  if _ev_set == 'stop':
-                    #    return
-
-                    # if _ev_set == 'reset':
-                    #     self.vid_dl.reset_event.clear()
-                    #     self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
-                    #     self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset'].clear()
-                    #     self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
 
                 with AsyncHLSDownloader._CLASSLOCK:
 
@@ -875,12 +832,6 @@ class AsyncHLSDownloader:
                         logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
                         return
 
-                        # NakedSwordBaseIE._STATUS = "NORMAL"
-                        # AsyncHLSDownloader._COUNTDOWNS.clean()
-                        # AsyncHLSDownloader._COUNTDOWNS = None
-                        # AsyncHLSDownloader._COUNTDOWNS_READY.set()
-                        # AsyncHLSDownloader._OK_503.clear()
-
                 if self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
 
                     logger.info(
@@ -892,24 +843,10 @@ class AsyncHLSDownloader:
 
                     self.n_reset += 1
                     logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
-
-                #  self.vid_dl.reset_event.clear()
-                # _ev_set = wait_for_either(
-                #     events=(self.vid_dl.info_dl["fromplns"]["ALL"]["reset"], self.vid_dl.stop_event))
-
-                # if _ev_set == 'stop':
-                #     return
-
-                #  if _ev_set == 'reset':
-                #     self.vid_dl.reset_event.clear()
-                #     self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"].clear()
-                #     self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
-                #     self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
-                #  NakedSwordBaseIE._STATUS = "NORMAL"
-                #  AsyncHLSDownloader._COUNTDOWNS.clean()
-                #  AsyncHLSDownloader._COUNTDOWNS = None
-                #  AsyncHLSDownloader._COUNTDOWNS_READY.set()
-                #  AsyncHLSDownloader._OK_503.clear()
+                    return
+            else:
+                self.n_reset += 1
+                logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
 
     def prep_reset(self, info_reset):
 

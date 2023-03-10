@@ -1608,10 +1608,9 @@ class CountDowns:
     PROMPT = ''
     _INPUT = Queue()
 
-    def __init__(self, n, klass, events=None, logger=None):
+    def __init__(self, klass, events=None, logger=None):
 
         self._pre = '[countdown][WAIT503]'
-        self.total = n
         self.klass = klass
         if not events:
             self.outer_events = []
@@ -1642,10 +1641,9 @@ class CountDowns:
         if self.countdowns:
             self.logger.debug(f'{self._pre} COUNTDOWNS:\n{self.countdowns}')
             self.countdowns = {}
-        #  self.index_main = 'NOTINIT'
 
     def setup(self, interval=None, print_secs=None):
-        if interval:
+        if interval and interval <= 1:
             CountDowns.INTERV_TIME = interval
             CountDowns.N_PER_SECOND = 1 if CountDowns.INTERV_TIME >= 1 else int(1 / CountDowns.INTERV_TIME)
         if print_secs:
@@ -1784,10 +1782,6 @@ class CountDowns:
                 'quiet': quiet,
                 'status': 'running',
                 'stop': MySyncAsyncEvent(f"stopcounter[{index}]")}
-
-        # if len(self.countdowns) >= self.total:
-        #    self.logger.info(f'{_premsg} total counts {len(self.countdowns)} added')
-        #  self.klass._COUNTDOWNS_READY.clear()
 
         _fut = self.exe.submit(self.start_countdown, timeout, index, event=event, quiet=quiet)
         self.futures[index] = _fut
