@@ -17,6 +17,8 @@ import PySimpleGUI as sg
 import sys
 import termios
 import selectors
+import psutil
+from statistics import median
 from queue import Empty, Queue
 
 from concurrent.futures import (
@@ -402,8 +404,8 @@ class long_operation_in_thread:
         name = self.name
 
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> threading.Event:
-            stop_event = threading.Event()
+        def wrapper(*args, **kwargs) -> MySyncAsyncEvent:
+            stop_event = MySyncAsyncEvent(name)
             thread = threading.Thread(
                 target=func, name=name, args=args,
                 kwargs={"stop_event": stop_event, **kwargs}, daemon=True)
@@ -411,12 +413,13 @@ class long_operation_in_thread:
             return stop_event
         return wrapper
 
+
 ############################################################
 # """                     SYNC ASYNC                     """
 ############################################################
 
 
-def wait_for_either(events, timeout=None, t_pool=None):
+def wait_for_either(events, timeout=None):
     '''blocks untils one of the events gets set
 
     PARAMETERS
@@ -425,18 +428,38 @@ def wait_for_either(events, timeout=None, t_pool=None):
     t_pool (concurrent.futures.ThreadPoolExecutor): optional
     '''
 
-    if any(event.is_set() for event in events):
-        # sanity check
-        pass
-    else:
-        t_pool = t_pool or ThreadPoolExecutor(max_workers=len(events))
-        tasks = {}
+    def wait_for_ev(ev, n):
+        def check_timeout(_st, _n):
+            if _n is None:
+                return False
+            else:
+                return (time.monotonic() - _st >= _n)
 
-        with t_pool:
-            tasks = {t_pool.submit(event.wait): getattr(event, 'name', 'noname') for event in events}
-            done, _ = wait_thr(tasks, timeout=timeout, return_when=fc_thr)
-            for ev in done:
-                return tasks[ev]
+        start = time.monotonic()
+        while True:
+            if stop_all.is_set():
+                return 'stopall'
+            elif ev.is_set():
+                return ev.name
+            elif check_timeout(start, n):
+                return 'TIMEOUT'
+            time.sleep(CONF_INTERVAL_GUI)
+
+    if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
+        # sanity check
+        return _res
+    else:
+        t_pool = ThreadPoolExecutor()
+        stop_all = MySyncAsyncEvent("stopall")
+        #  tasks = {t_pool.submit(event.wait, timeout=timeout): getattr(event, 'name', 'noname') for event in events}
+        tasks = {t_pool.submit(wait_for_ev, event, timeout): getattr(event, 'name', 'noname') for event in events}
+        done, _ = wait_thr(tasks, return_when=fc_thr)
+        if done:
+            for _d in done:
+                _res = _d.result()
+        stop_all.set()
+        t_pool.shutdown(wait=True, cancel_futures=True)
+        return _res
 
 
 async def async_waitfortasks(
@@ -1600,6 +1623,7 @@ class TimeoutOccurred(Exception):
 
 class CountDowns:
 
+    MAX_TIME_INPUT = 1800
     DEFAULT_TIMEOUT = 30
     INTERV_TIME = 0.25
     N_PER_SECOND = 1 if INTERV_TIME >= 1 else int(1 / INTERV_TIME)
@@ -1631,7 +1655,8 @@ class CountDowns:
 
     def start_input(self):
         if 'input' not in self.futures:
-            self.futures['input'] = self.exe.submit(self.inputimeout, CONF_HLS_RESET_403_TIME)
+            #  self.futures['input'] = self.exe.submit(self.inputimeout, CONF_HLS_RESET_403_TIME)
+            self.futures['input'] = self.exe.submit(self.inputimeout, self.MAX_TIME_INPUT)
 
     def clean(self):
 
@@ -1995,6 +2020,489 @@ def init_gui_console():
     window_console.bring_to_front()
 
     return window_console
+
+
+class FrontEndGUI:
+
+    _PASRES_REPEAT = False
+    _PASRES_EXIT = MySyncAsyncEvent("pasresexit")
+
+    def __init__(self, asyncdl):
+        self.asyncdl = asyncdl
+        self.logger = logging.getLogger('FEgui')
+        self.list_finish = {}
+        self.console_dl_status = False
+
+        self.pasres_time_from_resume_to_pause = 35
+        self.pasres_time_in_pause = 8
+        self.reset_repeat = False
+        self.list_all_old = {
+            'init': {},
+            'downloading': {},
+            'manip': {},
+            'finish': {}
+        }
+        self.dl_media_str = None
+        self.stop_upt_window = self.upt_window_periodic()
+        self.stop_pasres = self.pasres_periodic()
+
+    @classmethod
+    def pasres_break(cls):
+        if FrontEndGUI._PASRES_REPEAT:
+            FrontEndGUI._PASRES_REPEAT = False
+            FrontEndGUI._PASRES_EXIT.set()
+            time.sleep(1)
+            return True
+        else:
+            return False
+
+    @classmethod
+    def pasres_continue(cls):
+        if not FrontEndGUI._PASRES_REPEAT:
+            FrontEndGUI._PASRES_EXIT.clear()
+            FrontEndGUI._PASRES_REPEAT = True
+
+    async def gui_root(self, event, values):
+
+        try:
+            if 'kill' in event or event == sg.WIN_CLOSED:
+                return 'break'
+            elif event == 'nwmon':
+                self.window_root['ST'].update(values['nwmon'])
+            elif event == 'all':
+                self.window_root['ST'].update(values['all']['nwmon'])
+                if 'init' in values['all']:
+                    list_init = values['all']['init']
+                    if list_init:
+                        upt = '\n\n' + ''.join(list(list_init.values()))
+                    else:
+                        upt = ''
+                    self.window_root['-ML0-'].update(value=upt)
+                if 'downloading' in values['all']:
+                    list_downloading = values['all']['downloading']
+                    _text = ['\n\n-------DOWNLOADING VIDEO------------\n\n']
+                    if list_downloading:
+                        _text.extend(list(list_downloading.values()))
+                    upt = ''.join(_text)
+                    self.window_root['-ML1-'].update(value=upt)
+                    if self.console_dl_status:
+                        upt = '\n'.join(list_downloading.values())
+                        sg.cprint(
+                            f'\n\n-------STATUS DL----------------\n\n{upt}' +
+                            '\n\n-------END STATUS DL------------\n\n')
+                        self.console_dl_status = False
+                if 'manipulating' in values['all']:
+                    list_manipulating = values['all']['manipulating']
+                    _text = []
+                    if list_manipulating:
+                        _text.extend(
+                            ["\n\n-------CREATING FILE------------\n\n"])
+                        _text.extend(list(list_manipulating.values()))
+                    if _text:
+                        upt = ''.join(_text)
+                    else:
+                        upt = ''
+                    self.window_root['-ML3-'].update(value=upt)
+
+                if 'finish' in values['all']:
+                    self.list_finish.update(values['all']['finish'])
+
+                    if self.list_finish:
+                        upt = '\n\n' + ''.join(list(self.list_finish.values()))
+                    else:
+                        upt = ''
+
+                    self.window_root['-ML2-'].update(value=upt)
+
+            elif event in ('error', 'done', 'stop'):
+                self.list_finish.update(values[event])
+
+                if self.list_finish:
+                    upt = '\n\n' + ''.join(list(self.list_finish.values()))
+                else:
+                    upt = ''
+
+                self.window_root['-ML2-'].update(value=upt)
+
+        except Exception as e:
+            self.logger.exception(f'[gui_root] {repr(e)}')
+
+    async def gui_console(self, event, values):
+
+        sg.cprint(event, values)
+        if event == sg.WIN_CLOSED:
+            return 'break'
+        elif event in ['Exit']:
+            self.logger.info('[gui_console] event Exit')
+            await self.asyncdl.cancel_all_tasks()
+        elif event in ['-WKINIT-']:
+            self.asyncdl.wkinit_stop = not self.asyncdl.wkinit_stop
+            sg.cprint(
+                'Worker inits: BLOCKED'
+            ) if self.asyncdl.wkinit_stop else sg.cprint(
+                'Worker inits: RUNNING')
+        elif event in ['-PASRES-']:
+            if not values['-PASRES-']:
+                FrontEndGUI._PASRES_REPEAT = False
+            else:
+                FrontEndGUI._PASRES_REPEAT = True
+        elif event in ['-RESETREP-']:
+            if not values['-RESETREP-']:
+                self.reset_repeat = False
+            else:
+                self.reset_repeat = True
+        elif event in ['-DL-STATUS']:
+            await self.asyncdl.print_pending_tasks()
+            if not self.console_dl_status:
+                self.console_dl_status = True
+        elif event in ['IncWorkerRun']:
+            self.asyncdl.WorkersRun.add_worker()
+            sg.cprint(
+                f'Workers: {self.asyncdl.WorkersRun.max}'
+            )
+        elif event in ['DecWorkerRun']:
+            self.asyncdl.WorkersRun.del_worker()
+            sg.cprint(
+                f'Workers: {self.asyncdl.WorkersRun.max}'
+            )
+        elif event in ['TimePasRes']:
+            if not values['-IN-']:
+                sg.cprint('[pause-resume autom] Please enter number')
+                sg.cprint(
+                    f'[pause-resume autom] {list(self.asyncdl.list_pasres)}')
+            else:
+                timers = [timer.strip() for timer in values['-IN-'].split(',')]
+                if len(timers) > 2:
+                    sg.cprint('max 2 timers')
+                else:
+                    if any(
+                        [
+                            (not timer.isdecimal() or int(timer) < 0)
+                            for timer in timers
+                        ]
+                    ):
+                        sg.cprint('not an integer, or negative')
+                    else:
+                        if len(timers) == 2:
+                            self.pasres_time_from_resume_to_pause = int(
+                                timers[0]
+                            )
+                            self.pasres_time_in_pause = int(timers[1])
+                        else:
+                            self.pasres_time_from_resume_to_pause = int(
+                                timers[0]
+                            )
+                            self.pasres_time_in_pause = int(timers[0])
+
+                        sg.cprint(
+                            f'[time to resume] {self.pasres_time_from_resume_to_pause} ' +
+                            f'[time in pause] {self.pasres_time_in_pause}')
+
+                self.window_console['-IN-'].update(value='')
+        elif event in ['NumVideoWorkers']:
+            if not values['-IN-']:
+                sg.cprint('Please enter number')
+            else:
+                if not values['-IN-'].split(',')[0].isdecimal():
+                    sg.cprint('#vidworkers not an integer')
+                else:
+                    _nvidworkers = int(values['-IN-'].split(',')[0])
+                    if _nvidworkers <= 0:
+                        sg.cprint('#vidworkers must be > 0')
+                    else:
+                        if self.asyncdl.list_dl:
+                            _copy_list_dl = self.asyncdl.list_dl.copy()
+                            if ',' not in values['-IN-']:
+                                self.asyncdl.args.parts = _nvidworkers
+                                for _, dl in _copy_list_dl.items():
+                                    await dl.change_numvidworkers(_nvidworkers)
+                            else:
+                                _ind = int(values['-IN-'].split(',')[1])
+                                if _ind in _copy_list_dl:
+                                    await _copy_list_dl[_ind].change_numvidworkers(_nvidworkers)
+                                else:
+                                    sg.cprint('DL index doesnt exist')
+
+                        else:
+                            sg.cprint('DL list empty')
+
+                self.window_console['-IN-'].update(value='')
+        elif event in [
+            'ToFile',
+            'Info',
+            'Pause',
+            'Resume',
+            'Reset',
+            'Stop',
+            '+PasRes',
+            '-PasRes',
+            'StopCount'
+        ]:
+            if not self.asyncdl.list_dl:
+                sg.cprint('DL list empty')
+
+            else:
+                _copy_list_dl = self.asyncdl.list_dl.copy()
+                _index_list = []
+                if (_values := values.get(event)):  # from thread pasres
+                    _index_list = [int(el) for el in _values.split(',')]
+                elif (not (_values := values['-IN-']) or _values.lower() == 'all'):
+                    _index_list = [
+                        int(dl.index) for _, dl in _copy_list_dl.items()]
+                    self.window_console['-IN-'].update(value='')
+                else:
+                    if any([
+                            any([
+                                    not el.isdecimal(), int(el) == 0,
+                                    int(el) > len(_copy_list_dl)])
+                            for el in values['-IN-'].replace(' ', '').split(',')]):
+
+                        sg.cprint('incorrect numbers of dl')
+                    else:
+                        _index_list = [int(el) for el in values['-IN-'].replace(' ', '').split(',')]
+                    self.window_console['-IN-'].update(value='')
+
+                if _index_list:
+                    if event in ['+PasRes', '-PasRes']:
+                        sg.cprint(f'[pause-resume autom] before: {list(self.asyncdl.list_pasres)}')
+                    info = []
+                    for _index in _index_list:
+                        if event == 'StopCount':
+                            CountDowns._INPUT.put_nowait(str(_index))
+                        elif event == '+PasRes':
+                            self.asyncdl.list_pasres.add(_index)
+                        elif event == '-PasRes':
+                            self.asyncdl.list_pasres.discard(_index)
+                        elif event == 'Pause':
+                            await self.asyncdl.list_dl[_index].pause()
+                        elif event == 'Resume':
+                            await self.asyncdl.list_dl[_index].resume()
+                        elif event == 'Reset':
+                            await self.asyncdl.list_dl[
+                                _index].reset_from_console()
+                        elif event == 'Stop':
+                            await self.asyncdl.list_dl[_index].stop()
+                        elif event in ['Info', 'ToFile']:
+                            _thr = getattr(
+                                self.asyncdl.list_dl[_index].info_dl['downloaders'][0],
+                                'throttle', None)
+                            sg.cprint(f'[{_index}] throttle [{_thr}]')
+                            _info = json.dumps(
+                                self.asyncdl.list_dl[_index].info_dict)
+                            sg.cprint(f'[{_index}] info\n{_info}')
+                            info.append(_info)
+
+                        await asyncio.sleep(0)
+
+                    if event in ['+PasRes', '-PasRes']:
+                        sg.cprint(f'[pause-resume autom] after: {list(self.asyncdl.list_pasres)}')
+
+                    if event == 'ToFile':
+                        _launch_time = self.asyncdl.launch_time.strftime('%Y%m%d_%H%M')
+                        _file = Path(Path.home(), 'testing', f'{_launch_time}.json')
+                        _data = {'entries': info}
+                        with open(_file, "w") as f:
+                            f.write(json.dumps(_data))
+
+                        sg.cprint(f"saved to file: {_file}")
+
+    async def gui(self):
+
+        try:
+            self.stop = asyncio.Event()
+            self.window_console = init_gui_console()
+            self.window_root = init_gui_root()
+            await asyncio.sleep(0)
+
+            while not self.stop.is_set():
+
+                window, event, values = sg.read_all_windows(timeout=0)
+
+                if not window or not event or event == sg.TIMEOUT_KEY:
+                    await asyncio.sleep(0)
+                    continue
+
+                _res = []
+                if window == self.window_console:
+                    _res.append(await self.gui_console(event, values))
+                elif window == self.window_root:
+                    _res.append(await self.gui_root(event, values))
+
+                if 'break' in _res:
+                    break
+
+                await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+        except BaseException as e:
+            if not isinstance(e, asyncio.CancelledError):
+                self.logger.exception(
+                    f'[gui] {repr(e)}'
+                )
+            if isinstance(e, KeyboardInterrupt):
+                raise
+        finally:
+            self.logger.debug('[gui] BYE')
+
+    def update_window(self, status, nwmon=None):
+        list_upt = {}
+        list_res = {}
+
+        trans = {
+            'manip': ('init_manipulating', 'manipulating'),
+            'finish': ('error', 'done', 'stop'),
+            'init': 'init',
+            'downloading': 'downloading'
+        }
+
+        if status == 'all':
+            _status = ('init', 'downloading', 'manip', 'finish')
+        else:
+            if isinstance(status, str):
+                _status = (status,)
+            else:
+                _status = status
+
+        for st in _status:
+            list_upt[st] = {}
+            list_res[st] = {}
+
+            _copy_list_dl = self.asyncdl.list_dl.copy()
+
+            for i, dl in _copy_list_dl.items():
+
+                if dl.info_dl['status'] in trans[st]:
+                    list_res[st].update({i: dl.print_hookup()})
+
+            if list_res[st] == self.list_all_old[st]:
+                del list_upt[st]
+            else:
+                list_upt[st] = list_res[st]
+        if nwmon:
+            list_upt['nwmon'] = nwmon
+
+        if hasattr(self, 'window_root') and self.window_root:
+            self.window_root.write_event_value('all', list_upt)
+
+        for st, val in self.list_all_old.items():
+            if st not in list_res:
+                list_res.update({st: val})
+
+        self.list_all_old = list_res
+
+    @long_operation_in_thread(name='uptwinthr')
+    def upt_window_periodic(self, *args, **kwargs):
+
+        self.logger.info('[upt_window_periodic] start')
+        stop_upt = kwargs['stop_event']
+        try:
+            progress_timer = ProgressTimer()
+            short_progress_timer = ProgressTimer()
+            self.list_nwmon = []
+            init_bytes_recv = psutil.net_io_counters().bytes_recv
+            speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
+            ds = None
+            while not stop_upt.is_set():
+
+                if self.asyncdl.list_dl:
+
+                    if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                        _recv = psutil.net_io_counters().bytes_recv
+                        ds = speedometer(_recv)
+                        msg = f'RECV: {naturalsize(_recv - init_bytes_recv,True)}  ' +\
+                              f'DL: {naturalsize(ds,True)}ps'
+
+                        self.update_window('all', nwmon=msg)
+                        if short_progress_timer.has_elapsed(
+                                seconds=10*CONF_INTERVAL_GUI):
+                            self.list_nwmon.append((datetime.now(), ds))
+                    else:
+                        time.sleep(CONF_INTERVAL_GUI/4)
+                else:
+                    time.sleep(CONF_INTERVAL_GUI)
+                    progress_timer.reset()
+                    short_progress_timer.reset()
+
+        except Exception as e:
+            self.logger.exception(f'[upt_window_periodic]: error: {repr(e)}')
+        finally:
+            if self.list_nwmon:
+                _media = naturalsize(median([el[1] for el in self.list_nwmon]), binary=True)
+                self.dl_media_str = f'DL MEDIA: {_media}ps'
+
+                def _strdate(el):
+                    _secs = el[0].second + (el[0].microsecond / 1000000)
+                    return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
+
+                _str_nwmon = ', '.join(
+                    [
+                        f'{_strdate(el)}'
+                        for el in self.list_nwmon
+                    ]
+                )
+                self.logger.debug(
+                    f'[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}')
+
+            self.logger.debug('[upt_window_periodic] BYE')
+
+    @long_operation_in_thread(name='pasresthr')
+    def pasres_periodic(self, *args, **kwargs):
+
+        self.logger.debug('[pasres_periodic] START')
+        stop_event = kwargs['stop_event']
+
+        try:
+            while not stop_event.is_set():
+
+                if (FrontEndGUI._PASRES_REPEAT or self.reset_repeat) and (
+                    _list := list(self.asyncdl.list_pasres)
+                ):
+                    if not self.reset_repeat:
+                        self.window_console.write_event_value(
+                            'Pause', ','.join(list(map(str, _list))))
+
+                        _waitres = wait_for_either([stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause)
+                        if _waitres == 'TIMEOUT':
+                            _time = self.pasres_time_in_pause / len(_list)
+                            for _el in _list:
+                                self.window_console.write_event_value('Resume', str(_el))
+
+                                wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
+
+                            wait_time(self.pasres_time_from_resume_to_pause, event=stop_event)
+
+                        else:
+                            if 'pasresexit' in _waitres:
+                                FrontEndGUI._PASRES_EXIT.clear()
+
+                            self.window_console.write_event_value(
+                                'Resume', ','.join(list(map(str, _list))))
+
+                    else:
+                        self.window_console.write_event_value(
+                            'Reset', ','.join(list(map(str, _list))))
+                        wait_time(
+                            self.pasres_time_from_resume_to_pause,
+                            event=stop_event
+                        )
+
+                else:
+                    wait_time(CONF_INTERVAL_GUI, event=stop_event)
+
+        except Exception as e:
+            self.logger.exception(f'[pasres_periodic]: error: {repr(e)}')
+        finally:
+            self.logger.debug('[pasres_periodic] BYE')
+
+    def close(self):
+        self.stop_upt_window.set()
+        self.stop_pasres.set()
+        if hasattr(self, 'window_console') and self.window_console:
+            self.window_console.close()
+            del self.window_console
+        if hasattr(self, 'window_root') and self.window_root:
+            self.window_root.close()
+            del self.window_root
 
 ############################################################
 # """                     PYSIMPLEGUI                    """

@@ -29,6 +29,7 @@ from utils import (
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
     CONFIG_EXTRACTORS,
+    FrontEndGUI,
     ProgressTimer,
     ProxyYTDL,
     SmoothETA,
@@ -683,11 +684,13 @@ class AsyncHLSDownloader:
 
         logger.info(f"{self.premsg}:RESET[{self.n_reset}] cause[{cause}] fromplns[{self.fromplns}]")
 
+        _pasres_cont = False
         try:
 
             if str(cause) == "403":
 
                 with AsyncHLSDownloader._CLASSLOCK:
+                    _pasres_cont = FrontEndGUI.pasres_break()
                     if not AsyncHLSDownloader._COUNTDOWNS:
                         AsyncHLSDownloader._COUNTDOWNS = CountDowns(
                             AsyncHLSDownloader, events=AsyncHLSDownloader._OK_503, logger=logger)
@@ -829,6 +832,8 @@ class AsyncHLSDownloader:
                         self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
                         self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
                         self.n_reset += 1
+                        if _pasres_cont:
+                            FrontEndGUI.pasres_continue()
                         logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
                         return
 
@@ -842,6 +847,8 @@ class AsyncHLSDownloader:
                     self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].wait()
 
                     self.n_reset += 1
+                    if _pasres_cont:
+                        FrontEndGUI.pasres_continue()
                     logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
                     return
             else:
