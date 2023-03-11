@@ -1623,7 +1623,7 @@ class TimeoutOccurred(Exception):
 
 class CountDowns:
 
-    MAX_TIME_INPUT = 1800
+    MAX_TIME_INPUT = 1800 * 5
     DEFAULT_TIMEOUT = 30
     INTERV_TIME = 0.25
     N_PER_SECOND = 1 if INTERV_TIME >= 1 else int(1 / INTERV_TIME)
@@ -2454,37 +2454,40 @@ class FrontEndGUI:
         try:
             while not stop_event.is_set():
 
-                if (FrontEndGUI._PASRES_REPEAT or self.reset_repeat) and (
-                    _list := list(self.asyncdl.list_pasres)
-                ):
-                    if not self.reset_repeat:
-                        self.window_console.write_event_value(
-                            'Pause', ','.join(list(map(str, _list))))
+                if (FrontEndGUI._PASRES_REPEAT and (_list := list(self.asyncdl.list_pasres))):
 
-                        _waitres = wait_for_either([stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause)
-                        if _waitres == 'TIMEOUT':
-                            _time = self.pasres_time_in_pause / len(_list)
-                            for _el in _list:
-                                self.window_console.write_event_value('Resume', str(_el))
+                    _waitres1 = wait_for_either(
+                        [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_from_resume_to_pause)
+                    if _waitres1 == 'TIMEOUT':
+                        if not self.reset_repeat:
+                            self.window_console.write_event_value(
+                                'Pause', ','.join(list(map(str, _list))))
 
-                                wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
+                            _waitres = wait_for_either([stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause)
+                            if _waitres == 'TIMEOUT':
+                                _time = self.pasres_time_in_pause / len(_list)
+                                for _el in _list:
+                                    self.window_console.write_event_value('Resume', str(_el))
 
-                            wait_time(self.pasres_time_from_resume_to_pause, event=stop_event)
+                                    wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
+
+                                #  wait_for_either(
+                                # [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_from_resume_to_pause)
+
+                            else:
+                                if 'pasresexit' in _waitres:
+                                    FrontEndGUI._PASRES_EXIT.clear()
+
+                                self.window_console.write_event_value(
+                                    'Resume', ','.join(list(map(str, _list))))
 
                         else:
-                            if 'pasresexit' in _waitres:
-                                FrontEndGUI._PASRES_EXIT.clear()
-
                             self.window_console.write_event_value(
-                                'Resume', ','.join(list(map(str, _list))))
-
-                    else:
-                        self.window_console.write_event_value(
-                            'Reset', ','.join(list(map(str, _list))))
-                        wait_time(
-                            self.pasres_time_from_resume_to_pause,
-                            event=stop_event
-                        )
+                                'Reset', ','.join(list(map(str, _list))))
+                            #   wait_time(
+                            #     self.pasres_time_from_resume_to_pause,
+                            #     event=stop_event
+                            # )
 
                 else:
                     wait_time(CONF_INTERVAL_GUI, event=stop_event)
