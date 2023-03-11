@@ -14,10 +14,9 @@ import subprocess
 import threading
 import time
 import PySimpleGUI as sg
-import sys
-import termios
-import selectors
 import psutil
+import proxy
+import xattr
 from statistics import median
 from queue import Empty, Queue
 
@@ -428,36 +427,36 @@ def wait_for_either(events, timeout=None):
     t_pool (concurrent.futures.ThreadPoolExecutor): optional
     '''
 
-    def wait_for_ev(ev, n):
-        def check_timeout(_st, _n):
-            if _n is None:
-                return False
-            else:
-                return (time.monotonic() - _st >= _n)
-
-        start = time.monotonic()
-        while True:
-            if stop_all.is_set():
-                return 'stopall'
-            elif ev.is_set():
-                return ev.name
-            elif check_timeout(start, n):
-                return 'TIMEOUT'
-            time.sleep(CONF_INTERVAL_GUI)
-
     if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
         # sanity check
         return _res
     else:
         t_pool = ThreadPoolExecutor()
-        stop_all = MySyncAsyncEvent("stopall")
+        kill_all = MySyncAsyncEvent("KILLALL")
+
+        def wait_for_ev(ev, n):
+            def check_timeout(_st, _n):
+                if _n is None:
+                    return False
+                else:
+                    return (time.monotonic() - _st >= _n)
+
+            start = time.monotonic()
+            while True:
+                if kill_all.is_set():
+                    return 'STOPALL'
+                elif ev.is_set():
+                    return ev.name
+                elif check_timeout(start, n):
+                    return 'TIMEOUT'
+                time.sleep(CONF_INTERVAL_GUI)
         #  tasks = {t_pool.submit(event.wait, timeout=timeout): getattr(event, 'name', 'noname') for event in events}
         tasks = {t_pool.submit(wait_for_ev, event, timeout): getattr(event, 'name', 'noname') for event in events}
         done, _ = wait_thr(tasks, return_when=fc_thr)
         if done:
             for _d in done:
                 _res = _d.result()
-        stop_all.set()
+        kill_all.set()
         t_pool.shutdown(wait=True, cancel_futures=True)
         return _res
 
@@ -781,6 +780,7 @@ def init_argparser():
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=False)
     parser.add_argument("--no-embed", action="store_true", default=False)
+    parser.add_argument("--rep-pause", action="store_true", default=False)
 
     args = parser.parse_args()
 
@@ -1181,24 +1181,23 @@ def get_extractor(url, ytdl):
 
 
 class myYTDL(YoutubeDL):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, params: Union[None, dict] = None, auto_init: Union[bool, str] = True, **kwargs):
         self.close: bool = kwargs.get("close", True)
         self.executor: ThreadPoolExecutor = kwargs.get(
             "executor", ThreadPoolExecutor(thread_name_prefix="myYTDL"))
-        super().__init__(*args, **kwargs)  # type: ignore
+        super().__init__(params=params, auto_init=auto_init)  # type: ignore
 
-    def __enter__(self):
-        return self
+    def __exit__(self, *args):
 
-    def __exit__(self, *args, **kwargs):
+        super().__exit__(*args)
         if self.close:
             ies_close(self._ies_instances)
 
     async def __aenter__(self):
-        return self
+        return super().__enter__()
 
-    async def __aexit__(self, *args, **kwargs):
-        ies_close(self._ies_instances)
+    async def __aexit__(self, *args):
+        self.__exit__(*args)
 
     def is_playlist(self, url):
         ie_key, ie = get_extractor(url, self)
@@ -1371,7 +1370,7 @@ def init_ytdl(args):
     if args.ytdlopts:
         ytdl_opts.update(json.loads(js_to_json(args.ytdlopts)))
 
-    ytdl = myYTDL(params=ytdl_opts, auto_init="no_verbose_header")
+    ytdl = myYTDL(params=ytdl_opts, auto_init='no_verbose_header')
 
     logger.debug(f"ytdl opts:\n{ytdl.params}")
 
@@ -1623,7 +1622,7 @@ class TimeoutOccurred(Exception):
 
 class CountDowns:
 
-    MAX_TIME_INPUT = 1800 * 5
+    INPUT_TIMEOUT = 2
     DEFAULT_TIMEOUT = 30
     INTERV_TIME = 0.25
     N_PER_SECOND = 1 if INTERV_TIME >= 1 else int(1 / INTERV_TIME)
@@ -1643,7 +1642,7 @@ class CountDowns:
         else:
             self.outer_events = [events]
 
-        self.inner_stop = MySyncAsyncEvent('innerstop')
+        self.kill_input = MySyncAsyncEvent('killinput')
         self.logger = logger if logger else logging.getLogger('asyncdl')
         #  atexit.register(self.enable_echo, True)
         self.index_main = None
@@ -1655,12 +1654,11 @@ class CountDowns:
 
     def start_input(self):
         if 'input' not in self.futures:
-            #  self.futures['input'] = self.exe.submit(self.inputimeout, CONF_HLS_RESET_403_TIME)
-            self.futures['input'] = self.exe.submit(self.inputimeout, self.MAX_TIME_INPUT)
+            self.futures['input'] = self.exe.submit(self.inputimeout)
 
     def clean(self):
 
-        self.inner_stop.set()
+        self.kill_input.set()
         wait_thr([self.futures['input']])
         self.futures = {}
         if self.countdowns:
@@ -1674,47 +1672,21 @@ class CountDowns:
         if print_secs:
             CountDowns.PRINT_DIF_IN_SECS = print_secs
 
-    def posix_inputimeout(self, timeout):
-
-        sel = selectors.DefaultSelector()
-        sel.register(sys.stdin, selectors.EVENT_READ)
-        events = sel.select(timeout)
-
-        if events:
-            key, _ = events[0]
-            _input = key.fileobj.readline().rstrip(self.LF)  # type: ignore
-            return _input
-        else:
-            termios.tcflush(sys.stdin, termios.TCIFLUSH)
-            raise TimeoutOccurred
-
-    def enable_echo(self, enable):
-        fd = sys.stdin.fileno()
-        new = termios.tcgetattr(fd)
-        if enable:
-            new[3] |= termios.ECHO
-        else:
-            new[3] &= ~termios.ECHO
-
-        termios.tcsetattr(fd, termios.TCSANOW, new)
-
-    def inputimeout(self, timeout):
+    def inputimeout(self):
 
         self.logger.info(f'{self._pre} start input')
         _res = None
-        #  termios.tcflush(sys.stdin, termios.TCIFLUSH)
-        #  self.enable_echo(False)
-        _start = time.monotonic()
-        while (time.monotonic() - _start) < timeout:
+
+        while True:
 
             try:
                 _res = [getattr(ev, 'name', 'noname')
-                        for ev in self.outer_events + [self.inner_stop] if ev.is_set()]
+                        for ev in self.outer_events + [self.kill_input] if ev.is_set()]
 
                 if _res:
                     break
 
-                _input = CountDowns._INPUT.get(block=True, timeout=2)
+                _input = CountDowns._INPUT.get(block=True, timeout=CountDowns.INPUT_TIMEOUT)
                 if _input == '':
                     _input = self.index_main
                 if _input in self.countdowns:
@@ -1723,7 +1695,7 @@ class CountDowns:
                 else:
                     self.logger.info(f'{self._pre} input[{_input}] not index video')
 
-            except (TimeoutOccurred, Empty):
+            except Empty:
                 pass
             except Exception as e:
                 self.logger.exception(f'{self._pre} {repr(e)}')
@@ -1736,22 +1708,7 @@ class CountDowns:
         self.logger.info(f'{self._pre} return Input: {_res}')
         return _res
 
-    def start_countdown(self, n, index, event=None, quiet=False):
-
-        # if not quiet:
-        #     end_msg = ''
-        #     temp = self.N_PER_SECOND
-        #     _func_print = functools.partial(print, end='\x1b[K\r', flush=True)
-        #     print()
-        # else:
-        #     end_msg = 'secs to stop'
-        #     temp = self.N_PER_SECOND*self.PRINT_DIF_IN_SECS
-        #     _func_print = self.logger.info
-
-        # def print_msg(x):
-        #     if ((x == self.N_PER_SECOND*n) or (x % temp) == 0):
-        #         _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}{end_msg}"
-        #         _func_print(_msg)
+    def start_countdown(self, n, index, event=None):
 
         def send_queue(x):
             if ((x == self.N_PER_SECOND*n) or (x % self.N_PER_SECOND) == 0):
@@ -1765,7 +1722,6 @@ class CountDowns:
 
         for i in range(self.N_PER_SECOND*n, 0, -1):
             send_queue(i)
-            #  print_msg(i)
             _res = [getattr(ev, 'name', 'noname') for ev in _events if ev.is_set()]
             if _res:
                 break
@@ -1774,8 +1730,6 @@ class CountDowns:
 
         self.klass._QUEUE[index].put_nowait('')
 
-        # if not quiet:
-        #     print()
         if not _res:
             _res = ["TIMEOUT_COUNT"]
         self.logger.debug(f"{self.countdowns[index]['premsg']} return Count: {_res}")
@@ -1793,22 +1747,19 @@ class CountDowns:
             timeout = self.DEFAULT_TIMEOUT - 3
         time.sleep(3)
 
-        quiet = True
         with self.lock:
             if not self.index_main:
                 self.index_main = index
                 self.logger.info(f'{_premsg} index_main: ({type(self.index_main)})[{self.index_main}]')
-                quiet = False
 
         self.countdowns[index] = {
                 'index': index,
                 'premsg': _premsg,
                 'timeout': timeout,
-                'quiet': quiet,
                 'status': 'running',
-                'stop': MySyncAsyncEvent(f"stopcounter[{index}]")}
+                'stop': MySyncAsyncEvent(f"killcounter[{index}]")}
 
-        _fut = self.exe.submit(self.start_countdown, timeout, index, event=event, quiet=quiet)
+        _fut = self.exe.submit(self.start_countdown, timeout, index, event=event)
         self.futures[index] = _fut
         self.countdowns[index]['fut'] = _fut
 
@@ -1945,7 +1896,7 @@ def init_gui_root():
     return window_root
 
 
-def init_gui_console():
+def init_gui_console(pasres_value):
 
     #  logger = logging.getLogger("init_gui_cons")
 
@@ -1970,7 +1921,7 @@ def init_gui_console():
                 sg.Checkbox(
                     "PauseRep",
                     key="-PASRES-",
-                    default=False,
+                    default=pasres_value,
                     enable_events=True,
                 ),
                 sg.Checkbox(
@@ -2032,6 +1983,8 @@ class FrontEndGUI:
         self.logger = logging.getLogger('FEgui')
         self.list_finish = {}
         self.console_dl_status = False
+        if self.asyncdl.args.rep_pause:
+            FrontEndGUI._PASRES_REPEAT = True
 
         self.pasres_time_from_resume_to_pause = 35
         self.pasres_time_in_pause = 8
@@ -2043,6 +1996,7 @@ class FrontEndGUI:
             'finish': {}
         }
         self.dl_media_str = None
+        self.stop = MySyncAsyncEvent("stopfegui")
         self.stop_upt_window = self.upt_window_periodic()
         self.stop_pasres = self.pasres_periodic()
 
@@ -2309,8 +2263,8 @@ class FrontEndGUI:
     async def gui(self):
 
         try:
-            self.stop = asyncio.Event()
-            self.window_console = init_gui_console()
+
+            self.window_console = init_gui_console(FrontEndGUI._PASRES_REPEAT)
             self.window_root = init_gui_root()
             await asyncio.sleep(0)
 
@@ -2450,37 +2404,51 @@ class FrontEndGUI:
 
         self.logger.debug('[pasres_periodic] START')
         stop_event = kwargs['stop_event']
-
+        _start_no_pause = None
         try:
             while not stop_event.is_set():
 
-                if (FrontEndGUI._PASRES_REPEAT and (_list := list(self.asyncdl.list_pasres))):
+                if self.asyncdl.list_pasres and FrontEndGUI._PASRES_REPEAT:
 
-                    _waitres1 = wait_for_either(
+                    _waitres_nopause = wait_for_either(
                         [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_from_resume_to_pause)
-                    if _waitres1 == 'TIMEOUT':
+                    FrontEndGUI._PASRES_EXIT.clear()
+                    if _waitres_nopause == "TIMEOUT" and (_list := list(self.asyncdl.list_pasres)):
+
                         if not self.reset_repeat:
+                            if _start_no_pause:
+                                sg.cprint(f'[time resume -> pause] {time.monotonic()-_start_no_pause}')
+
                             self.window_console.write_event_value(
                                 'Pause', ','.join(list(map(str, _list))))
-
+                            time.sleep(1)
+                            self.logger.info('[pasres_periodic]: pauses sent')
+                            _start_pause = time.monotonic()
                             _waitres = wait_for_either([stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause)
+                            FrontEndGUI._PASRES_EXIT.clear()
+                            self.logger.info('[pasres_periodic]: start sending resumes')
                             if _waitres == 'TIMEOUT':
                                 _time = self.pasres_time_in_pause / len(_list)
                                 for _el in _list:
                                     self.window_console.write_event_value('Resume', str(_el))
 
-                                    wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
+                                    #  wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
+                                    wait_for_either(
+                                        [stop_event, FrontEndGUI._PASRES_EXIT], timeout=random.uniform(0.75*_time, 1.25*_time))
 
                                 #  wait_for_either(
                                 # [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_from_resume_to_pause)
 
                             else:
-                                if 'pasresexit' in _waitres:
-                                    FrontEndGUI._PASRES_EXIT.clear()
+                                # if 'pasresexit' in _waitres:
+                                #     FrontEndGUI._PASRES_EXIT.clear()
 
                                 self.window_console.write_event_value(
                                     'Resume', ','.join(list(map(str, _list))))
 
+                            self.logger.info('[pasres_periodic]: resumes sent, start timer to next pause')
+                            sg.cprint(f'[time in pause] {time.monotonic()-_start_pause}')
+                            _start_no_pause = time.monotonic()
                         else:
                             self.window_console.write_event_value(
                                 'Reset', ','.join(list(map(str, _list))))
@@ -2488,9 +2456,9 @@ class FrontEndGUI:
                             #     self.pasres_time_from_resume_to_pause,
                             #     event=stop_event
                             # )
-
                 else:
-                    wait_time(CONF_INTERVAL_GUI, event=stop_event)
+                    _start_no_pause = None
+                    time.sleep(CONF_INTERVAL_GUI)
 
         except Exception as e:
             self.logger.exception(f'[pasres_periodic]: error: {repr(e)}')
@@ -2506,6 +2474,463 @@ class FrontEndGUI:
         if hasattr(self, 'window_root') and self.window_root:
             self.window_root.close()
             del self.window_root
+
+
+class NWSetUp:
+
+    def __init__(self, asyncdl):
+
+        self.asyncdl = asyncdl
+        self.logger = logging.getLogger('setupnw')
+        self.shutdown_proxy = MySyncAsyncEvent("shutdownproxy")
+        self.routing_table = {}
+        self.proc_gost = []
+        self.proc_aria2c = None
+        self.exe = ThreadPoolExecutor(thread_name_prefix='setupnw')
+
+        self._tasks_init = {}
+        if self.asyncdl.args.aria2c:
+            ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+            _task_aria2c = asyncio.create_task(ainit_aria2c(self.asyncdl.args))
+            self.asyncdl.background_tasks.add(_task_aria2c)
+            _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
+            _tasks_init_aria2c = {
+                _task_aria2c: 'aria2'
+            }
+            self._tasks_init.update(_tasks_init_aria2c)
+        if self.asyncdl.args.enproxy:
+            self.stop_proxy = self.run_proxy_http()
+            ainit_proxies = sync_to_async(
+                TorGuardProxies.init_proxies, executor=self.exe)
+            _task_proxies = asyncio.create_task(ainit_proxies())
+            self.asyncdl.background_tasks.add(_task_proxies)
+            _task_proxies.add_done_callback(self.asyncdl.background_tasks.discard)
+            _task_init_proxies = {_task_proxies: 'proxies'}
+            self._tasks_init.update(_task_init_proxies)
+
+    async def init(self):
+
+        if self._tasks_init:
+            done, _ = await asyncio.wait(self._tasks_init)
+            for task in done:
+                try:
+                    if self._tasks_init[task] == 'aria2':
+                        self.proc_aria2c = task.result()
+                    else:
+                        self.proc_gost, self.routing_table = task.result()
+                        self.asyncdl.ytdl.params[
+                            'routing_table'] = self.routing_table
+                except Exception as e:
+                    self.logger.exception(f'[init] {repr(e)}')
+
+    @long_operation_in_thread(name='proxythr')
+    def run_proxy_http(self, *args, **kwargs):
+
+        stop_event: MySyncAsyncEvent = kwargs['stop_event']
+        log_level = kwargs.get('log_level', 'INFO')
+        try:
+            with proxy.Proxy(
+                [
+                    '--log-level',
+                    log_level,
+                    '--plugins',
+                    'proxy.plugin.ProxyPoolByHostPlugin',
+                ]
+            ) as p:
+
+                try:
+                    self.logger.debug(p.flags)
+                    stop_event.wait()
+                except BaseException:
+                    self.logger.error('context manager proxy')
+        finally:
+            self.shutdown_proxy.set()
+
+    def close(self):
+
+        if self.asyncdl.args.enproxy:
+            self.logger.info('[close] proxy')
+            self.stop_proxy.set()
+            self.logger.info('[close] waiting for http proxy shutdown')
+            self.shutdown_proxy.wait()
+            self.logger.info('[close] OK shutdown')
+
+            if self.proc_gost:
+                self.logger.info('[close] gost')
+                for proc in self.proc_gost:
+                    try:
+                        proc.kill()
+                    except BaseException as e:
+                        self.logger.exception(f'[close] {repr(e)}')
+
+        if self.proc_aria2c:
+            self.logger.info('[close] aria2c')
+            self.proc_aria2c.kill()
+
+
+class LocalVideos:
+    def __init__(self, asyncdl, deep=False):
+        self.asyncdl = asyncdl
+        self.logger = logging.getLogger('videoscached')
+        self.deep = deep
+        self._videoscached = {}
+        self._repeated = []
+        self._dont_exist = []
+        self._repeated_by_xattr = []
+        self._localstorage = LocalStorage()
+        self.file_ready: MySyncAsyncEvent = self.get_videos_cached()
+
+    def ready(self):
+        self.file_ready.wait()
+
+    def upt_local(self):
+        self.file_ready.clear()
+        self._videoscached = {}
+        self._repeated = []
+        self._dont_exist = []
+        self._repeated_by_xattr = []
+        self.file_ready = self.get_videos_cached(local=True)
+
+    @long_operation_in_thread(name='vidcachthr')
+    def get_videos_cached(self, *args, **kwargs):
+
+        """
+        In local storage, files are saved wihtin the file files.cached.json
+        in 5 groups each in different volumnes.
+        If any of the volumes can't be accesed in real time, the
+        local storage info of that volume will be used.
+        """
+
+        _finished: MySyncAsyncEvent = kwargs['stop_event']
+
+        force_local = kwargs.get('local', False)
+
+        self.logger.info(
+            f"[videos_cached] start scann- dlnoch[{self.asyncdl.args.nodlcaching}]-local[{force_local}]")
+
+        last_time_sync = {}
+
+        try:
+
+            with self._localstorage.lock:
+
+                self._localstorage.load_info()
+
+                list_folders_to_scan = {}
+
+                last_time_sync = self._localstorage._last_time_sync
+
+                if self.asyncdl.args.nodlcaching or force_local:
+                    for _vol, _folder in self._localstorage.config_folders.items():
+                        if _vol != 'local':
+                            if not force_local:
+                                self._videoscached.update(
+                                    self._localstorage._data_from_file[_vol])
+                        else:
+                            list_folders_to_scan.update({_folder: _vol})
+
+                else:
+                    for _vol, _folder in self._localstorage.config_folders.items():
+                        if not _folder.exists():  # comm failure
+                            self.logger.error(f'Fail connect to [{_vol}], will use last info')
+                            self._videoscached.update(self._localstorage._data_from_file[_vol])
+                        else:
+                            list_folders_to_scan.update({_folder: _vol})
+
+                for folder in list_folders_to_scan:
+
+                    try:
+
+                        files = [
+                            file
+                            for file in folder.rglob('*')
+                            if file.is_file()
+                            and not file.stem.startswith('.')
+                            and (file.suffix.lower() in
+                                 ('.mp4', '.mkv', '.zip'))
+                        ]
+
+                        for file in files:
+
+                            if not force_local:
+                                if not file.is_symlink():
+                                    try:
+                                        _xattr_desc = xattr.getxattr(
+                                            file, 'user.dublincore.description').decode()
+                                        if not self._videoscached.get(_xattr_desc):
+                                            self._videoscached.update({_xattr_desc: str(file)})
+                                        else:
+                                            self._repeated_by_xattr.append(
+                                                {_xattr_desc: [self._videoscached[_xattr_desc], str(file)]})
+                                    except Exception:
+                                        pass
+
+                            _res = file.stem.split('_', 1)
+                            if len(_res) == 2:
+                                _id = _res[0]
+                                _title = sanitize_filename(_res[1], restricted=True).upper()
+                                _name = f'{_id}_{_title}'
+                            else:
+                                _name = sanitize_filename(file.stem, restricted=True).upper()
+
+                            if not (_video_path_str := self._videoscached.get(_name)):
+                                self._videoscached.update({_name: str(file)})
+
+                            else:
+                                _video_path = Path(_video_path_str)
+                                if _video_path != file:
+
+                                    if (
+                                        not file.is_symlink()
+                                        and not _video_path.is_symlink()
+                                    ):
+
+                                        # only if both are hard files we have
+                                        # to do something, so lets report it
+                                        # in repeated files
+                                        self._repeated.append(
+                                            {
+                                                'title': _name,
+                                                'indict': _video_path_str,
+                                                'file': str(file),
+                                            }
+                                        )
+
+                                    if self.deep:
+                                        self.deep_check(_name, file, _video_path)
+
+                    except Exception as e:
+                        self.logger.error(
+                            f'[videos_cached][{list_folders_to_scan[folder]}]{repr(e)}')
+
+                    else:
+                        last_time_sync.update(
+                            {list_folders_to_scan[folder]:
+                             str(self.asyncdl.launch_time) if not force_local else str(datetime.now())})
+
+                self._localstorage.dump_info(self._videoscached, last_time_sync, local=force_local)
+
+                self.logger.info(f'[videos_cached] Total videos cached: [{len(self._videoscached)}]')
+
+                if not force_local:
+                    self.asyncdl.videos_cached = self._videoscached.copy()
+
+                _finished.set()
+
+                if not force_local:
+                    try:
+
+                        if self._repeated:
+                            self.logger.warning(
+                                '[videos_cached] Please check vid rep in logs')
+                            self.logger.debug(
+                                f'[videos_cached] videos repeated: \n {self._repeated}')
+
+                        if self._dont_exist:
+                            self.logger.warning(
+                                '[videos_cached] Pls check vid dont exist in logs')
+                            self.logger.debug(
+                                f'[videos_cached] videos dont exist: \n{self._dont_exist}')
+
+                        if self._repeated_by_xattr:
+                            self.logger.warning(
+                                '[videos_cached] Pls check vid repeated by xattr)')
+                            self.logger.debug(
+                                f'[videos_cached] videos repeated by xattr: \n{self._repeated_by_xattr}')
+
+                    except Exception as e:
+                        self.logger.exception(f'[videos_cached] {repr(e)}')
+
+        except Exception as e:
+            self.logger.exception(f'[videos_cached] {repr(e)}')
+
+    def deep_check(self, _name, file, _video_path):
+
+        if (
+            not file.is_symlink()
+            and _video_path.is_symlink()
+        ):
+            _links = get_chain_links(_video_path)
+            if _links[-1] == file:
+
+                if len(_links) > 2:  # chain of at least 2 symlinks
+                    self.logger.debug(
+                        '[videos_cached_deep]\nfile not symlink: ' +
+                        f'{str(file)}\nvideopath symlink: ' +
+                        f'{str(_video_path)}\n\t\t' +
+                        f'{" -> ".join([str(_l) for _l in _links])}')
+
+                    for _link in _links[0:-1]:
+                        _link.unlink()
+                        _link.symlink_to(file)
+                        _link._accessor.utime(
+                            _link,
+                            (int(self.asyncdl.launch_time.timestamp()), file.stat().st_mtime),
+                            follow_symlinks=False)
+
+                    self._videoscached.update({_name: str(file)})
+
+                else:
+
+                    self.logger.debug(
+                        '[videos_cached_deep] \n**file not symlink: ' +
+                        f'{str(file)}\nvideopath symlink: ' +
+                        f'{str(_video_path)}\n\t\t' +
+                        f'{" -> ".join([str(_l) for _l in _links])}')
+
+        elif (
+
+            file.is_symlink()
+            and not _video_path.is_symlink()
+        ):
+            _links = get_chain_links(file)
+            if _links[-1] == _video_path:
+                if len(_links) > 2:
+                    self.logger.debug(
+                        '[videos_cached]\nfile symlink: ' +
+                        f'{str(file)}\n\t\t' +
+                        f'{" -> ".join([str(_l) for _l in _links])}\n' +
+                        f'videopath not symlink: {str(_video_path)}')
+
+                    for _link in _links[0:-1]:
+                        _link.unlink()
+                        _link.symlink_to(_video_path)
+                        _link._accessor.utime(
+                            _link,
+                            (int(self.asyncdl.launch_time.timestamp()), _video_path.stat().st_mtime),
+                            follow_symlinks=False)
+
+                self._videoscached.update({_name: str(_video_path)})
+                if not _video_path.exists():
+                    self._dont_exist.append(
+                        {
+                            'title': _name,
+                            'file_not_exist': str(_video_path),
+                            'links': [str(_l) for _l in _links[0:-1]],
+                        })
+            else:
+
+                self.logger.debug(
+                    f'[videos_cached_deep]\n**file symlink: {str(file)}\n' +
+                    f'\t\t{" -> ".join([str(_l) for _l in _links])}\n' +
+                    f'videopath not symlink: {str(_video_path)}')
+
+        else:
+
+            _links_file = get_chain_links(file)
+            _links_video_path = get_chain_links(_video_path)
+            if (_file := _links_file[-1]) == _links_video_path[-1]:
+                if len(_links_file) > 2:
+                    self.logger.debug(
+                        f'[videos_cached_deep]\nfile symlink: {str(file)}\n' +
+                        f'\t\t{" -> ".join([str(_l) for _l in _links_file])}')
+
+                    for _link in _links_file[0:-1]:
+                        _link.unlink()
+                        _link.symlink_to(_file)
+                        _link._accessor.utime(
+                            _link,
+                            (int(self.asyncdl.launch_time.timestamp()), _file.stat().st_mtime),
+                            follow_symlinks=False)
+
+                if len(_links_video_path) > 2:
+                    self.logger.debug(
+                        '[videos_cached_deep]\nvideopath symlink: ' +
+                        f'{str(_video_path)}\n\t\t' +
+                        f'{" -> ".join([str(_l) for _l in _links_video_path])}')
+
+                    for _link in _links_video_path[0:-1]:
+                        _link.unlink()
+                        _link.symlink_to(_file)
+                        _link._accessor.utime(
+                            _link,
+                            (int(self.asyncdl.launch_time.timestamp()), _file.stat().t_mtime,),
+                            follow_symlinks=False)
+
+                self._videoscached.update({_name: str(_file)})
+
+                if not _file.exists():
+                    self._dont_exist.append(
+                        {
+                            "title": _name,
+                            "file_not_exist": str(_file),
+                            "links": [
+                                        str(_l) for _l in
+                                        (_links_file[0:-1] + _links_video_path[0:-1])]
+                        })
+
+            else:
+                self.logger.debug(
+                    '[videos_cached_deep]\n**file symlink: ' +
+                    f'{str(file)}\n\t\t' +
+                    f'{" -> ".join([str(_l) for _l in _links_file])}\n' +
+                    f'videopath symlink: {str(_video_path)}\n\t\t' +
+                    f'{" -> ".join([str(_l) for _l in _links_video_path])}')
+
+    def get_files_same_id(self):
+
+        config_folders = {
+            "local": Path(Path.home(), "testing"),
+            "pandaext4": Path("/Volumes/Pandaext4/videos"),
+            "datostoni": Path("/Volumes/DatosToni/videos"),
+            "wd1b": Path("/Volumes/WD1B/videos"),
+            "wd5": Path("/Volumes/WD5/videos"),
+            "wd8_1": Path("/Volumes/WD8_1/videos"),
+        }
+
+        list_folders = []
+
+        for _vol, _folder in config_folders.items():
+            if not _folder.exists():
+                self.logger.error(
+                    f"failed {_vol}:{_folder}, let get previous info saved in previous files")
+
+            else:
+                list_folders.append(_folder)
+
+        files_cached = []
+        for folder in list_folders:
+
+            self.logger.info(">>>>>>>>>>>STARTS " + str(folder))
+
+            files = []
+            try:
+
+                files = [
+                    file
+                    for file in folder.rglob("*")
+                    if file.is_file()
+                    and not file.is_symlink()
+                    and "videos/_videos/" not in str(file)
+                    and not file.stem.startswith(".")
+                    and (file.suffix.lower() in
+                         (".mp4", ".mkv", ".ts", ".zip"))
+                ]
+
+            except Exception as e:
+                self.logger.info(f"[get_files_cached][{folder}] {repr(e)}")
+
+            for file in files:
+
+                _res = file.stem.split("_", 1)
+                if len(_res) == 2:
+                    _id = _res[0]
+
+                else:
+                    _id = sanitize_filename(file.stem, restricted=True).upper()
+
+                files_cached.append((_id, str(file)))
+
+        _res_dict = {}
+        for el in files_cached:
+            for item in files_cached:
+                if (el != item) and (item[0] == el[0]):
+                    if not _res_dict.get(el[0]):
+                        _res_dict[el[0]] = set([el[1], item[1]])
+                    else:
+                        _res_dict[el[0]].update([el[1], item[1]])
+        _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
+        return _ord_res_dict
 
 ############################################################
 # """                     PYSIMPLEGUI                    """

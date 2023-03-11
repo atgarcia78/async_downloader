@@ -37,7 +37,6 @@ from utils import (
     _for_print,
     _for_print_entry,
     async_wait_time,
-    wait_for_either,
     dec_retry_error,
     get_format_id,
     int_or_none,
@@ -713,28 +712,28 @@ class AsyncHLSDownloader:
 
             if self.fromplns and str(cause) in ("403", "hard"):
 
-                if cause == "403":
-                    NakedSwordBaseIE._STATUS = "403"
+                # if cause == "403":
+                #   NakedSwordBaseIE._STATUS = "403"
 
-                _webpage_url = smuggle_url(
-                    re.sub(r"(/scene/\d+)", "", _wurl),
-                    {
-                        "indexdl": self.vid_dl.index,
-                        "args": {
-                            "nakedswordmovie": {
-                                "listreset": [
-                                    int(index)
-                                    for index in list(
-                                        self.vid_dl.info_dl[
-                                            "fromplns"][
-                                            self.fromplns
-                                        ]["in_reset"]
-                                    )
-                                ]
-                            }
-                        },
-                    },
-                )
+                # _webpage_url = smuggle_url(
+                #     re.sub(r"(/scene/\d+)", "", _wurl),
+                #     {
+                #         "indexdl": self.vid_dl.index,
+                #         "args": {
+                #             "nakedswordmovie": {
+                #                 "listreset": [
+                #                     int(index)
+                #                     for index in list(
+                #                         self.vid_dl.info_dl[
+                #                             "fromplns"][
+                #                             self.fromplns
+                #                         ]["in_reset"]
+                #                     )
+                #                 ]
+                #             }
+                #         },
+                #     },
+                # )
 
                 with (_sem := self.vid_dl.info_dl["fromplns"]["ALL"]["sem"]):
 
@@ -743,13 +742,12 @@ class AsyncHLSDownloader:
                     _first_all = False
                     if _sem._initial_value == 1:
                         _first_all = True
-                        if cause == "403":
-                            NakedSwordBaseIE._STATUS = "403"
+                        # if cause == "403":
+                        #     NakedSwordBaseIE._STATUS = "403"
 
                         NakedSwordBaseIE._API.logout()
+                        time.sleep(5)
                         NakedSwordBaseIE._API.get_auth()
-
-                    assert _sem
 
                     with (_sem2 := self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"]):
 
@@ -758,22 +756,35 @@ class AsyncHLSDownloader:
                         _first = False
                         if _sem2._initial_value == 1:
                             _first = True
-                            NakedSwordBaseIE._API.logout()
-                            time.sleep(5)
-                            NakedSwordBaseIE._API.get_auth()
-
+                            # NakedSwordBaseIE._API.logout()
+                            # time.sleep(5)
+                            # NakedSwordBaseIE._API.get_auth()
+                        _webpage_url = smuggle_url(
+                            re.sub(r"(/scene/\d+)", "", _wurl),
+                            {
+                                "indexdl": self.vid_dl.index,
+                                "args": {
+                                    "nakedswordmovie": {
+                                        "listreset": [
+                                            int(index)
+                                            for index in list(self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"])
+                                        ]
+                                    }
+                                },
+                            },
+                        )
                         if self.get_reset_info(
                             _webpage_url,
                             first=_first,
                         ):
-                            if _first_all:
-                                #  AsyncHLSDownloader._OK_503.set()
-                                _sem._initial_value = 100
-                                _sem.release(50)
 
                             if _first:
                                 _sem2._initial_value = 100
                                 _sem2.release(50)
+                            if _first_all:
+                                #  AsyncHLSDownloader._OK_503.set()
+                                _sem._initial_value = 100
+                                _sem.release(50)
 
             else:
                 if self.special_extr:
@@ -784,10 +795,14 @@ class AsyncHLSDownloader:
 
         except Exception as e:
             logger.exception(
-                f"{self.premsg}:RESET[{self.n_reset}]: outer Exception occurred when reset: {repr(e)}")
-            raise
+                f"{self.premsg}:RESET[{self.n_reset}]: stop_event:[{self.vid_dl.stop_event.is_set()}] " +
+                f"outer Exception occurred when reset: {repr(e)}")
+            if not self.vid_dl.stop_event.is_set():
+                raise
         finally:
             if self.fromplns and cause in ("403", "hard"):
+
+                logger.debug(f'{self.premsg}[resetdl]:RESET[{self.n_reset}]: stop_event:[{self.vid_dl.stop_event.is_set()}] FINALLY')
 
                 with AsyncHLSDownloader._CLASSLOCK:
 
@@ -1611,7 +1626,7 @@ class AsyncHLSDownloader:
                     else:
                         if self.vid_dl.stop_event.is_set():
 
-                            #  await self.clean_from_reset()
+                            await self.clean_from_reset()
                             self.vid_dl.end_tasks.set()
                             self.status = "stop"
                             await asyncio.wait(check_task + upt_task)
@@ -1696,7 +1711,7 @@ class AsyncHLSDownloader:
                                         f'{inc_frags_dl}] new cycle with no fatal error')
                                     try:
                                         async with self._limit_reset:
-                                            await self.areset()
+                                            await self.areset("hard")
                                         if self.vid_dl.stop_event.is_set():
                                             return
                                         self.frags_queue = asyncio.Queue()

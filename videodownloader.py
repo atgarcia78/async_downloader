@@ -376,6 +376,7 @@ class VideoDownloader:
 
     async def stop(self, cause=None):
         try:
+
             if not cause:
                 if 'aria2' not in str(
                         type(self.info_dl['downloaders'][0])).lower():
@@ -388,11 +389,13 @@ class VideoDownloader:
                 for dl in self.info_dl['downloaders']:
                     dl.status = "stop"
 
+            self.stop_event.set()
+
             logger.info(
                 f"[{self.info_dict['id']}][{self.info_dict['title']}]: " +
                 f"stop - {cause}")
 
-            self.stop_event.set()
+            await asyncio.sleep(0)
 
         except Exception as e:
             logger.exception(
@@ -401,13 +404,18 @@ class VideoDownloader:
 
     async def pause(self):
         if self.info_dl['status'] == "downloading":
-            # self.resume_event.clear()
+            self.resume_event.clear()
             self.pause_event.set()
+            await asyncio.sleep(0)
+            # self.pause_event.set()
 
     async def resume(self):
         if self.info_dl['status'] == "downloading":
-            if self.pause_event.is_set():
-                self.resume_event.set()
+            self.pause_event.clear()
+            self.resume_event.set()
+            await asyncio.sleep(0)
+            # if self.pause_event.is_set():
+            #     self.resume_event.set()
 
     async def run_dl(self):
 
@@ -941,7 +949,7 @@ class VideoDownloader:
                 f"{naturalsize(self.info_dl['down_size'], format_='.2f')} " +
                 f"[{naturalsize(self.info_dl['filesize'], format_='.2f')}]\n {msg}\n")
         elif self.info_dl['status'] == "downloading":
-            if self.pause_event and self.pause_event.is_set():
+            if self.pause_event.is_set() and not self.resume_event.is_set():
                 status = "PAUSED"
             else:
                 status = "Downloading"

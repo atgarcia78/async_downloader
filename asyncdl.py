@@ -4,7 +4,6 @@ import json
 import logging
 import shutil
 import time
-import random
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from itertools import zip_longest
@@ -14,53 +13,37 @@ from pathlib import Path
 
 import os as syncos
 
-
 from textwrap import fill
-from threading import Lock, Event
-import xattr
-
+from threading import Lock
 
 from codetiming import Timer
 from tabulate import tabulate
 
 from utils import (
-    CONF_INTERVAL_GUI,
     PATH_LOGS,
     FrontEndGUI,
     MySyncAsyncEvent,
-    LocalStorage,
+    NWSetUp,
+    LocalVideos,
     _for_print,
     _for_print_videos,
     sync_to_async,
     async_wait_time,
     async_waitfortasks,
-    get_chain_links,
     get_domain,
-    init_aria2c,
-    init_gui_console,
-    init_gui_root,
-    TorGuardProxies,
     init_ytdl,
     js_to_json,
     kill_processes,
-    long_operation_in_thread,
     naturalsize,
     none_to_zero,
     print_tasks,
     sanitize_filename,
-    sg,
     traverse_obj,
     try_get,
-    wait_time,
-    wait_for_either,
-    ProgressTimer,
-    SpeedometerMA,
     Union,
-    async_lock,
-    CountDowns
+    async_lock
 )
 
-import proxy
 from videodownloader import VideoDownloader
 from collections import deque
 
@@ -75,7 +58,7 @@ class WorkersRun:
         self.waiting = deque()
         self.tasks = {}
         self.logger = logging.getLogger('WorkersRun')
-        self.exit = asyncio.Event()
+        self.exit = MySyncAsyncEvent("workersrunexit")
         self.alock = asyncio.Lock()
 
     @property
@@ -211,463 +194,6 @@ class WorkersInit:
 
         except Exception as e:
             self.logger.exception(f'[{url_key}] error {repr(e)}')
-
-
-class NWSetUp:
-
-    def __init__(self, asyncdl):
-
-        self.asyncdl = asyncdl
-        self.logger = logging.getLogger('setupnw')
-        self.shutdown_proxy = Event()
-        self.routing_table = {}
-        self.proc_gost = []
-        self.proc_aria2c = None
-        self.exe = ThreadPoolExecutor(thread_name_prefix='setupnw')
-
-        self._tasks_init = {}
-        if self.asyncdl.args.aria2c:
-            ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
-            _task_aria2c = asyncio.create_task(ainit_aria2c(self.asyncdl.args))
-            self.asyncdl.background_tasks.add(_task_aria2c)
-            _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
-            _tasks_init_aria2c = {
-                _task_aria2c: 'aria2'
-            }
-            self._tasks_init.update(_tasks_init_aria2c)
-        if self.asyncdl.args.enproxy:
-            self.stop_proxy = self.run_proxy_http()
-            ainit_proxies = sync_to_async(
-                TorGuardProxies.init_proxies, executor=self.exe)
-            _task_proxies = asyncio.create_task(ainit_proxies())
-            self.asyncdl.background_tasks.add(_task_proxies)
-            _task_proxies.add_done_callback(self.asyncdl.background_tasks.discard)
-            _task_init_proxies = {_task_proxies: 'proxies'}
-            self._tasks_init.update(_task_init_proxies)
-
-    async def init(self):
-
-        if self._tasks_init:
-            done, _ = await asyncio.wait(self._tasks_init)
-            for task in done:
-                try:
-                    if self._tasks_init[task] == 'aria2':
-                        self.proc_aria2c = task.result()
-                    else:
-                        self.proc_gost, self.routing_table = task.result()
-                        self.asyncdl.ytdl.params[
-                            'routing_table'] = self.routing_table
-                except Exception as e:
-                    logger.exception(f'[async_ex] {repr(e)}')
-
-    @long_operation_in_thread(name='proxythr')
-    def run_proxy_http(self, *args, **kwargs):
-
-        stop_event: Event = kwargs['stop_event']
-        log_level = kwargs.get('log_level', 'INFO')
-        try:
-            with proxy.Proxy(
-                [
-                    '--log-level',
-                    log_level,
-                    '--plugins',
-                    'proxy.plugin.ProxyPoolByHostPlugin',
-                ]
-            ) as p:
-                logger = logging.getLogger('proxy')
-                try:
-                    logger.debug(p.flags)
-                    stop_event.wait()
-                except BaseException:
-                    logger.error('context manager proxy')
-        finally:
-            self.shutdown_proxy.set()
-
-    def close(self):
-
-        if self.asyncdl.args.enproxy:
-            self.logger.info('[close] proxy')
-            self.stop_proxy.set()
-            self.logger.info('[close] waiting for http proxy shutdown')
-            self.shutdown_proxy.wait()
-            self.logger.info('[close] OK shutdown')
-
-            if self.proc_gost:
-                self.logger.info('[close] gost')
-                for proc in self.proc_gost:
-                    try:
-                        proc.kill()
-                    except BaseException as e:
-                        self.logger.exception(f'[close] {repr(e)}')
-
-        if self.proc_aria2c:
-            self.logger.info('[close] aria2c')
-            self.proc_aria2c.kill()
-
-
-class LocalVideos:
-    def __init__(self, asyncdl, deep=False):
-        self.asyncdl = asyncdl
-        self.logger = logging.getLogger('videoscached')
-        self.deep = deep
-        self._videoscached = {}
-        self._repeated = []
-        self._dont_exist = []
-        self._repeated_by_xattr = []
-        self._localstorage = LocalStorage()
-        self.file_ready: MySyncAsyncEvent = self.get_videos_cached()
-
-    def ready(self):
-        self.file_ready.wait()
-
-    def upt_local(self):
-        self.file_ready.clear()
-        self._videoscached = {}
-        self._repeated = []
-        self._dont_exist = []
-        self._repeated_by_xattr = []
-        self.file_ready = self.get_videos_cached(local=True)
-
-    @long_operation_in_thread(name='vidcachthr')
-    def get_videos_cached(self, *args, **kwargs):
-
-        """
-        In local storage, files are saved wihtin the file files.cached.json
-        in 5 groups each in different volumnes.
-        If any of the volumes can't be accesed in real time, the
-        local storage info of that volume will be used.
-        """
-
-        _finished: Event = kwargs['stop_event']
-
-        force_local = kwargs.get('local', False)
-
-        self.logger.info(
-            f"[videos_cached] start scann- dlnoch[{self.asyncdl.args.nodlcaching}]-local[{force_local}]")
-
-        last_time_sync = {}
-
-        try:
-
-            with self._localstorage.lock:
-
-                self._localstorage.load_info()
-
-                list_folders_to_scan = {}
-
-                last_time_sync = self._localstorage._last_time_sync
-
-                if self.asyncdl.args.nodlcaching or force_local:
-                    for _vol, _folder in self._localstorage.config_folders.items():
-                        if _vol != 'local':
-                            if not force_local:
-                                self._videoscached.update(
-                                    self._localstorage._data_from_file[_vol])
-                        else:
-                            list_folders_to_scan.update({_folder: _vol})
-
-                else:
-                    for _vol, _folder in self._localstorage.config_folders.items():
-                        if not _folder.exists():  # comm failure
-                            logger.error(f'Fail connect to [{_vol}], will use last info')
-                            self._videoscached.update(self._localstorage._data_from_file[_vol])
-                        else:
-                            list_folders_to_scan.update({_folder: _vol})
-
-                for folder in list_folders_to_scan:
-
-                    try:
-
-                        files = [
-                            file
-                            for file in folder.rglob('*')
-                            if file.is_file()
-                            and not file.stem.startswith('.')
-                            and (file.suffix.lower() in
-                                 ('.mp4', '.mkv', '.zip'))
-                        ]
-
-                        for file in files:
-
-                            if not force_local:
-                                if not file.is_symlink():
-                                    try:
-                                        _xattr_desc = xattr.getxattr(
-                                            file, 'user.dublincore.description').decode()
-                                        if not self._videoscached.get(_xattr_desc):
-                                            self._videoscached.update({_xattr_desc: str(file)})
-                                        else:
-                                            self._repeated_by_xattr.append(
-                                                {_xattr_desc: [self._videoscached[_xattr_desc], str(file)]})
-                                    except Exception:
-                                        pass
-
-                            _res = file.stem.split('_', 1)
-                            if len(_res) == 2:
-                                _id = _res[0]
-                                _title = sanitize_filename(_res[1], restricted=True).upper()
-                                _name = f'{_id}_{_title}'
-                            else:
-                                _name = sanitize_filename(file.stem, restricted=True).upper()
-
-                            if not (_video_path_str := self._videoscached.get(_name)):
-                                self._videoscached.update({_name: str(file)})
-
-                            else:
-                                _video_path = Path(_video_path_str)
-                                if _video_path != file:
-
-                                    if (
-                                        not file.is_symlink()
-                                        and not _video_path.is_symlink()
-                                    ):
-
-                                        # only if both are hard files we have
-                                        # to do something, so lets report it
-                                        # in repeated files
-                                        self._repeated.append(
-                                            {
-                                                'title': _name,
-                                                'indict': _video_path_str,
-                                                'file': str(file),
-                                            }
-                                        )
-
-                                    if self.deep:
-                                        self.deep_check(_name, file, _video_path)
-
-                    except Exception as e:
-                        self.logger.error(
-                            f'[videos_cached][{list_folders_to_scan[folder]}]{repr(e)}')
-
-                    else:
-                        last_time_sync.update(
-                            {list_folders_to_scan[folder]:
-                             str(self.asyncdl.launch_time) if not force_local else str(datetime.now())})
-
-                self._localstorage.dump_info(self._videoscached, last_time_sync, local=force_local)
-
-                self.logger.info(f'[videos_cached] Total videos cached: [{len(self._videoscached)}]')
-
-                if not force_local:
-                    self.asyncdl.videos_cached = self._videoscached.copy()
-
-                _finished.set()
-
-                if not force_local:
-                    try:
-
-                        if self._repeated:
-                            self.logger.warning(
-                                '[videos_cached] Please check vid rep in logs')
-                            self.logger.debug(
-                                f'[videos_cached] videos repeated: \n {self._repeated}')
-
-                        if self._dont_exist:
-                            self.logger.warning(
-                                '[videos_cached] Pls check vid dont exist in logs')
-                            self.logger.debug(
-                                f'[videos_cached] videos dont exist: \n{self._dont_exist}')
-
-                        if self._repeated_by_xattr:
-                            self.logger.warning(
-                                '[videos_cached] Pls check vid repeated by xattr)')
-                            self.logger.debug(
-                                f'[videos_cached] videos repeated by xattr: \n{self._repeated_by_xattr}')
-
-                    except Exception as e:
-                        self.logger.exception(f'[videos_cached] {repr(e)}')
-
-        except Exception as e:
-            self.logger.exception(f'[videos_cached] {repr(e)}')
-
-    def deep_check(self, _name, file, _video_path):
-
-        if (
-            not file.is_symlink()
-            and _video_path.is_symlink()
-        ):
-            _links = get_chain_links(_video_path)
-            if _links[-1] == file:
-
-                if len(_links) > 2:  # chain of at least 2 symlinks
-                    self.logger.debug(
-                        '[videos_cached_deep]\nfile not symlink: ' +
-                        f'{str(file)}\nvideopath symlink: ' +
-                        f'{str(_video_path)}\n\t\t' +
-                        f'{" -> ".join([str(_l) for _l in _links])}')
-
-                    for _link in _links[0:-1]:
-                        _link.unlink()
-                        _link.symlink_to(file)
-                        _link._accessor.utime(
-                            _link,
-                            (int(self.asyncdl.launch_time.timestamp()), file.stat().st_mtime),
-                            follow_symlinks=False)
-
-                    self._videoscached.update({_name: str(file)})
-
-                else:
-
-                    self.logger.debug(
-                        '[videos_cached_deep] \n**file not symlink: ' +
-                        f'{str(file)}\nvideopath symlink: ' +
-                        f'{str(_video_path)}\n\t\t' +
-                        f'{" -> ".join([str(_l) for _l in _links])}')
-
-        elif (
-
-            file.is_symlink()
-            and not _video_path.is_symlink()
-        ):
-            _links = get_chain_links(file)
-            if _links[-1] == _video_path:
-                if len(_links) > 2:
-                    self.logger.debug(
-                        '[videos_cached]\nfile symlink: ' +
-                        f'{str(file)}\n\t\t' +
-                        f'{" -> ".join([str(_l) for _l in _links])}\n' +
-                        f'videopath not symlink: {str(_video_path)}')
-
-                    for _link in _links[0:-1]:
-                        _link.unlink()
-                        _link.symlink_to(_video_path)
-                        _link._accessor.utime(
-                            _link,
-                            (int(self.asyncdl.launch_time.timestamp()), _video_path.stat().st_mtime),
-                            follow_symlinks=False)
-
-                self._videoscached.update({_name: str(_video_path)})
-                if not _video_path.exists():
-                    self._dont_exist.append(
-                        {
-                            'title': _name,
-                            'file_not_exist': str(_video_path),
-                            'links': [str(_l) for _l in _links[0:-1]],
-                        })
-            else:
-
-                self.logger.debug(
-                    f'[videos_cached_deep]\n**file symlink: {str(file)}\n' +
-                    f'\t\t{" -> ".join([str(_l) for _l in _links])}\n' +
-                    f'videopath not symlink: {str(_video_path)}')
-
-        else:
-
-            _links_file = get_chain_links(file)
-            _links_video_path = get_chain_links(_video_path)
-            if (_file := _links_file[-1]) == _links_video_path[-1]:
-                if len(_links_file) > 2:
-                    self.logger.debug(
-                        f'[videos_cached_deep]\nfile symlink: {str(file)}\n' +
-                        f'\t\t{" -> ".join([str(_l) for _l in _links_file])}')
-
-                    for _link in _links_file[0:-1]:
-                        _link.unlink()
-                        _link.symlink_to(_file)
-                        _link._accessor.utime(
-                            _link,
-                            (int(self.asyncdl.launch_time.timestamp()), _file.stat().st_mtime),
-                            follow_symlinks=False)
-
-                if len(_links_video_path) > 2:
-                    self.logger.debug(
-                        '[videos_cached_deep]\nvideopath symlink: ' +
-                        f'{str(_video_path)}\n\t\t' +
-                        f'{" -> ".join([str(_l) for _l in _links_video_path])}')
-
-                    for _link in _links_video_path[0:-1]:
-                        _link.unlink()
-                        _link.symlink_to(_file)
-                        _link._accessor.utime(
-                            _link,
-                            (int(self.asyncdl.launch_time.timestamp()), _file.stat().t_mtime,),
-                            follow_symlinks=False)
-
-                self._videoscached.update({_name: str(_file)})
-
-                if not _file.exists():
-                    self._dont_exist.append(
-                        {
-                            "title": _name,
-                            "file_not_exist": str(_file),
-                            "links": [
-                                        str(_l) for _l in
-                                        (_links_file[0:-1] + _links_video_path[0:-1])]
-                        })
-
-            else:
-                self.logger.debug(
-                    '[videos_cached_deep]\n**file symlink: ' +
-                    f'{str(file)}\n\t\t' +
-                    f'{" -> ".join([str(_l) for _l in _links_file])}\n' +
-                    f'videopath symlink: {str(_video_path)}\n\t\t' +
-                    f'{" -> ".join([str(_l) for _l in _links_video_path])}')
-
-    def get_files_same_id(self):
-
-        config_folders = {
-            "local": Path(Path.home(), "testing"),
-            "pandaext4": Path("/Volumes/Pandaext4/videos"),
-            "datostoni": Path("/Volumes/DatosToni/videos"),
-            "wd1b": Path("/Volumes/WD1B/videos"),
-            "wd5": Path("/Volumes/WD5/videos"),
-            "wd8_1": Path("/Volumes/WD8_1/videos"),
-        }
-
-        list_folders = []
-
-        for _vol, _folder in config_folders.items():
-            if not _folder.exists():
-                self.logger.error(
-                    f"failed {_folder}, let get previous info saved in previous files")
-
-            else:
-                list_folders.append(_folder)
-
-        files_cached = []
-        for folder in list_folders:
-
-            self.logger.info(">>>>>>>>>>>STARTS " + str(folder))
-
-            files = []
-            try:
-
-                files = [
-                    file
-                    for file in folder.rglob("*")
-                    if file.is_file()
-                    and not file.is_symlink()
-                    and "videos/_videos/" not in str(file)
-                    and not file.stem.startswith(".")
-                    and (file.suffix.lower() in
-                         (".mp4", ".mkv", ".ts", ".zip"))
-                ]
-
-            except Exception as e:
-                self.logger.info(f"[get_files_cached][{folder}] {repr(e)}")
-
-            for file in files:
-
-                _res = file.stem.split("_", 1)
-                if len(_res) == 2:
-                    _id = _res[0]
-
-                else:
-                    _id = sanitize_filename(file.stem, restricted=True).upper()
-
-                files_cached.append((_id, str(file)))
-
-        _res_dict = {}
-        for el in files_cached:
-            for item in files_cached:
-                if (el != item) and (item[0] == el[0]):
-                    if not _res_dict.get(el[0]):
-                        _res_dict[el[0]] = set([el[1], item[1]])
-                    else:
-                        _res_dict[el[0]].update([el[1], item[1]])
-        _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
-        return _ord_res_dict
 
 
 class AsyncDL:
@@ -1881,7 +1407,7 @@ class AsyncDL:
                     tasks_gui[0].add_done_callback(self.background_tasks.discard)
 
                     tasks_to_wait.update({asyncio.create_task(
-                        self.WorkersRun.exit.wait()): "task_workers_run"})
+                        self.WorkersRun.exit.async_wait()): "task_workers_run"})
 
             for _task in tasks_to_wait:
                 self.background_tasks.add(_task)
@@ -1905,7 +1431,7 @@ class AsyncDL:
             try_get(self.ytdl.params["stop"], lambda x: x.set())
             if self.list_dl:
                 for _, dl in self.list_dl.items():
-                    await dl.stop()
+                    await dl.stop('exit')
             await asyncio.sleep(0)
             raise
         finally:
@@ -1927,7 +1453,7 @@ class AsyncDL:
         try_get(self.ytdl.params["stop"], lambda x: x.set())
         if self.list_dl:
             for _, dl in self.list_dl.items():
-                await dl.stop()
+                await dl.stop('exit')
         await asyncio.sleep(0)
         if hasattr(self, 'FEgui'):
             self.FEgui.stop.set()
