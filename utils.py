@@ -63,7 +63,7 @@ from yt_dlp.extractor.commonwebdriver import (
     ReExtractInfo,
     ConnectError,
     StatusError503,
-    my_dec_on_exception,
+    my_dec_on_exception
 )
 
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
@@ -2413,6 +2413,8 @@ class FrontEndGUI:
                     _waitres_nopause = wait_for_either(
                         [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_from_resume_to_pause)
                     FrontEndGUI._PASRES_EXIT.clear()
+                    if not FrontEndGUI._PASRES_REPEAT:
+                        continue
                     if _waitres_nopause == "TIMEOUT" and (_list := list(self.asyncdl.list_pasres)):
 
                         if not self.reset_repeat:

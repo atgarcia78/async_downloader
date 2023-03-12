@@ -276,11 +276,11 @@ class VideoDownloader:
 
     async def reset_from_console(self):
 
-        if 'hls' in str(type(self.info_dl['downloaders'][0])).lower():
-            if (plns := self.info_dl['downloaders'][0].fromplns):
-                await self.reset_plns("403", plns=plns)
-                return
-        await self.reset("hard")
+        # if 'hls' in str(type(self.info_dl['downloaders'][0])).lower():
+        #     if (plns := self.info_dl['downloaders'][0].fromplns):
+        #         await self.reset_plns("hard", plns=plns)
+        #         return
+        await self.reset(cause="hard")
 
     async def reset(self, cause: Union[str, None] = None):
         if self.info_dl['status'] == "downloading":
