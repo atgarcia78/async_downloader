@@ -276,10 +276,6 @@ class VideoDownloader:
 
     async def reset_from_console(self):
 
-        # if 'hls' in str(type(self.info_dl['downloaders'][0])).lower():
-        #     if (plns := self.info_dl['downloaders'][0].fromplns):
-        #         await self.reset_plns("hard", plns=plns)
-        #         return
         await self.reset(cause="hard")
 
     async def reset(self, cause: Union[str, None] = None):
@@ -407,15 +403,12 @@ class VideoDownloader:
             self.resume_event.clear()
             self.pause_event.set()
             await asyncio.sleep(0)
-            # self.pause_event.set()
 
     async def resume(self):
         if self.info_dl['status'] == "downloading":
             self.pause_event.clear()
             self.resume_event.set()
             await asyncio.sleep(0)
-            # if self.pause_event.is_set():
-            #     self.resume_event.set()
 
     async def run_dl(self):
 

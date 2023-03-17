@@ -1997,8 +1997,13 @@ class FrontEndGUI:
         }
         self.dl_media_str = None
         self.stop = MySyncAsyncEvent("stopfegui")
+        self.exit_gui = MySyncAsyncEvent("exitgui")
         self.stop_upt_window = self.upt_window_periodic()
         self.stop_pasres = self.pasres_periodic()
+
+        _task = asyncio.create_task(self.gui())
+        self.asyncdl.background_tasks.add(_task)
+        _task.add_done_callback(self.asyncdl.background_tasks.discard)
 
     @classmethod
     def pasres_break(cls):
@@ -2106,7 +2111,7 @@ class FrontEndGUI:
             else:
                 self.reset_repeat = True
         elif event in ['-DL-STATUS']:
-            await self.asyncdl.print_pending_tasks()
+            self.asyncdl.print_pending_tasks()
             if not self.console_dl_status:
                 self.console_dl_status = True
         elif event in ['IncWorkerRun']:
@@ -2296,6 +2301,7 @@ class FrontEndGUI:
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
+            self.exit_gui.set()
             self.logger.debug('[gui] BYE')
 
     def update_window(self, status, nwmon=None):
@@ -2468,6 +2474,7 @@ class FrontEndGUI:
             self.logger.debug('[pasres_periodic] BYE')
 
     def close(self):
+        self.stop.set()
         self.stop_upt_window.set()
         self.stop_pasres.set()
         if hasattr(self, 'window_console') and self.window_console:

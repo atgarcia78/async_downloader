@@ -1539,7 +1539,6 @@ class AsyncHLSDownloader:
         async with async_lock(AsyncHLSDownloader._CLASSLOCK):
             if self.fromplns:
                 _event = traverse_obj(self.vid_dl.info_dl["fromplns"], ("ALL", "reset"))
-                #  _event = traverse_obj(self.vid_dl.info_dl["fromplns"], (self.fromplns, "reset"))
                 if _event:
                     await _event.async_wait()  # type: ignore
                 self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"].add(
@@ -1606,7 +1605,7 @@ class AsyncHLSDownloader:
                     else:
                         if self.vid_dl.stop_event.is_set():
 
-                            await self.clean_from_reset()
+                            #  await self.clean_from_reset()
                             self.vid_dl.end_tasks.set()
                             self.status = "stop"
                             await asyncio.wait(check_task + upt_task)
@@ -1616,7 +1615,7 @@ class AsyncHLSDownloader:
 
                             self.vid_dl.end_tasks.set()
 
-                            if _cause := self.vid_dl.reset_event.is_set():
+                            if (_cause := self.vid_dl.reset_event.is_set()):
 
                                 dump_init_task = [asyncio.create_task(self.dump_init_file())]
                                 self.background_tasks.add(dump_init_task[0])
