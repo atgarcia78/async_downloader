@@ -661,7 +661,7 @@ class AsyncHLSDownloader:
     @retry
     def get_reset_info(self, _reset_url, first=False):
 
-        _proxy = self._proxy["all://"] if hasattr(self, '_proxy') else None
+        _proxy = self._proxy["all://"] if getattr(self, '_proxy', None) else None
         _print_proxy = _proxy.split(":")[-1] if _proxy else None
 
         logger.debug(
@@ -1888,8 +1888,12 @@ class AsyncHLSDownloader:
             return f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
 
         _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
-        _proxy = self._proxy["http://"].split(":")[-1] if hasattr(
-            self, '_proxy') else None
+        if getattr(self, '_proxy', None):
+            _proxy = self._proxy.get("all://", "").split(":")[-1]
+            if _proxy == "":
+                _proxy = None
+        else:
+            _proxy = None
 
         if self.status == "done":
             return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed\n"

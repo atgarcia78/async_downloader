@@ -107,7 +107,7 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
-CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/110.0"
+CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/111.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 100
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -123,7 +123,7 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min//4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
-CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo"]
+CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb"]
 CONF_AUTO_PASRES = ["doodstream"]
 
 
@@ -2588,6 +2588,10 @@ class LocalVideos:
         self._repeated_by_xattr = []
         self._localstorage = LocalStorage()
         self.file_ready: MySyncAsyncEvent = self.get_videos_cached()
+
+    async def aready(self):
+        while not self.file_ready.is_set():
+            await asyncio.sleep(0)
 
     def ready(self):
         self.file_ready.wait()

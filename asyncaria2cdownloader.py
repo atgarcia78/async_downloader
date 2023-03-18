@@ -131,6 +131,7 @@ class AsyncARIA2CDownloader:
 
             if x in CONF_AUTO_PASRES:
                 self.auto_pasres = True
+                self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED // 2
 
             return (_sem, limit, maxplits)
 
@@ -139,6 +140,8 @@ class AsyncARIA2CDownloader:
         self.auto_pasres = False
         self.special_extr = False
         self._mode = 'simple'
+        self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED
+        self._n_check_speed = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
         _sem, self._decor, self._nsplits = getter(self._extractor)
 
         if not self.enproxy:
@@ -374,8 +377,8 @@ class AsyncARIA2CDownloader:
                 self.dl_cont = _dl
 
             if hasattr(self, 'dl_cont'):
-                self.async_update = sync_to_async(
-                    self.dl_cont.update, executor=self.ex_dl)
+                # self.async_update = sync_to_async(
+                #     self.dl_cont.update, executor=self.ex_dl)
                 self.async_pause = sync_to_async(
                     partial(self.aria2_client.pause, [self.dl_cont]),
                     executor=self.ex_dl)
@@ -401,7 +404,8 @@ class AsyncARIA2CDownloader:
 
                     if _res.get("event"):
                         return
-                    await self.async_update()
+                    if (_error := await self.aupdate()) and _error == 'error':
+                        raise AsyncARIA2CDLError('init error: error update dl_cont')
 
                     if (
                         self.dl_cont.total_length or
@@ -471,6 +475,15 @@ class AsyncARIA2CDownloader:
                     f'count_init: {self.count_init}'
                 )
 
+    async def aupdate(self):
+        if hasattr(self, 'dl_cont'):
+            try:
+                await sync_to_async(self.dl_cont.update, executor=self.ex_dl)()
+            except Exception as e:
+                logger.error(
+                    f'{self.premsg}[aupdate] error: {repr(e)}')
+                return 'error'
+
     async def check_speed(self):
         def getter(x):
             if x <= 2:
@@ -478,7 +491,7 @@ class AsyncARIA2CDownloader:
             elif x <= (self.n_workers // 2):
                 return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 1.25
             else:
-                return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 2.25
+                return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 3.25
 
         def len_ap_list(_list, el):
             _list.append(el)
@@ -486,8 +499,8 @@ class AsyncARIA2CDownloader:
 
         _speed = []
 
-        _index = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
-        _min_check = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED
+        _index = self._n_check_speed
+        _min_check = self._min_check_speed
 
         try:
             while True:
@@ -526,18 +539,25 @@ class AsyncARIA2CDownloader:
                                 # _index, len(_speed) - 1)]),
                             ]):
 
+                        # _str_speed = ', '.join(
+                        #     [
+                        #         f'({_strdate(el)}, \
+                        #             {{"speed": {el[0]}, "connec": {el[1]}}})'
+                        #         for el in _speed[-_index:]
+                        #     ]
+                        # )
+                        def _print_el(el):
+                            if isinstance(el, str):
+                                return el
+                            else:
+                                return f"['speed': {el[0]}, 'connec': {el[1]}]"
+
                         def _strdate(el):
-                            _secs = el[2].second +\
-                                (el[2].microsecond / 1000000)
+                            _secs = el[2].second + el[2].microsecond / 1000000
                             return f'{el[2].strftime("%H:%M:")}{_secs:06.3f}'
 
-                        _str_speed = ', '.join(
-                            [
-                                f'({_strdate(el)}, \
-                                    {{"speed": {el[0]}, "connec": {el[1]}}})'
-                                for el in _speed[-_index:]
-                            ]
-                        )
+                        _str_speed = ', '.join([f'({_strdate(el)}, {_print_el(el)})' for el in _speed[-_index:]])
+
                         logger.info(
                             f'{self.premsg}[check_speed] speed reset: ' +
                             f'n_el_speed[{len(_speed)}]')
@@ -602,7 +622,9 @@ class AsyncARIA2CDownloader:
 
                     elif self.progress_timer.has_elapsed(
                             seconds=CONF_INTERVAL_GUI / 2):
-                        await self.async_update()
+                        if (_error := await self.aupdate()) and _error == 'error':
+                            raise AsyncARIA2CDLError('fetch error: error update dl_cont')
+
                         if hasattr(self, '_qspeed'):
                             self._qspeed.put_nowait(
                                 (
@@ -612,7 +634,7 @@ class AsyncARIA2CDownloader:
                                 )
                             )
 
-                        self._speed.append((datetime.now(), self.dl_cont))
+                        # self._speed.append((datetime.now(), self.dl_cont))
                         _incsize = self.dl_cont.completed_length - \
                             self.down_size
                         self.down_size = self.dl_cont.completed_length
@@ -633,7 +655,7 @@ class AsyncARIA2CDownloader:
                     return
 
                 if self.dl_cont.status == 'error':
-                    raise AsyncARIA2CDLError('error')
+                    raise AsyncARIA2CDLError('fetch error')
 
         except BaseException as e:
             if isinstance(e, KeyboardInterrupt):
@@ -664,7 +686,12 @@ class AsyncARIA2CDownloader:
                 async with async_lock(self.sem):
                     try:
                         self._speed.append((datetime.now(), 'init'))
-                        await self.init()
+                        init_task = [
+                            asyncio.create_task(self.init())]
+                        self.background_tasks.add(init_task[0])
+                        init_task[0].add_done_callback(self.background_tasks.discard)
+                        await asyncio.wait(init_task)
+                        await asyncio.sleep(0)
                         if self.status in ('done', 'error'):
                             return
                         elif self.vid_dl.stop_event.is_set():
@@ -696,7 +723,12 @@ class AsyncARIA2CDownloader:
                             self.background_tasks.add(check_task[0])
                             check_task[0].add_done_callback(self.background_tasks.discard)
                             self._speed.append((datetime.now(), 'fetch'))
-                            await self.fetch()
+                            fetch_task = [
+                                asyncio.create_task(self.fetch())]
+                            self.background_tasks.add(fetch_task[0])
+                            fetch_task[0].add_done_callback(self.background_tasks.discard)
+                            await asyncio.wait(fetch_task)
+                            await asyncio.sleep(0)
                             if self.status in ('done', 'error'):
                                 return
                             elif self.vid_dl.stop_event.is_set():
@@ -759,23 +791,16 @@ class AsyncARIA2CDownloader:
             logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
             def _print_el(el):
-                if isinstance(el, str):
-                    return el
+                if isinstance(el[1], str):
+                    return el[1]
                 else:
-                    return {'status': el.status, 'speed': el.download_speed}
+                    return f"['status': {el[1].status}, 'speed': {el[1].download_speed}]"
 
             def _strdate(el):
-                _secs = el[0].second +\
-                    (el[0].microsecond / 1000000)
+                _secs = el[0].second + el[0].microsecond / 1000000
                 return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
 
-            _str_speed = ', '.join(
-                [
-                    f'({_strdate(el)}, \
-                        {_print_el(el[1])})'
-                    for el in self._speed
-                ]
-            )
+            _str_speed = ', '.join([f'({_strdate(el)}, {_print_el(el)})' for el in self._speed])
 
             logger.debug(
                 f'{self.premsg}[fetch_async] exiting [{len(self._speed)}]\n{_str_speed}')

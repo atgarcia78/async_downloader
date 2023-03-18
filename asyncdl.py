@@ -256,30 +256,7 @@ class AsyncDL:
             logger=logger.info,
         )
 
-        self.async_check_if_aldl = sync_to_async(
-            self._check_if_aldl, executor=self.ex_winit)
-
-        self.STOP = MySyncAsyncEvent("MAINSTOP")
-        self.getlistvid_done = MySyncAsyncEvent("done")
-        self.getlistvid_first = MySyncAsyncEvent("first")
-        self.is_ready_to_dl = MySyncAsyncEvent("readydl")
-        self.alock = asyncio.Lock()
-        self.hosts_alock = asyncio.Lock()
-
-        self.t1.start()
-        self.t2.start()
-        self.t3.start()
-
         self.localstorage = LocalVideos(self)
-
-        if not self.args.nodl:
-            self.nwsetup = NWSetUp(self)
-
-            # bloquea pero de todas formas necesitamos el resultado
-            # para progresar
-        self.localstorage.ready()
-        self.WorkersInit = WorkersInit(self)
-        self.WorkersRun = WorkersRun(self)
 
     async def cancel_all_tasks(self):
         self.STOP.set()
@@ -1356,6 +1333,31 @@ class AsyncDL:
                 s, lambda s=s: asyncio.create_task(self.shutdown(s)))
 
         try:
+
+            self.async_check_if_aldl = sync_to_async(
+                self._check_if_aldl, executor=self.ex_winit)
+
+            self.STOP = MySyncAsyncEvent("MAINSTOP")
+            self.getlistvid_done = MySyncAsyncEvent("done")
+            self.getlistvid_first = MySyncAsyncEvent("first")
+            self.is_ready_to_dl = MySyncAsyncEvent("readydl")
+            self.alock = asyncio.Lock()
+            self.hosts_alock = asyncio.Lock()
+
+            self.t1.start()
+            self.t2.start()
+            self.t3.start()
+
+            if not self.args.nodl:
+                self.nwsetup = NWSetUp(self)
+
+                # bloquea pero de todas formas necesitamos el resultado
+                # para progresar
+
+            self.WorkersInit = WorkersInit(self)
+            self.WorkersRun = WorkersRun(self)
+
+            await self.localstorage.aready()
             tasks_to_wait = {}
 
             tasks_to_wait.update(
@@ -1801,7 +1803,7 @@ class AsyncDL:
                 logger.exception(f"[close] {repr(e)}")
 
             # waits for upt local
-            self.localstorage.ready()
+            self.localstorage.file_ready.wait()
 
         except BaseException as e:
             logger.exception(f"[close] {repr(e)}")
