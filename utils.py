@@ -418,13 +418,6 @@ class long_operation_in_thread:
 
 
 def wait_for_either(events, timeout=None):
-    '''blocks untils one of the events gets set
-
-    PARAMETERS
-    events (list): list of threading.Event objects
-    timeout (float): timeout for events (used for polling)
-    t_pool (concurrent.futures.ThreadPoolExecutor): optional
-    '''
 
     if not isinstance(events, Iterable):
         events = [events]
@@ -606,15 +599,11 @@ def wait_time(n: Union[int, float],
             return
 
 
-async def async_wait_until(
-        timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
+async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
-
     if not cor:
-
         async def _cor(*args, **kwargs):
             return True
-
     else:
         _cor = cor
 
@@ -625,16 +614,11 @@ async def async_wait_until(
             await async_wait_time(interv)
 
 
-def wait_until(
-        timeout, statement=None, args=(None,), kwargs={},
-        interv=CONF_INTERVAL_GUI):
+def wait_until(timeout, statement=None, args=(None,), kwargs={},  interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
-
     if not statement:
-
         def func(*args, **kwargs):
             return True
-
     else:
         func = statement
 
@@ -952,9 +936,7 @@ class TorGuardProxies:
         return bad_pr
 
     @classmethod
-    def test_proxies_raw(
-        cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2
-    ):
+    def test_proxies_raw(cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2):
         logger = logging.getLogger("torguardprx")
         cmd_gost = [
             f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} "
@@ -967,7 +949,6 @@ class TorGuardProxies:
         }
         proc_gost = []
         for cmd in cmd_gost:
-
             _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE, shell=True)
             _proc.poll()
@@ -978,18 +959,17 @@ class TorGuardProxies:
             else:
                 proc_gost.append(_proc)
             time.sleep(0.05)
-        _res_ps = subprocess.run(["ps"], encoding="utf-8",
-                                 capture_output=True).stdout
+        _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
         logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
         _res_bad = cls.test_proxies_rt(routing_table, timeout=timeout)
         _line_ps_pr = []
         for _ip in _res_bad:
-            if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps),
-                                 lambda x: x.group() if x else None)):
+            if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
                 _line_ps_pr.append(_temp)
         logger.info(
             f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] " +
             f"ps_print [{len(_line_ps_pr)}]")
+
         for proc in proc_gost:
             proc.kill()
             proc.poll()
