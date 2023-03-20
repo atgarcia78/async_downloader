@@ -23,8 +23,7 @@ from queue import Empty, Queue
 from concurrent.futures import (
     ThreadPoolExecutor,
     wait as wait_thr,
-    as_completed,
-    FIRST_COMPLETED as fc_thr
+    as_completed
 )
 from datetime import datetime
 
@@ -448,53 +447,11 @@ def wait_for_either(events, timeout=None):
             time.sleep(CONF_INTERVAL_GUI)
 
 
-# def wait_for_either(events, timeout=None):
-#     '''blocks untils one of the events gets set
-
-#     PARAMETERS
-#     events (list): list of threading.Event objects
-#     timeout (float): timeout for events (used for polling)
-#     t_pool (concurrent.futures.ThreadPoolExecutor): optional
-#     '''
-
-#     if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
-#         # sanity check
-#         return _res
-#     else:
-#         t_pool = ThreadPoolExecutor()
-#         kill_all = MySyncAsyncEvent("KILLALL")
-
-#         def wait_for_ev(ev, n):
-#             def check_timeout(_st, _n):
-#                 if _n is None:
-#                     return False
-#                 else:
-#                     return (time.monotonic() - _st >= _n)
-
-#             start = time.monotonic()
-#             while True:
-#                 if kill_all.is_set():
-#                     return 'STOPALL'
-#                 elif ev.is_set():
-#                     return ev.name
-#                 elif check_timeout(start, n):
-#                     return 'TIMEOUT'
-#                 time.sleep(CONF_INTERVAL_GUI)
-#         #  tasks = {t_pool.submit(event.wait, timeout=timeout): getattr(event, 'name', 'noname') for event in events}
-#         tasks = {t_pool.submit(wait_for_ev, event, timeout): getattr(event, 'name', 'noname') for event in events}
-#         done, _ = wait_thr(tasks, return_when=fc_thr)
-#         if done:
-#             for _d in done:
-#                 _res = _d.result()
-#         kill_all.set()
-#         t_pool.shutdown(wait=True, cancel_futures=True)
-#         return _res
-
-
 async def async_waitfortasks(
         fs: Union[Iterable, Coroutine, asyncio.Task, None] = None,
         timeout: Union[float, None] = None,
         events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None,
+        cancel_tasks: bool = False,
         **kwargs
 ) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
 
@@ -599,7 +556,7 @@ async def async_waitfortasks(
         try:
             for p in pending:
                 p.cancel()
-                if _final_wait.get(p) == "tasks":
+                if _final_wait.get(p) == "tasks" and cancel_tasks:
                     for _task in _tasks:
                         _task.cancel()
                         pending.add(_task)
@@ -608,12 +565,12 @@ async def async_waitfortasks(
 
         except Exception:
             pass
-    return res
+
+        return res
 
 
 @contextlib.asynccontextmanager
-async def async_lock(lock: Union[threading.Lock,
-                                 contextlib.nullcontext, None] = None):
+async def async_lock(lock: Union[threading.Lock, contextlib.nullcontext, None] = None):
 
     if (isinstance(lock, contextlib.nullcontext)) or not lock:
         try:
@@ -1710,7 +1667,12 @@ class CountDowns:
     def clean(self):
 
         self.kill_input.set()
-        wait_thr([self.futures['input']])
+        _futures = [self.futures['input']]
+        for _index, _count in self.countdowns.items():
+            if _count['status'] == 'running':
+                _count['stop'].set()
+                _futures.append(self.futures[_index])
+        wait_thr(_futures)
         self.futures = {}
         if self.countdowns:
             self.logger.debug(f'{self._pre} COUNTDOWNS:\n{self.countdowns}')
@@ -1755,7 +1717,7 @@ class CountDowns:
             time.sleep(self.INTERV_TIME)
             _res = ["TIMEOUT_INPUT"]
 
-        self.logger.info(f'{self._pre} return Input: {_res}')
+        self.logger.debug(f'{self._pre} return Input: {_res}')
         return _res
 
     def start_countdown(self, n, index, event=None):
@@ -2144,7 +2106,7 @@ class FrontEndGUI:
         if event == sg.WIN_CLOSED:
             return 'break'
         elif event in ['Exit']:
-            self.logger.info('[gui_console] event Exit')
+            self.logger.debug('[gui_console] event Exit')
             await self.asyncdl.cancel_all_dl()
         elif event in ['-PASRES-']:
             if not values['-PASRES-']:
@@ -2347,7 +2309,7 @@ class FrontEndGUI:
                 raise
         finally:
             self.exit_gui.set()
-            self.logger.info('[gui] BYE')
+            self.logger.debug('[gui] BYE')
 
     def update_window(self, status, nwmon=None):
         list_upt = {}
@@ -2450,7 +2412,7 @@ class FrontEndGUI:
                     self.logger.exception(f'[upt_window_periodic] {repr(e)}')
 
             self.exit_upt.set()
-            self.logger.info('[upt_window_periodic] BYE')
+            self.logger.debug('[upt_window_periodic] BYE')
 
     def get_dl_media(self):
         if self.list_nwmon:
@@ -2529,7 +2491,7 @@ class FrontEndGUI:
             self.logger.exception(f'[pasres_periodic]: error: {repr(e)}')
         finally:
             self.exit_pasres.set()
-            self.logger.info('[pasres_periodic] BYE')
+            self.logger.debug('[pasres_periodic] BYE')
 
     async def close(self):
 
@@ -2537,17 +2499,17 @@ class FrontEndGUI:
         await asyncio.sleep(0)
         self.stop_upt_window.set()
         await asyncio.sleep(0)
-        self.logger.info("[close] start to wait for exit_pasres")
+        self.logger.debug("[close] start to wait for exit_pasres")
         await self.exit_pasres.async_wait()
-        self.logger.info("[close] end to wait for exit_pasres")
-        self.logger.info("[close] start to wait for exit_upt")
+        self.logger.debug("[close] end to wait for exit_pasres")
+        self.logger.debug("[close] start to wait for exit_upt")
         await self.exit_upt.async_wait()
-        self.logger.info("[close] end to wait for exit_upt")
+        self.logger.debug("[close] end to wait for exit_upt")
         self.stop.set()
         await asyncio.sleep(0)
-        self.logger.info("[close] start to wait for exit_gui")
+        self.logger.debug("[close] start to wait for exit_gui")
         await self.exit_gui.async_wait()
-        self.logger.info("[close] end to wait for exit_gui")
+        self.logger.debug("[close] end to wait for exit_gui")
         if hasattr(self, 'window_console') and self.window_console:
             self.window_console.close()
             del self.window_console
@@ -3020,83 +2982,6 @@ class LocalVideos:
 ############################################################
 # """                     PYSIMPLEGUI                    """
 ############################################################
-
-
-def wait_for_change_ip(logger):
-
-    _old_ip = get_myip(timeout=5)
-    logger.info(f"old ip: {_old_ip}")
-    _proc_kill = subprocess.run(["pkill", "TorGuardDesktopQt"])
-    if _proc_kill.returncode:
-        logger.error(f"error when closing TorGuard {_proc_kill}")
-    else:
-        n = 0
-        _new_ip = None
-        while n < 5:
-            time.sleep(2)
-
-            _new_ip = get_myip(timeout=5)
-            logger.info(f"[{n}] {_new_ip}")
-            if _new_ip and (_old_ip != _new_ip):
-                break
-            else:
-                n += 1
-                _new_ip = None
-        _old_ip = _new_ip
-        logger.info(f"new old ip: {_old_ip}")
-        subprocess.run(["open", "/Applications/Torguard.app"])
-        time.sleep(5)
-        n = 0
-        _new_ip = None
-        while n < 5:
-            logger.info("try to get ip")
-            _new_ip = get_myip(timeout=5)
-            logger.info(f"[{n}] {_new_ip}")
-            if _new_ip and (_old_ip != _new_ip):
-                return True
-            else:
-                n += 1
-                _new_ip = None
-                time.sleep(2)
-
-
-def cmd_extract_info(url, proxy=None, pl=False, upt=False):
-    if pl:
-        opt = "-J"
-    else:
-        opt = "-j"
-    if proxy:
-        pr = f"--proxy {proxy} "
-    else:
-        pr = ""
-    cmd = f"yt-dlp {opt} {pr}{url}"
-    print(cmd)
-    if not upt:
-        res = subprocess.run(cmd.split(" "), encoding="utf-8",
-                             capture_output=True)
-        if res.returncode != 0:
-            raise Exception(res.stderr)
-        else:
-            return json.loads(res.stdout.splitlines()[0])
-
-
-async def async_cmd_extract_info(url, proxy=None, pl=False, logger=None):
-    if pl:
-        opt = "-J"
-    else:
-        opt = "-j"
-    if proxy:
-        pr = f"--proxy {proxy} "
-    else:
-        pr = ""
-    cmd = f"yt-dlp -v {opt} {pr}{url}"
-    if not logger:
-        logger = logging.getLogger("test")
-    logger.info(cmd)
-
-    await asyncio.create_subprocess_shell(
-        cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-    )
 
 
 def _for_print_entry(entry):

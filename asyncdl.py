@@ -1585,7 +1585,7 @@ class AsyncDL:
             logger.info("[close] start to close")
 
             try:
-                logger.info("[close] start to close countdowns")
+                logger.debug("[close] start to close countdowns")
                 from asynchlsdownloader import AsyncHLSDownloader
                 if AsyncHLSDownloader._COUNTDOWNS:
                     AsyncHLSDownloader._COUNTDOWNS.clean()
@@ -1594,14 +1594,14 @@ class AsyncDL:
 
             try:
                 if hasattr(self, 'FEgui'):
-                    logger.info("[close] start to close fegui")
+                    logger.debug("[close] start to close fegui")
                     await self.FEgui.close()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
 
             try:
                 if hasattr(self, 'nwsetup'):
-                    logger.info("[close] start to close nw")
+                    logger.debug("[close] start to close nw")
                     await self.nwsetup.close()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
