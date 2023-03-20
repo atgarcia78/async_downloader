@@ -427,38 +427,68 @@ def wait_for_either(events, timeout=None):
     t_pool (concurrent.futures.ThreadPoolExecutor): optional
     '''
 
+    if not isinstance(events, Iterable):
+        events = [events]
+
     if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
-        # sanity check
-        return _res
+        return _res[0]
     else:
-        t_pool = ThreadPoolExecutor()
-        kill_all = MySyncAsyncEvent("KILLALL")
+        def check_timeout(_st, _n):
+            if _n is None:
+                return False
+            else:
+                return (time.monotonic() - _st >= _n)
 
-        def wait_for_ev(ev, n):
-            def check_timeout(_st, _n):
-                if _n is None:
-                    return False
-                else:
-                    return (time.monotonic() - _st >= _n)
+        start = time.monotonic()
+        while True:
+            if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
+                return _res[0]
+            elif check_timeout(start, timeout):
+                return 'TIMEOUT'
+            time.sleep(CONF_INTERVAL_GUI)
 
-            start = time.monotonic()
-            while True:
-                if kill_all.is_set():
-                    return 'STOPALL'
-                elif ev.is_set():
-                    return ev.name
-                elif check_timeout(start, n):
-                    return 'TIMEOUT'
-                time.sleep(CONF_INTERVAL_GUI)
-        #  tasks = {t_pool.submit(event.wait, timeout=timeout): getattr(event, 'name', 'noname') for event in events}
-        tasks = {t_pool.submit(wait_for_ev, event, timeout): getattr(event, 'name', 'noname') for event in events}
-        done, _ = wait_thr(tasks, return_when=fc_thr)
-        if done:
-            for _d in done:
-                _res = _d.result()
-        kill_all.set()
-        t_pool.shutdown(wait=True, cancel_futures=True)
-        return _res
+
+# def wait_for_either(events, timeout=None):
+#     '''blocks untils one of the events gets set
+
+#     PARAMETERS
+#     events (list): list of threading.Event objects
+#     timeout (float): timeout for events (used for polling)
+#     t_pool (concurrent.futures.ThreadPoolExecutor): optional
+#     '''
+
+#     if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
+#         # sanity check
+#         return _res
+#     else:
+#         t_pool = ThreadPoolExecutor()
+#         kill_all = MySyncAsyncEvent("KILLALL")
+
+#         def wait_for_ev(ev, n):
+#             def check_timeout(_st, _n):
+#                 if _n is None:
+#                     return False
+#                 else:
+#                     return (time.monotonic() - _st >= _n)
+
+#             start = time.monotonic()
+#             while True:
+#                 if kill_all.is_set():
+#                     return 'STOPALL'
+#                 elif ev.is_set():
+#                     return ev.name
+#                 elif check_timeout(start, n):
+#                     return 'TIMEOUT'
+#                 time.sleep(CONF_INTERVAL_GUI)
+#         #  tasks = {t_pool.submit(event.wait, timeout=timeout): getattr(event, 'name', 'noname') for event in events}
+#         tasks = {t_pool.submit(wait_for_ev, event, timeout): getattr(event, 'name', 'noname') for event in events}
+#         done, _ = wait_thr(tasks, return_when=fc_thr)
+#         if done:
+#             for _d in done:
+#                 _res = _d.result()
+#         kill_all.set()
+#         t_pool.shutdown(wait=True, cancel_futures=True)
+#         return _res
 
 
 async def async_waitfortasks(
@@ -1375,7 +1405,6 @@ def init_ytdl(args):
         "writesubtitles": True,
         "restrictfilenames": True,
         "user_agent": args.useragent,
-        "winit": args.winit,
         "verboseplus": args.vv,
         "sem": {},
         "stop_dl": {},
@@ -1951,9 +1980,9 @@ def init_gui_console(pasres_value):
                     default=False,
                     enable_events=True,
                 ),
-                sg.Checkbox(
-                    "WkInit", key="-WKINIT-", default=True, enable_events=True
-                ),
+                # sg.Checkbox(
+                #     "WkInit", key="-WKINIT-", default=True, enable_events=True
+                # ),
                 sg.Button("+PasRes"),
                 sg.Button("-PasRes"),
                 sg.Button("DLStatus", key="-DL-STATUS"),
@@ -2020,6 +2049,7 @@ class FrontEndGUI:
         self.stop = MySyncAsyncEvent("stopfegui")
         self.exit_gui = MySyncAsyncEvent("exitgui")
         self.stop_upt_window = self.upt_window_periodic()
+        self.exit_upt = MySyncAsyncEvent("exitupt")
         self.stop_pasres = self.pasres_periodic()
         self.exit_pasres = MySyncAsyncEvent("exitpasres")
 
@@ -2116,12 +2146,6 @@ class FrontEndGUI:
         elif event in ['Exit']:
             self.logger.info('[gui_console] event Exit')
             await self.asyncdl.cancel_all_dl()
-        elif event in ['-WKINIT-']:
-            self.asyncdl.wkinit_stop = not self.asyncdl.wkinit_stop
-            sg.cprint(
-                'Worker inits: BLOCKED'
-            ) if self.asyncdl.wkinit_stop else sg.cprint(
-                'Worker inits: RUNNING')
         elif event in ['-PASRES-']:
             if not values['-PASRES-']:
                 FrontEndGUI._PASRES_REPEAT = False
@@ -2323,7 +2347,7 @@ class FrontEndGUI:
                 raise
         finally:
             self.exit_gui.set()
-            self.logger.debug('[gui] BYE')
+            self.logger.info('[gui] BYE')
 
     def update_window(self, status, nwmon=None):
         list_upt = {}
@@ -2408,23 +2432,25 @@ class FrontEndGUI:
             self.logger.exception(f'[upt_window_periodic]: error: {repr(e)}')
         finally:
             if self.list_nwmon:
-                # _media = naturalsize(median([el[1] for el in self.list_nwmon]), binary=True)
-                # self.dl_media_str = f'DL MEDIA: {_media}ps'
+                try:
 
-                def _strdate(el):
-                    _secs = el[0].second + (el[0].microsecond / 1000000)
-                    return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
+                    def _strdate(el):
+                        _secs = el[0].second + (el[0].microsecond / 1000000)
+                        return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
 
-                _str_nwmon = ', '.join(
-                    [
-                        f'{_strdate(el)}'
-                        for el in self.list_nwmon
-                    ]
-                )
-                self.logger.debug(
-                    f'[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}')
+                    _str_nwmon = ', '.join(
+                        [
+                            f'{_strdate(el)}'
+                            for el in self.list_nwmon
+                        ]
+                    )
+                    self.logger.debug(
+                        f'[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}')
+                except Exception as e:
+                    self.logger.exception(f'[upt_window_periodic] {repr(e)}')
 
-            self.logger.debug('[upt_window_periodic] BYE')
+            self.exit_upt.set()
+            self.logger.info('[upt_window_periodic] BYE')
 
     def get_dl_media(self):
         if self.list_nwmon:
@@ -2435,7 +2461,7 @@ class FrontEndGUI:
     def pasres_periodic(self, *args, **kwargs):
 
         self.logger.debug('[pasres_periodic] START')
-        stop_event = cast(MySyncAsyncEvent, kwargs['stop_event'])
+        stop_event = kwargs['stop_event']
         _start_no_pause = None
         try:
             while not stop_event.is_set():
@@ -2503,15 +2529,25 @@ class FrontEndGUI:
             self.logger.exception(f'[pasres_periodic]: error: {repr(e)}')
         finally:
             self.exit_pasres.set()
-            self.logger.debug('[pasres_periodic] BYE')
+            self.logger.info('[pasres_periodic] BYE')
 
     async def close(self):
-        self.stop.set()
+
         self.stop_pasres.set()
+        await asyncio.sleep(0)
         self.stop_upt_window.set()
         await asyncio.sleep(0)
+        self.logger.info("[close] start to wait for exit_pasres")
+        await self.exit_pasres.async_wait()
+        self.logger.info("[close] end to wait for exit_pasres")
+        self.logger.info("[close] start to wait for exit_upt")
+        await self.exit_upt.async_wait()
+        self.logger.info("[close] end to wait for exit_upt")
+        self.stop.set()
+        await asyncio.sleep(0)
+        self.logger.info("[close] start to wait for exit_gui")
         await self.exit_gui.async_wait()
-        self.exit_pasres.wait()
+        self.logger.info("[close] end to wait for exit_gui")
         if hasattr(self, 'window_console') and self.window_console:
             self.window_console.close()
             del self.window_console
