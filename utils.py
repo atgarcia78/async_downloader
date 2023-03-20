@@ -451,7 +451,7 @@ async def async_waitfortasks(
         fs: Union[Iterable, Coroutine, asyncio.Task, None] = None,
         timeout: Union[float, None] = None,
         events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None,
-        cancel_tasks: bool = False,
+        cancel_tasks: bool = True,
         **kwargs
 ) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
 
