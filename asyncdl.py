@@ -49,6 +49,30 @@ from collections import deque
 logger = logging.getLogger('asyncDL')
 
 
+def get_list_interl(res, _pre):
+    if not res:
+        return []
+    if len(res) < 3:
+        return res
+    _dict = {}
+    for ent in res:
+        _key = get_domain(ent["url"])
+        if not _dict.get(_key):
+            _dict[_key] = [ent]
+        else:
+            _dict[_key].append(ent)
+    logger.info(
+        f"{_pre} gvdblogplaylist entries" +
+        f"interleave: {len(list(_dict.keys()))} different hosts" +
+        f"longst with {len(max(list(_dict.values()), key=len))} entries")
+
+    _interl = []
+    for el in list(zip_longest(*list(_dict.values()))):
+        _interl.extend([_el for _el in el if _el])
+
+    return _interl
+
+
 class WorkersRun:
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
@@ -177,10 +201,6 @@ class WorkersInit:
                 self.asyncdl.t3.stop()
                 self.exit.set()
             else:
-                # _task_init = asyncio.create_task(self.asyncdl.init_callback(url_key))
-                # self.asyncdl.background_tasks.add(_task_init)
-                # _task_init.add_done_callback(self.asyncdl.background_tasks.discard)
-                # await asyncio.wait([_task_init])
                 await async_waitfortasks(
                     self.asyncdl.init_callback(url_key), background_tasks=self.asyncdl.background_tasks)
 
@@ -258,20 +278,20 @@ class AsyncDL:
 
         self.localstorage = LocalVideos(self)
 
-    async def cancel_all_tasks(self):
+    async def cancel_all_dl(self):
         self.STOP.set()
         await asyncio.sleep(0)
-        try_get(self.ytdl.params["stop"], lambda x: x.set())
+        await self.ytdl.stop()
         if self.list_dl:
-            for i, dl in self.list_dl.items():
+            for _, dl in self.list_dl.items():
                 await dl.stop("exit")
                 await asyncio.sleep(0)
 
     def print_pending_tasks(self):
         try:
             pending_tasks = asyncio.all_tasks()
-            logger.info(f"[pending_all_tasks] {pending_tasks}")
-            logger.info(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
+            logger.debug(f"[pending_all_tasks] {pending_tasks}")
+            logger.debug(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
 
@@ -300,7 +320,7 @@ class AsyncDL:
 
                 _url_list_caplinks = list(_temp)
                 logger.info(
-                    f"[get_videos] video list caplinks:\n{_url_list_caplinks}")
+                    f"[get_list_videos] video list caplinks:\n{_url_list_caplinks}")
                 with open(prevfilecaplinks, "a") as file:
                     _text = '\n'.join(_url_list_caplinks)
                     file.write(
@@ -315,7 +335,7 @@ class AsyncDL:
                 if self.STOP.is_set():
                     raise Exception("STOP")
                 _url_list_cli = list(set(self.args.collection))
-                logger.info(f"[get_videos] video list cli:\n{_url_list_cli}")
+                logger.info(f"[get_list_videos] video list cli:\n{_url_list_cli}")
                 _url_list["cli"] = _url_list_cli
 
             if self.args.collection_files:
@@ -376,7 +396,7 @@ class AsyncDL:
                 f"[get_list_videos] list videos: \n{_for_print_videos(self.list_videos)}")
 
             logger.debug(
-                f"[get_videos] Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\t" +
+                f"[get_list_videos] Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\t" +
                 f"CAP[{len(_url_list_caplinks)}]")
 
             if _url_list:
@@ -420,15 +440,15 @@ class AsyncDL:
                 url_list = list(self.info_videos.keys())
 
                 logger.debug(
-                    f"[url_list] Initial number of urls not pl [{len(url_list)}]")
-                logger.debug(f"[url_list] {url_list}")
+                    f"[get_list_videos][url_list] Initial number of urls not pl [{len(url_list)}]")
+                logger.debug(f"[get_list_videos][url_list] {url_list}")
 
                 if self.url_pl_list:
 
                     logger.debug(
-                        "[url_playlist_list] Initial number of urls that " +
+                        "[get_list_videos][url_playlist_list] Initial number of urls that " +
                         f"are pl [{len(self.url_pl_list)}]")
-                    logger.debug(f"[url_playlist_list]\n{self.url_pl_list}")
+                    logger.debug(f"[get_list_videos][url_playlist_list]\n{self.url_pl_list}")
                     self._url_pl_entries = []
                     self._count_pl = 0
                     self.url_pl_list2 = []
@@ -456,11 +476,11 @@ class AsyncDL:
                     for _task in tasks_pl_list:
                         self.background_tasks.add(_task)
                         _task.add_done_callback(self.background_tasks.discard)
-                    logger.debug(f"[url_playlist_list] initial playlists: {len(self.url_pl_list)}")
+                    logger.debug(f"[get_list_videos][url_playlist_list] initial playlists: {len(self.url_pl_list)}")
 
                     await asyncio.wait(tasks_pl_list)
 
-                    logger.debug(f"[url_playlist_list] from initial playlists: {len(self.url_pl_list2)}")
+                    logger.debug(f"[get_list_videos][url_playlist_list] from initial playlists: {len(self.url_pl_list2)}")
 
                     if self.STOP.is_set():
                         raise Exception("STOP")
@@ -484,14 +504,14 @@ class AsyncDL:
                         await asyncio.wait(tasks_pl_list2)
 
                     logger.info(
-                        "[get_videos] entries from playlists:" +
+                        "[get_list_videos] entries from playlists:" +
                         f"{len(self._url_pl_entries)}")
                     logger.debug(
-                        "[url_playlist_list] " +
+                        "[get_list_videos] " +
                         f"{_for_print_videos(self._url_pl_entries)}")
 
         except BaseException as e:
-            logger.exception(f"[get_videos]: Error {repr(e)}")
+            logger.exception(f"[get_list_videos]: Error {repr(e)}")
 
         finally:
             self.getlistvid_done.set()
@@ -511,18 +531,17 @@ class AsyncDL:
                     raise Exception("STOP")
                 async with self.alock:
                     self._count_pl += 1
-                    logger.info(
-                        f"[get_videos][url_playlist_list][{self._count_pl}/" +
-                        f"{len(self.url_pl_list) + len(self.url_pl_list2)}]" +
-                        f"processing {_url}")
+
+                _pre = f"[get_list_videos][process_playlist][{_url}]"
+
+                logger.info(f"{_pre}[{self._count_pl}/{len(self.url_pl_list) + len(self.url_pl_list2)}] processing")
 
                 try:
                     _info = await self.ytdl.async_extract_info(_url, download=False, process=False)
                     if not _info:
                         raise Exception("no info")
                 except Exception as e:
-                    logger.warning(f"[url_playlist_list] {_url} {repr(e)}")
-                    logger.debug(f"[url_playlist_list] {_url} {repr(e)}")
+                    logger.warning(f"{_pre} {repr(e)}")
 
                     _info = {
                         "_type": "error",
@@ -539,8 +558,7 @@ class AsyncDL:
                     # pero luego puede ser url, url_trans
 
                     _info = self.ytdl.sanitize_info(
-                        await self.ytdl.async_process_ie_result(
-                            _info, download=False))
+                        await self.ytdl.async_process_ie_result(_info, download=False))
 
                     if not _info.get("original_url"):
                         _info.update({"original_url": _url})
@@ -553,7 +571,7 @@ class AsyncDL:
                         _title = sanitize_filename(_info.get('title'), restricted=True)
                         _name = f"{_title}{_info.get('extractor_key')}{_info.get('id')}"
                         self.args.path = str(Path(Path.home(), "testing", _name))
-                        logger.debug(f"[url_playlist_list] path for playlist {_url}:\n{self.args.path}")
+                        logger.debug(f"[get_list_videos][process_playlist] path for playlist {_url}:\n{self.args.path}")
 
                     if isinstance(_info.get("entries"), list):
 
@@ -575,10 +593,7 @@ class AsyncDL:
                         _info = self.ytdl.sanitize_info(
                             await self.ytdl.async_process_ie_result(_info, download=False))
 
-                        if _info.get("extractor_key") in (
-                            "GVDBlogPost",
-                            "GVDBlogPlaylist",
-                        ):
+                        if _info.get("extractor_key") in ("GVDBlogPost", "GVDBlogPlaylist"):
                             _temp_aldl = []
                             _temp_nodl = []
 
@@ -588,41 +603,7 @@ class AsyncDL:
                                 else:
                                     _temp_aldl.append(_ent)
 
-                            def get_list_interl(res):
-                                if not res:
-                                    return []
-                                if len(res) < 3:
-                                    return res
-                                _dict = {}
-                                for ent in res:
-                                    _key = get_domain(
-                                        ent["url"])
-                                    if not _dict.get(_key):
-                                        _dict[_key] = [ent]
-                                    else:
-                                        _dict[_key].append(ent)
-                                logger.info(
-                                    f"[url_playlist_list][{_url}] gvdblogplaylist entries" +
-                                    f"interleave: {len(list(_dict.keys()))} different hosts" +
-                                    f"longst with {len(max(list(_dict.values()), key=len))}" +
-                                    "entries")
-                                _interl = []
-                                for el in list(
-                                    zip_longest(
-                                        *list(_dict.values())
-                                    )
-                                ):
-                                    _interl.extend(
-                                        [_el
-                                            for _el in
-                                            el if _el]
-                                    )
-                                return _interl
-
-                            _info["entries"] = (
-                                get_list_interl(_temp_nodl)
-                                + _temp_aldl
-                            )
+                            _info["entries"] = get_list_interl(_temp_nodl, _pre) + _temp_aldl
 
                     for _ent in _info["entries"]:
 
@@ -632,21 +613,15 @@ class AsyncDL:
                         if _ent.get("_type", "video") == "video" and not _ent.get("error"):
 
                             _ent = self.ytdl.sanitize_info(
-                                await self.ytdl.async_process_ie_result(
-                                    _ent, download=False
-                                )
-                            )
+                                await self.ytdl.async_process_ie_result(_ent, download=False))
 
                             if not _ent.get("original_url"):
-                                _ent.update(
-                                    {"original_url": _url})
+                                _ent.update({"original_url": _url})
                             elif _ent["original_url"] != _url:
                                 _ent["initial_url"] = _url
-                            if ((_ent.get("extractor_key",
-                                _ent.get("ie_key", ""))).
-                                    lower() == "generic"
-                                    and (_ent.get(
-                                        "n_entries", 0) <= 1)):
+                            if ((_ent.get("extractor_key", _ent.get("ie_key", ""))).lower() == "generic"
+                                    and (_ent.get("n_entries", 0) <= 1)):
+
                                 _ent.pop("playlist", "")
                                 _ent.pop("playlist_index", "")
                                 _ent.pop("n_entries", "")
@@ -654,39 +629,22 @@ class AsyncDL:
                                 _ent.pop("playlist_id", "")
                                 _ent.pop("playlist_title", "")
 
-                            if (
-                                _wurl := _ent["webpage_url"]
-                            ) == _ent["original_url"]:
-                                if _ent.get(
-                                        "n_entries", 0) > 1:
-                                    _ent.update(
-                                        {
-                                            "webpage_url":
-                                            f"{_wurl}?index={_ent['playlist_index']}"
-                                        }
-                                    )
+                            if (_wurl := _ent["webpage_url"]) == _ent["original_url"]:
+                                if _ent.get("n_entries", 0) > 1:
+                                    _ent.update({"webpage_url": f"{_wurl}?index={_ent['playlist_index']}"})
                                     logger.warning(
-                                        f"[url_playlist_list][{_url}][{_ent['playlist_index']}"
-                                        f"]: playlist, nentries > 1, webpage_url " +
-                                        f"== original_url: {_wurl}")
+                                        f"{_pre}[{_ent['playlist_index']}]: nentries > 1, webpage_url == original_url: {_wurl}")
 
                             await self._prepare_entry_pl_for_dl(_ent)
                             self._url_pl_entries += [_ent]
+
                         else:
                             try:
-                                (
-                                    is_pl,
-                                    ie_key,
-                                ) = self.ytdl.is_playlist(
-                                    _ent["url"]
-                                )
+                                is_pl, _ = self.ytdl.is_playlist(_ent["url"])
                                 _error = _ent.get("error")
                                 if not is_pl or _error:
                                     if not _ent.get("original_url"):
-                                        _ent.update(
-                                            {"original_url":
-                                                _url}
-                                        )
+                                        _ent.update({"original_url": _url})
                                     if _error:
                                         _ent["_type"] = "error"
                                     await self._prepare_entry_pl_for_dl(_ent)
@@ -695,12 +653,10 @@ class AsyncDL:
                                     self.url_pl_list2.append(_ent["url"])
 
                             except Exception as e:
-                                logger.error(
-                                    f"[url_playlist_list][{_url}]:{_ent['url']} " +
-                                    f"no video entries - {repr(e)}")
+                                logger.error(f"{_pre} {_ent['url']} no video entries - {repr(e)}")
 
             except BaseException as e:
-                logger.exception(f"[url_playlist_list]{repr(e)}")
+                logger.exception(f"[get_list_videos][process_playlist] {repr(e)}")
                 if isinstance(e, KeyboardInterrupt):
                     raise
 
@@ -1274,7 +1230,7 @@ class AsyncDL:
             self.list_pasres.discard(dl.index)
             if dl.info_dl["status"] == "init_manipulating":
 
-                logger.info(f"[run_callback] start to manip {dl.info_dl['title']}")
+                logger.debug(f"[run_callback] start to manip {dl.info_dl['title']}")
                 task_run_manip = asyncio.create_task(dl.run_manip())
                 self.background_tasks.add(task_run_manip)
                 task_run_manip.add_done_callback(self.background_tasks.discard)
@@ -1351,9 +1307,6 @@ class AsyncDL:
             if not self.args.nodl:
                 self.nwsetup = NWSetUp(self)
 
-                # bloquea pero de todas formas necesitamos el resultado
-                # para progresar
-
             self.WorkersInit = WorkersInit(self)
             self.WorkersRun = WorkersRun(self)
 
@@ -1371,29 +1324,24 @@ class AsyncDL:
                 await self.nwsetup.init()
                 self.is_ready_to_dl.set()
                 _res = await async_waitfortasks(
-                    events=(self.getlistvid_first, self.getlistvid_done),
+                    events=(self.getlistvid_first, self.getlistvid_done, self.STOP),
                     background_tasks=self.background_tasks)
                 if _res.get("event") == "first" or len(self.videos_to_dl) > 0:
                     self.FEgui = FrontEndGUI(self)
-                    # _task_gui = asyncio.create_task(self.FEgui.gui())
-                    # self.background_tasks.add(_task_gui)
-                    # _task_gui.add_done_callback(self.background_tasks.discard)
-
                     tasks_to_wait.update({(_task_wkrun := asyncio.create_task(
                         self.WorkersRun.exit.async_wait())): "task_workers_run"})
 
                     self.background_tasks.add(_task_wkrun)
                     _task_wkrun.add_done_callback(self.background_tasks.discard)
 
+            # await async_waitfortasks(tasks_to_wait, events=self.STOP, background_tasks=self.background_tasks)
             await asyncio.wait(tasks_to_wait)
 
         except BaseException as e:
             logger.error(f"[async_ex] {repr(e)}")
+        finally:
             _task = [asyncio.create_task(self.shutdown())]
             await asyncio.wait(_task)
-        else:
-            self.close()
-        finally:
             self.get_results_info()
             logger.info("[async_ex] BYE")
 
@@ -1405,23 +1353,26 @@ class AsyncDL:
 
             self.print_pending_tasks()
 
-            self.STOP.set()
-            await asyncio.sleep(0)
-            try_get(self.ytdl.params["stop"], lambda x: x.set())
-            await asyncio.sleep(0)
-            if self.list_dl:
-                for _, dl in self.list_dl.items():
-                    await dl.stop('exit')
-                    await asyncio.sleep(0)
+            if not self.STOP.is_set():
+                self.t2.stop()
+                if hasattr(self, 'FEgui'):
+                    logger.info(f"[shutdown] {self.FEgui.get_dl_media()}")
+                self.STOP.set()
+                await self.ytdl.stop()
+                await asyncio.sleep(0)
+                if self.list_dl:
+                    for _, dl in self.list_dl.items():
+                        await dl.stop('exit')
+                        await asyncio.sleep(0)
 
-            self.close()
+            await self.close()
             await asyncio.sleep(0)
             self.print_pending_tasks()
             _pending_tasks = [task for task in asyncio.all_tasks()
                               if task is not asyncio.current_task() and 'async_ex' not in repr(task.get_coro())]
-
-            list(map(lambda task: task.cancel(), _pending_tasks))
-            await asyncio.wait(_pending_tasks)
+            if _pending_tasks:
+                list(map(lambda task: task.cancel(), _pending_tasks))
+                await asyncio.wait(_pending_tasks)
 
         except Exception as e:
             logger.exception(f'[shutdown] {repr(e)}')
@@ -1751,17 +1702,11 @@ class AsyncDL:
 
         return info_dict
 
-    def close(self):
+    async def close(self):
 
         try:
 
             logger.info("[close] start to close")
-
-            try:
-                if hasattr(self, 'FEgui'):
-                    self.FEgui.close()
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")
 
             try:
                 from asynchlsdownloader import AsyncHLSDownloader
@@ -1771,40 +1716,33 @@ class AsyncDL:
                 logger.exception(f"[close] asyncdlhls countdown {repr(e)}")
 
             try:
-                if not self.STOP.is_set():
-                    self.t2.stop()
-                    if hasattr(self, 'FEgui') and self.FEgui.dl_media_str:
-                        logger.info(f"[close] {self.FEgui.dl_media_str}")
+                if hasattr(self, 'FEgui'):
+                    await self.FEgui.close()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
 
             try:
                 if hasattr(self, 'nwsetup'):
-                    self.nwsetup.close()
+                    await self.nwsetup.close()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
 
             try:
-                self.ytdl.shutdown()
+                self.ytdl.close()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")
 
             if self.list_dl:
                 for _, vdl in self.list_dl.items():
                     try:
-                        vdl.shutdown()
+                        vdl.close()
                     except Exception as e:
                         logger.exception(f"[close] {repr(e)}")
 
-            try:
-                logger.info("[close] kill processes")
-                kill_processes(logger=logger, rpcport=self.args.rpcport)
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")
-
             # waits for upt local
-            self.localstorage.file_ready.wait()
+            await self.localstorage.aready()
 
         except BaseException as e:
-            logger.exception(f"[close] {repr(e)}")
-            raise
+            logger.error(f"[close] {repr(e)}")
+            logger.debug("[close] kill processes")
+            kill_processes(logger=logger, rpcport=self.args.rpcport)

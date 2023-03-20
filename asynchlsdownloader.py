@@ -773,7 +773,7 @@ class AsyncHLSDownloader:
 
     def resetdl(self, cause=None):
 
-        logger.info(f"{self.premsg}:RESET[{self.n_reset}] cause[{cause}] fromplns[{self.fromplns}]")
+        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:CAUSE[{cause}] fromplns[{self.fromplns}]")
 
         _pasres_cont = False
 
@@ -786,7 +786,7 @@ class AsyncHLSDownloader:
                     if not AsyncHLSDownloader._COUNTDOWNS:
                         AsyncHLSDownloader._COUNTDOWNS = CountDowns(
                             AsyncHLSDownloader, events=AsyncHLSDownloader._OK_503, logger=logger)
-                        logger.info(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
+                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
 
                 AsyncHLSDownloader._COUNTDOWNS.add(
                     CONF_HLS_RESET_403_TIME, index=str(self.vid_dl.index), event=self.vid_dl.stop_event, msg=self.premsg)
@@ -872,7 +872,7 @@ class AsyncHLSDownloader:
             if self.fromplns and cause in ("403", "hard"):
 
                 logger.debug(
-                    f'{self.premsg}[resetdl]:RESET[{self.n_reset}]: stop_event:[{self.vid_dl.stop_event.is_set()}] FINALLY')
+                    f'{self.premsg}[resetdl]:RESET[{self.n_reset}] stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY')
 
                 with AsyncHLSDownloader._CLASSLOCK:
 
@@ -887,8 +887,8 @@ class AsyncHLSDownloader:
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
 
-                        logger.info(
-                            f"{self.premsg}:RESET[{self.n_reset}]: end of resets fromplns [{self.fromplns}]")
+                        logger.debug(
+                            f"{self.premsg}:RESET[{self.n_reset}] end of resets fromplns [{self.fromplns}]")
 
                         self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
                         self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
@@ -896,7 +896,7 @@ class AsyncHLSDownloader:
                 if self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
 
                     logger.info(
-                        f"{self.premsg}:RESET[{self.n_reset}]: " +
+                        f"{self.premsg}:RESET[{self.n_reset}] " +
                         f"waits for rest scenes in [{self.fromplns}] to start DL " +
                         f"[{self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset']}]")
 
@@ -911,21 +911,21 @@ class AsyncHLSDownloader:
 
                     if not self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
 
-                        logger.info(
-                            f"{self.premsg}:RESET[{self.n_reset}]: end for all plns ")
+                        logger.debug(
+                            f"{self.premsg}:RESET[{self.n_reset}] end for all plns ")
 
                         self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
                         self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
                         self.n_reset += 1
                         if _pasres_cont:
                             FrontEndGUI.pasres_continue()
-                        logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
+                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
                         return
 
                 if self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
 
                     logger.info(
-                        f"{self.premsg}:RESET[{self.n_reset}]: " +
+                        f"{self.premsg}:RESET[{self.n_reset}] " +
                         f"all scenes in [{self.fromplns}], waiting for scenes in other plns " +
                         f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]")
 
@@ -934,11 +934,11 @@ class AsyncHLSDownloader:
                     self.n_reset += 1
                     if _pasres_cont:
                         FrontEndGUI.pasres_continue()
-                    logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
+                    logger.debug(f"{self.premsg}:RESET[{self.n_reset}] exit reset")
                     return
             else:
                 self.n_reset += 1
-                logger.info(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
+                logger.debug(f"{self.premsg}:RESET[{self.n_reset}] exit reset")
 
     async def check_speed(self):
         def getter(x):
@@ -1633,11 +1633,11 @@ class AsyncHLSDownloader:
                                                 return
                                         _cause = self.vid_dl.reset_event.is_set()
                                         self._speed.append((datetime.now(), _cause))
-                                        logger.info(f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
+                                        logger.debug(f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
 
                                     elif _cause == "manual":
                                         self._speed.append((datetime.now(), _cause))
-                                        logger.info(f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
+                                        logger.debug(f'{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]')
                                         continue
 
                                     try:

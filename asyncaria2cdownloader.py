@@ -491,7 +491,7 @@ class AsyncARIA2CDownloader:
             elif x <= (self.n_workers // 2):
                 return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 1.25
             else:
-                return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 3.25
+                return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 4
 
         def len_ap_list(_list, el):
             _list.append(el)
@@ -558,7 +558,7 @@ class AsyncARIA2CDownloader:
 
                         _str_speed = ', '.join([f'({_strdate(el)}, {_print_el(el)})' for el in _speed[-_index:]])
 
-                        logger.info(
+                        logger.debug(
                             f'{self.premsg}[check_speed] speed reset: ' +
                             f'n_el_speed[{len(_speed)}]')
                         logger.debug(
@@ -806,7 +806,6 @@ class AsyncARIA2CDownloader:
                 f'{self.premsg}[fetch_async] exiting [{len(self._speed)}]\n{_str_speed}')
 
     def print_hookup(self):
-
         msg = ''
 
         if self.status == 'done':

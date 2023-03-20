@@ -852,7 +852,7 @@ def init_aria2c(args):
         raise Exception(
             f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
 
-    logger.info(f"[init_aria2c] {_proc} - running on port: {args.rpcport}")
+    logger.info(f"[init_aria2c] running on port: {args.rpcport}")
 
     return _proc
 
@@ -957,7 +957,7 @@ class TorGuardProxies:
         for fut in futures:
             _ip = fut.result()
             if _ip != routing_table[futures[fut]]:
-                logger.info(
+                logger.debug(
                     f"[{futures[fut]}] test: {_ip} expect res: " +
                     f"{routing_table[futures[fut]]}")
                 bad_pr.append(routing_table[futures[fut]])
@@ -1182,7 +1182,7 @@ def get_extractor(url, ytdl):
 
 class myYTDL(YoutubeDL):
     def __init__(self, params: Union[None, dict] = None, auto_init: Union[bool, str] = True, **kwargs):
-        self.close: bool = kwargs.get("close", True)
+        self._close: bool = kwargs.get("close", True)
         self.executor: ThreadPoolExecutor = kwargs.get(
             "executor", ThreadPoolExecutor(thread_name_prefix="myYTDL"))
         super().__init__(params=params, auto_init=auto_init)  # type: ignore
@@ -1190,8 +1190,8 @@ class myYTDL(YoutubeDL):
     def __exit__(self, *args):
 
         super().__exit__(*args)
-        if self.close:
-            ies_close(self._ies_instances)
+        if self._close:
+            self.close()
 
     async def __aenter__(self):
         return super().__enter__()
@@ -1206,7 +1206,18 @@ class myYTDL(YoutubeDL):
         else:
             return (ie._RETURN_TYPE == 'playlist', ie_key)
 
-    def shutdown(self):
+    async def stop(self):
+        _stop = self.params.get('stop')
+        if _stop:
+            _stop.set()
+            await asyncio.sleep(0)
+        _stop_dl = self.params.get('stop_dl')
+        if _stop_dl:
+            for _, _stop in _stop_dl.items():
+                _stop.set()
+                await asyncio.sleep(0)
+
+    def close(self):
         ies_close(self._ies_instances)
 
     def extract_info(self, *args, **kwargs) -> Union[dict, None]:
@@ -1234,7 +1245,7 @@ class ProxyYTDL(YoutubeDL):
         quiet = kwargs.get("quiet", True)
         verbose = kwargs.get("verbose", False)
         verboseplus = kwargs.get("verboseplus", False)
-        self.close = kwargs.get("close", True)
+        self._close = kwargs.get("close", True)
         self.executor = kwargs.get(
             "executor", ThreadPoolExecutor(thread_name_prefix="proxyYTDL"))
         opts["quiet"] = quiet
@@ -1255,14 +1266,14 @@ class ProxyYTDL(YoutubeDL):
         return self
 
     def __exit__(self, *args, **kwargs):
-        if self.close:
-            ies_close(self._ies_instances)
+        if self._close:
+            self.close()
 
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *args, **kwargs):
-        ies_close(self._ies_instances)
+        self.close()
 
     def is_playlist(self, url):
         ie_key, ie = get_extractor(url, self)
@@ -1271,7 +1282,18 @@ class ProxyYTDL(YoutubeDL):
         else:
             return (ie._RETURN_TYPE == 'playlist', ie_key)
 
-    def shutdown(self):
+    async def stop(self):
+        _stop = self.params.get('stop')
+        if _stop:
+            _stop.set()
+            await asyncio.sleep(0)
+        _stop_dl = self.params.get('stop_dl')
+        if _stop_dl:
+            for _, _stop in _stop_dl.items():
+                _stop.set()
+                await asyncio.sleep(0)
+
+    def close(self):
         ies_close(self._ies_instances)
 
     def extract_info(self, *args, **kwargs) -> Union[dict, None]:
@@ -1451,7 +1473,7 @@ def kill_processes(logger=None, rpcport=None):
             _aria2cstr = "aria2cDUMMY"
         mobj = re.findall(
             rf"(\d+)\s+(?:\?\?|{term})\s+((?:.+browsermob-proxy --port.+|" +
-            rf"{_aria2cstr}|geckodriver.+|java -Dapp.name=browsermob-proxy.+|/Applications/" +
+            rf"{_aria2cstr}|geckodriver.+|.+mitmdump.+|java -Dapp.name=browsermob-proxy.+|/Applications/" +
             r"Firefox.app/Contents/MacOS/firefox-bin.+))",
             res,
         )
@@ -1479,7 +1501,7 @@ def kill_processes(logger=None, rpcport=None):
             _log("[kill_processes]\n" + "\n".join(_debugstr))
         else:
             _log("[kill_processes] No processes found to kill")
-        # _log(f"[kill_processes_proxy]\n{mobj3}")
+
         if len(mobj3) > 1:
             proc_to_kill = mobj3[1:]
             results = [
@@ -1674,7 +1696,7 @@ class CountDowns:
 
     def inputimeout(self):
 
-        self.logger.info(f'{self._pre} start input')
+        self.logger.debug(f'{self._pre} start input')
         _res = None
 
         while True:
@@ -1690,10 +1712,10 @@ class CountDowns:
                 if _input == '':
                     _input = self.index_main
                 if _input in self.countdowns:
-                    self.logger.info(f'{self._pre} input[{_input}] is index video')
+                    self.logger.debug(f'{self._pre} input[{_input}] is index video')
                     self.countdowns[_input]['stop'].set()
                 else:
-                    self.logger.info(f'{self._pre} input[{_input}] not index video')
+                    self.logger.debug(f'{self._pre} input[{_input}] not index video')
 
             except Empty:
                 pass
@@ -1704,7 +1726,6 @@ class CountDowns:
             time.sleep(self.INTERV_TIME)
             _res = ["TIMEOUT_INPUT"]
 
-        #  self.enable_echo(True)
         self.logger.info(f'{self._pre} return Input: {_res}')
         return _res
 
@@ -1750,7 +1771,7 @@ class CountDowns:
         with self.lock:
             if not self.index_main:
                 self.index_main = index
-                self.logger.info(f'{_premsg} index_main: ({type(self.index_main)})[{self.index_main}]')
+        self.logger.info(f'{_premsg} index_main[{self.index_main}]')
 
         self.countdowns[index] = {
                 'index': index,
@@ -1783,7 +1804,7 @@ class CountDowns:
                 except Exception as e:
                     self.logger.exception(f'{_premsg} error {repr(e)}')
 
-        self.logger.info(f'{_premsg} finish wait for counter: {_res}')
+        self.logger.debug(f'{_premsg} finish wait for counter: {_res}')
         return _res
 
 
@@ -1995,11 +2016,12 @@ class FrontEndGUI:
             'manip': {},
             'finish': {}
         }
-        self.dl_media_str = None
+        # self.dl_media_str = None
         self.stop = MySyncAsyncEvent("stopfegui")
         self.exit_gui = MySyncAsyncEvent("exitgui")
         self.stop_upt_window = self.upt_window_periodic()
         self.stop_pasres = self.pasres_periodic()
+        self.exit_pasres = MySyncAsyncEvent("exitpasres")
 
         _task = asyncio.create_task(self.gui())
         self.asyncdl.background_tasks.add(_task)
@@ -2093,7 +2115,7 @@ class FrontEndGUI:
             return 'break'
         elif event in ['Exit']:
             self.logger.info('[gui_console] event Exit')
-            await self.asyncdl.cancel_all_tasks()
+            await self.asyncdl.cancel_all_dl()
         elif event in ['-WKINIT-']:
             self.asyncdl.wkinit_stop = not self.asyncdl.wkinit_stop
             sg.cprint(
@@ -2291,7 +2313,6 @@ class FrontEndGUI:
                     break
 
                 await asyncio.sleep(0)
-            await asyncio.sleep(0)
 
         except BaseException as e:
             if not isinstance(e, asyncio.CancelledError):
@@ -2353,7 +2374,7 @@ class FrontEndGUI:
     @long_operation_in_thread(name='uptwinthr')
     def upt_window_periodic(self, *args, **kwargs):
 
-        self.logger.info('[upt_window_periodic] start')
+        self.logger.debug('[upt_window_periodic] start')
         stop_upt = kwargs['stop_event']
         try:
             progress_timer = ProgressTimer()
@@ -2387,8 +2408,8 @@ class FrontEndGUI:
             self.logger.exception(f'[upt_window_periodic]: error: {repr(e)}')
         finally:
             if self.list_nwmon:
-                _media = naturalsize(median([el[1] for el in self.list_nwmon]), binary=True)
-                self.dl_media_str = f'DL MEDIA: {_media}ps'
+                # _media = naturalsize(median([el[1] for el in self.list_nwmon]), binary=True)
+                # self.dl_media_str = f'DL MEDIA: {_media}ps'
 
                 def _strdate(el):
                     _secs = el[0].second + (el[0].microsecond / 1000000)
@@ -2405,11 +2426,16 @@ class FrontEndGUI:
 
             self.logger.debug('[upt_window_periodic] BYE')
 
+    def get_dl_media(self):
+        if self.list_nwmon:
+            _media = naturalsize(median([el[1] for el in self.list_nwmon]), binary=True)
+            return f'DL MEDIA: {_media}ps'
+
     @long_operation_in_thread(name='pasresthr')
     def pasres_periodic(self, *args, **kwargs):
 
         self.logger.debug('[pasres_periodic] START')
-        stop_event = kwargs['stop_event']
+        stop_event = cast(MySyncAsyncEvent, kwargs['stop_event'])
         _start_no_pause = None
         try:
             while not stop_event.is_set():
@@ -2430,19 +2456,23 @@ class FrontEndGUI:
                             self.window_console.write_event_value(
                                 'Pause', ','.join(list(map(str, _list))))
                             time.sleep(1)
-                            self.logger.info('[pasres_periodic]: pauses sent')
+                            self.logger.debug('[pasres_periodic]: pauses sent')
                             _start_pause = time.monotonic()
                             _waitres = wait_for_either([stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause)
                             FrontEndGUI._PASRES_EXIT.clear()
-                            self.logger.info('[pasres_periodic]: start sending resumes')
+                            self.logger.debug('[pasres_periodic]: start sending resumes')
                             if _waitres == 'TIMEOUT':
                                 _time = self.pasres_time_in_pause / len(_list)
                                 for _el in _list:
                                     self.window_console.write_event_value('Resume', str(_el))
 
                                     #  wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
-                                    wait_for_either(
-                                        [stop_event, FrontEndGUI._PASRES_EXIT], timeout=random.uniform(0.75*_time, 1.25*_time))
+                                    if wait_for_either(
+                                        [stop_event, FrontEndGUI._PASRES_EXIT],
+                                            timeout=random.uniform(0.75*_time, 1.25*_time)) != "TIMEOUT":
+
+                                        self.window_console.write_event_value('Resume', ','.join(list(map(str, _list))))
+                                        break
 
                                 #  wait_for_either(
                                 # [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_from_resume_to_pause)
@@ -2454,9 +2484,10 @@ class FrontEndGUI:
                                 self.window_console.write_event_value(
                                     'Resume', ','.join(list(map(str, _list))))
 
-                            self.logger.info('[pasres_periodic]: resumes sent, start timer to next pause')
+                            self.logger.debug('[pasres_periodic]: resumes sent, start timer to next pause')
                             sg.cprint(f'[time in pause] {time.monotonic()-_start_pause}')
                             _start_no_pause = time.monotonic()
+
                         else:
                             self.window_console.write_event_value(
                                 'Reset', ','.join(list(map(str, _list))))
@@ -2471,12 +2502,16 @@ class FrontEndGUI:
         except Exception as e:
             self.logger.exception(f'[pasres_periodic]: error: {repr(e)}')
         finally:
+            self.exit_pasres.set()
             self.logger.debug('[pasres_periodic] BYE')
 
-    def close(self):
+    async def close(self):
         self.stop.set()
-        self.stop_upt_window.set()
         self.stop_pasres.set()
+        self.stop_upt_window.set()
+        await asyncio.sleep(0)
+        await self.exit_gui.async_wait()
+        self.exit_pasres.wait()
         if hasattr(self, 'window_console') and self.window_console:
             self.window_console.close()
             del self.window_console
@@ -2555,17 +2590,18 @@ class NWSetUp:
         finally:
             self.shutdown_proxy.set()
 
-    def close(self):
+    async def close(self):
 
         if self.asyncdl.args.enproxy:
-            self.logger.info('[close] proxy')
+            self.logger.debug('[close] proxy')
             self.stop_proxy.set()
-            self.logger.info('[close] waiting for http proxy shutdown')
+            await asyncio.sleep(0)
+            self.logger.debug('[close] waiting for http proxy shutdown')
             self.shutdown_proxy.wait()
-            self.logger.info('[close] OK shutdown')
+            self.logger.debug('[close] OK shutdown')
 
             if self.proc_gost:
-                self.logger.info('[close] gost')
+                self.logger.debug('[close] gost')
                 for proc in self.proc_gost:
                     try:
                         proc.kill()
@@ -2573,7 +2609,7 @@ class NWSetUp:
                         self.logger.exception(f'[close] {repr(e)}')
 
         if self.proc_aria2c:
-            self.logger.info('[close] aria2c')
+            self.logger.debug('[close] aria2c')
             self.proc_aria2c.kill()
 
 
@@ -2618,8 +2654,8 @@ class LocalVideos:
 
         force_local = kwargs.get('local', False)
 
-        self.logger.info(
-            f"[videos_cached] start scann- dlnoch[{self.asyncdl.args.nodlcaching}]-local[{force_local}]")
+        self.logger.debug(
+            f"[videos_cached] start scanning - nodlcaching[{self.asyncdl.args.nodlcaching}] - local[{force_local}]")
 
         last_time_sync = {}
 
@@ -2921,7 +2957,7 @@ class LocalVideos:
                 ]
 
             except Exception as e:
-                self.logger.info(f"[get_files_cached][{folder}] {repr(e)}")
+                self.logger.error(f"[get_files_cached][{folder}] {repr(e)}")
 
             for file in files:
 

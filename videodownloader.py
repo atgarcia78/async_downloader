@@ -135,7 +135,7 @@ class VideoDownloader:
     def index(self):
         self._index = None
 
-    def shutdown(self):
+    def close(self):
         self.ex_videodl.shutdown(wait=False, cancel_futures=True)
         for dl in self.info_dl['downloaders']:
             if hasattr(dl, 'ex_dl'):
@@ -385,13 +385,15 @@ class VideoDownloader:
                 for dl in self.info_dl['downloaders']:
                     dl.status = "stop"
 
-            self.stop_event.set()
+            if not self.stop_event.is_set():
 
-            logger.info(
-                f"[{self.info_dict['id']}][{self.info_dict['title']}]: " +
-                f"stop - {cause}")
+                logger.info(
+                    f"[{self.info_dict['id']}][{self.info_dict['title']}]: " +
+                    f"stop - {cause}")
 
-            await asyncio.sleep(0)
+                self.stop_event.set()
+
+                await asyncio.sleep(0)
 
         except Exception as e:
             logger.exception(
