@@ -14,7 +14,10 @@ import myaiofiles.os
 
 import httpx
 import m3u8
-from yt_dlp.utils import determine_protocol, sanitize_filename
+from yt_dlp.utils import (
+    determine_protocol,
+    sanitize_filename)
+
 import xattr
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
@@ -22,9 +25,15 @@ from asyncdashdownloader import AsyncDASHDownloader
 from asyncffmpegdownloader import AsyncFFMPEGDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from utils import (naturalsize, prepend_extension,
-                   sync_to_async, traverse_obj,
-                   Union, async_waitfortasks, MySyncAsyncEvent)
+
+from utils import (
+    naturalsize,
+    prepend_extension,
+    sync_to_async,
+    traverse_obj,
+    Union,
+    async_waitfortasks,
+    MySyncAsyncEvent)
 
 FORCE_TO_HTTP = []  # ['doodstream']
 

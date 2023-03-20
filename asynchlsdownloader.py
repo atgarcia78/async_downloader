@@ -10,7 +10,9 @@ import random
 import re
 import threading
 import time
-from concurrent.futures import CancelledError, ThreadPoolExecutor
+from concurrent.futures import (
+    CancelledError,
+    ThreadPoolExecutor)
 from pathlib import Path
 from queue import Queue
 from shutil import rmtree
@@ -92,10 +94,8 @@ class AsyncHLSDLReset(Exception):
         self.exc_info = exc_info
 
 
-retry = my_dec_on_exception(AsyncHLSDLErrorFatal,
-                            max_tries=3,
-                            raise_on_giveup=True,
-                            interval=1)
+retry = my_dec_on_exception(
+    AsyncHLSDLErrorFatal, max_tries=3, raise_on_giveup=True, interval=1)
 
 
 class AsyncHLSDownloader:
@@ -307,13 +307,9 @@ class AsyncHLSDownloader:
                     _url += "&="
                 if _frag.key is not None and _frag.key.method == "AES-128":
                     if _frag.key.absolute_uri not in self.key_cache:
-                        self.key_cache.update({
-                            _frag.key.absolute_uri: httpx.get(
-                                    _frag.key.absolute_uri,
-                                    headers=self.info_dict['http_headers']
-                                ).content
-                            }
-                        )
+                        self.key_cache.update(
+                            {_frag.key.absolute_uri:
+                                httpx.get(_frag.key.absolute_uri, headers=self.info_dict['http_headers']).content})
                         logger.debug(
                             f'{self.premsg}:' +
                             f'{self.key_cache[_frag.key.absolute_uri]}')
@@ -343,12 +339,10 @@ class AsyncHLSDownloader:
                     sub_range_start = (
                         int(splitted_byte_range[1])
                         if len(splitted_byte_range) == 2
-                        else byte_range["end"]
-                    )
+                        else byte_range["end"])
                     byte_range = {
                         "start": sub_range_start,
-                        "end": sub_range_start + int(splitted_byte_range[0]),
-                    }
+                        "end": sub_range_start + int(splitted_byte_range[0])}
 
                 else:
                     byte_range = {}
@@ -452,10 +446,8 @@ class AsyncHLSDownloader:
                     self.n_workers = min(self.n_workers, 16)
                 elif 500000000 <= _todl < 1250000000:
                     self.n_workers = min(self.n_workers, 32)
-                    # self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 90
                 else:
                     self.n_workers = min(self.n_workers, 64)
-                    # self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 120
 
                 _est_size = naturalsize(self.filesize)
 
@@ -542,15 +534,12 @@ class AsyncHLSDownloader:
             self.check_stop()
 
             if proxy:
-                with ProxyYTDL(opts=self.ytdl.params.copy(),
-                               proxy=proxy) as proxy_ytdl:
-                    _info_video = proxy_ytdl.sanitize_info(
-                        proxy_ytdl.extract_info(url))
+                with ProxyYTDL(opts=self.ytdl.params.copy(), proxy=proxy) as proxy_ytdl:
+                    _info_video = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(url))
 
             else:
                 _info_video = self.ytdl.sanitize_info(
-                    self.ytdl.extract_info(url, download=False)
-                )
+                    self.ytdl.extract_info(url, download=False))
 
             self.check_stop()
 
@@ -571,8 +560,6 @@ class AsyncHLSDownloader:
 
         self.info_dict.update(info_reset)
 
-        #  self.headers = info_reset.get("http_headers")
-        #  self.video_url = info_reset.get("url")
         self.init_client.close()
         _proxies = self._proxy if hasattr(self, '_proxy') else None
         self.init_client = httpx.Client(
