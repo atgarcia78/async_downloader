@@ -663,36 +663,42 @@ class AsyncDL:
                 not (_title := info_dict.get("title"))):
             return False
 
-        _title = sanitize_filename(_title, restricted=True).upper()
-        vid_name = f"{_id}_{_title}"
+        _pre = f"[check_if_aldl][{_id}]['{_title}']"
 
-        if not (vid_path_str := self.videos_cached.get(vid_name)):
-            return False
-        else:  # video en local
-            if test:
-                return True
+        try:
 
-            vid_path = Path(vid_path_str)
-            logger.debug(f"[{vid_name}] already DL: {vid_path}")
+            _title = sanitize_filename(_title, restricted=True).upper()
+            vid_name = f"{_id}_{_title}"
 
-            if not self.args.nosymlinks:
-                if self.args.path:
-                    _folderpath = Path(self.args.path)
-                else:
-                    _folderpath = Path(Path.home(), "testing", self.launch_time.strftime("%Y%m%d"))
-                _folderpath.mkdir(parents=True, exist_ok=True)
-                file_aldl = Path(_folderpath, vid_path.name)
-                if not file_aldl.exists():
-                    file_aldl.symlink_to(vid_path)
-                    try:
-                        mtime = int(vid_path.stat().st_mtime)
-                        syncos.utime(file_aldl, (int(time.time()), mtime), follow_symlinks=False)
-                    except Exception as e:
-                        logger.debug(
-                            f"[check_if_aldl] [{str(file_aldl)}] -> " +
-                            f"[{str(vid_path)}] error when copying times {repr(e)}")
+            if not (vid_path_str := self.videos_cached.get(vid_name)):
+                return False
+            else:  # video en local
+                if test:
+                    return True
+                vid_path = Path(vid_path_str)
+                logger.debug(f"{_pre}[{vid_name}] already DL: {vid_path}")
 
-            return vid_path_str
+                if not self.args.nosymlinks:
+                    if self.args.path:
+                        _folderpath = Path(self.args.path)
+                    else:
+                        _folderpath = Path(Path.home(), "testing", self.launch_time.strftime("%Y%m%d"))
+                    _folderpath.mkdir(parents=True, exist_ok=True)
+                    file_aldl = Path(_folderpath, vid_path.name)
+                    if file_aldl not in _folderpath.iterdir():
+                        file_aldl.symlink_to(vid_path)
+                        try:
+                            mtime = int(vid_path.stat().st_mtime)
+                            syncos.utime(file_aldl, (int(time.time()), mtime), follow_symlinks=False)
+                        except Exception as e:
+                            logger.debug(
+                                f"[check_if_aldl] [{str(file_aldl)}] -> " +
+                                f"[{str(vid_path)}] error when copying times {repr(e)}")
+
+                return vid_path_str
+
+        except Exception as e:
+            logger.warning(f'{_pre} error {repr(e)}')
 
     async def async_check_if_aldl(self, info_dict, test=False):
         return await sync_to_async(self._check_if_aldl, executor=self.ex_winit)(info_dict, test=test)
@@ -758,88 +764,94 @@ class AsyncDL:
 
     async def _prepare_entry_pl_for_dl(self, entry: dict) -> None:
 
-        _type = entry.get("_type", "video")
-        if _type == "playlist":
-            logger.warning(f"[prepare_entry_pl_for_dl] PLAYLIST IN PLAYLIST:{entry}")
-            return
-        elif _type == "error":
-            _errorurl = entry.get("url")
-            if _errorurl and not self.info_videos.get(_errorurl):
+        _pre = "[prepare_entry_pl_for_dl]"
 
-                self.info_videos[_errorurl] = {
-                    "source": self.url_pl_list.get(_errorurl, {}).get("source")
-                    or "playlist",
-                    "video_info": {},
-                    "status": "prenok",
-                    "todl": True,
-                    "error": [entry.get("error", "no video entry")],
-                }
+        try:
+            _type = entry.get("_type", "video")
+            if _type == "playlist":
+                logger.warning(f"{_pre} PLAYLIST IN PLAYLIST:{entry}")
+                return
+            elif _type == "error":
+                _errorurl = entry.get("url")
+                if _errorurl and not self.info_videos.get(_errorurl):
 
-                if any(
-                    _ in str(entry.get("error", "no video entry")).lower()
-                    for _ in [
-                        "not found",
-                        "404",
-                        "flagged",
-                        "403",
-                        "410",
-                        "suspended",
-                        "unavailable",
-                        "disabled",
-                    ]
-                ):
-                    self.list_notvalid_urls.append(_errorurl)
-                elif (
-                    "unsupported url"
-                    in str(entry.get("error", "no video entry")).lower()
-                ):
-                    self.list_unsup_urls.append(_errorurl)
-                else:
-                    self.list_urls_to_check.append(
+                    self.info_videos[_errorurl] = {
+                        "source": self.url_pl_list.get(_errorurl, {}).get("source")
+                        or "playlist",
+                        "video_info": {},
+                        "status": "prenok",
+                        "todl": True,
+                        "error": [entry.get("error", "no video entry")],
+                    }
+
+                    if any(
+                        _ in str(entry.get("error", "no video entry")).lower()
+                        for _ in [
+                            "not found",
+                            "404",
+                            "flagged",
+                            "403",
+                            "410",
+                            "suspended",
+                            "unavailable",
+                            "disabled",
+                        ]
+                    ):
+                        self.list_notvalid_urls.append(_errorurl)
+                    elif (
+                        "unsupported url"
+                        in str(entry.get("error", "no video entry")).lower()
+                    ):
+                        self.list_unsup_urls.append(_errorurl)
+                    else:
+                        self.list_urls_to_check.append(
+                            (_errorurl, entry.get("error", "no video entry"))
+                        )
+                    self.list_initnok.append(
                         (_errorurl, entry.get("error", "no video entry"))
                     )
-                self.list_initnok.append(
-                    (_errorurl, entry.get("error", "no video entry"))
-                )
-            return
+                return
 
-        elif _type == "video":
-            _url = entry.get("webpage_url") or entry["url"]
+            elif _type == "video":
+                _url = entry.get("webpage_url") or entry["url"]
 
-        else:  # url, url_transparent
-            _url = entry["url"]
+            else:  # url, url_transparent
+                _url = entry["url"]
 
-        if not self.info_videos.get(_url):  # es decir, los nuevos videos
+            if not self.info_videos.get(_url):  # es decir, los nuevos videos
 
-            self.info_videos[_url] = {
-                "source": "playlist",
-                "video_info": entry,
-                "status": "init",
-                "aldl": False,
-                "todl": True,
-                "ie_key": entry.get("ie_key") or entry.get("extractor_key"),
-                "error": [],
-            }
+                self.info_videos[_url] = {
+                    "source": "playlist",
+                    "video_info": entry,
+                    "status": "init",
+                    "aldl": False,
+                    "todl": True,
+                    "ie_key": entry.get("ie_key") or entry.get("extractor_key"),
+                    "error": [],
+                }
 
-            _same_video_url = await self.async_check_if_same_video(_url)
+                _same_video_url = await self.async_check_if_same_video(_url)
 
-            if _same_video_url:
+                if _same_video_url:
 
-                self.info_videos[_url].update({"samevideo": _same_video_url})
+                    self.info_videos[_url].update({"samevideo": _same_video_url})
 
-                logger.warning(
-                    f"[prepare_entry_pl_for_dl] {_url}: has not been added" +
-                    f"to video list because it gets same video than {_same_video_url}")
+                    logger.warning(
+                        f"[prepare_entry_pl_for_dl] {_url}: has not been added" +
+                        f"to video list because it gets same video than {_same_video_url}")
 
-                await self._prepare_for_dl(_url)
+                    await self._prepare_for_dl(_url)
+                else:
+                    await self._prepare_for_dl(_url)
+                    self.list_videos.append(self.info_videos[_url]["video_info"])
             else:
-                await self._prepare_for_dl(_url)
-                self.list_videos.append(self.info_videos[_url]["video_info"])
-        else:
-            logger.warning(
-                f"[prepare_entry_pl_for_dl] {_url}: has not been added to" +
-                "info_videos because it is already")
+                logger.warning(
+                    f"{_pre} {_url}: has not been added to" +
+                    "info_videos because it is already")
 
+        except Exception as e:
+            logger.exception(f'{_pre} error {repr(e)} with entry\n{entry}')
+    
     async def go_for_dl(self, url_key, infdict, extradict=None):
         # sanitizamos 'id', y si no lo tiene lo forzamos a
         # un valor basado en la url
