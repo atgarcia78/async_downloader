@@ -101,6 +101,9 @@ class AsyncARIA2CDownloader:
 
         self.ex_dl = ThreadPoolExecutor(thread_name_prefix='ex_aria2dl')
 
+        self.premsg = (
+            f'[{self.info_dict["id"]}][{self.info_dict["title"]}][{self.info_dict["format_id"]}]')
+
         self.prep_init()
 
     def prep_init(self):
@@ -164,8 +167,6 @@ class AsyncARIA2CDownloader:
             'min-split-size': CONF_ARIA2C_MIN_SIZE_SPLIT,
         }
 
-        self.premsg = f'[{self.info_dict["id"]}][{self.info_dict["title"]}]' +\
-                      f'[{self.info_dict["format_id"]}]'
         self.opts = self.aria2_client.get_global_options()
         for key, value in opts_dict.items():
             if not isinstance(value, list):
@@ -563,7 +564,9 @@ class AsyncARIA2CDownloader:
                             f'n_el_speed[{len(_speed)}]')
                         logger.debug(
                             f'{self.premsg}[check_speed] speed reset\n{_str_speed}')
+
                         await self.vid_dl.reset()
+
                         break
 
                     else:
@@ -592,61 +595,56 @@ class AsyncARIA2CDownloader:
 
             while (hasattr(self, 'dl_cont') and self.dl_cont.status in [
                     'active', 'paused', 'waiting']):
-                try:
-                    if self.vid_dl.pause_event.is_set():
-                        self._speed.append((datetime.now(), 'pause'))
-                        await self.async_pause()
-                        await asyncio.sleep(0)
 
-                        _res = await async_waitfortasks(
-                            events=(self.vid_dl.resume_event,
-                                    self.vid_dl.reset_event,
-                                    self.vid_dl.stop_event),
-                            background_tasks=self.background_tasks)
-
-                        async with self._decor:
-                            await self.async_resume()
-                        self._speed.append((datetime.now(), 'resume'))
-                        await asyncio.sleep(0)
-                        self.vid_dl.pause_event.clear()
-                        self.vid_dl.resume_event.clear()
-                        self.progress_timer.reset()
-
-                        if _res.get('event') in ('stop', 'reset'):
-                            return
-
-                    elif any([self.vid_dl.stop_event.is_set(),
-                              self.vid_dl.reset_event.is_set()]):
-                        self.progress_timer.reset()
-                        return
-
-                    elif self.progress_timer.has_elapsed(
-                            seconds=CONF_INTERVAL_GUI / 2):
-                        if (_error := await self.aupdate()) and _error == 'error':
-                            raise AsyncARIA2CDLError('fetch error: error update dl_cont')
-
-                        if hasattr(self, '_qspeed'):
-                            self._qspeed.put_nowait(
-                                (
-                                    self.dl_cont.download_speed,
-                                    self.dl_cont.connections,
-                                    datetime.now()
-                                )
-                            )
-
-                        # self._speed.append((datetime.now(), self.dl_cont))
-                        _incsize = self.dl_cont.completed_length - \
-                            self.down_size
-                        self.down_size = self.dl_cont.completed_length
-
-                        async with self.vid_dl.alock:
-                            self.vid_dl.info_dl['down_size'] += _incsize
-
+                if self.vid_dl.pause_event.is_set():
+                    self._speed.append((datetime.now(), 'pause'))
+                    await self.async_pause()
                     await asyncio.sleep(0)
 
-                except BaseException as e:
-                    if isinstance(e, KeyboardInterrupt):
-                        raise
+                    _res = await async_waitfortasks(
+                        events=(self.vid_dl.resume_event,
+                                self.vid_dl.reset_event,
+                                self.vid_dl.stop_event),
+                        background_tasks=self.background_tasks)
+
+                    async with self._decor:
+                        await self.async_resume()
+                    self._speed.append((datetime.now(), 'resume'))
+                    await asyncio.sleep(0)
+                    self.vid_dl.pause_event.clear()
+                    self.vid_dl.resume_event.clear()
+                    self.progress_timer.reset()
+
+                    if _res.get('event') in ('stop', 'reset'):
+                        return
+
+                elif any([self.vid_dl.stop_event.is_set(), self.vid_dl.reset_event.is_set()]):
+                    self.progress_timer.reset()
+                    return
+
+                elif self.progress_timer.has_elapsed(
+                        seconds=CONF_INTERVAL_GUI / 2):
+                    if (_error := await self.aupdate()) and _error == 'error':
+                        raise AsyncARIA2CDLError('fetch error: error update dl_cont')
+
+                    if hasattr(self, '_qspeed'):
+                        self._qspeed.put_nowait(
+                            (
+                                self.dl_cont.download_speed,
+                                self.dl_cont.connections,
+                                datetime.now()
+                            )
+                        )
+
+                    # self._speed.append((datetime.now(), self.dl_cont))
+                    _incsize = self.dl_cont.completed_length - \
+                        self.down_size
+                    self.down_size = self.dl_cont.completed_length
+
+                    async with self.vid_dl.alock:
+                        self.vid_dl.info_dl['down_size'] += _incsize
+
+                await asyncio.sleep(0)
 
             if hasattr(self, 'dl_cont'):
                 if self.dl_cont.status == 'complete':
@@ -860,6 +858,7 @@ class AsyncARIA2CDownloader:
                     _substr = 'STOPPED'
                 else:
                     _substr = 'UNKNOWN'
+
                 msg = f'[ARIA2C][{self.info_dict["format_id"]}]: ' +\
                       f'HOST[{self._host.split(".")[0]}]' +\
                       f'{_substr} DL PR[{self.last_progress_str}]\n'

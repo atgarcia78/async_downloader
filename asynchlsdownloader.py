@@ -287,8 +287,7 @@ class AsyncHLSDownloader:
 
             self.m3u8_doc = try_get(
                 self.init_client.get(self.info_dict['url']),
-                lambda x: x.content.decode("utf-8", "replace"),
-            )
+                lambda x: x.content.decode("utf-8", "replace"))
 
             self.info_dict["fragments"] = self.get_info_fragments()
             self.info_dict["init_section"] = self.info_dict[
@@ -377,8 +376,7 @@ class AsyncHLSDownloader:
                             "size": size,
                             "n_retries": 0,
                             "error": ["AlreadyDL"],
-                        }
-                    )
+                        })
                     self.n_dl_fragments += 1
                     if is_dl:
                         self.down_size += size
@@ -399,8 +397,7 @@ class AsyncHLSDownloader:
                             "size": None,
                             "n_retries": 0,
                             "error": [],
-                        }
-                    )
+                        })
                     self.frags_to_dl.append(i + 1)
 
                 if fragment.key and fragment.key.method == "AES-128":
@@ -411,8 +408,7 @@ class AsyncHLSDownloader:
                                     fragment.key.absolute_uri,
                                     headers=self.info_dict['http_headers']
                                 ).content
-                            }
-                        )
+                            })
                         logger.debug(
                             f"{self.premsg}:{self.key_cache[fragment.key.absolute_uri]}")
                         logger.debug(f"{self.premsg}:{fragment.key.iv}")
