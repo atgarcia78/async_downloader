@@ -584,9 +584,7 @@ async def async_wait_time(n: Union[int, float]):
     return await async_waitfortasks(timeout=n)
 
 
-def wait_time(n: Union[int, float],
-              event: Union[threading.Event,
-                           MySyncAsyncEvent, None] = None):
+def wait_time(n: Union[int, float], event: Union[threading.Event, MySyncAsyncEvent, None] = None):
     _started = time.monotonic()
     if not event:
         time.sleep(n)  # dummy

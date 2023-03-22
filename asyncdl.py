@@ -98,6 +98,12 @@ class WorkersRun:
         if self.max > 0:
             self.max -= 1
 
+    async def check_to_stop(self):
+        async with self.alock:
+            if not self.waiting and not self.running:
+                self.logger.debug('[check_to_stop] exit')
+                self.exit.set()
+
     async def add_dl(self, dl, url_key):
 
         _pre = f"[add_dl]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
@@ -149,9 +155,10 @@ class WorkersRun:
             self.logger.exception(f'{_pre} error {repr(e)}')
         finally:
             self.logger.debug(f'{_pre} end task worker run')
-            if not self.waiting and not self.running:
-                self.logger.debug(f'[{_pre} end tasks worker run: exit')
-                self.exit.set()
+            async with self.alock:
+                if not self.waiting and not self.running:
+                    self.logger.debug(f'[{_pre} end tasks worker run: exit')
+                    self.exit.set()
 
 
 class WorkersInit:
@@ -203,6 +210,7 @@ class WorkersInit:
                 self.logger.debug(f'{_pre} end tasks worker init: exit')
                 self.asyncdl.t3.stop()
                 self.exit.set()
+                await self.asyncdl.WorkersRun.check_to_stop()
             else:
                 await async_waitfortasks(
                     self.asyncdl.init_callback(url_key), background_tasks=self.asyncdl.background_tasks)
@@ -511,7 +519,7 @@ class AsyncDL:
             logger.exception(f"[get_list_videos]: Error {repr(e)}")
 
         finally:
-            self.getlistvid_done.set()
+            #  self.getlistvid_done.set()
             await self.WorkersInit.add_init("KILL")
             if not self.STOP.is_set():
                 self.t1.stop()
@@ -676,7 +684,7 @@ class AsyncDL:
                 if test:
                     return True
                 vid_path = Path(vid_path_str)
-                logger.debug(f"{_pre}[{vid_name}] already DL: {vid_path}")
+                logger.info(f"{_pre}[{vid_name}] already DL: {vid_path}")
 
                 if not self.args.nosymlinks:
                     if self.args.path:
@@ -851,7 +859,7 @@ class AsyncDL:
 
         except Exception as e:
             logger.exception(f'{_pre} error {repr(e)} with entry\n{entry}')
-    
+
     async def go_for_dl(self, url_key, infdict, extradict=None):
         # sanitizamos 'id', y si no lo tiene lo forzamos a
         # un valor basado en la url
@@ -1182,7 +1190,7 @@ class AsyncDL:
             #     self._check_if_aldl, executor=self.ex_winit)
 
             self.STOP = MySyncAsyncEvent("MAINSTOP")
-            self.getlistvid_done = MySyncAsyncEvent("done")
+            #  self.getlistvid_done = MySyncAsyncEvent("done")
             self.getlistvid_first = MySyncAsyncEvent("first")
             self.is_ready_to_dl = MySyncAsyncEvent("readydl")
             self.alock = asyncio.Lock()
@@ -1212,13 +1220,13 @@ class AsyncDL:
                 await self.nwsetup.init()
                 self.is_ready_to_dl.set()
                 _res = await async_waitfortasks(
-                    events=(self.getlistvid_first, self.getlistvid_done, self.STOP),
+                    events=(self.getlistvid_first, self.WorkersInit.exit, self.STOP),
                     background_tasks=self.background_tasks)
-                if _res.get("event") == "first" or len(self.videos_to_dl) > 0:
+
+                if _res.get("event") == "first" or (_res.get("event") == "workersinitexit" and len(self.list_dl) > 0):
                     self.FEgui = FrontEndGUI(self)
                     tasks_to_wait.update({(_task_wkrun := asyncio.create_task(
                         self.WorkersRun.exit.async_wait())): "task_workers_run"})
-
                     self.background_tasks.add(_task_wkrun)
                     _task_wkrun.add_done_callback(self.background_tasks.discard)
 
