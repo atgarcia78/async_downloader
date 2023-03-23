@@ -1253,14 +1253,14 @@ class AsyncHLSDownloader:
 
                 while self.info_frag[q - 1]["n_retries"] < self._MAX_RETRIES:
 
-                    if (_res := await self.event_handle()):
-                        if _res.get("event") in ("stop", "reset"):
-                            return
-
                     try:
 
                         async with self._limit:
                             logger.debug(f'{_premsg}: limiter speed')
+
+                        if (_res := await self.event_handle()):
+                            if _res.get("event") in ("stop", "reset"):
+                                return
 
                         async with (
                             aiofiles.open(filename, mode="ab") as f,
