@@ -2235,6 +2235,13 @@ class FrontEndGUI:
                             _info = json.dumps(
                                 self.asyncdl.list_dl[_index].info_dict)
                             sg.cprint(f'[{_index}] info\n{_info}')
+                            sg.cprint(
+                                f'[{_index}] filesize[{self.asyncdl.list_dl[_index].info_dl["downloaders"][0].filesize}]' +
+                                f'downsize[{self.asyncdl.list_dl[_index].info_dl["downloaders"][0].down_size}]' +
+                                f'pause[{self.asyncdl.list_dl[_index].pause_event.is_set()}]' +
+                                f'resume[{self.asyncdl.list_dl[_index].resume_event.is_set()}]' +
+                                f'stop[{self.asyncdl.list_dl[_index].stop_event.is_set()}]' +
+                                f'reset[{self.asyncdl.list_dl[_index].reset_event.is_set()}]')
                             info.append(_info)
 
                         await asyncio.sleep(0)
