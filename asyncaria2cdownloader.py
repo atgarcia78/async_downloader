@@ -586,6 +586,32 @@ class AsyncARIA2CDownloader:
             logger.debug(
                 f'{self.premsg}[check_speed] bye')
 
+    async def event_handle(self):
+
+        _res = None
+        if self.vid_dl.pause_event.is_set():
+            self._speed.append((datetime.now(), "pause"))
+            await self.async_pause()
+            await asyncio.sleep(0)
+            _res = await async_waitfortasks(
+                events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
+                background_tasks=self.background_tasks)
+            async with self._decor:
+                await self.async_resume()
+            self.vid_dl.pause_event.clear()
+            self.vid_dl.resume_event.clear()
+            self._speed.append((datetime.now(), "resume"))
+            await asyncio.sleep(0)
+            self.progress_timer.reset()
+        else:
+            _event = [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]
+            if _event:
+                _res = {"event": _event[0]}
+                await asyncio.sleep(0)
+                self.progress_timer.reset()
+
+        return _res
+
     async def fetch(self):
 
         self.count_init = 0
@@ -596,31 +622,9 @@ class AsyncARIA2CDownloader:
             while (hasattr(self, 'dl_cont') and self.dl_cont.status in [
                     'active', 'paused', 'waiting']):
 
-                if self.vid_dl.pause_event.is_set():
-                    self._speed.append((datetime.now(), 'pause'))
-                    await self.async_pause()
-                    await asyncio.sleep(0)
-
-                    _res = await async_waitfortasks(
-                        events=(self.vid_dl.resume_event,
-                                self.vid_dl.reset_event,
-                                self.vid_dl.stop_event),
-                        background_tasks=self.background_tasks)
-
-                    async with self._decor:
-                        await self.async_resume()
-                    self._speed.append((datetime.now(), 'resume'))
-                    await asyncio.sleep(0)
-                    self.vid_dl.pause_event.clear()
-                    self.vid_dl.resume_event.clear()
-                    self.progress_timer.reset()
-
-                    if _res.get('event') in ('stop', 'reset'):
+                if (_res := await self.event_handle()):
+                    if _res.get("event") in ("stop", "reset"):
                         return
-
-                elif any([self.vid_dl.stop_event.is_set(), self.vid_dl.reset_event.is_set()]):
-                    self.progress_timer.reset()
-                    return
 
                 elif self.progress_timer.has_elapsed(
                         seconds=CONF_INTERVAL_GUI / 2):
