@@ -671,7 +671,7 @@ class AsyncDL:
                 not (_title := info_dict.get("title"))):
             return False
 
-        _pre = f"[check_if_aldl][{_id}]['{_title}']"
+        _pre = f"[check_if_aldl][{_id}][{_title}]"
 
         try:
 
@@ -684,7 +684,7 @@ class AsyncDL:
                 if test:
                     return True
                 vid_path = Path(vid_path_str)
-                logger.info(f"{_pre}[{vid_name}] already DL: {vid_path}")
+                logger.info(f"{_pre} already DL")  #: {vid_path}")
 
                 if not self.args.nosymlinks:
                     if self.args.path:
