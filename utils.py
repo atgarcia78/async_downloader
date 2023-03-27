@@ -1586,16 +1586,40 @@ def patch_https_connection_pool(**constructor_kwargs):
         "https"] = MyHTTPSConnectionPool
 
 
-def check_if_dl(info_dict, videos):
+def check_if_dl(info_dict, videos=None):
 
-    if (not (_id := info_dict.get("id")) or
-            not (_title := info_dict.get("title"))):
-        return False
+    if not videos:
+        ls = LocalStorage()
+        ls.load_info()
+        videos = ls._data_for_scan
+    if isinstance(info_dict, dict):
+        info = [info_dict]
+        if info_dict.get('entries'):
+            info = info_dict['entries']
 
-    _title = sanitize_filename(_title, restricted=True).upper()
-    vid_name = f"{_id}_{_title}"
+        res = {}
+        for vid in info:
+            if (not (_id := vid.get("id")) or
+                    not (_title := vid.get("title"))):
+                continue
 
-    return videos.get(vid_name)
+            _title = sanitize_filename(_title, restricted=True).upper()
+            vid_name = f"{_id}_{_title}"
+            res.update({vid_name: videos.get(vid_name)})
+    else:
+        if isinstance(info_dict, str):
+            info = [info_dict]
+        else:
+            info = info_dict
+        res = {}
+        for vid in info:
+            vidname = sanitize_filename(vid, restricted=True).upper()
+            res[vidname] = {}
+            for key in videos.keys():
+                if vidname in key:
+                    res[vidname].update({key: videos[key]})
+
+    return res
 
 ############################################################
 # """                     PYSIMPLEGUI                     """
@@ -2622,6 +2646,7 @@ class LocalVideos:
         self._dont_exist = []
         self._repeated_by_xattr = []
         self.file_ready = self.get_videos_cached(local=True)
+        self.ready()
 
     @long_operation_in_thread(name='vidcachthr')
     def get_videos_cached(self, *args, **kwargs):
