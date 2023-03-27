@@ -155,10 +155,7 @@ class WorkersRun:
             self.logger.exception(f'{_pre} error {repr(e)}')
         finally:
             self.logger.debug(f'{_pre} end task worker run')
-            async with self.alock:
-                if not self.waiting and not self.running:
-                    self.logger.debug(f'[{_pre} end tasks worker run: exit')
-                    self.exit.set()
+            await self.check_to_stop()
 
 
 class WorkersInit:
