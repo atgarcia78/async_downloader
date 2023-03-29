@@ -1121,6 +1121,10 @@ class TorGuardProxies:
 ############################################################
 
 
+def change_status_nakedsword(status):
+    NakedSwordBaseIE._STATUS = status
+
+
 def ies_close(ies):
     if not ies:
         return
@@ -1307,7 +1311,7 @@ def init_ytdl(args):
         "User-Agent": args.useragent,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
         "Connection": "keep-alive",
-        "Accept-Language": "en,es-ES;q=0.5",
+        "Accept-Language": "en-US,en;q=0.5",
         "Accept-Encoding": "gzip, deflate",
     }
 
@@ -1643,7 +1647,7 @@ class CountDowns:
 
     def __init__(self, klass, events=None, logger=None):
 
-        self._pre = '[countdown][WAIT503]'
+        self._pre = '[countdown][WAIT403]'
         self.klass = klass
         if not events:
             self.outer_events = []

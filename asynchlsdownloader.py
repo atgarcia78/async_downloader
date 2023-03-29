@@ -59,7 +59,8 @@ from utils import (
     put_sequence,
     async_lock,
     StatusStop,
-    wait_for_either
+    wait_for_either,
+    change_status_nakedsword
 )
 
 from functools import partial
@@ -97,6 +98,21 @@ retry = my_dec_on_exception(
     AsyncHLSDLErrorFatal, max_tries=3, raise_on_giveup=True, interval=1)
 
 
+class InReset403:
+    def __init__(self):
+        self.inreset = set()
+
+    def add(self, el):
+        self.inreset.add(el)
+        change_status_nakedsword("403")
+
+    def remove(self, el):
+        if el in self.inreset:
+            self.inreset.remove(el)
+        if not self.inreset:
+            change_status_nakedsword("NORMAL")
+
+
 class AsyncHLSDownloader:
 
     _CHUNK_SIZE = 102400
@@ -105,11 +121,12 @@ class AsyncHLSDownloader:
     _MIN_TIME_RESETS = 15
     _CONFIG = CONFIG_EXTRACTORS.copy()
     _CLASSLOCK = threading.Lock()
-    _OK_503 = MySyncAsyncEvent("ok_403")
+    _OK_403 = MySyncAsyncEvent("ok_403")
     _CLEAN = MySyncAsyncEvent("clean")
     _COUNTDOWNS = None
     _QUEUE = {}
     _INPUT = Queue()
+    _INRESET_403 = InReset403()
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
 
@@ -772,12 +789,12 @@ class AsyncHLSDownloader:
         try:
 
             if str(cause) == "403":
-
+                AsyncHLSDownloader._INRESET_403.add(self.vid_dl.info_dict["playlist_index"])
                 with AsyncHLSDownloader._CLASSLOCK:
                     _pasres_cont = FrontEndGUI.pasres_break()
                     if not AsyncHLSDownloader._COUNTDOWNS:
                         AsyncHLSDownloader._COUNTDOWNS = CountDowns(
-                            AsyncHLSDownloader, events=AsyncHLSDownloader._OK_503, logger=logger)
+                            AsyncHLSDownloader, events=AsyncHLSDownloader._OK_403, logger=logger)
                         logger.debug(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
 
                 AsyncHLSDownloader._COUNTDOWNS.add(
@@ -861,6 +878,9 @@ class AsyncHLSDownloader:
                 f"outer Exception occurred when reset: {repr(e)}")
             raise
         finally:
+            if cause == "403":
+                AsyncHLSDownloader._INRESET_403.remove(self.vid_dl.info_dict["playlist_index"])
+
             if self.fromplns and cause in ("403", "hard"):
 
                 logger.debug(
@@ -1354,10 +1374,6 @@ class AsyncHLSDownloader:
 
                                 async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
 
-                                    if (_res := await self.event_handle()):
-                                        if _res.get("event") in ("stop", "reset"):
-                                            return
-
                                     _timechunk = time.monotonic() - _started
                                     self.info_frag[q - 1]["time2dlchunks"].append(_timechunk)
                                     if cipher:
@@ -1373,7 +1389,6 @@ class AsyncHLSDownloader:
                                             res.num_bytes_downloaded - num_bytes_downloaded))
                                         if self.filesize and (_dif := self.down_size - self.filesize) > 0:
                                             self.filesize += _dif
-                                        #  self.first_data.set()
 
                                     async with self.vid_dl.alock:
                                         if _dif > 0:
@@ -1388,6 +1403,10 @@ class AsyncHLSDownloader:
                                         await async_wait_time(self.throttle)
                                     else:
                                         await asyncio.sleep(0)
+
+                                    if (_res := await self.event_handle()):
+                                        if _res.get("event") in ("stop", "reset"):
+                                            pass
                                     _started = time.monotonic()
 
                         _size = (await os.stat(filename)).st_size
