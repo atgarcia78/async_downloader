@@ -354,10 +354,9 @@ class AsyncHTTPDownloader:
                                 (_nchunks := (_tfs // self._CHUNK_SIZE)) + 1)
                                 if _tfs % self._CHUNK_SIZE
                                 else _nchunks,  # type: ignore
-                            "nchunks_dl": dict(),
+                            "nchunks_dl": 0,
                             "n_retries": 0,
-                            "time2dlchunks": dict(),
-                            "statistics": dict(),
+                            "time2dlchunks": []
                         }
                     )
                 else:
@@ -385,10 +384,9 @@ class AsyncHTTPDownloader:
                                 (_nchunks := (_tfs // self._CHUNK_SIZE)) + 1)
                             if (_tfs % self._CHUNK_SIZE)
                             else _nchunks,  # type: ignore
-                            "nchunks_dl": dict(),
+                            "nchunks_dl": 0,
                             "n_retries": 0,
-                            "time2dlchunks": dict(),
-                            "statistics": dict(),
+                            "time2dlchunks": []
                         }
                     )
 
@@ -633,16 +631,6 @@ class AsyncHTTPDownloader:
                                 f"{_premsg}: [fetch] resp code {str(res.status_code)}:" +
                                 f"rep {self.parts[part-1]['n_retries']}\n{res.request.headers}")
 
-                            nth_key = str(
-                                self.parts[part - 1]["n_retries"])
-                            self.parts[part - 1]["nchunks_dl"].update(
-                                {nth_key: 0})
-                            self.parts[part - 1]["time2dlchunks"].update(
-                                {nth_key: []}
-                            )
-                            self.parts[part - 1]["statistics"].update(
-                                {nth_key: []})
-
                             if res.status_code >= 400:
 
                                 raise AsyncHTTPDLError(f"error[{res.status_code}] part[{part}]")
@@ -667,9 +655,8 @@ class AsyncHTTPDownloader:
                                 async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
 
                                     _timechunk = time.monotonic() - _started
-                                    self.parts[part - 1]["time2dlchunks"][
-                                        nth_key
-                                    ].append(_timechunk)
+                                    self.parts[part - 1]["time2dlchunks"].append(_timechunk)
+
                                     await f.write(chunk)
 
                                     async with self._ALOCK:
@@ -686,8 +673,7 @@ class AsyncHTTPDownloader:
 
                                     num_bytes_downloaded = res.num_bytes_downloaded
 
-                                    self.parts[part - 1][
-                                        "nchunks_dl"][nth_key] += 1
+                                    self.parts[part - 1]["nchunks_dl"] += 1
 
                                     if (_res := await self.event_handle()):
                                         if _res.get("event") in ("stop", "reset"):
