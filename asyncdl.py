@@ -108,7 +108,7 @@ class WorkersRun:
                 self.logger.debug('set exit')
                 self.exit.set()
                 self.asyncdl.end_dl.set()
-                self.logger.info("end_dl set")
+                self.logger.debug("end_dl set")
 
     async def add_dl(self, dl, url_key):
 
