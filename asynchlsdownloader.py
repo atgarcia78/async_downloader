@@ -870,8 +870,7 @@ class AsyncHLSDownloader:
                 self.get_reset_info(_webpage_url)
 
         except StatusStop:
-            logger.error(
-                f"{self.premsg}:RESET[{self.n_reset}]: stop_event")
+            logger.error(f"{self.premsg}:RESET[{self.n_reset}]: stop_event")
         except Exception as e:
             logger.exception(
                 f"{self.premsg}:RESET[{self.n_reset}]: stop_event:[{self.vid_dl.stop_event.is_set()}] " +
