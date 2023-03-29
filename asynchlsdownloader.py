@@ -1172,21 +1172,13 @@ class AsyncHLSDownloader:
                     _speed_meter = self.speedometer(_down_size)
                     self._test.append((time.monotonic(), _down_size, _speed_meter))
 
-                    self.upt.update(
-                        {
-                            "speed_meter": _speed_meter,
-                            "down_size": _down_size
-                        })
+                    self.upt.update({"speed_meter": _speed_meter, "down_size": _down_size})
 
                     if _speed_meter and self.filesize:
 
                         _est_time = (self.filesize - _down_size) / _speed_meter
                         _est_time_smooth = self.smooth_eta(_est_time)
-                        self.upt.update(
-                            {
-                                "est_time": _est_time,
-                                "est_time_smooth": _est_time_smooth
-                            })
+                        self.upt.update({"est_time": _est_time, "est_time_smooth": _est_time_smooth})
 
                         self._speed.append((datetime.now(), copy.deepcopy(self.upt)))
 
