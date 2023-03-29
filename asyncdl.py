@@ -87,6 +87,10 @@ class WorkersRun:
     def running_count(self):
         return len(self.running)
 
+    @property
+    def waiting_count(self):
+        return len(self.waiting)
+
     def add_worker(self):
         self.max += 1
         if self.waiting:
@@ -100,9 +104,11 @@ class WorkersRun:
 
     async def check_to_stop(self):
         async with self.alock:
-            if not self.waiting and not self.running:
-                self.logger.debug('[check_to_stop] exit')
+            if not self.waiting and not self.running and not self.tasks:
+                self.logger.debug('set exit')
                 self.exit.set()
+                self.asyncdl.end_dl.set()
+                self.logger.info("end_dl set")
 
     async def add_dl(self, dl, url_key):
 
@@ -155,7 +161,30 @@ class WorkersRun:
             self.logger.exception(f'{_pre} error {repr(e)}')
         finally:
             self.logger.debug(f'{_pre} end task worker run')
-            await self.check_to_stop()
+            if self.asyncdl.WorkersInit.exit.is_set():
+                self.logger.debug(f'{_pre} WorkersInit.exit is set')
+                if not self.waiting and not self.running:
+                    self.logger.debug(f'{_pre} no running no waiting, lets set exit ')
+                    self.exit.set()
+                    self.asyncdl.end_dl.set()
+                    self.logger.info("end_dl set")
+                else:
+                    self.logger.debug(f'{_pre} there are videos running or waiting, so lets exit')
+            else:
+                self.logger.debug(f'{_pre} WorkersInit.exit not set')
+                if not self.waiting and not self.running:
+                    self.logger.debug(f'{_pre} there are no videos running or waiting, so lets wait for WorkersInit.exit')
+                    await self.asyncdl.WorkersInit.exit.async_wait()
+                    if not self.waiting and not self.running:
+                        self.logger.debug(f'{_pre} WorkersInit.exit is set after waiting, no running no waiting, lets set exit')
+                        self.exit.set()
+                        self.asyncdl.end_dl.set()
+                        self.logger.info("end_dl set")
+                    else:
+                        self.logger.debug(
+                            f'{_pre} WorkersInit.exit is set after waiting, there are videos running or waiting, so lets exit')
+                else:
+                    self.logger.debug(f'{_pre} there are videos running or waiting, so lets exit')
 
 
 class WorkersInit:
@@ -172,6 +201,10 @@ class WorkersInit:
     @property
     def running_count(self):
         return len(self.running)
+
+    @property
+    def waiting_count(self):
+        return len(self.waiting)
 
     async def add_init(self, url_key):
 
@@ -202,8 +235,15 @@ class WorkersInit:
             if url_key == 'KILL':
                 async with self.alock:
                     self.running.remove(url_key)
-                while self.running_count:
-                    await asyncio.sleep(0)
+
+                if self.waiting:
+                    while self.waiting_count:
+                        await asyncio.sleep(0)
+
+                if self.running:
+                    while self.running_count:
+                        await asyncio.sleep(0)
+
                 self.logger.debug(f'{_pre} end tasks worker init: exit')
                 self.asyncdl.t3.stop()
                 self.exit.set()
@@ -1183,13 +1223,9 @@ class AsyncDL:
 
         try:
 
-            # self.async_check_if_aldl = sync_to_async(
-            #     self._check_if_aldl, executor=self.ex_winit)
-
             self.STOP = MySyncAsyncEvent("MAINSTOP")
-            #  self.getlistvid_done = MySyncAsyncEvent("done")
             self.getlistvid_first = MySyncAsyncEvent("first")
-            self.is_ready_to_dl = MySyncAsyncEvent("readydl")
+            self.end_dl = MySyncAsyncEvent("enddl")
             self.alock = asyncio.Lock()
             self.hosts_alock = asyncio.Lock()
 
@@ -1197,13 +1233,14 @@ class AsyncDL:
             self.t2.start()
             self.t3.start()
 
-            if not self.args.nodl:
-                self.nwsetup = NWSetUp(self)
-
             self.WorkersInit = WorkersInit(self)
             self.WorkersRun = WorkersRun(self)
 
             await self.localstorage.aready()
+
+            self.nwsetup = NWSetUp(self)
+            self.is_ready_to_dl = self.nwsetup.init_ready
+
             tasks_to_wait = {}
 
             tasks_to_wait.update(
@@ -1214,24 +1251,24 @@ class AsyncDL:
             _task_getvid.add_done_callback(self.background_tasks.discard)
 
             if not self.args.nodl:
-                await self.nwsetup.init()
-                self.is_ready_to_dl.set()
+
                 _res = await async_waitfortasks(
-                    events=(self.getlistvid_first, self.WorkersInit.exit, self.STOP),
+                    events=(self.getlistvid_first, self.end_dl, self.STOP),
                     background_tasks=self.background_tasks)
 
-                if _res.get("event") == "first" or (_res.get("event") == "workersinitexit" and len(self.list_dl) > 0):
+                if _res.get("event") == "first":
                     self.FEgui = FrontEndGUI(self)
+
                     tasks_to_wait.update({(_task_wkrun := asyncio.create_task(
-                        self.WorkersRun.exit.async_wait())): "task_workers_run"})
+                         self.end_dl.async_wait())): "task_workers_run"})
                     self.background_tasks.add(_task_wkrun)
                     _task_wkrun.add_done_callback(self.background_tasks.discard)
 
-            # await async_waitfortasks(tasks_to_wait, events=self.STOP, background_tasks=self.background_tasks)
             await asyncio.wait(tasks_to_wait)
 
         except BaseException as e:
             logger.error(f"[async_ex] {repr(e)}")
+            raise
         finally:
             _task = [asyncio.create_task(self.shutdown())]
             await asyncio.wait(_task)
@@ -1619,6 +1656,8 @@ class AsyncDL:
             try:
                 if hasattr(self, 'nwsetup'):
                     logger.debug("[close] start to close nw")
+                    if not self.nwsetup.init_ready.is_set():
+                        await self.nwsetup.init_ready.async_wait()
                     await self.nwsetup.close()
             except BaseException as e:
                 logger.exception(f"[close] {repr(e)}")

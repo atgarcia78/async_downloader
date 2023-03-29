@@ -913,23 +913,27 @@ class TorGuardProxies:
     ]
     CONF_TORPROXIES_NOK = Path(PATH_LOGS, 'bad_proxies.txt')
 
+    EVENT = MySyncAsyncEvent("dummy")
+
     @classmethod
     def test_proxies_rt(cls, routing_table, timeout=2):
         logger = logging.getLogger("torguardprx")
         logger.info("[init_proxies] starting test proxies")
+        bad_pr = []
         with ThreadPoolExecutor() as exe:
             futures = {exe.submit(get_myip, key=_key, timeout=timeout): _key
                        for _key in list(routing_table.keys())}
 
-        bad_pr = []
-
-        for fut in futures:
-            _ip = fut.result()
-            if _ip != routing_table[futures[fut]]:
-                logger.debug(
-                    f"[{futures[fut]}] test: {_ip} expect res: " +
-                    f"{routing_table[futures[fut]]}")
-                bad_pr.append(routing_table[futures[fut]])
+            for fut in as_completed(futures):
+                if TorGuardProxies.EVENT.is_set():
+                    exe.shutdown(wait=False, cancel_futures=True)
+                    break
+                _ip = fut.result()
+                if _ip != routing_table[futures[fut]]:
+                    logger.debug(
+                        f"[{futures[fut]}] test: {_ip} expect res: " +
+                        f"{routing_table[futures[fut]]}")
+                    bad_pr.append(routing_table[futures[fut]])
 
         return bad_pr
 
@@ -945,8 +949,12 @@ class TorGuardProxies:
             CONF_PROXIES_BASE_PORT + 2000 + i: ip
             for i, ip in enumerate(list_ips)
         }
+        if TorGuardProxies.EVENT.is_set():
+            return "exit"
         proc_gost = []
         for cmd in cmd_gost:
+            if TorGuardProxies.EVENT.is_set():
+                break
             _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                      stderr=subprocess.PIPE, shell=True)
             _proc.poll()
@@ -957,25 +965,30 @@ class TorGuardProxies:
             else:
                 proc_gost.append(_proc)
             time.sleep(0.05)
-        _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
-        logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
-        _res_bad = cls.test_proxies_rt(routing_table, timeout=timeout)
-        _line_ps_pr = []
-        for _ip in _res_bad:
-            if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
-                _line_ps_pr.append(_temp)
-        logger.info(
-            f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] " +
-            f"ps_print [{len(_line_ps_pr)}]")
+
+        _res_bad = None
+        if not TorGuardProxies.EVENT.is_set():
+            _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
+            logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
+
+            _res_bad = cls.test_proxies_rt(routing_table, timeout=timeout)
+            _line_ps_pr = []
+            for _ip in _res_bad:
+                if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
+                    _line_ps_pr.append(_temp)
+            logger.info(
+                f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] " +
+                f"ps_print [{len(_line_ps_pr)}]")
 
         for proc in proc_gost:
             proc.kill()
-            proc.poll()
+            # proc.poll()
 
-        cached_res = cls.CONF_TORPROXIES_NOK
-        with open(cached_res, "w") as f:
-            _test = "\n".join(_res_bad)
-            f.write(_test)
+        if _res_bad:
+            cached_res = cls.CONF_TORPROXIES_NOK
+            with open(cached_res, "w") as f:
+                _test = "\n".join(_res_bad)
+                f.write(_test)
 
         return _res_bad
 
@@ -994,123 +1007,146 @@ class TorGuardProxies:
         num=CONF_PROXIES_MAX_N_GR_HOST,
         size=CONF_PROXIES_N_GR_VIDEO,
         port=CONF_TORPROXIES_HTTPPORT,
-        timeout=2
+        timeout=2,
+        event=None
     ) -> Tuple[List, Dict]:
 
         logger = logging.getLogger("torguardprx")
 
         logger.info("[init_proxies] start")
 
-        IPS_SSL = []
-
-        for domain in cls.CONF_TORPROXIES_DOMAINS:
-            IPS_SSL += cls.get_ips(domain)
-
-        cached_res = cls.CONF_TORPROXIES_NOK
-        if cached_res.exists() and (
-            (datetime.now() - datetime.fromtimestamp(
-                cached_res.stat().st_mtime)).seconds
-            < 7200
-        ):  # every 2h we check the proxies
-            with open(cached_res, "r") as f:
-                _content = f.read()
-            _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
-        else:
-            _bad_ips = cls.test_proxies_raw(IPS_SSL, port=port,
-                                            timeout=timeout)
-
-        for _ip in _bad_ips:
-            if _ip in IPS_SSL:
-                IPS_SSL.remove(_ip)
-
-        _ip_main = random.choice(IPS_SSL)
-
-        IPS_SSL.remove(_ip_main)
-
-        _ips = random.sample(IPS_SSL, num * (size + 1))
-
-        def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
-            from itertools import zip_longest
-            args = [iter(iterable)] * n
-            if incomplete == 'fill':
-                return zip_longest(*args, fillvalue=fillvalue)
-            if incomplete == 'strict':
-                return zip(*args, strict=True)  # type: ignore
-            if incomplete == 'ignore':
-                return zip(*args)
-            else:
-                raise ValueError('Expected fill, strict, or ignore')
-
-        FINAL_IPS = list(grouper(_ips, (size + 1)))
-
-        cmd_gost_s = []
-
-        routing_table = {}
-
-        for j in range(size + 1):
-
-            cmd_gost_s.extend(
-                [
-                    f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} "
-                    f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
-                    for i, ip in enumerate(FINAL_IPS)
-                ]
-            )
-
-            routing_table.update(
-                {
-                    (CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j]
-                    for i, ip in enumerate(FINAL_IPS)
-                }
-            )
-
-        cmd_gost_main = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} "
-            f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
-        ]
-        routing_table.update(
-            {CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
-
-        cmd_gost_group = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899"
-            for i in range(num)
-        ]
-
-        cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
-
-        logger.debug(f"[init_proxies] {cmd_gost}")
-        logger.debug(f"[init_proxies] {routing_table}")
-
-        proc_gost = []
-
         try:
-            for cmd in cmd_gost:
-                logger.debug(cmd)
-                _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE, shell=True)
-                _proc.poll()
-                if _proc.returncode:
-                    logger.error(
-                        f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]"
-                    )
-                    raise Exception("init proxies error")
+
+            if event:
+                TorGuardProxies.EVENT = event
+
+            IPS_SSL = []
+
+            if TorGuardProxies.EVENT.is_set():
+                return [], {}
+
+            for domain in cls.CONF_TORPROXIES_DOMAINS:
+                IPS_SSL += cls.get_ips(domain)
+
+            _bad_ips = None
+            cached_res = cls.CONF_TORPROXIES_NOK
+            if cached_res.exists() and (
+                (datetime.now() - datetime.fromtimestamp(
+                    cached_res.stat().st_mtime)).seconds
+                < 7200
+            ):  # every 2h we check the proxies
+                with open(cached_res, "r") as f:
+                    _content = f.read()
+                _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
+            else:
+                if TorGuardProxies.EVENT.is_set():
+                    return [], {}
+                _bad_ips = cls.test_proxies_raw(IPS_SSL, port=port,
+                                                timeout=timeout)
+
+            if _bad_ips:
+                for _ip in _bad_ips:
+                    if _ip in IPS_SSL:
+                        IPS_SSL.remove(_ip)
+
+            _ip_main = random.choice(IPS_SSL)
+
+            IPS_SSL.remove(_ip_main)
+
+            if len(IPS_SSL) < num * (size + 1):
+                logger.warning("[init_proxies] not enough IPs to generate sample")
+                return [], {}
+
+            _ips = random.sample(IPS_SSL, num * (size + 1))
+
+            def grouper(iterable, n, *, incomplete='fill', fillvalue=None):
+                from itertools import zip_longest
+                args = [iter(iterable)] * n
+                if incomplete == 'fill':
+                    return zip_longest(*args, fillvalue=fillvalue)
+                if incomplete == 'strict':
+                    return zip(*args, strict=True)  # type: ignore
+                if incomplete == 'ignore':
+                    return zip(*args)
                 else:
-                    proc_gost.append(_proc)
-                time.sleep(0.05)
+                    raise ValueError('Expected fill, strict, or ignore')
 
+            FINAL_IPS = list(grouper(_ips, (size + 1)))
+
+            cmd_gost_s = []
+
+            routing_table = {}
+
+            for j in range(size + 1):
+
+                cmd_gost_s.extend(
+                    [
+                        f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} "
+                        f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
+                        for i, ip in enumerate(FINAL_IPS)
+                    ]
+                )
+
+                routing_table.update(
+                    {
+                        (CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j]
+                        for i, ip in enumerate(FINAL_IPS)
+                    }
+                )
+
+            cmd_gost_main = [
+                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} "
+                f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
+            ]
+            routing_table.update(
+                {CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
+
+            cmd_gost_group = [
+                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899"
+                for i in range(num)
+            ]
+
+            cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
+
+            if TorGuardProxies.EVENT.is_set():
+                return [], {}
+
+            logger.debug(f"[init_proxies] {cmd_gost}")
+            logger.debug(f"[init_proxies] {routing_table}")
+
+            proc_gost = []
+
+            try:
+                for cmd in cmd_gost:
+                    logger.debug(cmd)
+                    _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                    _proc.poll()
+                    if _proc.returncode:
+                        logger.error(
+                            f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]"
+                        )
+                        raise Exception("init proxies error")
+                    else:
+                        proc_gost.append(_proc)
+                    time.sleep(0.05)
+                    if TorGuardProxies.EVENT.is_set():
+                        break
+
+                return proc_gost, routing_table
+
+            except Exception as e:
+                logger.exception(repr(e))
+                if proc_gost:
+                    for proc in proc_gost:
+                        try:
+                            proc.kill()
+                            proc.poll()
+                        except Exception:
+                            pass
+                return [], {}
+        finally:
             logger.info("[init_proxies] done")
-            return proc_gost, routing_table
 
-        except Exception as e:
-            logger.exception(repr(e))
-            if proc_gost:
-                for proc in proc_gost:
-                    try:
-                        proc.kill()
-                        proc.poll()
-                    except Exception:
-                        pass
-            return [], {}
 
 ############################################################
 # """                     IP PROXY                     """
@@ -2538,30 +2574,38 @@ class NWSetUp:
         self.asyncdl = asyncdl
         self.logger = logging.getLogger('setupnw')
         self.shutdown_proxy = MySyncAsyncEvent("shutdownproxy")
+        self.init_ready = MySyncAsyncEvent("initready")
         self.routing_table = {}
         self.proc_gost = []
         self.proc_aria2c = None
         self.exe = ThreadPoolExecutor(thread_name_prefix='setupnw')
 
         self._tasks_init = {}
-        if self.asyncdl.args.aria2c:
-            ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
-            _task_aria2c = asyncio.create_task(ainit_aria2c(self.asyncdl.args))
-            self.asyncdl.background_tasks.add(_task_aria2c)
-            _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
-            _tasks_init_aria2c = {
-                _task_aria2c: 'aria2'
-            }
-            self._tasks_init.update(_tasks_init_aria2c)
-        if self.asyncdl.args.enproxy:
-            self.stop_proxy = self.run_proxy_http()
-            ainit_proxies = sync_to_async(
-                TorGuardProxies.init_proxies, executor=self.exe)
-            _task_proxies = asyncio.create_task(ainit_proxies())
-            self.asyncdl.background_tasks.add(_task_proxies)
-            _task_proxies.add_done_callback(self.asyncdl.background_tasks.discard)
-            _task_init_proxies = {_task_proxies: 'proxies'}
-            self._tasks_init.update(_task_init_proxies)
+        if not self.asyncdl.args.nodl:
+            if self.asyncdl.args.aria2c:
+                ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+                _task_aria2c = asyncio.create_task(ainit_aria2c(self.asyncdl.args))
+                self.asyncdl.background_tasks.add(_task_aria2c)
+                _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
+                _tasks_init_aria2c = {
+                    _task_aria2c: 'aria2'
+                }
+                self._tasks_init.update(_tasks_init_aria2c)
+            if self.asyncdl.args.enproxy:
+                self.stop_proxy = self.run_proxy_http()
+                ainit_proxies = sync_to_async(
+                    TorGuardProxies.init_proxies, executor=self.exe)
+                _task_proxies = asyncio.create_task(ainit_proxies(event=self.asyncdl.end_dl))
+                self.asyncdl.background_tasks.add(_task_proxies)
+                _task_proxies.add_done_callback(self.asyncdl.background_tasks.discard)
+                _task_init_proxies = {_task_proxies: 'proxies'}
+                self._tasks_init.update(_task_init_proxies)
+        if self._tasks_init:
+            _end_init = asyncio.create_task(self.init())
+            self.asyncdl.background_tasks.add(_end_init)
+            _end_init.add_done_callback(self.asyncdl.background_tasks.discard)
+        else:
+            self.init_ready.set()
 
     async def init(self):
 
@@ -2577,6 +2621,7 @@ class NWSetUp:
                             'routing_table'] = self.routing_table
                 except Exception as e:
                     self.logger.exception(f'[init] {repr(e)}')
+            self.init_ready.set()
 
     @long_operation_in_thread(name='proxythr')
     def run_proxy_http(self, *args, **kwargs):
