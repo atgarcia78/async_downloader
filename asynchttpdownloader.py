@@ -242,9 +242,7 @@ class AsyncHTTPDownloader:
                     raise AsyncHTTPDLErrorFatal("Can't get filesize")
 
         except (KeyboardInterrupt, Exception) as e:
-            logger.error(
-                f"{self.premsg}: {str(e)}"
-            )
+            logger.error(f"{self.premsg}: {repr(e)}")
             self.init_client.close()
             self.status = "error"
             self.error_message = repr(e)
@@ -666,9 +664,7 @@ class AsyncHTTPDownloader:
 
                                 _started = time.monotonic()
 
-                                async for chunk in res.aiter_bytes(
-                                    chunk_size=self._CHUNK_SIZE
-                                ):
+                                async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
 
                                     _timechunk = time.monotonic() - _started
                                     self.parts[part - 1]["time2dlchunks"][
@@ -683,16 +679,11 @@ class AsyncHTTPDownloader:
                                         if (_dif := self.down_size -
                                                 self.filesize) > 0:
                                             self.filesize += _dif
-                                        # self.first_data.set()
 
                                     async with self.vid_dl.alock:
-                                        if _dif > 0:
-                                            self.vid_dl.info_dl[
-                                                "filesize"
-                                            ] += _dif
-                                        self.vid_dl.info_dl[
-                                            "down_size"
-                                        ] += _iter_bytes
+                                        self.vid_dl.info_dl["filesize"] += _dif
+                                        self.vid_dl.info_dl["down_size"] += _iter_bytes
+
                                     num_bytes_downloaded = res.num_bytes_downloaded
 
                                     self.parts[part - 1][
@@ -714,9 +705,7 @@ class AsyncHTTPDownloader:
                             self.parts[part - 1]["size"] = _tempfile_size
                             async with self._ALOCK:
                                 self.n_parts_dl += 1
-                            logger.debug(
-                                f"{_premsg} OK DL: total {self.n_parts_dl}\n{self.parts[part-1]}"
-                            )
+                            logger.debug(f"{_premsg} OK DL: total {self.n_parts_dl}\n{self.parts[part-1]}")
                             break
 
                         else:
@@ -746,12 +735,10 @@ class AsyncHTTPDownloader:
 
                         if self.parts[part - 1]["n_retries"] < self._MAX_RETRIES:
                             self.parts[part - 1]["n_retries"] += 1
-                            _tempfile_size = (await os.stat(
-                                tempfilename)).st_size
+                            _tempfile_size = (await os.stat(tempfilename)).st_size
                             self.parts[part - 1]["offset"] = _tempfile_size
                             if not self.upt_hsize(part - 1, offset=True):
                                 raise AsyncHTTPDLErrorFatal(f"{_premsg}[fetch-res] Error to upt hsize part")
-
                             await asyncio.sleep(0)
                         else:
                             logger.warning(f"{_premsg}[fetch-res] error: maxnumrepeats")
