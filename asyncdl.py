@@ -167,7 +167,7 @@ class WorkersRun:
                     self.logger.debug(f'{_pre} no running no waiting, lets set exit ')
                     self.exit.set()
                     self.asyncdl.end_dl.set()
-                    self.logger.info("end_dl set")
+                    self.logger.debug("end_dl set")
                 else:
                     self.logger.debug(f'{_pre} there are videos running or waiting, so lets exit')
             else:
@@ -351,6 +351,7 @@ class AsyncDL:
 
             filecaplinks = Path(PATH_LOGS, "captured_links.txt")
             prevfilecaplinks = Path(PATH_LOGS, "prev_captured_links.txt")
+
             if self.args.caplinks and filecaplinks.exists():
                 if self.STOP.is_set():
                     raise Exception("STOP")
@@ -361,12 +362,10 @@ class AsyncDL:
                             _temp.add(_url)
 
                 _url_list_caplinks = list(_temp)
-                logger.info(
-                    f"[get_list_videos] video list caplinks:\n{_url_list_caplinks}")
+                logger.info(f"[get_list_videos] video list caplinks:\n{_url_list_caplinks}")
                 with open(prevfilecaplinks, "a") as file:
                     _text = '\n'.join(_url_list_caplinks)
-                    file.write(
-                        f"\n\n[{self.launch_time.strftime('%Y-%m-%d %H:%M')}]\n{_text}")
+                    file.write(f"\n\n[{self.launch_time.strftime('%Y-%m-%d %H:%M')}]\n{_text}")
 
                 with open(filecaplinks, "w") as file:
                     file.write("")
@@ -418,9 +417,7 @@ class AsyncDL:
 
                             if _same_video_url:
 
-                                self.info_videos[_url].update(
-                                    {"samevideo": _same_video_url}
-                                )
+                                self.info_videos[_url].update({"samevideo": _same_video_url})
                                 logger.warning(
                                     f"{_url}: has not been added to video list" +
                                     f"because it gets same video than {_same_video_url}")
@@ -428,9 +425,7 @@ class AsyncDL:
 
                             else:
                                 await self._prepare_for_dl(_url)
-                                self.list_videos.append(
-                                    self.info_videos[_url]["video_info"]
-                                )
+                                self.list_videos.append(self.info_videos[_url]["video_info"])
                     else:
                         await self._prepare_entry_pl_for_dl(_vid)
 
@@ -512,8 +507,7 @@ class AsyncDL:
                         self.url_pl_queue.put_nowait("KILL")
                     tasks_pl_list = [
                         asyncio.create_task(self.process_playlist(_get_path_name))
-                        for _ in range(min(self.init_nworkers,
-                                           len(self.url_pl_list)))
+                        for _ in range(min(self.init_nworkers, len(self.url_pl_list)))
                     ]
                     for _task in tasks_pl_list:
                         self.background_tasks.add(_task)
@@ -536,9 +530,7 @@ class AsyncDL:
                             self.url_pl_queue.put_nowait("KILL")
                         tasks_pl_list2 = [
                             asyncio.create_task(self.process_playlist(_get_path_name))
-                            for _ in range(
-                                min(self.init_nworkers, len(self.url_pl_list2))
-                            )
+                            for _ in range(min(self.init_nworkers, len(self.url_pl_list2)))
                         ]
                         for _task in tasks_pl_list2:
                             self.background_tasks.add(_task)
@@ -556,7 +548,6 @@ class AsyncDL:
             logger.exception(f"[get_list_videos]: Error {repr(e)}")
 
         finally:
-            #  self.getlistvid_done.set()
             await self.WorkersInit.add_init("KILL")
             if not self.STOP.is_set():
                 self.t1.stop()
