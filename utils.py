@@ -17,6 +17,7 @@ import PySimpleGUI as sg
 import psutil
 import proxy
 import xattr
+import sys
 from statistics import median
 from queue import Empty, Queue
 
@@ -46,6 +47,7 @@ from asgiref.sync import (
     sync_to_async,
 )
 from ipaddress import ip_address
+from operator import getitem
 import httpx
 
 from yt_dlp.extractor.commonwebdriver import (
@@ -77,6 +79,9 @@ from yt_dlp.utils import (
     try_get,
     unsmuggle_url
 )
+
+from yt_dlp.cookies import extract_cookies_from_browser
+from yt_dlp.minicurses import MultilinePrinter
 
 from yt_dlp import YoutubeDL
 
@@ -124,6 +129,46 @@ CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb"]
 CONF_AUTO_PASRES = ["doodstream"]
+
+
+def nested_obj(d, *selectors, get_all=True, default=None, v=False):
+
+    logger = logging.getLogger('nestedobj')
+    NO_RES = object()
+
+    def is_sequence(x):
+        return isinstance(x, Iterable) and not isinstance(x, (str, bytes))
+
+    def _nested_obj(obj, sel):
+        try:
+            if not is_sequence(sel):
+                sel = [sel]
+            _res = functools.reduce(getitem, sel, obj)
+            if v:
+                logger.info(f'selector[{sel}]: {_res}')
+            return _res
+        except (IndexError, KeyError) as e:
+            if v:
+                logger.info(f'selector[{sel}]: error {repr(e)}')
+            return NO_RES
+
+    if v:
+        logger.info(f'selectors[{selectors}]')
+    res = []
+    for selector in selectors:
+        result = _nested_obj(d, selector)
+        if result is not NO_RES:
+            if get_all:
+                res.append(result)
+            else:
+                return result
+    if not res:
+        return default
+    else:
+        if len(res) == 1:
+            return res[0]
+        else:
+            return res
 
 
 def put_sequence(q: Union[queue.Queue, asyncio.Queue], seq: Iterable) -> Union[queue.Queue, asyncio.Queue]:
@@ -834,6 +879,14 @@ def init_aria2c(args):
 ############################################################
 
 
+def is_ipaddr(res):
+    try:
+        ip_address(res)
+        return True
+    except Exception:
+        return False
+
+
 class myIP:
     URLS_API_GETMYIP = {
         "httpbin": {"url": "https://httpbin.org/get", "key": "origin"},
@@ -875,12 +928,6 @@ class myIP:
     @classmethod
     def get_myiptryall(cls, key=None, timeout=1):
 
-        def is_ipaddr(res):
-            try:
-                ip_address(res)
-                return True
-            except Exception:
-                return False
         exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
         futures = {exe.submit(cls.get_ip, key=key, timeout=timeout, api=api):
                    api for api in cls.URLS_API_GETMYIP}
@@ -915,10 +962,12 @@ class TorGuardProxies:
 
     EVENT = MySyncAsyncEvent("dummy")
 
+    logger = logging.getLogger("torguardprx")
+
     @classmethod
     def test_proxies_rt(cls, routing_table, timeout=2):
-        logger = logging.getLogger("torguardprx")
-        logger.info("[init_proxies] starting test proxies")
+
+        TorGuardProxies.logger.info("[init_proxies] starting test proxies")
         bad_pr = []
         with ThreadPoolExecutor() as exe:
             futures = {exe.submit(get_myip, key=_key, timeout=timeout): _key
@@ -930,7 +979,7 @@ class TorGuardProxies:
                     break
                 _ip = fut.result()
                 if _ip != routing_table[futures[fut]]:
-                    logger.debug(
+                    TorGuardProxies.logger.debug(
                         f"[{futures[fut]}] test: {_ip} expect res: " +
                         f"{routing_table[futures[fut]]}")
                     bad_pr.append(routing_table[futures[fut]])
@@ -939,7 +988,6 @@ class TorGuardProxies:
 
     @classmethod
     def test_proxies_raw(cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2):
-        logger = logging.getLogger("torguardprx")
         cmd_gost = [
             f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} "
             f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
@@ -959,7 +1007,7 @@ class TorGuardProxies:
                                      stderr=subprocess.PIPE, shell=True)
             _proc.poll()
             if _proc.returncode:
-                logger.error(
+                TorGuardProxies.logger.error(
                     f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
                 raise Exception("init proxies error")
             else:
@@ -969,14 +1017,14 @@ class TorGuardProxies:
         _res_bad = None
         if not TorGuardProxies.EVENT.is_set():
             _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
-            logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
+            TorGuardProxies.logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
 
             _res_bad = cls.test_proxies_rt(routing_table, timeout=timeout)
             _line_ps_pr = []
             for _ip in _res_bad:
                 if (_temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None)):
                     _line_ps_pr.append(_temp)
-            logger.info(
+            TorGuardProxies.logger.info(
                 f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] " +
                 f"ps_print [{len(_line_ps_pr)}]")
 
@@ -1011,9 +1059,7 @@ class TorGuardProxies:
         event=None
     ) -> Tuple[List, Dict]:
 
-        logger = logging.getLogger("torguardprx")
-
-        logger.info("[init_proxies] start")
+        TorGuardProxies.logger.info("[init_proxies] start")
 
         try:
 
@@ -1054,7 +1100,7 @@ class TorGuardProxies:
             IPS_SSL.remove(_ip_main)
 
             if len(IPS_SSL) < num * (size + 1):
-                logger.warning("[init_proxies] not enough IPs to generate sample")
+                TorGuardProxies.logger.warning("[init_proxies] not enough IPs to generate sample")
                 return [], {}
 
             _ips = random.sample(IPS_SSL, num * (size + 1))
@@ -1111,18 +1157,18 @@ class TorGuardProxies:
             if TorGuardProxies.EVENT.is_set():
                 return [], {}
 
-            logger.debug(f"[init_proxies] {cmd_gost}")
-            logger.debug(f"[init_proxies] {routing_table}")
+            TorGuardProxies.logger.debug(f"[init_proxies] {cmd_gost}")
+            TorGuardProxies.logger.debug(f"[init_proxies] {routing_table}")
 
             proc_gost = []
 
             try:
                 for cmd in cmd_gost:
-                    logger.debug(cmd)
+                    TorGuardProxies.logger.debug(cmd)
                     _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
                     _proc.poll()
                     if _proc.returncode:
-                        logger.error(
+                        TorGuardProxies.logger.error(
                             f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]"
                         )
                         raise Exception("init proxies error")
@@ -1135,7 +1181,7 @@ class TorGuardProxies:
                 return proc_gost, routing_table
 
             except Exception as e:
-                logger.exception(repr(e))
+                TorGuardProxies.logger.exception(repr(e))
                 if proc_gost:
                     for proc in proc_gost:
                         try:
@@ -1145,7 +1191,212 @@ class TorGuardProxies:
                             pass
                 return [], {}
         finally:
-            logger.info("[init_proxies] done")
+            TorGuardProxies.logger.info("[init_proxies] done")
+
+    def genwgconf(self, host, **kwargs):
+
+        allips = [
+            '1.0.0.0/8',
+            '2.0.0.0/8',
+            '3.0.0.0/8',
+            '4.0.0.0/6',
+            '8.0.0.0/7',
+            '11.0.0.0/8',
+            '12.0.0.0/6',
+            '16.0.0.0/4',
+            '32.0.0.0/3',
+            '64.0.0.0/2',
+            '128.0.0.0/3',
+            '160.0.0.0/5',
+            '168.0.0.0/6',
+            '172.0.0.0/12',
+            '172.32.0.0/11',
+            '172.64.0.0/10',
+            '172.128.0.0/9',
+            '173.0.0.0/8',
+            '174.0.0.0/7',
+            '176.0.0.0/4',
+            '192.0.0.0/9',
+            '192.128.0.0/11',
+            '192.160.0.0/13',
+            '192.169.0.0/16',
+            '192.170.0.0/15',
+            '192.172.0.0/14',
+            '192.176.0.0/12',
+            '192.192.0.0/10',
+            '193.0.0.0/8',
+            '194.0.0.0/7',
+            '196.0.0.0/6',
+            '200.0.0.0/5',
+            '208.0.0.0/4',
+            '10.26.0.1/32']
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/111.0',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'Accept-Language': 'en,es-ES;q=0.5',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'X-Requested-With': 'XMLHttpRequest',
+            'Origin': 'https://torguard.net',
+            'Alt-Used': 'torguard.net',
+            'Connection': 'keep-alive',
+            'Referer': 'https://torguard.net/tgconf.php?action=vpn-openvpnconfig',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Alt-Used': 'torguard.net',
+            'Connection': 'keep-alive',
+            'Referer': 'https://torguard.net/tgconf.php?action=vpn-openvpnconfig',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Connection': 'keep-alive',
+            'Referer': 'https://torguard.net/tgconf.php?action=vpn-openvpnconfig',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'Pragma': 'no-cache',
+            'Cache-Control': 'no-cache',
+            'TE': 'trailers'}
+        data = {
+            'token': '7cb788d89a93f49b54a91b3517e75a9fda7b7d55',
+            'tokk': 'ad97fcbd2c6d',
+            'device': '',
+            'tunnel': 'wireguard',
+            'oserver[]': '',
+            'server': '',
+            'protocol': 'udp',
+            'cipher': '1912|SHA256',
+            'Ecipher': 'AES-128-CBC',
+            'build': '2.6',
+            'username': 'atgarcia',
+            'password': '',
+            'privkey': '',
+            'pubkey': '',
+            'wgport': '1443',
+            'mtu': '1390'}
+        if is_ipaddr(host):
+            data['server'] = host
+        elif 'torguard.com' in host:
+            data['oserver[]'] = host
+        else:
+            TorGuardProxies.logger.error(f'[gen_wg_conf] {host} is not a torguard domain: xx.torguard.com')
+
+        cl = httpx.Client(follow_redirects=True, verify=False)
+
+        if (ckies := kwargs.get('cookies')):
+            reqckies = ckies.get('Request Cookies', ckies)
+            for name, value in reqckies.items():
+                cl.cookies.set(name, value, 'torguard.net')
+        else:
+            for cookie in extract_cookies_from_browser('firefox'):
+                if 'torguard.net' in cookie.domain:
+                    cl.cookies.set(name=cookie.name, value=cookie.value, domain=cookie.domain)  # type: ignore
+        if (info := kwargs.get('info')):
+            data.update(info)
+        else:
+            headersform = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/111.0',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en,es-ES;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Origin': 'https://torguard.net',
+                'Alt-Used': 'torguard.net',
+                'Connection': 'keep-alive',
+                'Referer': 'https://torguard.net/clientarea.php',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'same-origin',
+                'Pragma': 'no-cache',
+                'Cache-Control': 'no-cache',
+                'TE': 'trailers'}
+            with limiter_0_1.ratelimit("torguardconf", delay=True):
+                resform = cl.get('https://torguard.net/tgconf.php?action=vpn-openvpnconfig', headers=headersform)
+            token, tokk = re.findall(r'"(?:token|tokk)" value="([^"]+)"', resform.text) or ["", ""]
+            if token and tokk:
+                data['token'] = token
+                data['tokk'] = tokk
+        allowedips = 'AllowedIPs = ' + ', '.join(allips)
+        urlpost = 'https://torguard.net/generateconfig.php'
+        with limiter_0_1.ratelimit("torguardconf", delay=True):
+            respost = try_get(cl.post(urlpost, headers=headers, data=data), lambda x: x.json())
+        if respost and respost.get('success') == 'true' and (_config := respost.get('config')):
+            _config = _config.replace('DNS = 1.1.1.1', 'DNS = 10.26.0.1').replace('AllowedIPs = 0.0.0.0/0', allowedips)
+            if not data['server']:
+                _ip = try_get(re.search(r'Endpoint = (?P<ip>[^\:]+)\:', _config), lambda x: x.groupdict().get('ip')) or ""
+                _file = data['oserver[]'].split('.')[0].upper() + _ip.replace(".", "_") + '.conf'
+            else:
+                _file = kwargs.get('pre', '') + data['server'].replace(".", "_") + '.conf'
+            with open(f'/Users/antoniotorres/testing/{_file}', 'w') as f:
+                f.write(_config)
+        else:
+            TorGuardProxies.logger.error(
+                f"[gen_wg_conf] {respost.get('error') if respost else 'error with host[{host}]: check cookies and tokens'}")
+
+
+class ProgressBar(MultilinePrinter):
+    _DELAY, _timer = 0.1, 0
+    _logger = logging.getLogger('progressbar')
+
+    # to stop sending events to loggers while progressbar is printing
+    def __enter__(self):
+        try_get(self._logger.parent.handlers, lambda x: x[0].stop())  # type: ignore
+        self.count = 0
+        return self
+
+    def __exit__(self, *args):
+        try_get(self._logger.parent.handlers, lambda x: x[0].start())  # type: ignore
+        super().__exit__(*args)
+
+    def print(self, message):
+        if time.time() - self._timer > self._DELAY:
+            self.print_at_line(f'[progress] {message}', 0)
+            self._timer = time.time()
+
+
+def get_all_wd_conf(name=None):
+    if name and 'torguard.com' in name:
+        ips = TorGuardProxies.get_ips(name)
+        if ips:
+            init_logging()
+            total = len(ips)
+            lock = threading.Lock()
+            _pre = name.split('.')[0].upper()
+            proxies = TorGuardProxies()
+
+            with ProgressBar(sys.stderr, preserve_output=False) as pb:
+                def getconf(_ip):
+                    try:
+                        proxies.genwgconf(_ip, pre=_pre)
+                    except Exception:
+                        pass
+                    with lock:
+                        pb.count += 1
+                        pb.print(f'{pb.count}/{total}')
+
+                with ThreadPoolExecutor(thread_name_prefix='tgconf', max_workers=5) as exe:
+                    _ = [exe.submit(getconf, ip, ) for ip in ips]
+
+                time.sleep(1)
+                pb.print('')
+        else:
+            print(f'{name} doesnt get any ip when dns resolving')
+    else:
+        print('Missing domain torguard: xx.torguard.com')
+
+
+def get_wd_conf(name=None, pre=None):
+    if name:
+        try:
+            proxies = TorGuardProxies()
+            proxies.genwgconf(name, pre=pre)
+        except Exception as e:
+            print(repr(e))
+    else:
+        print('Use ip or torguard domain xx.torguard.com')
 
 
 ############################################################
