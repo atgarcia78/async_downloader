@@ -1437,6 +1437,7 @@ def get_extractor(url, ytdl):
 
 
 class myYTDL(YoutubeDL):
+
     def __init__(self, params: Union[None, dict] = None, auto_init: Union[bool, str] = True, **kwargs):
         self._close: bool = kwargs.get("close", True)
         self.executor: ThreadPoolExecutor = kwargs.get(
@@ -1462,6 +1463,9 @@ class myYTDL(YoutubeDL):
         else:
             return (ie._RETURN_TYPE == 'playlist', ie_key)
 
+    def close(self):
+        ies_close(self._ies_instances)
+
     async def stop(self):
         _stop = self.params.get('stop')
         if _stop:
@@ -1473,17 +1477,14 @@ class myYTDL(YoutubeDL):
                 _stop.set()
                 await asyncio.sleep(0)
 
-    def close(self):
-        ies_close(self._ies_instances)
+    # def extract_info(self, *args, **kwargs) -> Union[dict, None]:
+    #     return super().extract_info(*args, **kwargs)
 
-    def extract_info(self, *args, **kwargs) -> Union[dict, None]:
-        return super().extract_info(*args, **kwargs)
+    # def process_ie_result(self, *args, **kwargs) -> dict:
+    #     return super().process_ie_result(*args, **kwargs)
 
-    def process_ie_result(self, *args, **kwargs) -> dict:
-        return super().process_ie_result(*args, **kwargs)
-
-    def sanitize_info(self, *args, **kwargs) -> dict:
-        return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore
+    # def sanitize_info(self, *args, **kwargs) -> dict:
+    #     return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore
 
     async def async_extract_info(self, *args, **kwargs) -> dict:
         return await sync_to_async(
@@ -1495,15 +1496,14 @@ class myYTDL(YoutubeDL):
 
 
 class ProxyYTDL(YoutubeDL):
+
     def __init__(self, **kwargs):
         opts = kwargs.get("opts", {})
         proxy = kwargs.get("proxy", None)
         quiet = kwargs.get("quiet", True)
         verbose = kwargs.get("verbose", False)
         verboseplus = kwargs.get("verboseplus", False)
-        self._close = kwargs.get("close", True)
-        self.executor = kwargs.get(
-            "executor", ThreadPoolExecutor(thread_name_prefix="proxyYTDL"))
+
         opts["quiet"] = quiet
         opts["verbose"] = verbose
         opts["verboseplus"] = verboseplus
@@ -1511,15 +1511,14 @@ class ProxyYTDL(YoutubeDL):
             logging.getLogger("proxyYTDL"),
             quiet=opts["quiet"],
             verbose=opts["verbose"],
-            superverbose=opts["verboseplus"],
-        )
+            superverbose=opts["verboseplus"])
         opts["proxy"] = proxy
 
-        super().__init__(params=opts,
-                         auto_init="no_verbose_header")  # type: ignore
+        self._close = kwargs.get("close", True)
+        self.executor = kwargs.get(
+            "executor", ThreadPoolExecutor(thread_name_prefix="proxyYTDL"))
 
-    def __enter__(self):
-        return self
+        super().__init__(params=opts, auto_init="no_verbose_header")  # type: ignore
 
     def __exit__(self, *args, **kwargs):
         if self._close:
@@ -1529,7 +1528,7 @@ class ProxyYTDL(YoutubeDL):
         return self
 
     async def __aexit__(self, *args, **kwargs):
-        self.close()
+        self.__exit__(*args, **kwargs)
 
     def is_playlist(self, url):
         ie_key, ie = get_extractor(url, self)
@@ -1537,6 +1536,9 @@ class ProxyYTDL(YoutubeDL):
             return (True, ie_key)
         else:
             return (ie._RETURN_TYPE == 'playlist', ie_key)
+
+    def close(self):
+        ies_close(self._ies_instances)
 
     async def stop(self):
         _stop = self.params.get('stop')
@@ -1549,17 +1551,14 @@ class ProxyYTDL(YoutubeDL):
                 _stop.set()
                 await asyncio.sleep(0)
 
-    def close(self):
-        ies_close(self._ies_instances)
+    # def extract_info(self, *args, **kwargs) -> Union[dict, None]:
+    #     return super().extract_info(*args, **kwargs)
 
-    def extract_info(self, *args, **kwargs) -> Union[dict, None]:
-        return super().extract_info(*args, **kwargs)
+    # def process_ie_result(self, *args, **kwargs) -> dict:
+    #     return super().process_ie_result(*args, **kwargs)
 
-    def process_ie_result(self, *args, **kwargs) -> dict:
-        return super().process_ie_result(*args, **kwargs)
-
-    def sanitize_info(self, *args, **kwargs) -> dict:
-        return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore
+    # def sanitize_info(self, *args, **kwargs) -> dict:
+    #     return YoutubeDL.sanitize_info(*args, **kwargs)  # type: ignore
 
     async def async_extract_info(self, *args, **kwargs) -> dict:
         return await sync_to_async(
@@ -1909,11 +1908,10 @@ def check_if_dl(info_dict, videos=None):
             for key in videos.keys():
                 if vidname in key:
                     res[vidname].update({key: videos[key]})
-
     return res
 
 ############################################################
-# """                     PYSIMPLEGUI                     """
+# """                     PYSIMPLEGUI                    """
 ############################################################
 
 
@@ -1928,8 +1926,6 @@ class CountDowns:
     INTERV_TIME = 0.25
     N_PER_SECOND = 1 if INTERV_TIME >= 1 else int(1 / INTERV_TIME)
     PRINT_DIF_IN_SECS = 20
-    LF = '\n'
-    PROMPT = ''
     _INPUT = Queue()
 
     def __init__(self, klass, events=None, logger=None):
@@ -1945,7 +1941,6 @@ class CountDowns:
 
         self.kill_input = MySyncAsyncEvent('killinput')
         self.logger = logger if logger else logging.getLogger('asyncdl')
-        #  atexit.register(self.enable_echo, True)
         self.index_main = None
         self.countdowns = {}
         self.exe = ThreadPoolExecutor(thread_name_prefix='countdown')
@@ -1961,10 +1956,12 @@ class CountDowns:
 
         self.kill_input.set()
         _futures = [self.futures['input']]
+        time.sleep(self.INTERV_TIME)
         for _index, _count in self.countdowns.items():
             if _count['status'] == 'running':
                 _count['stop'].set()
                 _futures.append(self.futures[_index])
+                time.sleep(self.INTERV_TIME)
         wait_thr(_futures)
         self.futures = {}
         if self.countdowns:
@@ -1981,37 +1978,32 @@ class CountDowns:
     def inputimeout(self):
 
         self.logger.debug(f'{self._pre} start input')
-        _res = None
 
-        while True:
+        _events = self.outer_events + [self.kill_input]
 
-            try:
-                _res = [getattr(ev, 'name', 'noname')
-                        for ev in self.outer_events + [self.kill_input] if ev.is_set()]
+        try:
+            while True:
 
-                if _res:
-                    break
+                try:
+                    if [getattr(ev, 'name', 'noname') for ev in _events if ev.is_set()]:
 
-                _input = CountDowns._INPUT.get(block=True, timeout=CountDowns.INPUT_TIMEOUT)
-                if _input == '':
-                    _input = self.index_main
-                if _input in self.countdowns:
-                    self.logger.debug(f'{self._pre} input[{_input}] is index video')
-                    self.countdowns[_input]['stop'].set()
-                else:
-                    self.logger.debug(f'{self._pre} input[{_input}] not index video')
+                        break
 
-            except Empty:
-                pass
-            except Exception as e:
-                self.logger.exception(f'{self._pre} {repr(e)}')
+                    _input = CountDowns._INPUT.get(block=True, timeout=CountDowns.INPUT_TIMEOUT)
+                    if _input == '':
+                        _input = self.index_main
+                    elif _input in self.countdowns:
+                        self.logger.debug(f'{self._pre} input[{_input}] is index video')
+                        self.countdowns[_input]['stop'].set()
+                    else:
+                        self.logger.debug(f'{self._pre} input[{_input}] not index video')
 
-        if not _res:
-            time.sleep(self.INTERV_TIME)
-            _res = ["TIMEOUT_INPUT"]
-
-        self.logger.debug(f'{self._pre} return Input: {_res}')
-        return _res
+                except Empty:
+                    pass
+                except Exception as e:
+                    self.logger.exception(f'{self._pre} {repr(e)}')
+        finally:
+            self.logger.debug(f'{self._pre} return Input')
 
     def start_countdown(self, n, index, event=None):
 
@@ -2030,13 +2022,13 @@ class CountDowns:
             _res = [getattr(ev, 'name', 'noname') for ev in _events if ev.is_set()]
             if _res:
                 break
-
             time.sleep(self.INTERV_TIME)
 
         self.klass._QUEUE[index].put_nowait('')
 
         if not _res:
             _res = ["TIMEOUT_COUNT"]
+
         self.logger.debug(f"{self.countdowns[index]['premsg']} return Count: {_res}")
         return _res
 
@@ -2050,19 +2042,22 @@ class CountDowns:
             timeout = n - 3
         else:
             timeout = self.DEFAULT_TIMEOUT - 3
+
         time.sleep(3)
 
         with self.lock:
             if not self.index_main:
                 self.index_main = index
+
         self.logger.info(f'{_premsg} index_main[{self.index_main}]')
 
         self.countdowns[index] = {
-                'index': index,
-                'premsg': _premsg,
-                'timeout': timeout,
-                'status': 'running',
-                'stop': MySyncAsyncEvent(f"killcounter[{index}]")}
+            'index': index,
+            'premsg': _premsg,
+            'timeout': timeout,
+            'status': 'running',
+            'stop': MySyncAsyncEvent(f"killcounter[{index}]")
+        }
 
         _fut = self.exe.submit(self.start_countdown, timeout, index, event=event)
         self.futures[index] = _fut
@@ -2093,8 +2088,6 @@ class CountDowns:
 
 
 def init_gui_root():
-
-    #  logger = logging.getLogger("init_gui_root")
 
     sg.theme("SystemDefaultForReal")
 
@@ -2130,6 +2123,7 @@ def init_gui_root():
             ]
         ]
     )
+
     col_1 = sg.Column(
         [
             [sg.Text("NOW DOWNLOADING/CREATING FILE", font="Any 14")],
@@ -2203,8 +2197,6 @@ def init_gui_root():
 
 def init_gui_console(pasres_value):
 
-    #  logger = logging.getLogger("init_gui_cons")
-
     sg.theme("SystemDefaultForReal")
 
     col_pygui = sg.Column(
@@ -2235,9 +2227,7 @@ def init_gui_console(pasres_value):
                     default=False,
                     enable_events=True,
                 ),
-                # sg.Checkbox(
-                #     "WkInit", key="-WKINIT-", default=True, enable_events=True
-                # ),
+
                 sg.Button("+PasRes"),
                 sg.Button("-PasRes"),
                 sg.Button("DLStatus", key="-DL-STATUS"),
@@ -2300,7 +2290,7 @@ class FrontEndGUI:
             'manip': {},
             'finish': {}
         }
-        # self.dl_media_str = None
+
         self.stop = MySyncAsyncEvent("stopfegui")
         self.exit_gui = MySyncAsyncEvent("exitgui")
         self.stop_upt_window = self.upt_window_periodic()
@@ -2417,41 +2407,27 @@ class FrontEndGUI:
                 self.console_dl_status = True
         elif event in ['IncWorkerRun']:
             self.asyncdl.WorkersRun.add_worker()
-            sg.cprint(
-                f'Workers: {self.asyncdl.WorkersRun.max}'
-            )
+            sg.cprint(f'Workers: {self.asyncdl.WorkersRun.max}')
         elif event in ['DecWorkerRun']:
             self.asyncdl.WorkersRun.del_worker()
-            sg.cprint(
-                f'Workers: {self.asyncdl.WorkersRun.max}'
-            )
+            sg.cprint(f'Workers: {self.asyncdl.WorkersRun.max}')
         elif event in ['TimePasRes']:
             if not values['-IN-']:
                 sg.cprint('[pause-resume autom] Please enter number')
-                sg.cprint(
-                    f'[pause-resume autom] {list(self.asyncdl.list_pasres)}')
+                sg.cprint(f'[pause-resume autom] {list(self.asyncdl.list_pasres)}')
             else:
                 timers = [timer.strip() for timer in values['-IN-'].split(',')]
                 if len(timers) > 2:
                     sg.cprint('max 2 timers')
                 else:
-                    if any(
-                        [
-                            (not timer.isdecimal() or int(timer) < 0)
-                            for timer in timers
-                        ]
-                    ):
+                    if any([(not timer.isdecimal() or int(timer) < 0) for timer in timers]):
                         sg.cprint('not an integer, or negative')
                     else:
                         if len(timers) == 2:
-                            self.pasres_time_from_resume_to_pause = int(
-                                timers[0]
-                            )
+                            self.pasres_time_from_resume_to_pause = int(timers[0])
                             self.pasres_time_in_pause = int(timers[1])
                         else:
-                            self.pasres_time_from_resume_to_pause = int(
-                                timers[0]
-                            )
+                            self.pasres_time_from_resume_to_pause = int(timers[0])
                             self.pasres_time_in_pause = int(timers[0])
 
                         sg.cprint(
@@ -2459,6 +2435,7 @@ class FrontEndGUI:
                             f'[time in pause] {self.pasres_time_in_pause}')
 
                 self.window_console['-IN-'].update(value='')
+
         elif event in ['NumVideoWorkers']:
             if not values['-IN-']:
                 sg.cprint('Please enter number')
@@ -2482,11 +2459,11 @@ class FrontEndGUI:
                                     await _copy_list_dl[_ind].change_numvidworkers(_nvidworkers)
                                 else:
                                     sg.cprint('DL index doesnt exist')
-
                         else:
                             sg.cprint('DL list empty')
 
                 self.window_console['-IN-'].update(value='')
+
         elif event in [
             'ToFile',
             'Info',
@@ -2507,19 +2484,16 @@ class FrontEndGUI:
                 if (_values := values.get(event)):  # from thread pasres
                     _index_list = [int(el) for el in _values.split(',')]
                 elif (not (_values := values['-IN-']) or _values.lower() == 'all'):
-                    _index_list = [
-                        int(dl.index) for _, dl in _copy_list_dl.items()]
+                    _index_list = [int(dl.index) for _, dl in _copy_list_dl.items()]
                     self.window_console['-IN-'].update(value='')
                 else:
-                    if any([
-                            any([
-                                    not el.isdecimal(), int(el) == 0,
-                                    int(el) > len(_copy_list_dl)])
+                    if any([any([not el.isdecimal(), int(el) == 0, int(el) > len(_copy_list_dl)])
                             for el in values['-IN-'].replace(' ', '').split(',')]):
 
                         sg.cprint('incorrect numbers of dl')
                     else:
                         _index_list = [int(el) for el in values['-IN-'].replace(' ', '').split(',')]
+
                     self.window_console['-IN-'].update(value='')
 
                 if _index_list:
@@ -2538,17 +2512,13 @@ class FrontEndGUI:
                         elif event == 'Resume':
                             await self.asyncdl.list_dl[_index].resume()
                         elif event == 'Reset':
-                            await self.asyncdl.list_dl[
-                                _index].reset_from_console()
+                            await self.asyncdl.list_dl[_index].reset_from_console()
                         elif event == 'Stop':
                             await self.asyncdl.list_dl[_index].stop()
                         elif event in ['Info', 'ToFile']:
-                            _thr = getattr(
-                                self.asyncdl.list_dl[_index].info_dl['downloaders'][0],
-                                'throttle', None)
+                            _thr = getattr(self.asyncdl.list_dl[_index].info_dl['downloaders'][0], 'throttle', None)
                             sg.cprint(f'[{_index}] throttle [{_thr}]')
-                            _info = json.dumps(
-                                self.asyncdl.list_dl[_index].info_dict)
+                            _info = json.dumps(self.asyncdl.list_dl[_index].info_dict)
                             sg.cprint(f'[{_index}] info\n{_info}')
                             sg.cprint(
                                 f'[{_index}] filesize[{self.asyncdl.list_dl[_index].info_dl["downloaders"][0].filesize}]' +
@@ -2557,6 +2527,7 @@ class FrontEndGUI:
                                 f'resume[{self.asyncdl.list_dl[_index].resume_event.is_set()}]' +
                                 f'stop[{self.asyncdl.list_dl[_index].stop_event.is_set()}]' +
                                 f'reset[{self.asyncdl.list_dl[_index].reset_event.is_set()}]')
+
                             info.append(_info)
 
                         await asyncio.sleep(0)
@@ -2602,9 +2573,7 @@ class FrontEndGUI:
 
         except BaseException as e:
             if not isinstance(e, asyncio.CancelledError):
-                self.logger.exception(
-                    f'[gui] {repr(e)}'
-                )
+                self.logger.exception(f'[gui] {repr(e)}')
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
@@ -2630,21 +2599,26 @@ class FrontEndGUI:
             else:
                 _status = status
 
+        # _copy_list_dl = self.asyncdl.list_dl.copy()
+
+        _copy_list_dl = self.asyncdl.list_dl.keys()
+
         for st in _status:
             list_upt[st] = {}
             list_res[st] = {}
 
-            _copy_list_dl = self.asyncdl.list_dl.copy()
-
-            for i, dl in _copy_list_dl.items():
-
-                if dl.info_dl['status'] in trans[st]:
-                    list_res[st].update({i: dl.print_hookup()})
+            # for i, dl in _copy_list_dl.items():
+            for i in _copy_list_dl:
+                # if dl.info_dl['status'] in trans[st]:
+                if self.asyncdl.list_dl[i].info_dl['status'] in trans[st]:
+                    # list_res[st].update({i: dl.print_hookup()})
+                    list_res[st].update({i: self.asyncdl.list_dl[i].print_hookup()})
 
             if list_res[st] == self.list_all_old[st]:
                 del list_upt[st]
             else:
                 list_upt[st] = list_res[st]
+
         if nwmon:
             list_upt['nwmon'] = nwmon
 
