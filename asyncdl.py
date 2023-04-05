@@ -593,6 +593,8 @@ class AsyncDL:
                     _info = self.ytdl.sanitize_info(
                         await self.ytdl.async_process_ie_result(_info, download=False))
 
+                    assert isinstance(_info, dict)
+
                     if not _info.get("original_url"):
                         _info.update({"original_url": _url})
 
@@ -626,6 +628,8 @@ class AsyncDL:
                         _info = self.ytdl.sanitize_info(
                             await self.ytdl.async_process_ie_result(_info, download=False))
 
+                        assert _info and isinstance(_info, dict)
+
                         if _info.get("extractor_key") in ("GVDBlogPost", "GVDBlogPlaylist"):
                             _temp_aldl = []
                             _temp_nodl = []
@@ -648,10 +652,12 @@ class AsyncDL:
                             _ent = self.ytdl.sanitize_info(
                                 await self.ytdl.async_process_ie_result(_ent, download=False))
 
+                            assert isinstance(_ent, dict)
+
                             if not _ent.get("original_url"):
                                 _ent.update({"original_url": _url})
                             elif _ent["original_url"] != _url:
-                                _ent["initial_url"] = _url
+                                _ent["playlist_url"] = _url
                             if ((_ent.get("extractor_key", _ent.get("ie_key", ""))).lower() == "generic"
                                     and (_ent.get("n_entries", 0) <= 1)):
 
@@ -1070,6 +1076,8 @@ class AsyncDL:
             else:
                 info = vid
 
+            assert isinstance(info, dict)
+
             if (_type := info.get("_type", "video")) == "video":
 
                 if not self.STOP.is_set():
@@ -1091,7 +1099,6 @@ class AsyncDL:
                         try:
                             if not self.info_videos.get(_url):
                                 # es decir, los nuevos videos
-
                                 self.info_videos[_url] = {
                                     "source": "playlist",
                                     "video_info": _entry,
@@ -1103,9 +1110,7 @@ class AsyncDL:
                                     "error": [],
                                 }
 
-                                _same_video_url = await self.async_check_if_same_video(_url)
-
-                                if _same_video_url:
+                                if (_same_video_url := await self.async_check_if_same_video(_url)):
 
                                     self.info_videos[_url].update({"samevideo": _same_video_url})
                                     logger.warning(
@@ -1115,23 +1120,16 @@ class AsyncDL:
                                     await self._prepare_for_dl(_url, put=False)
 
                                 else:
-
                                     try:
                                         await self._prepare_for_dl(_url, put=False)
-
                                         if not self.STOP.is_set():
                                             await self.get_dl(_url, infdict=_entry)
-
                                     except Exception:
                                         raise
 
                         except Exception as e:
-
-                            self.list_initnok.append(
-                                (_entry, f"Error:{repr(e)}"))
-                            logger.error(
-                                f"{_pre}[{_url}] init nok - Error:{repr(e)}")
-
+                            self.list_initnok.append((_entry, f"Error:{repr(e)}"))
+                            logger.error(f"{_pre}[{_url}] init nok - Error:{repr(e)}")
                             self.list_urls_to_check.append((_url, repr(e)))
                             self.info_videos[_url]["error"].append(f"DL constructor error:{repr(e)}")
                             self.info_videos[_url]["status"] = "initnok"
@@ -1142,7 +1140,6 @@ class AsyncDL:
             self.list_urls_to_check.append((url_key, repr(e)))
             self.info_videos[url_key]["error"].append(f"DL constructor error:{repr(e)}")
             self.info_videos[url_key]["status"] = "initnok"
-
         finally:
             async with self.alock:
                 self.num_videos_pending -= 1
