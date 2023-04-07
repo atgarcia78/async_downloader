@@ -123,9 +123,9 @@ class AsyncHLSDownloader:
     _CLASSLOCK = threading.Lock()
     _OK_403 = MySyncAsyncEvent("ok_403")
     _CLEAN = MySyncAsyncEvent("clean")
-    _COUNTDOWNS = None
     _QUEUE = {}
-    _INPUT = Queue()
+    _COUNTDOWNS = CountDowns(_QUEUE, events=_OK_403, logger=logger)
+    # _INPUT = Queue()
     _INRESET_403 = InReset403()
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
@@ -792,10 +792,10 @@ class AsyncHLSDownloader:
                 AsyncHLSDownloader._INRESET_403.add(self.vid_dl.info_dict["playlist_index"])
                 with AsyncHLSDownloader._CLASSLOCK:
                     _pasres_cont = FrontEndGUI.pasres_break()
-                    if not AsyncHLSDownloader._COUNTDOWNS:
-                        AsyncHLSDownloader._COUNTDOWNS = CountDowns(
-                            AsyncHLSDownloader, events=AsyncHLSDownloader._OK_403, logger=logger)
-                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
+                    # if not AsyncHLSDownloader._COUNTDOWNS:
+                    #     AsyncHLSDownloader._COUNTDOWNS = CountDowns(
+                    #         AsyncHLSDownloader, events=AsyncHLSDownloader._OK_403, logger=logger)
+                    #     logger.debug(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
 
                 AsyncHLSDownloader._COUNTDOWNS.add(
                     CONF_HLS_RESET_403_TIME, index=str(self.vid_dl.index), event=self.vid_dl.stop_event, msg=self.premsg)

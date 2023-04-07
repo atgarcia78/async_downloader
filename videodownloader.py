@@ -9,6 +9,7 @@ from datetime import datetime
 from functools import partial
 from pathlib import Path
 from queue import Queue
+import contextlib
 
 import myaiofiles.os
 
@@ -89,6 +90,10 @@ class VideoDownloader:
         }
 
         self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)
+
+        with self.info_dl['ytdl'].params.get('lock', contextlib.nullcontext()):
+            self.info_dl['ytdl'].params.setdefault('_downloaders', {})
+            self.info_dl['ytdl'].params['_downloaders'].setdefault('AsyncHLSDownloader', AsyncHLSDownloader)
 
         downloaders = []
 

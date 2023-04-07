@@ -20,6 +20,8 @@ import xattr
 import sys
 from statistics import median
 from queue import Empty, Queue
+import termios
+import selectors
 
 from concurrent.futures import (
     ThreadPoolExecutor,
@@ -38,7 +40,8 @@ from typing import (
     Coroutine,
     Any,
     Iterable,
-    cast
+    cast,
+    Callable
 )
 
 import queue
@@ -702,12 +705,12 @@ def init_logging(file_path=None):
             logger = logging.getLogger(log_name)
             logger.setLevel(logging.INFO)
 
-    logger = logging.getLogger("proxy.http.proxy.server")
-    logger.setLevel(logging.WARNING)
-    logger = logging.getLogger("proxy.core.base.tcp_server")
-    logger.setLevel(logging.WARNING)
-    logger = logging.getLogger("proxy.http.handler")
-    logger.setLevel(logging.ERROR)
+    # logger = logging.getLogger("proxy.http.proxy.server")
+    # logger.setLevel(logging.WARNING)
+    # logger = logging.getLogger("proxy.core.base.tcp_server")
+    # logger.setLevel(logging.WARNING)
+    # logger = logging.getLogger("proxy.http.handler")
+    # logger.setLevel(logging.ERROR)
 
 
 def init_argparser():
@@ -1636,6 +1639,7 @@ def init_ytdl(args):
         "stop": threading.Event(),
         "lock": threading.Lock(),
         "embed": not args.no_embed,
+        "_util_class": {'SimpleCountDown': SimpleCountDown}
     }
 
     if args.use_cookies:
@@ -1928,10 +1932,10 @@ class CountDowns:
     PRINT_DIF_IN_SECS = 20
     _INPUT = Queue()
 
-    def __init__(self, klass, events=None, logger=None):
+    def __init__(self, klass_queue, events=None, logger=None):
 
         self._pre = '[countdown][WAIT403]'
-        self.klass = klass
+        self.klass_queue = klass_queue
         if not events:
             self.outer_events = []
         elif isinstance(events, (list, tuple)):
@@ -1993,8 +1997,13 @@ class CountDowns:
                     if _input == '':
                         _input = self.index_main
                     elif _input in self.countdowns:
-                        self.logger.debug(f'{self._pre} input[{_input}] is index video')
+                        self.logger.debug(
+                            f"{self._pre} input[{_input}] is index video, status[{self.countdowns[_input]['status']}]")
                         self.countdowns[_input]['stop'].set()
+                        if self.countdowns[_input]['status'] == 'done':
+                            CountDowns._INPUT.put_nowait(_input)
+                            time.sleep(CountDowns.INPUT_TIMEOUT)
+
                     else:
                         self.logger.debug(f'{self._pre} input[{_input}] not index video')
 
@@ -2010,7 +2019,7 @@ class CountDowns:
         def send_queue(x):
             if ((x == self.N_PER_SECOND*n) or (x % self.N_PER_SECOND) == 0):
                 _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}"
-                self.klass._QUEUE[index].put_nowait(_msg)
+                self.klass_queue[index].put_nowait(_msg)
 
         _res = None
         _events = self.outer_events + [self.countdowns[index]['stop']]
@@ -2024,7 +2033,7 @@ class CountDowns:
                 break
             time.sleep(self.INTERV_TIME)
 
-        self.klass._QUEUE[index].put_nowait('')
+        self.klass_queue[index].put_nowait('')
 
         if not _res:
             _res = ["TIMEOUT_COUNT"]
@@ -2085,6 +2094,103 @@ class CountDowns:
 
         self.logger.debug(f'{_premsg} finish wait for counter: {_res}')
         return _res
+
+
+class SimpleCountDown:
+
+    restimeout = object()
+    resexit = object()
+
+    def __init__(self, pb, inputqueue, check: Union[Callable, None] = None, logger=None, indexdl=None, timeout=60):
+
+        self._pre = '[countdown][WAIT503]'
+        if not check:
+            self.check = lambda: None
+        else:
+            self.check = check
+
+        self.pb = pb
+
+        self.timeout = timeout
+        self.indexdl = indexdl
+
+        if not queue:
+            self.inputq = None
+
+        else:
+            self.inputq = inputqueue
+
+        self.logger = logger if logger else logging.getLogger('asyncdl')
+
+    def enable_echo(self, enable):
+        fd = sys.stdin.fileno()
+        new = termios.tcgetattr(fd)
+        if enable:
+            new[3] |= termios.ECHO
+        else:
+            new[3] &= ~termios.ECHO
+
+        termios.tcsetattr(fd, termios.TCSANOW, new)
+
+    def _wait_for_enter(self, sel: selectors.DefaultSelector, interval: Union[int, None] = None):
+
+        events = sel.select(interval)
+        if events:
+            for key, _ in events:
+                line = key.fileobj.readline().rstrip()   # type: ignore
+                return line
+        else:
+            return self.restimeout
+
+    def _wait_for_queue(self, interval: Union[int, None] = None):
+        try:
+            assert self.inputq
+            return self.inputq.get(block=True, timeout=interval)
+        except queue.Empty:
+            return self.restimeout
+        except Exception as e:
+            self.logger.exception(repr(e))
+
+    @long_operation_in_thread(name='inptmout')
+    def countdown(self, *args, **kwargs):
+        exit_event = cast(MySyncAsyncEvent, kwargs['stop_event'])
+
+        if not self.inputq:
+            termios.tcflush(sys.stdin, termios.TCIFLUSH)
+            self.enable_echo(False)
+            sel = selectors.DefaultSelector()
+            sel.register(sys.stdin, selectors.EVENT_READ, data=sys.stdin)
+            self.wait_for = functools.partial(self._wait_for_enter, sel)
+        else:
+            self.wait_for = self._wait_for_queue
+
+        _input = 'error'
+        try:
+            t = 0
+            start = time.monotonic()
+            while (time.monotonic() - start < self.timeout):
+                try:
+                    _input = self.wait_for(1)
+                    if _input in ['exit', '', str(self.indexdl)]:
+                        break
+                    self.check()
+                    t += 1
+                    self.pb.print(f' Waiting {t}/{self.timeout}')
+
+                except Exception as e:
+                    self.logger.exception(repr(e))
+                    _input = 'error'
+                    break
+        finally:
+            if not self.inputq:
+                self.enable_echo(True)
+            _input = cast(str, _input)
+            exit_event.set(_input)
+
+    def __call__(self):
+        self.exit_event = self.countdown()
+        self.exit_event.wait()
+        return self.exit_event.is_set()
 
 
 def init_gui_root():
@@ -2854,14 +2960,7 @@ class NWSetUp:
         stop_event: MySyncAsyncEvent = kwargs['stop_event']
         log_level = kwargs.get('log_level', 'INFO')
         try:
-            with proxy.Proxy(
-                [
-                    '--log-level',
-                    log_level,
-                    '--plugins',
-                    'proxy.plugin.ProxyPoolByHostPlugin',
-                ]
-            ) as p:
+            with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
 
                 try:
                     self.logger.debug(p.flags)
