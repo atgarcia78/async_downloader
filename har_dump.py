@@ -61,15 +61,16 @@ def flow_entry(flow: mitmproxy.http.HTTPFlow) -> dict:
     connect_time = -1
 
     if flow.server_conn and flow.server_conn not in SERVERS_SEEN:
-        connect_time = (
-            flow.server_conn.timestamp_tcp_setup - flow.server_conn.timestamp_start
-        )
-
-        if flow.server_conn.timestamp_tls_setup is not None:
-            ssl_time = (
-                flow.server_conn.timestamp_tls_setup
-                - flow.server_conn.timestamp_tcp_setup
+        if flow.server_conn.timestamp_tcp_setup:
+            connect_time = (
+                flow.server_conn.timestamp_tcp_setup - flow.server_conn.timestamp_start
             )
+
+            if flow.server_conn.timestamp_tls_setup is not None:
+                ssl_time = (
+                    flow.server_conn.timestamp_tls_setup
+                    - flow.server_conn.timestamp_tcp_setup
+                )
 
         SERVERS_SEEN.add(flow.server_conn)
 

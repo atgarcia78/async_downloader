@@ -453,13 +453,9 @@ class AsyncHLSDownloader:
 
             else:
                 if (_todl := (self.filesize - self.down_size)) < 250000000:
-                    self.n_workers = min(self.n_workers, 8)
-                elif 250000000 <= _todl < 500000000:
                     self.n_workers = min(self.n_workers, 16)
-                elif 500000000 <= _todl < 1250000000:
+                elif _todl >= 250000000:
                     self.n_workers = min(self.n_workers, 32)
-                else:
-                    self.n_workers = min(self.n_workers, 64)
 
                 _est_size = naturalsize(self.filesize)
 
