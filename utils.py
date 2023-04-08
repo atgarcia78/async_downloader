@@ -718,8 +718,7 @@ def init_argparser():
     parser = argparse.ArgumentParser(
         description="Async downloader videos / playlist videos HLS / HTTP"
     )
-    parser.add_argument("-w", help="Number of DL workers",
-                        default="5", type=int)
+    parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
     parser.add_argument(
         "--winit",
         help="Number of init workers, default is same number for DL workers",
@@ -1594,6 +1593,14 @@ def is_playlist_extractor(url, ytdl):
 
 def init_ytdl(args):
 
+    '''
+    
+    
+ {'usenetrc': True, 'netrc_location': None, 'username': None, 'password': None, 'twofactor': None, 'videopassword': None, 'ap_mso': None, 'ap_username': None, 'ap_password': None, 'client_certificate': None, 'client_certificate_key': None, 'client_certificate_password': None, 'quiet': False, 'no_warnings': False, 'forceurl': False, 'forcetitle': False, 'forceid': False, 'forcethumbnail': False, 'forcedescription': False, 'forceduration': False, 'forcefilename': False, 'forceformat': False, 'forceprint': {}, 'print_to_file': {}, 'forcejson': False, 'dump_single_json': False, 'force_write_download_archive': False, 'simulate': None, 'skip_download': True, 'format': 'bv*+ba/b', 'allow_unplayable_formats': False, 'ignore_no_formats_error': True, 'format_sort': ['ext:mp4:m4a'], 'format_sort_force': False, 'allow_multiple_video_streams': False, 'allow_multiple_audio_streams': False, 'check_formats': None, 'listformats': None, 'listformats_table': True, 'outtmpl': {'default': '%(id)s/%(id)s_%(title)s.%(ext)s', 'chapter': '%(title)s-%(section_number)03d-%(section_title)s-[%(id)s].%(ext)s'}, 'outtmpl_na_placeholder': 'NA', 'paths': {'home': '~/testing/20230408'}, 'autonumber_size': None, 'autonumber_start': 1, 'restrictfilenames': True, 'windowsfilenames': False, 'ignoreerrors': True, 'force_generic_extractor': False, 'allowed_extractors': ['default'], 'ratelimit': None, 'throttledratelimit': None, 'retries': 2, 'file_access_retries': 3, 'fragment_retries': 10, 'extractor_retries': 1, 'retry_sleep_functions': {}, 'skip_unavailable_fragments': True, 'keep_fragments': False, 'concurrent_fragment_downloads': 1, 'buffersize': 1024, 'noresizebuffer': False, 'http_chunk_size': None, 'continuedl': True, 'noprogress': False, 'progress_with_newline': False, 'progress_template': {}, 'playliststart': 1, 'playlistend': None, 'playlistreverse': None, 'playlistrandom': None, 'lazy_playlist': None, 'noplaylist': False, 'logtostderr': False, 'consoletitle': False, 'nopart': False, 'updatetime': False, 'writedescription': False, 'writeannotations': False, 'writeinfojson': None, 'allow_playlist_files': True, 'clean_infojson': True, 'getcomments': False, 'writethumbnail': False, 'write_all_thumbnails': False, 'writelink': False, 'writeurllink': False, 'writewebloclink': False, 'writedesktoplink': False, 'writesubtitles': True, 'writeautomaticsub': False, 'allsubtitles': False, 'listsubtitles': False, 'subtitlesformat': 'best', 'subtitleslangs': ['all'], 'matchtitle': None, 'rejecttitle': None, 'max_downloads': None, 'prefer_free_formats': False, 'trim_file_name': 0, 'verbose': True, 'dump_intermediate_pages': False, 'write_pages': False, 'load_pages': False, 'test': False, 'keepvideo': True, 'min_filesize': None, 'max_filesize': None, 'min_views': None, 'max_views': None, 'daterange': <yt_dlp.utils.DateRange object at 0x1026c3310>, 'cachedir': None, 'youtube_print_sig_code': False, 'age_limit': None, 'download_archive': None, 'break_on_existing': False, 'break_on_reject': False, 'break_per_url': False, 'skip_playlist_after_errors': None, 'cookiefile': None, 'cookiesfrombrowser': None, 'legacyserverconnect': False, 'nocheckcertificate': False, 'prefer_insecure': None, 'enable_file_urls': False, 'http_headers': {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/111.0', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.5', 'Sec-Fetch-Mode': 'navigate', 'Accept-Encoding': 'gzip,deflate'}, 'proxy': None, 'socket_timeout': None, 'bidi_workaround': None, 'debug_printtraffic': False, 'prefer_ffmpeg': True, 'include_ads': None, 'default_search': None, 'dynamic_mpd': True, 'extractor_args': {}, 'youtube_include_dash_manifest': True, 'youtube_include_hls_manifest': True, 'encoding': None, 'extract_flat': 'discard_in_playlist', 'live_from_start': None, 'wait_for_video': None, 'mark_watched': False, 'merge_output_format': None, 'final_ext': None, 'postprocessors': [{'key': 'FFmpegSubtitlesConvertor', 'format': 'srt', 'when': 'before_dl'}, {'key': 'FFmpegConcat', 'only_multi_video': True, 'when': 'playlist'}], 'fixup': None, 'source_address': None, 'call_home': False, 'sleep_interval_requests': None, 'sleep_interval': None, 'max_sleep_interval': None, 'sleep_interval_subtitles': 0, 'external_downloader': {'default': 'aria2c'}, 'download_ranges': yt_dlp.utils.download_range_func([], []), 'force_keyframes_at_cuts': False, 'list_thumbnails': False, 'playlist_items': None, 'xattr_set_filesize': None, 'match_filter': None, 'no_color': False, 'ffmpeg_location': None, 'hls_prefer_native': None, 'hls_use_mpegts': None, 'hls_split_discontinuity': False, 'external_downloader_args': {}, 'postprocessor_args': {}, 'cn_verification_proxy': None, 'geo_verification_proxy': None, 'geo_bypass': True, 'geo_bypass_country': None, 'geo_bypass_ip_block': None, '_warnings': [], '_deprecation_warnings': [], 'compat_opts': set()}
+    
+    
+    '''
+
     logger = logging.getLogger("yt_dlp")
 
     headers = {
@@ -1620,7 +1627,7 @@ def init_ytdl(args):
         "format_sort": [args.sort],
         "nocheckcertificate": args.nocheckcert,
         "subtitleslangs": ["all"],
-        "convertsubtitles": "srt",
+        "keepvideo": True,
         "continuedl": True,
         "updatetime": False,
         "ignore_no_formats_error": True,
@@ -1631,6 +1638,13 @@ def init_ytdl(args):
         "usenetrc": True,
         "skip_download": True,
         "writesubtitles": True,
+        "postprocessors": [
+            {
+                'key': 'FFmpegSubtitlesConvertor',
+                'format': 'srt',
+                'when': 'before_dl'
+            }],
+        "concurrent_fragment_downloads": 64,
         "restrictfilenames": True,
         "user_agent": args.useragent,
         "verboseplus": args.vv,
@@ -1639,7 +1653,10 @@ def init_ytdl(args):
         "stop": threading.Event(),
         "lock": threading.Lock(),
         "embed": not args.no_embed,
-        "_util_class": {'SimpleCountDown': SimpleCountDown}
+        "_util_class": {'SimpleCountDown': SimpleCountDown},
+        "outtmpl": {
+            'default': '%(id)s_%(title)s.%(ext)s',
+            'chapter': '%(title)s-%(section_number)03d-%(section_title)s-[%(id)s].%(ext)s'}
     }
 
     if args.use_cookies:
