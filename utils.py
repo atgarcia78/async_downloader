@@ -112,7 +112,7 @@ assert StatusError503
 assert my_dec_on_exception
 assert cast
 
-netwwork_timeout_errors = [ReadTimeoutError, ReadTimeout]
+network_timeout_errors = (ReadTimeoutError, ReadTimeout)
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
@@ -2071,23 +2071,6 @@ def print_norm_time(time):
     return f"{hour:.0f}h:{minutes:.0f}min:{seconds:.0f}secs"
 
 
-network_exceptions = ()
-
-
-def patch_http_connection():
-    import socket
-    from urllib3.connection import HTTPConnection
-
-    options = [
-        (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
-        (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
-        (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
-        (socket.SOL_TCP, socket.TCP_KEEPCNT, 6)
-     ]
-
-    HTTPConnection.default_socket_options += options
-
-
 def patch_http_connection_pool(**constructor_kwargs):
     """
     This allows to override the default parameters of the
@@ -2098,11 +2081,21 @@ def patch_http_connection_pool(**constructor_kwargs):
     you want to give to the connection pool)
     """
     from urllib3 import connectionpool, poolmanager
+    import socket
+
+    specificoptions = [
+        (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+        (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
+        (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
+        (socket.SOL_TCP, socket.TCP_KEEPCNT, 6)
+     ]
 
     class MyHTTPConnectionPool(connectionpool.HTTPConnectionPool):
         def __init__(self, *args, **kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPConnectionPool, self).__init__(*args, **kwargs)
+
+            self.ConnectionCls.default_socket_options += specificoptions
 
     poolmanager.pool_classes_by_scheme[  # type: ignore
         "http"] = MyHTTPConnectionPool
@@ -2118,11 +2111,21 @@ def patch_https_connection_pool(**constructor_kwargs):
     you want to give to the connection pool)
     """
     from urllib3 import connectionpool, poolmanager
+    import socket
+
+    specificoptions = [
+        (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+        (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
+        (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
+        (socket.SOL_TCP, socket.TCP_KEEPCNT, 6)
+     ]
 
     class MyHTTPSConnectionPool(connectionpool.HTTPSConnectionPool):
         def __init__(self, *args, **kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPSConnectionPool, self).__init__(*args, **kwargs)
+
+            self.ConnectionCls.default_socket_options += specificoptions
 
     poolmanager.pool_classes_by_scheme[  # type: ignore
         "https"] = MyHTTPSConnectionPool
@@ -2207,8 +2210,10 @@ class CountDowns:
     def clean(self):
 
         self.kill_input.set()
-        _futures = [self.futures['input']]
         time.sleep(self.INTERV_TIME)
+        _futures = []
+        if (_input := self.futures.get('input')):
+            _futures.append(_input)
         for _index, _count in self.countdowns.items():
             if _count['status'] == 'running':
                 _count['stop'].set()
@@ -3161,11 +3166,7 @@ class NWSetUp:
             if self.asyncdl.args.aria2c:
                 ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
                 _task_aria2c = self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))
-                # self.asyncdl.background_tasks.add(_task_aria2c)
-                # _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
-                _tasks_init_aria2c = {
-                    _task_aria2c: 'aria2c'
-                }
+                _tasks_init_aria2c = {_task_aria2c: 'aria2c'}
                 self._tasks_init.update(_tasks_init_aria2c)
             if self.asyncdl.args.enproxy:
                 self.stop_proxy = self.run_proxy_http()
@@ -3198,50 +3199,54 @@ class NWSetUp:
     @long_operation_in_thread(name='proxythr')
     def run_proxy_http(self, *args, **kwargs):
 
-        stop_event: MySyncAsyncEvent = kwargs['stop_event']
+        stop = kwargs['stop_event']
+
         log_level = kwargs.get('log_level', 'INFO')
+
         try:
+
             with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
 
-                try:
-                    self.logger.debug(p.flags)
-                    stop_event.wait()
-                except BaseException:
-                    self.logger.error('context manager proxy')
+                self.logger.info(f'[proxy_http] {p.flags}')
+
+                stop.wait()
+
+            self.logger.info('[proxy_http] exit ctx manager')
+        except Exception as e:
+            self.logger.exception(f'[proxy_http] {repr(e)}')
         finally:
             self.shutdown_proxy.set()
+            self.logger.info(f'[proxy_http] bye proxy_http [{self.shutdown_proxy.is_set()}')
 
-    async def close(self, service=None):
+    async def close(self):
 
-        if not service:
-            services = ('proxy', 'aria2c')
-        else:
-            services = variadic(service)
+        try:
 
-        for serv in services:
+            if self.asyncdl.args.enproxy:
+                self.logger.debug('[close] proxy')
+                self.stop_proxy.set()
+                await asyncio.sleep(0)
+                self.logger.debug('[close] waiting for http proxy shutdown')
 
-            if serv == 'proxy':
-
-                if self.asyncdl.args.enproxy:
-                    self.logger.debug('[close] proxy')
-                    self.stop_proxy.set()
+                while not self.shutdown_proxy.is_set():
                     await asyncio.sleep(0)
-                    self.logger.debug('[close] waiting for http proxy shutdown')
-                    self.shutdown_proxy.wait()
-                    self.logger.debug('[close] OK shutdown')
 
-                    if self.proc_gost:
-                        self.logger.debug('[close] gost')
-                        for proc in self.proc_gost:
-                            try:
-                                proc.kill()
-                            except BaseException as e:
-                                self.logger.exception(f'[close] {repr(e)}')
-            if serv == 'aria2c':
+                self.logger.debug('[close] OK shutdown')
 
-                if self.proc_aria2c:
-                    self.logger.debug('[close] aria2c')
-                    self.proc_aria2c.kill()
+                if self.proc_gost:
+                    self.logger.debug('[close] gost')
+                    for proc in self.proc_gost:
+                        try:
+                            proc.kill()
+                        except BaseException as e:
+                            self.logger.exception(f'[close] {repr(e)}')
+
+        except Exception as e:
+            self.logger.exception(f'[close][nw] {repr(e)}')
+
+        if self.proc_aria2c:
+            self.logger.debug('[close] aria2c')
+            self.proc_aria2c.kill()
 
     async def restart_aria2c(self):
 

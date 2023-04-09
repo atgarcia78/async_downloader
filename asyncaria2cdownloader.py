@@ -9,7 +9,11 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from urllib.parse import unquote, urlparse, urlunparse
-from typing import cast, Union
+from typing import (
+    cast,
+    Union,
+
+)
 import aria2p
 
 from utils import (
@@ -40,7 +44,7 @@ from utils import (
     async_waitfortasks,
     put_sequence,
     my_dec_on_exception,
-    netwwork_timeout_errors
+    network_timeout_errors
 )
 
 logger = logging.getLogger('async_ARIA2C_DL')
@@ -211,17 +215,23 @@ class AsyncARIA2CDownloader:
 
     async def async_remove(self, list_dl, clean=False):
         if list_dl:
-            await self.sync_to_async(self.aria2_client.remove)(list_dl, clean=clean)
+            try:
+                await self.sync_to_async(self.aria2_client.remove)(list_dl, clean=clean)
+            except network_timeout_errors as e:
+                logger.warning(f'{self.premsg}[remove] error readtimeout - {repr(e)}')
 
-    async def async_remove_all(self, force=True):
-        await self.sync_to_async(self.aria2_client.remove_all)(force=force)
+    # async def async_remove_all(self, force=True):
+    #     await self.sync_to_async(self.aria2_client.remove_all)(force=force)
 
-    async def async_purge(self):
-        await self.sync_to_async(self.aria2_client.purge)()
+        # async def async_purge(self):
+    #     await self.sync_to_async(self.aria2_client.purge)()
 
     async def async_restart(self, list_dl, clean=False):
         if list_dl:
-            await self.sync_to_async(self.aria2_client.remove)(list_dl, files=True, clean=clean)
+            try:
+                await self.sync_to_async(self.aria2_client.remove)(list_dl, files=True, clean=clean)
+            except network_timeout_errors as e:
+                logger.warning(f'{self.premsg}[restart] error readtimeout - {repr(e)}')
 
     async def add_uris(self, uris: list[str]) -> aria2p.Download:
         async with self._decor:
@@ -232,7 +242,7 @@ class AsyncARIA2CDownloader:
             try:
                 await self.sync_to_async(dl_cont.update)()
                 return {'ok': 'ok'}
-            except netwwork_timeout_errors as e:
+            except network_timeout_errors as e:
                 logger.warning(f'{self.premsg}[aupdate] error readtimeout - {repr(e)}')
                 _res = await self.reset_aria2c()
                 if _res:
@@ -251,9 +261,6 @@ class AsyncARIA2CDownloader:
                 return
             except Exception:
                 logger.info('Test conn fails, lets reset aria2c')
-
-                await self.async_purge()
-                await asyncio.sleep(0)
                 await self.vid_dl.info_dl['nwsetup'].close(service='aria2c')
                 _proc, _port = await self.vid_dl.info_dl['nwsetup'].reset_aria2client()
                 logger.info(f'[reset_aria2c] {_proc} {_port}')
