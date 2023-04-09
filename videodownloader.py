@@ -46,13 +46,14 @@ class VideoDownloader:
     _PLNS = {}
     _QUEUE = Queue()
 
-    def __init__(self, video_dict, ytdl, args, hosts_dl, alock, hosts_alock):
+    def __init__(self, video_dict, nwsetup, ytdl, args, hosts_dl, alock, hosts_alock):
 
         self.background_tasks = set()
         self.hosts_dl = hosts_dl
         self.master_alock = alock
         self.master_hosts_alock = hosts_alock
         self.args = args
+        self.nwsetup = nwsetup
 
         self._index = None  # for printing
 
@@ -86,7 +87,8 @@ class VideoDownloader:
             ),
             'backup_http': self.args.use_http_failover,
             'fromplns': VideoDownloader._PLNS,
-            'error_message': ""
+            'error_message': "",
+            'nwsetup': self.nwsetup
         }
 
         self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)
@@ -278,7 +280,7 @@ class VideoDownloader:
 
         for dl in self.info_dl['downloaders']:
             dl.n_workers = n
-            if 'aria2' in str(type(dl)).lower():
+            if 'aria2c' in str(type(dl)).lower():
                 dl.opts.set('split', dl.n_workers)
 
         if self.info_dl['status'] == "downloading":
@@ -388,7 +390,7 @@ class VideoDownloader:
         try:
 
             if not cause:
-                if 'aria2' not in str(
+                if 'aria2c' not in str(
                         type(self.info_dl['downloaders'][0])).lower():
                     self.info_dl['status'] = "stop"
                     for dl in self.info_dl['downloaders']:
@@ -661,7 +663,7 @@ class VideoDownloader:
                 asyncio.create_task(dl.ensamble_file())
                 for dl in self.info_dl['downloaders'] if (
                     not any(_ in str(type(dl)).lower()
-                            for _ in ('aria2', 'ffmpeg')) and
+                            for _ in ('aria2c', 'ffmpeg')) and
                     dl.status == 'manipulating')]
 
             if (self.info_dict.get('subtitles') or

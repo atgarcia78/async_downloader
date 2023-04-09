@@ -127,9 +127,7 @@ class WorkersRun:
     def _start_task(self, dl, url_key):
 
         self.running.add((dl, url_key))
-        _task = asyncio.create_task(self._task(dl, url_key))
-        self.asyncdl.background_tasks.add(_task)
-        _task.add_done_callback(self.asyncdl.background_tasks.discard)
+        _task = self.asyncdl.add_task(self._task(dl, url_key))
         self.tasks.update({_task: dl})
         self.logger.debug(f'[{url_key}] task ok {self.tasks}')
 
@@ -221,9 +219,7 @@ class WorkersInit:
     def _start_task(self, url_key):
 
         self.running.add(url_key)
-        _task = asyncio.create_task(self._task(url_key))
-        self.asyncdl.background_tasks.add(_task)
-        _task.add_done_callback(self.asyncdl.background_tasks.discard)
+        _task = self.asyncdl.add_task(self._task(url_key))
         self.tasks.update({_task: url_key})
         self.logger.debug(f'[{url_key}] task ok {self.tasks}')
 
@@ -319,6 +315,12 @@ class AsyncDL:
             logger=logger.info)
 
         self.localstorage = LocalVideos(self)
+
+    def add_task(self, coro, *, name=None):
+        _task = asyncio.create_task(coro, name=name)
+        self.background_tasks.add(_task)
+        _task.add_done_callback(self.background_tasks.discard)
+        return _task
 
     async def cancel_all_dl(self):
         self.STOP.set()
@@ -506,12 +508,10 @@ class AsyncDL:
                                        len(self.url_pl_list))):
                         self.url_pl_queue.put_nowait("KILL")
                     tasks_pl_list = [
-                        asyncio.create_task(self.process_playlist(_get_path_name))
+                        self.add_task(self.process_playlist(_get_path_name))
                         for _ in range(min(self.init_nworkers, len(self.url_pl_list)))
                     ]
-                    for _task in tasks_pl_list:
-                        self.background_tasks.add(_task)
-                        _task.add_done_callback(self.background_tasks.discard)
+
                     logger.debug(f"[get_list_videos][url_playlist_list] initial playlists: {len(self.url_pl_list)}")
 
                     await asyncio.wait(tasks_pl_list)
@@ -529,12 +529,9 @@ class AsyncDL:
                                            len(self.url_pl_list2))):
                             self.url_pl_queue.put_nowait("KILL")
                         tasks_pl_list2 = [
-                            asyncio.create_task(self.process_playlist(_get_path_name))
-                            for _ in range(min(self.init_nworkers, len(self.url_pl_list2)))
-                        ]
-                        for _task in tasks_pl_list2:
-                            self.background_tasks.add(_task)
-                            _task.add_done_callback(self.background_tasks.discard)
+                            self.add_task(self.process_playlist(_get_path_name))
+                            for _ in range(min(self.init_nworkers, len(self.url_pl_list2)))]
+
                         await asyncio.wait(tasks_pl_list2)
 
                     logger.info(
@@ -961,6 +958,7 @@ class AsyncDL:
 
             dl = await async_videodl_init(
                 self.info_videos[url_key]["video_info"],
+                self.nwsetup,
                 self.ytdl, self.args,
                 self.hosts_downloading,
                 self.alock,
@@ -1152,9 +1150,8 @@ class AsyncDL:
             if dl.info_dl["status"] == "init_manipulating":
 
                 logger.debug(f"[run_callback] start to manip {dl.info_dl['title']}")
-                task_run_manip = asyncio.create_task(dl.run_manip())
-                self.background_tasks.add(task_run_manip)
-                task_run_manip.add_done_callback(self.background_tasks.discard)
+                task_run_manip = self.add_task(dl.run_manip())
+
                 done, _ = await asyncio.wait([task_run_manip])
 
                 for d in done:
@@ -1207,7 +1204,7 @@ class AsyncDL:
         signals = (signal.SIGTERM, signal.SIGINT)
         for s in signals:
             asyncio.get_running_loop().add_signal_handler(
-                s, lambda s=s: asyncio.create_task(self.shutdown(s)))
+                s, lambda s=s: self.add_task(self.shutdown(s)))
 
         try:
 
@@ -1232,11 +1229,7 @@ class AsyncDL:
             tasks_to_wait = {}
 
             tasks_to_wait.update(
-                {(_task_getvid := asyncio.create_task(self.get_list_videos())):
-                 "task_get_videos"})
-
-            self.background_tasks.add(_task_getvid)
-            _task_getvid.add_done_callback(self.background_tasks.discard)
+                {self.add_task(self.get_list_videos()): "task_get_videos"})
 
             if not self.args.nodl:
 
@@ -1247,10 +1240,7 @@ class AsyncDL:
                 if _res.get("event") == "first":
                     self.FEgui = FrontEndGUI(self)
 
-                    tasks_to_wait.update({(_task_wkrun := asyncio.create_task(
-                         self.end_dl.async_wait())): "task_workers_run"})
-                    self.background_tasks.add(_task_wkrun)
-                    _task_wkrun.add_done_callback(self.background_tasks.discard)
+                    tasks_to_wait.update({self.add_task(self.end_dl.async_wait()): "task_workers_run"})
 
             await asyncio.wait(tasks_to_wait)
 
@@ -1258,8 +1248,7 @@ class AsyncDL:
             logger.error(f"[async_ex] {repr(e)}")
             raise
         finally:
-            _task = [asyncio.create_task(self.shutdown())]
-            await asyncio.wait(_task)
+            await asyncio.wait([self.add_task(self.shutdown())])
             self.get_results_info()
             logger.info("[async_ex] BYE")
 

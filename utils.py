@@ -53,6 +53,9 @@ from ipaddress import ip_address
 from operator import getitem
 import httpx
 
+from urllib3.exceptions import ReadTimeoutError
+from httpx import ReadTimeout
+
 from yt_dlp.extractor.commonwebdriver import (
     CONFIG_EXTRACTORS,
     SeleniumInfoExtractor,
@@ -108,6 +111,8 @@ assert ConnectError
 assert StatusError503
 assert my_dec_on_exception
 assert cast
+
+netwwork_timeout_errors = [ReadTimeoutError, ReadTimeout]
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
@@ -488,6 +493,13 @@ def wait_for_either(events, timeout=None):
             time.sleep(CONF_INTERVAL_GUI)
 
 
+def add_task(coro, bktasks, name=None):
+    _task = asyncio.create_task(coro, name=name)
+    bktasks.add(_task)
+    _task.add_done_callback(bktasks.discard)
+    return _task
+
+
 async def async_waitfortasks(
         fs: Union[Iterable, Coroutine, asyncio.Task, None] = None,
         timeout: Union[float, None] = None,
@@ -506,19 +518,20 @@ async def async_waitfortasks(
             fs = [fs]
         for _fs in fs:
             if not isinstance(_fs, asyncio.Task):
-                _el = asyncio.create_task(_fs)
-                _background_tasks.add(_el)
-                _el.set_name(f'[waitfortasks]{_fs.__name__}')
-                _el.add_done_callback(_background_tasks.discard)
+                _el = add_task(_fs, _background_tasks, name=f'[waitfortasks]{_fs.__name__}')
+                # _el = asyncio.create_task(_fs)
+                # _background_tasks.add(_el)
+                # _el.set_name(f'[waitfortasks]{_fs.__name__}')
+                # _el.add_done_callback(_background_tasks.discard)
                 _tasks.update({_el: "task"})
             else:
                 _tasks.update({_fs: "task"})
 
-        _one_task_to_wait_tasks = asyncio.create_task(
-            asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED))
+        _one_task_to_wait_tasks = add_task(
+            asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED), _background_tasks)
 
-        _background_tasks.add(_one_task_to_wait_tasks)
-        _one_task_to_wait_tasks.add_done_callback(_background_tasks.discard)
+        # _background_tasks.add(_one_task_to_wait_tasks)
+        # _one_task_to_wait_tasks.add_done_callback(_background_tasks.discard)
 
         _final_wait.update({_one_task_to_wait_tasks: "tasks"})
 
@@ -536,24 +549,24 @@ async def async_waitfortasks(
         for event in events:
             if isinstance(event, asyncio.Event):
                 _tasks_events.update(
-                    {asyncio.create_task(event.wait()):
+                    {add_task(event.wait(), _background_tasks):
                      f"event{getter(event)}"})
             elif isinstance(event, MySyncAsyncEvent):
                 _tasks_events.update(
-                    {asyncio.create_task(event.async_wait()):
+                    {add_task(event.async_wait(), _background_tasks):
                      f"event{getter(event)}"})
 
-            for _task in _tasks_events:
-                _background_tasks.add(_task)
-                _task.add_done_callback(_background_tasks.discard)
+            # for _task in _tasks_events:
+            #     _background_tasks.add(_task)
+            #     _task.add_done_callback(_background_tasks.discard)
 
         _final_wait.update(_tasks_events)
 
     if not _final_wait:
         if timeout:
-            _task_sleep = asyncio.create_task(asyncio.sleep(timeout*2))
-            _background_tasks.add(_task_sleep)
-            _task_sleep.add_done_callback(_background_tasks.discard)
+            _task_sleep = add_task(asyncio.sleep(timeout*2), _background_tasks)
+            # _background_tasks.add(_task_sleep)
+            # _task_sleep.add_done_callback(_background_tasks.discard)
             _tasks.update({_task_sleep: "task"})
             _final_wait.update(_tasks)
         else:
@@ -870,7 +883,7 @@ def init_aria2c(args):
 
     logger.info(f"[init_aria2c] running on port: {args.rpcport}")
 
-    return _proc
+    return _proc, args.rpcport
 
 ############################################################
 # """                     INIT                     """
@@ -1594,11 +1607,212 @@ def is_playlist_extractor(url, ytdl):
 def init_ytdl(args):
 
     '''
-    
-    
- {'usenetrc': True, 'netrc_location': None, 'username': None, 'password': None, 'twofactor': None, 'videopassword': None, 'ap_mso': None, 'ap_username': None, 'ap_password': None, 'client_certificate': None, 'client_certificate_key': None, 'client_certificate_password': None, 'quiet': False, 'no_warnings': False, 'forceurl': False, 'forcetitle': False, 'forceid': False, 'forcethumbnail': False, 'forcedescription': False, 'forceduration': False, 'forcefilename': False, 'forceformat': False, 'forceprint': {}, 'print_to_file': {}, 'forcejson': False, 'dump_single_json': False, 'force_write_download_archive': False, 'simulate': None, 'skip_download': True, 'format': 'bv*+ba/b', 'allow_unplayable_formats': False, 'ignore_no_formats_error': True, 'format_sort': ['ext:mp4:m4a'], 'format_sort_force': False, 'allow_multiple_video_streams': False, 'allow_multiple_audio_streams': False, 'check_formats': None, 'listformats': None, 'listformats_table': True, 'outtmpl': {'default': '%(id)s/%(id)s_%(title)s.%(ext)s', 'chapter': '%(title)s-%(section_number)03d-%(section_title)s-[%(id)s].%(ext)s'}, 'outtmpl_na_placeholder': 'NA', 'paths': {'home': '~/testing/20230408'}, 'autonumber_size': None, 'autonumber_start': 1, 'restrictfilenames': True, 'windowsfilenames': False, 'ignoreerrors': True, 'force_generic_extractor': False, 'allowed_extractors': ['default'], 'ratelimit': None, 'throttledratelimit': None, 'retries': 2, 'file_access_retries': 3, 'fragment_retries': 10, 'extractor_retries': 1, 'retry_sleep_functions': {}, 'skip_unavailable_fragments': True, 'keep_fragments': False, 'concurrent_fragment_downloads': 1, 'buffersize': 1024, 'noresizebuffer': False, 'http_chunk_size': None, 'continuedl': True, 'noprogress': False, 'progress_with_newline': False, 'progress_template': {}, 'playliststart': 1, 'playlistend': None, 'playlistreverse': None, 'playlistrandom': None, 'lazy_playlist': None, 'noplaylist': False, 'logtostderr': False, 'consoletitle': False, 'nopart': False, 'updatetime': False, 'writedescription': False, 'writeannotations': False, 'writeinfojson': None, 'allow_playlist_files': True, 'clean_infojson': True, 'getcomments': False, 'writethumbnail': False, 'write_all_thumbnails': False, 'writelink': False, 'writeurllink': False, 'writewebloclink': False, 'writedesktoplink': False, 'writesubtitles': True, 'writeautomaticsub': False, 'allsubtitles': False, 'listsubtitles': False, 'subtitlesformat': 'best', 'subtitleslangs': ['all'], 'matchtitle': None, 'rejecttitle': None, 'max_downloads': None, 'prefer_free_formats': False, 'trim_file_name': 0, 'verbose': True, 'dump_intermediate_pages': False, 'write_pages': False, 'load_pages': False, 'test': False, 'keepvideo': True, 'min_filesize': None, 'max_filesize': None, 'min_views': None, 'max_views': None, 'daterange': <yt_dlp.utils.DateRange object at 0x1026c3310>, 'cachedir': None, 'youtube_print_sig_code': False, 'age_limit': None, 'download_archive': None, 'break_on_existing': False, 'break_on_reject': False, 'break_per_url': False, 'skip_playlist_after_errors': None, 'cookiefile': None, 'cookiesfrombrowser': None, 'legacyserverconnect': False, 'nocheckcertificate': False, 'prefer_insecure': None, 'enable_file_urls': False, 'http_headers': {'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/111.0', 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.5', 'Sec-Fetch-Mode': 'navigate', 'Accept-Encoding': 'gzip,deflate'}, 'proxy': None, 'socket_timeout': None, 'bidi_workaround': None, 'debug_printtraffic': False, 'prefer_ffmpeg': True, 'include_ads': None, 'default_search': None, 'dynamic_mpd': True, 'extractor_args': {}, 'youtube_include_dash_manifest': True, 'youtube_include_hls_manifest': True, 'encoding': None, 'extract_flat': 'discard_in_playlist', 'live_from_start': None, 'wait_for_video': None, 'mark_watched': False, 'merge_output_format': None, 'final_ext': None, 'postprocessors': [{'key': 'FFmpegSubtitlesConvertor', 'format': 'srt', 'when': 'before_dl'}, {'key': 'FFmpegConcat', 'only_multi_video': True, 'when': 'playlist'}], 'fixup': None, 'source_address': None, 'call_home': False, 'sleep_interval_requests': None, 'sleep_interval': None, 'max_sleep_interval': None, 'sleep_interval_subtitles': 0, 'external_downloader': {'default': 'aria2c'}, 'download_ranges': yt_dlp.utils.download_range_func([], []), 'force_keyframes_at_cuts': False, 'list_thumbnails': False, 'playlist_items': None, 'xattr_set_filesize': None, 'match_filter': None, 'no_color': False, 'ffmpeg_location': None, 'hls_prefer_native': None, 'hls_use_mpegts': None, 'hls_split_discontinuity': False, 'external_downloader_args': {}, 'postprocessor_args': {}, 'cn_verification_proxy': None, 'geo_verification_proxy': None, 'geo_bypass': True, 'geo_bypass_country': None, 'geo_bypass_ip_block': None, '_warnings': [], '_deprecation_warnings': [], 'compat_opts': set()}
-    
-    
+{
+  "usenetrc": true,
+  "netrc_location": null,
+  "username": null,
+  "password": null,
+  "twofactor": null,
+  "videopassword": null,
+  "ap_mso": null,
+  "ap_username": null,
+  "ap_password": null,
+  "client_certificate": null,
+  "client_certificate_key": null,
+  "client_certificate_password": null,
+  "quiet": false,
+  "no_warnings": false,
+  "forceurl": false,
+  "forcetitle": false,
+  "forceid": false,
+  "forcethumbnail": false,
+  "forcedescription": false,
+  "forceduration": false,
+  "forcefilename": false,
+  "forceformat": false,
+  "forceprint": {},
+  "print_to_file": {},
+  "forcejson": false,
+  "dump_single_json": false,
+  "force_write_download_archive": false,
+  "simulate": null,
+  "skip_download": true,
+  "format": "bv*+ba/b",
+  "allow_unplayable_formats": false,
+  "ignore_no_formats_error": true,
+  "format_sort": [
+    "ext:mp4:m4a"
+  ],
+  "format_sort_force": false,
+  "allow_multiple_video_streams": false,
+  "allow_multiple_audio_streams": false,
+  "check_formats": null,
+  "listformats": null,
+  "listformats_table": true,
+  "outtmpl": {
+    "default": "%(id)s/%(id)s_%(title)s.%(ext)s",
+    "chapter": "%(title)s-%(section_number)03d-%(section_title)s-[%(id)s].%(ext)s"
+  },
+  "outtmpl_na_placeholder": "NA",
+  "paths": {
+    "home": "~/testing/20230408"
+  },
+  "autonumber_size": null,
+  "autonumber_start": 1,
+  "restrictfilenames": true,
+  "windowsfilenames": false,
+  "ignoreerrors": true,
+  "force_generic_extractor": false,
+  "allowed_extractors": [
+    "default"
+  ],
+  "ratelimit": null,
+  "throttledratelimit": null,
+  "retries": 2,
+  "file_access_retries": 3,
+  "fragment_retries": 10,
+  "extractor_retries": 1,
+  "retry_sleep_functions": {},
+  "skip_unavailable_fragments": true,
+  "keep_fragments": false,
+  "concurrent_fragment_downloads": 1,
+  "buffersize": 1024,
+  "noresizebuffer": false,
+  "http_chunk_size": null,
+  "continuedl": true,
+  "noprogress": false,
+  "progress_with_newline": false,
+  "progress_template": {},
+  "playliststart": 1,
+  "playlistend": null,
+  "playlistreverse": null,
+  "playlistrandom": null,
+  "lazy_playlist": null,
+  "noplaylist": false,
+  "logtostderr": false,
+  "consoletitle": false,
+  "nopart": false,
+  "updatetime": false,
+  "writedescription": false,
+  "writeannotations": false,
+  "writeinfojson": null,
+  "allow_playlist_files": true,
+  "clean_infojson": true,
+  "getcomments": false,
+  "writethumbnail": false,
+  "write_all_thumbnails": false,
+  "writelink": false,
+  "writeurllink": false,
+  "writewebloclink": false,
+  "writedesktoplink": false,
+  "writesubtitles": true,
+  "writeautomaticsub": false,
+  "allsubtitles": false,
+  "listsubtitles": false,
+  "subtitlesformat": "best",
+  "subtitleslangs": [
+    "all"
+  ],
+  "matchtitle": null,
+  "rejecttitle": null,
+  "max_downloads": null,
+  "prefer_free_formats": false,
+  "trim_file_name": 0,
+  "verbose": true,
+  "dump_intermediate_pages": false,
+  "write_pages": false,
+  "load_pages": false,
+  "test": false,
+  "keepvideo": true,
+  "min_filesize": null,
+  "max_filesize": null,
+  "min_views": null,
+  "max_views": null,
+  "daterange": "<yt_dlp.utils.DateRange object at 0x1026c3310>",
+  "cachedir": null,
+  "youtube_print_sig_code": false,
+  "age_limit": null,
+  "download_archive": null,
+  "break_on_existing": false,
+  "break_on_reject": false,
+  "break_per_url": false,
+  "skip_playlist_after_errors": null,
+  "cookiefile": null,
+  "cookiesfrombrowser": null,
+  "legacyserverconnect": false,
+  "nocheckcertificate": false,
+  "prefer_insecure": null,
+  "enable_file_urls": false,
+  "http_headers": {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv: 109.0) Gecko/20100101 Firefox/111.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Sec-Fetch-Mode": "navigate",
+    "Accept-Encoding": "gzip,deflate"
+  },
+  "proxy": null,
+  "socket_timeout": null,
+  "bidi_workaround": null,
+  "debug_printtraffic": false,
+  "prefer_ffmpeg": true,
+  "include_ads": null,
+  "default_search": null,
+  "dynamic_mpd": true,
+  "extractor_args": {},
+  "youtube_include_dash_manifest": true,
+  "youtube_include_hls_manifest": true,
+  "encoding": null,
+  "extract_flat": "discard_in_playlist",
+  "live_from_start": null,
+  "wait_for_video": null,
+  "mark_watched": false,
+  "merge_output_format": null,
+  "final_ext": null,
+  "postprocessors": [
+    {
+      "key": "FFmpegSubtitlesConvertor",
+      "format": "srt",
+      "when": "before_dl"
+    },
+    {
+      "key": "FFmpegConcat",
+      "only_multi_video": true,
+      "when": "playlist"
+    }
+  ],
+  "fixup": null,
+  "source_address": null,
+  "call_home": false,
+  "sleep_interval_requests": null,
+  "sleep_interval": null,
+  "max_sleep_interval": null,
+  "sleep_interval_subtitles": 0,
+  "external_downloader": {
+    "default": "aria2c"
+  },
+  "download_ranges": "yt_dlp.utils.download_range_func([], [])",
+  "force_keyframes_at_cuts": false,
+  "list_thumbnails": false,
+  "playlist_items": null,
+  "xattr_set_filesize": null,
+  "match_filter": null,
+  "no_color": false,
+  "ffmpeg_location": null,
+  "hls_prefer_native": null,
+  "hls_use_mpegts": null,
+  "hls_split_discontinuity": false,
+  "external_downloader_args": {},
+  "postprocessor_args": {},
+  "cn_verification_proxy": null,
+  "geo_verification_proxy": null,
+  "geo_bypass": true,
+  "geo_bypass_country": null,
+  "geo_bypass_ip_block": null,
+  "_warnings": [],
+  "_deprecation_warnings": [],
+  "compat_opts": set()
+}
+
     '''
 
     logger = logging.getLogger("yt_dlp")
@@ -1855,6 +2069,23 @@ def print_norm_time(time):
     seconds = time
 
     return f"{hour:.0f}h:{minutes:.0f}min:{seconds:.0f}secs"
+
+
+network_exceptions = ()
+
+
+def patch_http_connection():
+    import socket
+    from urllib3.connection import HTTPConnection
+
+    options = [
+        (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
+        (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
+        (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
+        (socket.SOL_TCP, socket.TCP_KEEPCNT, 6)
+     ]
+
+    HTTPConnection.default_socket_options += options
 
 
 def patch_http_connection_pool(**constructor_kwargs):
@@ -2421,9 +2652,7 @@ class FrontEndGUI:
         self.stop_pasres = self.pasres_periodic()
         self.exit_pasres = MySyncAsyncEvent("exitpasres")
 
-        _task = asyncio.create_task(self.gui())
-        self.asyncdl.background_tasks.add(_task)
-        _task.add_done_callback(self.asyncdl.background_tasks.discard)
+        self.task_gui = self.asyncdl.add_task(self.gui())
 
     @classmethod
     def pasres_break(cls):
@@ -2482,25 +2711,20 @@ class FrontEndGUI:
                     else:
                         upt = ''
                     self.window_root['-ML3-'].update(value=upt)
-
                 if 'finish' in values['all']:
                     self.list_finish.update(values['all']['finish'])
-
                     if self.list_finish:
                         upt = '\n\n' + ''.join(list(self.list_finish.values()))
                     else:
                         upt = ''
-
                     self.window_root['-ML2-'].update(value=upt)
 
             elif event in ('error', 'done', 'stop'):
                 self.list_finish.update(values[event])
-
                 if self.list_finish:
                     upt = '\n\n' + ''.join(list(self.list_finish.values()))
                 else:
                     upt = ''
-
                 self.window_root['-ML2-'].update(value=upt)
 
         except Exception as e:
@@ -2915,6 +3139,10 @@ class FrontEndGUI:
             del self.window_root
 
 
+def variadic(x, allowed_types=(str, bytes, dict)):
+    return x if isinstance(x, Iterable) and not isinstance(x, allowed_types) else (x,)
+
+
 class NWSetUp:
 
     def __init__(self, asyncdl):
@@ -2932,26 +3160,22 @@ class NWSetUp:
         if not self.asyncdl.args.nodl:
             if self.asyncdl.args.aria2c:
                 ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
-                _task_aria2c = asyncio.create_task(ainit_aria2c(self.asyncdl.args))
-                self.asyncdl.background_tasks.add(_task_aria2c)
-                _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
+                _task_aria2c = self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))
+                # self.asyncdl.background_tasks.add(_task_aria2c)
+                # _task_aria2c.add_done_callback(self.asyncdl.background_tasks.discard)
                 _tasks_init_aria2c = {
-                    _task_aria2c: 'aria2'
+                    _task_aria2c: 'aria2c'
                 }
                 self._tasks_init.update(_tasks_init_aria2c)
             if self.asyncdl.args.enproxy:
                 self.stop_proxy = self.run_proxy_http()
                 ainit_proxies = sync_to_async(
                     TorGuardProxies.init_proxies, executor=self.exe)
-                _task_proxies = asyncio.create_task(ainit_proxies(event=self.asyncdl.end_dl))
-                self.asyncdl.background_tasks.add(_task_proxies)
-                _task_proxies.add_done_callback(self.asyncdl.background_tasks.discard)
+                _task_proxies = self.asyncdl.add_task(ainit_proxies(event=self.asyncdl.end_dl))
                 _task_init_proxies = {_task_proxies: 'proxies'}
                 self._tasks_init.update(_task_init_proxies)
         if self._tasks_init:
-            _end_init = asyncio.create_task(self.init())
-            self.asyncdl.background_tasks.add(_end_init)
-            _end_init.add_done_callback(self.asyncdl.background_tasks.discard)
+            self.task_init = self.asyncdl.add_task(self.init())
         else:
             self.init_ready.set()
 
@@ -2961,8 +3185,8 @@ class NWSetUp:
             done, _ = await asyncio.wait(self._tasks_init)
             for task in done:
                 try:
-                    if self._tasks_init[task] == 'aria2':
-                        self.proc_aria2c = task.result()
+                    if self._tasks_init[task] == 'aria2c':
+                        self.proc_aria2, self.port_aria2 = task.result()
                     else:
                         self.proc_gost, self.routing_table = task.result()
                         self.asyncdl.ytdl.params[
@@ -2987,27 +3211,46 @@ class NWSetUp:
         finally:
             self.shutdown_proxy.set()
 
-    async def close(self):
+    async def close(self, service=None):
 
-        if self.asyncdl.args.enproxy:
-            self.logger.debug('[close] proxy')
-            self.stop_proxy.set()
-            await asyncio.sleep(0)
-            self.logger.debug('[close] waiting for http proxy shutdown')
-            self.shutdown_proxy.wait()
-            self.logger.debug('[close] OK shutdown')
+        if not service:
+            services = ('proxy', 'aria2c')
+        else:
+            services = variadic(service)
 
-            if self.proc_gost:
-                self.logger.debug('[close] gost')
-                for proc in self.proc_gost:
-                    try:
-                        proc.kill()
-                    except BaseException as e:
-                        self.logger.exception(f'[close] {repr(e)}')
+        for serv in services:
 
-        if self.proc_aria2c:
-            self.logger.debug('[close] aria2c')
-            self.proc_aria2c.kill()
+            if serv == 'proxy':
+
+                if self.asyncdl.args.enproxy:
+                    self.logger.debug('[close] proxy')
+                    self.stop_proxy.set()
+                    await asyncio.sleep(0)
+                    self.logger.debug('[close] waiting for http proxy shutdown')
+                    self.shutdown_proxy.wait()
+                    self.logger.debug('[close] OK shutdown')
+
+                    if self.proc_gost:
+                        self.logger.debug('[close] gost')
+                        for proc in self.proc_gost:
+                            try:
+                                proc.kill()
+                            except BaseException as e:
+                                self.logger.exception(f'[close] {repr(e)}')
+            if serv == 'aria2c':
+
+                if self.proc_aria2c:
+                    self.logger.debug('[close] aria2c')
+                    self.proc_aria2c.kill()
+
+    async def restart_aria2c(self):
+
+        ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+        _task_aria2c = self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))
+        done, _ = await asyncio.wait([_task_aria2c])
+        for task in done:
+            self.proc_aria2c, self.port_aria2c = task.result()
+        return self.proc_aria2, self.port_aria2
 
 
 class LocalVideos:
