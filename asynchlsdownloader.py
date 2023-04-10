@@ -123,8 +123,9 @@ class AsyncHLSDownloader:
     _CLASSLOCK = threading.Lock()
     _OK_403 = MySyncAsyncEvent("ok_403")
     _CLEAN = MySyncAsyncEvent("clean")
+    _COUNTDOWNS = None
     _QUEUE = {}
-    _COUNTDOWNS = CountDowns(_QUEUE, events=_OK_403, logger=logger)
+    _INPUT = Queue()
     _INRESET_403 = InReset403()
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
@@ -461,7 +462,6 @@ class AsyncHLSDownloader:
                     self.n_workers = min(self.n_workers, 16)
                 elif _todl >= 250000000:
                     self.n_workers = min(self.n_workers, 32)
-
                 _est_size = naturalsize(self.filesize)
 
             logger.debug(
@@ -793,10 +793,10 @@ class AsyncHLSDownloader:
                 AsyncHLSDownloader._INRESET_403.add(self.vid_dl.info_dict["playlist_index"])
                 with AsyncHLSDownloader._CLASSLOCK:
                     _pasres_cont = FrontEndGUI.pasres_break()
-                    # if not AsyncHLSDownloader._COUNTDOWNS:
-                    #     AsyncHLSDownloader._COUNTDOWNS = CountDowns(
-                    #         AsyncHLSDownloader, events=AsyncHLSDownloader._OK_403, logger=logger)
-                    #     logger.debug(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
+                    if not AsyncHLSDownloader._COUNTDOWNS:
+                        AsyncHLSDownloader._COUNTDOWNS = CountDowns(
+                            AsyncHLSDownloader, events=AsyncHLSDownloader._OK_403, logger=logger)
+                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
 
                 AsyncHLSDownloader._COUNTDOWNS.add(
                     CONF_HLS_RESET_403_TIME, index=str(self.vid_dl.index), event=self.vid_dl.stop_event, msg=self.premsg)
@@ -1526,17 +1526,16 @@ class AsyncHLSDownloader:
                     self.status = "downloading"
                     self.count_msg = ''
 
-                    upt_task = [self.add_task(self.upt_status())]
-                    # upt_task = [asyncio.create_task(self.upt_status())]
-                    # self.background_tasks.add(upt_task[0])
-                    # upt_task[0].add_done_callback(self.background_tasks.discard)
+                    upt_task = [asyncio.create_task(self.upt_status())]
+                    self.background_tasks.add(upt_task[0])
+                    upt_task[0].add_done_callback(self.background_tasks.discard)
                     check_task = []
                     self.tasks = [
-                        self.add_task(self.fetch(i), name=f"{self.premsg}[{i}]")
+                        asyncio.create_task(self.fetch(i), name=f"{self.premsg}[{i}]")
                         for i in range(self.n_workers)]
-                    # for _task in self.tasks:
-                    #     self.background_tasks.add(_task)
-                    #     _task.add_done_callback(self.background_tasks.discard)
+                    for _task in self.tasks:
+                        self.background_tasks.add(_task)
+                        _task.add_done_callback(self.background_tasks.discard)
 
                     done, pending = await asyncio.wait(self.tasks)
 
@@ -1575,9 +1574,9 @@ class AsyncHLSDownloader:
 
                             if (_cause := self.vid_dl.reset_event.is_set()):
 
-                                dump_init_task = [self.add_task(self.dump_init_file())]
-                                # self.background_tasks.add(dump_init_task[0])
-                                # dump_init_task[0].add_done_callback(self.background_tasks.discard)
+                                dump_init_task = [asyncio.create_task(self.dump_init_file())]
+                                self.background_tasks.add(dump_init_task[0])
+                                dump_init_task[0].add_done_callback(self.background_tasks.discard)
 
                                 await asyncio.wait(dump_init_task + check_task + upt_task)
 

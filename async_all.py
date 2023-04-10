@@ -16,8 +16,6 @@ logger = logging.getLogger("async_all")
 
 uvloop.install()
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
-
 patch_http_connection_pool(maxsize=1000)
 patch_https_connection_pool(maxsize=1000)
 os.environ['MOZ_HEADLESS_WIDTH'] = '1920'

@@ -39,7 +39,8 @@ from utils import (
     sanitize_filename,
     traverse_obj,
     try_get,
-    Union
+    Union,
+    add_task
 )
 
 from videodownloader import VideoDownloader
@@ -127,8 +128,8 @@ class WorkersRun:
     def _start_task(self, dl, url_key):
 
         self.running.add((dl, url_key))
-        _task = self.asyncdl.add_task(self._task(dl, url_key))
-        self.tasks.update({_task: dl})
+
+        self.tasks.update({add_task(self._task(dl, url_key), self.asyncdl.background_tasks): url_key})
         self.logger.debug(f'[{url_key}] task ok {self.tasks}')
 
     async def _task(self, dl, url_key):
@@ -219,8 +220,8 @@ class WorkersInit:
     def _start_task(self, url_key):
 
         self.running.add(url_key)
-        _task = self.asyncdl.add_task(self._task(url_key))
-        self.tasks.update({_task: url_key})
+
+        self.tasks.update({add_task(self._task(url_key), self.asyncdl.background_tasks): url_key})
         self.logger.debug(f'[{url_key}] task ok {self.tasks}')
 
     async def _task(self, url_key):
@@ -315,12 +316,6 @@ class AsyncDL:
             logger=logger.info)
 
         self.localstorage = LocalVideos(self)
-
-    def add_task(self, coro, *, name=None):
-        _task = asyncio.create_task(coro, name=name)
-        self.background_tasks.add(_task)
-        _task.add_done_callback(self.background_tasks.discard)
-        return _task
 
     async def cancel_all_dl(self):
         self.STOP.set()
@@ -508,7 +503,7 @@ class AsyncDL:
                                        len(self.url_pl_list))):
                         self.url_pl_queue.put_nowait("KILL")
                     tasks_pl_list = [
-                        self.add_task(self.process_playlist(_get_path_name))
+                        add_task(self.process_playlist(_get_path_name), self.background_tasks)
                         for _ in range(min(self.init_nworkers, len(self.url_pl_list)))
                     ]
 
@@ -529,8 +524,9 @@ class AsyncDL:
                                            len(self.url_pl_list2))):
                             self.url_pl_queue.put_nowait("KILL")
                         tasks_pl_list2 = [
-                            self.add_task(self.process_playlist(_get_path_name))
-                            for _ in range(min(self.init_nworkers, len(self.url_pl_list2)))]
+                            add_task(self.process_playlist(_get_path_name), self.background_tasks)
+                            for _ in range(min(self.init_nworkers, len(self.url_pl_list2)))
+                        ]
 
                         await asyncio.wait(tasks_pl_list2)
 
@@ -958,8 +954,7 @@ class AsyncDL:
 
             dl = await async_videodl_init(
                 self.info_videos[url_key]["video_info"],
-                self.nwsetup,
-                self.ytdl, self.args,
+                self.ytdl, self.nwsetup, self.args,
                 self.hosts_downloading,
                 self.alock,
                 self.hosts_alock)
@@ -1150,7 +1145,7 @@ class AsyncDL:
             if dl.info_dl["status"] == "init_manipulating":
 
                 logger.debug(f"[run_callback] start to manip {dl.info_dl['title']}")
-                task_run_manip = self.add_task(dl.run_manip())
+                task_run_manip = add_task(dl.run_manip(), self.background_tasks)
 
                 done, _ = await asyncio.wait([task_run_manip])
 
@@ -1204,7 +1199,7 @@ class AsyncDL:
         signals = (signal.SIGTERM, signal.SIGINT)
         for s in signals:
             asyncio.get_running_loop().add_signal_handler(
-                s, lambda s=s: self.add_task(self.shutdown(s)))
+                s, lambda s=s: asyncio.create_task(self.shutdown(s)))
 
         try:
 
@@ -1229,7 +1224,8 @@ class AsyncDL:
             tasks_to_wait = {}
 
             tasks_to_wait.update(
-                {self.add_task(self.get_list_videos()): "task_get_videos"})
+                {add_task(self.get_list_videos(), self.background_tasks):
+                 "task_get_videos"})
 
             if not self.args.nodl:
 
@@ -1240,7 +1236,7 @@ class AsyncDL:
                 if _res.get("event") == "first":
                     self.FEgui = FrontEndGUI(self)
 
-                    tasks_to_wait.update({self.add_task(self.end_dl.async_wait()): "task_workers_run"})
+                    tasks_to_wait.update({add_task(self.end_dl.async_wait(), self.background_tasks): "task_workers_run"})
 
             await asyncio.wait(tasks_to_wait)
 
@@ -1248,7 +1244,8 @@ class AsyncDL:
             logger.error(f"[async_ex] {repr(e)}")
             raise
         finally:
-            await asyncio.wait([self.add_task(self.shutdown())])
+            _task = [asyncio.create_task(self.shutdown())]
+            await asyncio.wait(_task)
             self.get_results_info()
             logger.info("[async_ex] BYE")
 
@@ -1283,6 +1280,56 @@ class AsyncDL:
 
         except Exception as e:
             logger.exception(f'[shutdown] {repr(e)}')
+
+    async def close(self):
+
+        try:
+
+            logger.info("[close] start to close")
+
+            try:
+                logger.debug("[close] start to close countdowns")
+                from asynchlsdownloader import AsyncHLSDownloader
+                if AsyncHLSDownloader._COUNTDOWNS:
+                    AsyncHLSDownloader._COUNTDOWNS.clean()
+            except Exception as e:
+                logger.exception(f"[close] asyncdlhls countdown {repr(e)}")
+
+            try:
+                if hasattr(self, 'FEgui'):
+                    logger.debug("[close] start to close fegui")
+                    await self.FEgui.close()
+            except BaseException as e:
+                logger.exception(f"[close] {repr(e)}")
+
+            try:
+                if hasattr(self, 'nwsetup'):
+                    logger.debug("[close] start to close nw")
+                    if not self.nwsetup.init_ready.is_set():
+                        await self.nwsetup.init_ready.async_wait()
+                    await self.nwsetup.close()
+            except BaseException as e:
+                logger.exception(f"[close] {repr(e)}")
+
+            try:
+                self.ytdl.close()
+            except BaseException as e:
+                logger.exception(f"[close] {repr(e)}")
+
+            if self.list_dl:
+                for _, vdl in self.list_dl.items():
+                    try:
+                        vdl.close()
+                    except Exception as e:
+                        logger.exception(f"[close] {repr(e)}")
+
+            # waits for upt local
+            await self.localstorage.aready()
+
+        except BaseException as e:
+            logger.error(f"[close] {repr(e)}")
+            logger.debug("[close] kill processes")
+            kill_processes(logger=logger, rpcport=self.args.rpcport)
 
     def get_results_info(self):
         def _getter(url: str, vid: dict) -> str:
@@ -1608,53 +1655,3 @@ class AsyncDL:
             file.write(videos_ko_str)
 
         return info_dict
-
-    async def close(self):
-
-        try:
-
-            logger.info("[close] start to close")
-
-            try:
-                logger.debug("[close] start to close countdowns")
-                from asynchlsdownloader import AsyncHLSDownloader
-                if AsyncHLSDownloader._COUNTDOWNS:
-                    AsyncHLSDownloader._COUNTDOWNS.clean()
-            except Exception as e:
-                logger.exception(f"[close] asyncdlhls countdown {repr(e)}")
-
-            try:
-                if hasattr(self, 'FEgui'):
-                    logger.debug("[close] start to close fegui")
-                    await self.FEgui.close()
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")
-
-            try:
-                if hasattr(self, 'nwsetup'):
-                    logger.debug("[close] start to close nw")
-                    if not self.nwsetup.init_ready.is_set():
-                        await self.nwsetup.init_ready.async_wait()
-                    await self.nwsetup.close()
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")
-
-            try:
-                self.ytdl.close()
-            except BaseException as e:
-                logger.exception(f"[close] {repr(e)}")
-
-            if self.list_dl:
-                for _, vdl in self.list_dl.items():
-                    try:
-                        vdl.close()
-                    except Exception as e:
-                        logger.exception(f"[close] {repr(e)}")
-
-            # waits for upt local
-            await self.localstorage.aready()
-
-        except BaseException as e:
-            logger.error(f"[close] {repr(e)}")
-            logger.debug("[close] kill processes")
-            kill_processes(logger=logger, rpcport=self.args.rpcport)

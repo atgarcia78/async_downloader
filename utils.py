@@ -41,6 +41,7 @@ from typing import (
     Any,
     Iterable,
     cast,
+    Awaitable,
     Callable
 )
 
@@ -52,9 +53,6 @@ from asgiref.sync import (
 from ipaddress import ip_address
 from operator import getitem
 import httpx
-
-from urllib3.exceptions import ReadTimeoutError
-from httpx import ReadTimeout
 
 from yt_dlp.extractor.commonwebdriver import (
     CONFIG_EXTRACTORS,
@@ -91,6 +89,8 @@ from yt_dlp.minicurses import MultilinePrinter
 
 from yt_dlp import YoutubeDL
 
+PATH_LOGS = Path(Path.home(), "Projects/common/logs")
+
 assert unsmuggle_url
 assert smuggle_url
 assert prepend_extension
@@ -111,10 +111,6 @@ assert ConnectError
 assert StatusError503
 assert my_dec_on_exception
 assert cast
-
-network_timeout_errors = (ReadTimeoutError, ReadTimeout)
-
-PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
 
@@ -465,6 +461,31 @@ class long_operation_in_thread:
         return wrapper
 
 
+class long_operation_in_thread_from_loop:
+    '''
+    decorator to run a sync function from asyncio loop
+    with the use loop.run_in_executor method.
+    The func with this decorator returns without blockind
+    a mysynasyncevent to stop the exeuction of the func, and a future
+    that wrappes the function
+    '''
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def __call__(self, func):
+        name = self.name
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> tuple[MySyncAsyncEvent, Awaitable]:
+            stop_event = MySyncAsyncEvent(name)
+            kwargs['stop_event'] = stop_event
+            _task = asyncio.create_task(
+                sync_to_async(func, executor=ThreadPoolExecutor(thread_name_prefix=name))(*args, **kwargs), name=name)
+            return (stop_event, _task)
+        return wrapper
+
+
 ############################################################
 # """                     SYNC ASYNC                     """
 ############################################################
@@ -494,7 +515,10 @@ def wait_for_either(events, timeout=None):
 
 
 def add_task(coro, bktasks, name=None):
-    _task = asyncio.create_task(coro, name=name)
+    if not isinstance(coro, asyncio.Task):
+        _task = asyncio.create_task(coro, name=name)
+    else:
+        _task = coro
     bktasks.add(_task)
     _task.add_done_callback(bktasks.discard)
     return _task
@@ -519,19 +543,12 @@ async def async_waitfortasks(
         for _fs in fs:
             if not isinstance(_fs, asyncio.Task):
                 _el = add_task(_fs, _background_tasks, name=f'[waitfortasks]{_fs.__name__}')
-                # _el = asyncio.create_task(_fs)
-                # _background_tasks.add(_el)
-                # _el.set_name(f'[waitfortasks]{_fs.__name__}')
-                # _el.add_done_callback(_background_tasks.discard)
                 _tasks.update({_el: "task"})
             else:
                 _tasks.update({_fs: "task"})
 
         _one_task_to_wait_tasks = add_task(
             asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED), _background_tasks)
-
-        # _background_tasks.add(_one_task_to_wait_tasks)
-        # _one_task_to_wait_tasks.add_done_callback(_background_tasks.discard)
 
         _final_wait.update({_one_task_to_wait_tasks: "tasks"})
 
@@ -556,17 +573,11 @@ async def async_waitfortasks(
                     {add_task(event.async_wait(), _background_tasks):
                      f"event{getter(event)}"})
 
-            # for _task in _tasks_events:
-            #     _background_tasks.add(_task)
-            #     _task.add_done_callback(_background_tasks.discard)
-
         _final_wait.update(_tasks_events)
 
     if not _final_wait:
         if timeout:
             _task_sleep = add_task(asyncio.sleep(timeout*2), _background_tasks)
-            # _background_tasks.add(_task_sleep)
-            # _task_sleep.add_done_callback(_background_tasks.discard)
             _tasks.update({_task_sleep: "task"})
             _final_wait.update(_tasks)
         else:
@@ -718,12 +729,12 @@ def init_logging(file_path=None):
             logger = logging.getLogger(log_name)
             logger.setLevel(logging.INFO)
 
-    # logger = logging.getLogger("proxy.http.proxy.server")
-    # logger.setLevel(logging.WARNING)
-    # logger = logging.getLogger("proxy.core.base.tcp_server")
-    # logger.setLevel(logging.WARNING)
-    # logger = logging.getLogger("proxy.http.handler")
-    # logger.setLevel(logging.ERROR)
+    logger = logging.getLogger("proxy.http.proxy.server")
+    logger.setLevel(logging.WARNING)
+    logger = logging.getLogger("proxy.core.base.tcp_server")
+    logger.setLevel(logging.WARNING)
+    logger = logging.getLogger("proxy.http.handler")
+    logger.setLevel(logging.ERROR)
 
 
 def init_argparser():
@@ -731,7 +742,8 @@ def init_argparser():
     parser = argparse.ArgumentParser(
         description="Async downloader videos / playlist videos HLS / HTTP"
     )
-    parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
+    parser.add_argument("-w", help="Number of DL workers",
+                        default="5", type=int)
     parser.add_argument(
         "--winit",
         help="Number of init workers, default is same number for DL workers",
@@ -883,7 +895,7 @@ def init_aria2c(args):
 
     logger.info(f"[init_aria2c] running on port: {args.rpcport}")
 
-    return _proc, args.rpcport
+    return _proc
 
 ############################################################
 # """                     INIT                     """
@@ -1606,215 +1618,6 @@ def is_playlist_extractor(url, ytdl):
 
 def init_ytdl(args):
 
-    '''
-{
-  "usenetrc": true,
-  "netrc_location": null,
-  "username": null,
-  "password": null,
-  "twofactor": null,
-  "videopassword": null,
-  "ap_mso": null,
-  "ap_username": null,
-  "ap_password": null,
-  "client_certificate": null,
-  "client_certificate_key": null,
-  "client_certificate_password": null,
-  "quiet": false,
-  "no_warnings": false,
-  "forceurl": false,
-  "forcetitle": false,
-  "forceid": false,
-  "forcethumbnail": false,
-  "forcedescription": false,
-  "forceduration": false,
-  "forcefilename": false,
-  "forceformat": false,
-  "forceprint": {},
-  "print_to_file": {},
-  "forcejson": false,
-  "dump_single_json": false,
-  "force_write_download_archive": false,
-  "simulate": null,
-  "skip_download": true,
-  "format": "bv*+ba/b",
-  "allow_unplayable_formats": false,
-  "ignore_no_formats_error": true,
-  "format_sort": [
-    "ext:mp4:m4a"
-  ],
-  "format_sort_force": false,
-  "allow_multiple_video_streams": false,
-  "allow_multiple_audio_streams": false,
-  "check_formats": null,
-  "listformats": null,
-  "listformats_table": true,
-  "outtmpl": {
-    "default": "%(id)s/%(id)s_%(title)s.%(ext)s",
-    "chapter": "%(title)s-%(section_number)03d-%(section_title)s-[%(id)s].%(ext)s"
-  },
-  "outtmpl_na_placeholder": "NA",
-  "paths": {
-    "home": "~/testing/20230408"
-  },
-  "autonumber_size": null,
-  "autonumber_start": 1,
-  "restrictfilenames": true,
-  "windowsfilenames": false,
-  "ignoreerrors": true,
-  "force_generic_extractor": false,
-  "allowed_extractors": [
-    "default"
-  ],
-  "ratelimit": null,
-  "throttledratelimit": null,
-  "retries": 2,
-  "file_access_retries": 3,
-  "fragment_retries": 10,
-  "extractor_retries": 1,
-  "retry_sleep_functions": {},
-  "skip_unavailable_fragments": true,
-  "keep_fragments": false,
-  "concurrent_fragment_downloads": 1,
-  "buffersize": 1024,
-  "noresizebuffer": false,
-  "http_chunk_size": null,
-  "continuedl": true,
-  "noprogress": false,
-  "progress_with_newline": false,
-  "progress_template": {},
-  "playliststart": 1,
-  "playlistend": null,
-  "playlistreverse": null,
-  "playlistrandom": null,
-  "lazy_playlist": null,
-  "noplaylist": false,
-  "logtostderr": false,
-  "consoletitle": false,
-  "nopart": false,
-  "updatetime": false,
-  "writedescription": false,
-  "writeannotations": false,
-  "writeinfojson": null,
-  "allow_playlist_files": true,
-  "clean_infojson": true,
-  "getcomments": false,
-  "writethumbnail": false,
-  "write_all_thumbnails": false,
-  "writelink": false,
-  "writeurllink": false,
-  "writewebloclink": false,
-  "writedesktoplink": false,
-  "writesubtitles": true,
-  "writeautomaticsub": false,
-  "allsubtitles": false,
-  "listsubtitles": false,
-  "subtitlesformat": "best",
-  "subtitleslangs": [
-    "all"
-  ],
-  "matchtitle": null,
-  "rejecttitle": null,
-  "max_downloads": null,
-  "prefer_free_formats": false,
-  "trim_file_name": 0,
-  "verbose": true,
-  "dump_intermediate_pages": false,
-  "write_pages": false,
-  "load_pages": false,
-  "test": false,
-  "keepvideo": true,
-  "min_filesize": null,
-  "max_filesize": null,
-  "min_views": null,
-  "max_views": null,
-  "daterange": "<yt_dlp.utils.DateRange object at 0x1026c3310>",
-  "cachedir": null,
-  "youtube_print_sig_code": false,
-  "age_limit": null,
-  "download_archive": null,
-  "break_on_existing": false,
-  "break_on_reject": false,
-  "break_per_url": false,
-  "skip_playlist_after_errors": null,
-  "cookiefile": null,
-  "cookiesfrombrowser": null,
-  "legacyserverconnect": false,
-  "nocheckcertificate": false,
-  "prefer_insecure": null,
-  "enable_file_urls": false,
-  "http_headers": {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv: 109.0) Gecko/20100101 Firefox/111.0",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Sec-Fetch-Mode": "navigate",
-    "Accept-Encoding": "gzip,deflate"
-  },
-  "proxy": null,
-  "socket_timeout": null,
-  "bidi_workaround": null,
-  "debug_printtraffic": false,
-  "prefer_ffmpeg": true,
-  "include_ads": null,
-  "default_search": null,
-  "dynamic_mpd": true,
-  "extractor_args": {},
-  "youtube_include_dash_manifest": true,
-  "youtube_include_hls_manifest": true,
-  "encoding": null,
-  "extract_flat": "discard_in_playlist",
-  "live_from_start": null,
-  "wait_for_video": null,
-  "mark_watched": false,
-  "merge_output_format": null,
-  "final_ext": null,
-  "postprocessors": [
-    {
-      "key": "FFmpegSubtitlesConvertor",
-      "format": "srt",
-      "when": "before_dl"
-    },
-    {
-      "key": "FFmpegConcat",
-      "only_multi_video": true,
-      "when": "playlist"
-    }
-  ],
-  "fixup": null,
-  "source_address": null,
-  "call_home": false,
-  "sleep_interval_requests": null,
-  "sleep_interval": null,
-  "max_sleep_interval": null,
-  "sleep_interval_subtitles": 0,
-  "external_downloader": {
-    "default": "aria2c"
-  },
-  "download_ranges": "yt_dlp.utils.download_range_func([], [])",
-  "force_keyframes_at_cuts": false,
-  "list_thumbnails": false,
-  "playlist_items": null,
-  "xattr_set_filesize": null,
-  "match_filter": null,
-  "no_color": false,
-  "ffmpeg_location": null,
-  "hls_prefer_native": null,
-  "hls_use_mpegts": null,
-  "hls_split_discontinuity": false,
-  "external_downloader_args": {},
-  "postprocessor_args": {},
-  "cn_verification_proxy": null,
-  "geo_verification_proxy": null,
-  "geo_bypass": true,
-  "geo_bypass_country": null,
-  "geo_bypass_ip_block": null,
-  "_warnings": [],
-  "_deprecation_warnings": [],
-  "compat_opts": set()
-}
-
-    '''
-
     logger = logging.getLogger("yt_dlp")
 
     headers = {
@@ -1842,6 +1645,7 @@ def init_ytdl(args):
         "nocheckcertificate": args.nocheckcert,
         "subtitleslangs": ["all"],
         "keepvideo": True,
+        "convertsubtitles": "srt",
         "continuedl": True,
         "updatetime": False,
         "ignore_no_formats_error": True,
@@ -1867,10 +1671,6 @@ def init_ytdl(args):
         "stop": threading.Event(),
         "lock": threading.Lock(),
         "embed": not args.no_embed,
-        "_util_class": {'SimpleCountDown': SimpleCountDown},
-        "outtmpl": {
-            'default': '%(id)s_%(title)s.%(ext)s',
-            'chapter': '%(title)s-%(section_number)03d-%(section_title)s-[%(id)s].%(ext)s'}
     }
 
     if args.use_cookies:
@@ -2183,10 +1983,10 @@ class CountDowns:
     PRINT_DIF_IN_SECS = 20
     _INPUT = Queue()
 
-    def __init__(self, klass_queue, events=None, logger=None):
+    def __init__(self, klass, events=None, logger=None):
 
         self._pre = '[countdown][WAIT403]'
-        self.klass_queue = klass_queue
+        self.klass = klass
         if not events:
             self.outer_events = []
         elif isinstance(events, (list, tuple)):
@@ -2210,10 +2010,8 @@ class CountDowns:
     def clean(self):
 
         self.kill_input.set()
+        _futures = [self.futures['input']]
         time.sleep(self.INTERV_TIME)
-        _futures = []
-        if (_input := self.futures.get('input')):
-            _futures.append(_input)
         for _index, _count in self.countdowns.items():
             if _count['status'] == 'running':
                 _count['stop'].set()
@@ -2250,13 +2048,8 @@ class CountDowns:
                     if _input == '':
                         _input = self.index_main
                     elif _input in self.countdowns:
-                        self.logger.debug(
-                            f"{self._pre} input[{_input}] is index video, status[{self.countdowns[_input]['status']}]")
+                        self.logger.debug(f'{self._pre} input[{_input}] is index video')
                         self.countdowns[_input]['stop'].set()
-                        if self.countdowns[_input]['status'] == 'done':
-                            CountDowns._INPUT.put_nowait(_input)
-                            time.sleep(CountDowns.INPUT_TIMEOUT)
-
                     else:
                         self.logger.debug(f'{self._pre} input[{_input}] not index video')
 
@@ -2272,7 +2065,7 @@ class CountDowns:
         def send_queue(x):
             if ((x == self.N_PER_SECOND*n) or (x % self.N_PER_SECOND) == 0):
                 _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}"
-                self.klass_queue[index].put_nowait(_msg)
+                self.klass._QUEUE[index].put_nowait(_msg)
 
         _res = None
         _events = self.outer_events + [self.countdowns[index]['stop']]
@@ -2286,7 +2079,7 @@ class CountDowns:
                 break
             time.sleep(self.INTERV_TIME)
 
-        self.klass_queue[index].put_nowait('')
+        self.klass._QUEUE[index].put_nowait('')
 
         if not _res:
             _res = ["TIMEOUT_COUNT"]
@@ -2652,12 +2445,14 @@ class FrontEndGUI:
 
         self.stop = MySyncAsyncEvent("stopfegui")
         self.exit_gui = MySyncAsyncEvent("exitgui")
-        self.stop_upt_window = self.upt_window_periodic()
+        self.stop_upt_window, self.fut_upt_window = self.upt_window_periodic()
+        add_task(self.fut_upt_window, self.asyncdl.background_tasks)
         self.exit_upt = MySyncAsyncEvent("exitupt")
-        self.stop_pasres = self.pasres_periodic()
+        self.stop_pasres, self.fut_pasres = self.pasres_periodic()
+        add_task(self.fut_pasres, self.asyncdl.background_tasks)
         self.exit_pasres = MySyncAsyncEvent("exitpasres")
 
-        self.task_gui = self.asyncdl.add_task(self.gui())
+        self.task_gui = add_task(self.gui(), self.asyncdl.background_tasks)
 
     @classmethod
     def pasres_break(cls):
@@ -2716,20 +2511,25 @@ class FrontEndGUI:
                     else:
                         upt = ''
                     self.window_root['-ML3-'].update(value=upt)
+
                 if 'finish' in values['all']:
                     self.list_finish.update(values['all']['finish'])
+
                     if self.list_finish:
                         upt = '\n\n' + ''.join(list(self.list_finish.values()))
                     else:
                         upt = ''
+
                     self.window_root['-ML2-'].update(value=upt)
 
             elif event in ('error', 'done', 'stop'):
                 self.list_finish.update(values[event])
+
                 if self.list_finish:
                     upt = '\n\n' + ''.join(list(self.list_finish.values()))
                 else:
                     upt = ''
+
                 self.window_root['-ML2-'].update(value=upt)
 
         except Exception as e:
@@ -2983,7 +2783,7 @@ class FrontEndGUI:
 
         self.list_all_old = list_res
 
-    @long_operation_in_thread(name='uptwinthr')
+    @long_operation_in_thread_from_loop(name='uptwinthr')
     def upt_window_periodic(self, *args, **kwargs):
 
         self.logger.debug('[upt_window_periodic] start')
@@ -3045,7 +2845,7 @@ class FrontEndGUI:
             _media = naturalsize(median([el[1] for el in self.list_nwmon]), binary=True)
             return f'DL MEDIA: {_media}ps'
 
-    @long_operation_in_thread(name='pasresthr')
+    @long_operation_in_thread_from_loop(name='pasresthr')
     def pasres_periodic(self, *args, **kwargs):
 
         self.logger.debug('[pasres_periodic] START')
@@ -3125,12 +2925,12 @@ class FrontEndGUI:
         await asyncio.sleep(0)
         self.stop_upt_window.set()
         await asyncio.sleep(0)
-        self.logger.debug("[close] start to wait for exit_pasres")
-        await self.exit_pasres.async_wait()
-        self.logger.debug("[close] end to wait for exit_pasres")
-        self.logger.debug("[close] start to wait for exit_upt")
-        await self.exit_upt.async_wait()
-        self.logger.debug("[close] end to wait for exit_upt")
+        self.logger.debug("[close] start to wait for uptwindows and pasres")
+
+        await asyncio.wait([self.fut_upt_window, self.fut_pasres])
+
+        self.logger.debug("[close] end to wait for uptwindows and pasres")
+
         self.stop.set()
         await asyncio.sleep(0)
         self.logger.debug("[close] start to wait for exit_gui")
@@ -3142,10 +2942,6 @@ class FrontEndGUI:
         if hasattr(self, 'window_root') and self.window_root:
             self.window_root.close()
             del self.window_root
-
-
-def variadic(x, allowed_types=(str, bytes, dict)):
-    return x if isinstance(x, Iterable) and not isinstance(x, allowed_types) else (x,)
 
 
 class NWSetUp:
@@ -3165,18 +2961,22 @@ class NWSetUp:
         if not self.asyncdl.args.nodl:
             if self.asyncdl.args.aria2c:
                 ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
-                _task_aria2c = self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))
-                _tasks_init_aria2c = {_task_aria2c: 'aria2c'}
+                _task_aria2c = add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)
+                _tasks_init_aria2c = {
+                    _task_aria2c: 'aria2'
+                }
                 self._tasks_init.update(_tasks_init_aria2c)
             if self.asyncdl.args.enproxy:
-                self.stop_proxy = self.run_proxy_http()
+                self.stop_proxy, self.fut_proxy = self.run_proxy_http()
+                add_task(self.fut_proxy, self.asyncdl.background_tasks)
+
                 ainit_proxies = sync_to_async(
                     TorGuardProxies.init_proxies, executor=self.exe)
-                _task_proxies = self.asyncdl.add_task(ainit_proxies(event=self.asyncdl.end_dl))
+                _task_proxies = add_task(ainit_proxies(event=self.asyncdl.end_dl), self.asyncdl.background_tasks)
                 _task_init_proxies = {_task_proxies: 'proxies'}
                 self._tasks_init.update(_task_init_proxies)
         if self._tasks_init:
-            self.task_init = self.asyncdl.add_task(self.init())
+            self.task_init = add_task(self.init(), self.asyncdl.background_tasks)
         else:
             self.init_ready.set()
 
@@ -3186,8 +2986,8 @@ class NWSetUp:
             done, _ = await asyncio.wait(self._tasks_init)
             for task in done:
                 try:
-                    if self._tasks_init[task] == 'aria2c':
-                        self.proc_aria2, self.port_aria2 = task.result()
+                    if self._tasks_init[task] == 'aria2':
+                        self.proc_aria2c = task.result()
                     else:
                         self.proc_gost, self.routing_table = task.result()
                         self.asyncdl.ytdl.params[
@@ -3196,66 +2996,63 @@ class NWSetUp:
                     self.logger.exception(f'[init] {repr(e)}')
             self.init_ready.set()
 
-    @long_operation_in_thread(name='proxythr')
+    @long_operation_in_thread_from_loop(name='proxythr')
     def run_proxy_http(self, *args, **kwargs):
 
-        stop = kwargs['stop_event']
-
+        stop_event: MySyncAsyncEvent = kwargs['stop_event']
         log_level = kwargs.get('log_level', 'INFO')
-
         try:
+            with proxy.Proxy(
+                [
+                    '--log-level',
+                    log_level,
+                    '--plugins',
+                    'proxy.plugin.ProxyPoolByHostPlugin',
+                ]
+            ) as p:
 
-            with proxy.Proxy(['--log-level', log_level, '--plugins', 'proxy.plugin.ProxyPoolByHostPlugin']) as p:
-
-                self.logger.info(f'[proxy_http] {p.flags}')
-
-                stop.wait()
-
-            self.logger.info('[proxy_http] exit ctx manager')
-        except Exception as e:
-            self.logger.exception(f'[proxy_http] {repr(e)}')
+                try:
+                    self.logger.debug(p.flags)
+                    stop_event.wait()
+                except BaseException:
+                    self.logger.error('context manager proxy')
         finally:
             self.shutdown_proxy.set()
-            self.logger.info(f'[proxy_http] bye proxy_http [{self.shutdown_proxy.is_set()}')
 
     async def close(self):
 
-        try:
+        if self.asyncdl.args.enproxy:
+            self.logger.debug('[close] proxy')
+            self.stop_proxy.set()
+            await asyncio.sleep(0)
+            self.shutdown_proxy.wait()
+            self.logger.debug('[close] OK shutdown')
 
-            if self.asyncdl.args.enproxy:
-                self.logger.debug('[close] proxy')
-                self.stop_proxy.set()
-                await asyncio.sleep(0)
-                self.logger.debug('[close] waiting for http proxy shutdown')
+            await asyncio.gather()
 
-                while not self.shutdown_proxy.is_set():
-                    await asyncio.sleep(0)
-
-                self.logger.debug('[close] OK shutdown')
-
-                if self.proc_gost:
-                    self.logger.debug('[close] gost')
-                    for proc in self.proc_gost:
-                        try:
-                            proc.kill()
-                        except BaseException as e:
-                            self.logger.exception(f'[close] {repr(e)}')
-
-        except Exception as e:
-            self.logger.exception(f'[close][nw] {repr(e)}')
+            if self.proc_gost:
+                self.logger.debug('[close] gost')
+                for proc in self.proc_gost:
+                    try:
+                        proc.kill()
+                    except BaseException as e:
+                        self.logger.exception(f'[close] {repr(e)}')
 
         if self.proc_aria2c:
             self.logger.debug('[close] aria2c')
             self.proc_aria2c.kill()
 
-    async def restart_aria2c(self):
-
-        ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
-        _task_aria2c = self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))
-        done, _ = await asyncio.wait([_task_aria2c])
-        for task in done:
-            self.proc_aria2c, self.port_aria2c = task.result()
-        return self.proc_aria2, self.port_aria2
+    async def reset_aria2c(self):
+        if self.proc_aria2c:
+            self.logger.debug('[close] aria2c')
+            self.proc_aria2c.kill()
+            await asyncio.sleep(5)
+            ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+            _task_aria2c = [add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)]
+            done, _ = await asyncio.wait(_task_aria2c)
+            for task in done:
+                self.proc_aria2c = task.result()
+                return (self.proc_aria2c, self.asyncdl.args.rpcport)
 
 
 class LocalVideos:
