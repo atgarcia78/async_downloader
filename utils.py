@@ -1671,6 +1671,7 @@ def init_ytdl(args):
         "stop": threading.Event(),
         "lock": threading.Lock(),
         "embed": not args.no_embed,
+        "_util_classes": {'SimpleCountDown': SimpleCountDown}
     }
 
     if args.use_cookies:
@@ -2217,6 +2218,7 @@ class SimpleCountDown:
             while (time.monotonic() - start < self.timeout):
                 try:
                     _input = self.wait_for(1)
+
                     if _input in ['exit', '', str(self.indexdl)]:
                         break
                     self.check()
