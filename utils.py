@@ -1618,6 +1618,215 @@ def is_playlist_extractor(url, ytdl):
 
 def init_ytdl(args):
 
+    '''
+{
+  "usenetrc": true,
+  "netrc_location": null,
+  "username": null,
+  "password": null,
+  "twofactor": null,
+  "videopassword": null,
+  "ap_mso": null,
+  "ap_username": null,
+  "ap_password": null,
+  "client_certificate": null,
+  "client_certificate_key": null,
+  "client_certificate_password": null,
+  "quiet": false,
+  "no_warnings": false,
+  "forceurl": false,
+  "forcetitle": false,
+  "forceid": false,
+  "forcethumbnail": false,
+  "forcedescription": false,
+  "forceduration": false,
+  "forcefilename": false,
+  "forceformat": false,
+  "forceprint": {},
+  "print_to_file": {},
+  "forcejson": false,
+  "dump_single_json": false,
+  "force_write_download_archive": false,
+  "simulate": null,
+  "skip_download": true,
+  "format": "bv*+ba/b",
+  "allow_unplayable_formats": false,
+  "ignore_no_formats_error": true,
+  "format_sort": [
+    "ext:mp4:m4a"
+  ],
+  "format_sort_force": false,
+  "allow_multiple_video_streams": false,
+  "allow_multiple_audio_streams": false,
+  "check_formats": null,
+  "listformats": null,
+  "listformats_table": true,
+  "outtmpl": {
+    "default": "%(id)s/%(id)s_%(title)s.%(ext)s",
+    "chapter": "%(title)s-%(section_number)03d-%(section_title)s-[%(id)s].%(ext)s"
+  },
+  "outtmpl_na_placeholder": "NA",
+  "paths": {
+    "home": "~/testing/20230408"
+  },
+  "autonumber_size": null,
+  "autonumber_start": 1,
+  "restrictfilenames": true,
+  "windowsfilenames": false,
+  "ignoreerrors": true,
+  "force_generic_extractor": false,
+  "allowed_extractors": [
+    "default"
+  ],
+  "ratelimit": null,
+  "throttledratelimit": null,
+  "retries": 2,
+  "file_access_retries": 3,
+  "fragment_retries": 10,
+  "extractor_retries": 1,
+  "retry_sleep_functions": {},
+  "skip_unavailable_fragments": true,
+  "keep_fragments": false,
+  "concurrent_fragment_downloads": 1,
+  "buffersize": 1024,
+  "noresizebuffer": false,
+  "http_chunk_size": null,
+  "continuedl": true,
+  "noprogress": false,
+  "progress_with_newline": false,
+  "progress_template": {},
+  "playliststart": 1,
+  "playlistend": null,
+  "playlistreverse": null,
+  "playlistrandom": null,
+  "lazy_playlist": null,
+  "noplaylist": false,
+  "logtostderr": false,
+  "consoletitle": false,
+  "nopart": false,
+  "updatetime": false,
+  "writedescription": false,
+  "writeannotations": false,
+  "writeinfojson": null,
+  "allow_playlist_files": true,
+  "clean_infojson": true,
+  "getcomments": false,
+  "writethumbnail": false,
+  "write_all_thumbnails": false,
+  "writelink": false,
+  "writeurllink": false,
+  "writewebloclink": false,
+  "writedesktoplink": false,
+  "writesubtitles": true,
+  "writeautomaticsub": false,
+  "allsubtitles": false,
+  "listsubtitles": false,
+  "subtitlesformat": "best",
+  "subtitleslangs": [
+    "all"
+  ],
+  "matchtitle": null,
+  "rejecttitle": null,
+  "max_downloads": null,
+  "prefer_free_formats": false,
+  "trim_file_name": 0,
+  "verbose": true,
+  "dump_intermediate_pages": false,
+  "write_pages": false,
+  "load_pages": false,
+  "test": false,
+  "keepvideo": true,
+  "min_filesize": null,
+  "max_filesize": null,
+  "min_views": null,
+  "max_views": null,
+  "daterange": "<yt_dlp.utils.DateRange object at 0x1026c3310>",
+  "cachedir": null,
+  "youtube_print_sig_code": false,
+  "age_limit": null,
+  "download_archive": null,
+  "break_on_existing": false,
+  "break_on_reject": false,
+  "break_per_url": false,
+  "skip_playlist_after_errors": null,
+  "cookiefile": null,
+  "cookiesfrombrowser": null,
+  "legacyserverconnect": false,
+  "nocheckcertificate": false,
+  "prefer_insecure": null,
+  "enable_file_urls": false,
+  "http_headers": {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv: 109.0) Gecko/20100101 Firefox/111.0",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5",
+    "Sec-Fetch-Mode": "navigate",
+    "Accept-Encoding": "gzip,deflate"
+  },
+  "proxy": null,
+  "socket_timeout": null,
+  "bidi_workaround": null,
+  "debug_printtraffic": false,
+  "prefer_ffmpeg": true,
+  "include_ads": null,
+  "default_search": null,
+  "dynamic_mpd": true,
+  "extractor_args": {},
+  "youtube_include_dash_manifest": true,
+  "youtube_include_hls_manifest": true,
+  "encoding": null,
+  "extract_flat": "discard_in_playlist",
+  "live_from_start": null,
+  "wait_for_video": null,
+  "mark_watched": false,
+  "merge_output_format": null,
+  "final_ext": null,
+  "postprocessors": [
+    {
+      "key": "FFmpegSubtitlesConvertor",
+      "format": "srt",
+      "when": "before_dl"
+    },
+    {
+      "key": "FFmpegConcat",
+      "only_multi_video": true,
+      "when": "playlist"
+    }
+  ],
+  "fixup": null,
+  "source_address": null,
+  "call_home": false,
+  "sleep_interval_requests": null,
+  "sleep_interval": null,
+  "max_sleep_interval": null,
+  "sleep_interval_subtitles": 0,
+  "external_downloader": {
+    "default": "aria2c"
+  },
+  "download_ranges": "yt_dlp.utils.download_range_func([], [])",
+  "force_keyframes_at_cuts": false,
+  "list_thumbnails": false,
+  "playlist_items": null,
+  "xattr_set_filesize": null,
+  "match_filter": null,
+  "no_color": false,
+  "ffmpeg_location": null,
+  "hls_prefer_native": null,
+  "hls_use_mpegts": null,
+  "hls_split_discontinuity": false,
+  "external_downloader_args": {},
+  "postprocessor_args": {},
+  "cn_verification_proxy": null,
+  "geo_verification_proxy": null,
+  "geo_bypass": true,
+  "geo_bypass_country": null,
+  "geo_bypass_ip_block": null,
+  "_warnings": [],
+  "_deprecation_warnings": [],
+  "compat_opts": set()
+}
+
+    '''
+
     logger = logging.getLogger("yt_dlp")
 
     headers = {
@@ -1671,7 +1880,9 @@ def init_ytdl(args):
         "stop": threading.Event(),
         "lock": threading.Lock(),
         "embed": not args.no_embed,
-        "_util_classes": {'SimpleCountDown': SimpleCountDown}
+        "_util_classes": {'SimpleCountDown': SimpleCountDown},
+        "outtmpl": {
+            'default': '%(id)s_%(title)s.%(ext)s'}
     }
 
     if args.use_cookies:
@@ -2011,14 +2222,18 @@ class CountDowns:
     def clean(self):
 
         self.kill_input.set()
-        _futures = [self.futures['input']]
+        _futures = []
+        if (_input := self.futures.get('input')):
+            _futures.append(_input)
         time.sleep(self.INTERV_TIME)
-        for _index, _count in self.countdowns.items():
-            if _count['status'] == 'running':
-                _count['stop'].set()
-                _futures.append(self.futures[_index])
-                time.sleep(self.INTERV_TIME)
-        wait_thr(_futures)
+        if self.countdowns:
+            for _index, _count in self.countdowns.items():
+                if _count['status'] == 'running':
+                    _count['stop'].set()
+                    _futures.append(self.futures[_index])
+                    time.sleep(self.INTERV_TIME)
+        if _futures:
+            wait_thr(_futures)
         self.futures = {}
         if self.countdowns:
             self.logger.debug(f'{self._pre} COUNTDOWNS:\n{self.countdowns}')
