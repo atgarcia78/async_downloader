@@ -21,7 +21,7 @@
             "()": "supportlogging.FilterModule",
             "patterns": [
                 "urllib3.connectionpool",
-                "httpx._client",
+                "httpx",
                 "PIL.TiffImagePlugin",
                 "img2pdf",
                 "hpack",

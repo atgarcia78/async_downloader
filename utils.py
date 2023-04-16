@@ -584,6 +584,32 @@ def init_logging(file_path=None):
     logger.setLevel(logging.ERROR)
 
 
+class ActionNoYes(argparse.Action):
+    def __init__(self, option_strings, dest, default=None, required=False, help=None):
+
+        if len(option_strings) != 1:
+            raise ValueError('Only single argument is allowed with YesNo action')
+        opt = option_strings[0]
+        if not opt.startswith('--'):
+            raise ValueError('Yes/No arguments must be prefixed with --')
+
+        opt = opt[2:]
+        opts = ['--' + opt, '--no-' + opt]
+        super(ActionNoYes, self).__init__(opts, dest, nargs='?', const=None,
+                                          default=default, required=required, help=help)
+
+    def __call__(self, parser, namespace, values, option_strings=None):
+        if option_strings:
+            if option_strings.startswith('--no-'):
+                setattr(namespace, self.dest, False)
+            else:
+                if not values:
+                    _val = None
+                else:
+                    _val = values
+                setattr(namespace, self.dest, _val)
+
+
 def init_argparser():
 
     parser = argparse.ArgumentParser(
@@ -625,7 +651,7 @@ def init_argparser():
     )
     parser.add_argument("--ytdlopts", help="init dict de conf", default="",
                         type=str)
-    parser.add_argument("--proxy", default=None, type=str)
+    parser.add_argument("--proxy", action=ActionNoYes, default=None)
     parser.add_argument("--useragent", default=CONF_FIREFOX_UA, type=str)
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
@@ -659,8 +685,8 @@ def init_argparser():
     parser.add_argument(
         "--aria2c",
         help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
-        default="6800",
-        type=str,
+        action=ActionNoYes,
+        default="6800"
     )
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true",
@@ -675,9 +701,8 @@ def init_argparser():
     if args.winit == 0:
         args.winit = args.w
 
-    if args.aria2c == "no":
+    if args.aria2c is False:
         args.rpcport = None
-        args.aria2c = False
     else:
         args.rpcport = int(args.aria2c)
         args.aria2c = True
@@ -689,7 +714,7 @@ def init_argparser():
         args.verbose = True
 
     args.enproxy = True
-    if args.proxy == "no":
+    if args.proxy is False:
         args.enproxy = False
         args.proxy = None
 
@@ -2987,7 +3012,8 @@ if PySimpleGUI:
 
         def get_dl_media(self):
             if self.list_nwmon:
-                _media = naturalsize(median([el[1] for el in self.list_nwmon]), binary=True)
+                _speed_data = [el[1] for el in self.list_nwmon]
+                _media = naturalsize(median(_speed_data), binary=True)
                 return f'DL MEDIA: {_media}ps'
 
         @long_operation_in_thread_from_loop(name='pasresthr')
