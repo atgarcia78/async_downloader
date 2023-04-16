@@ -762,7 +762,6 @@ _CLIENT_CONFIG = {
         'Accept-Language': 'en,es-ES;q=0.5',
         'Sec-Fetch-Mode': 'navigate',
         'Connection': 'keep-alive',
-        'Accept-Encoding': 'gzip, deflate'
     },
     'follow_redirects': True,
     'verify': False
@@ -1729,9 +1728,7 @@ if yt_dlp:
         headers = {
             "User-Agent": args.useragent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Connection": "keep-alive",
             "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate",
         }
 
         ytdl_opts = {

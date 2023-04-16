@@ -1218,8 +1218,9 @@ class AsyncDL:
 
             await self.localstorage.aready()
 
-            self.nwsetup = NWSetUp(self)
-            self.is_ready_to_dl = self.nwsetup.init_ready
+            if not self.args.nodl:
+                self.nwsetup = NWSetUp(self)
+                self.is_ready_to_dl = self.nwsetup.init_ready
 
             tasks_to_wait = {}
 
@@ -1238,7 +1239,8 @@ class AsyncDL:
 
                     tasks_to_wait.update({add_task(self.end_dl.async_wait(), self.background_tasks): "task_workers_run"})
 
-            await asyncio.wait(tasks_to_wait)
+            if tasks_to_wait:
+                await asyncio.wait(tasks_to_wait)
 
         except BaseException as e:
             logger.error(f"[async_ex] {repr(e)}")
