@@ -140,33 +140,22 @@ class AsyncHLSDownloader:
             self.count: int = 0
             self.m3u8_doc = None
             self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
-            self.verifycert: bool = not self.ytdl.params.get(
-                "nocheckcertificate")
+            self.verifycert: bool = not self.ytdl.params.get("nocheckcertificate")
             self.timeout: httpx.Timeout = httpx.Timeout(15, connect=15)
             self.limits: httpx.Limits = httpx.Limits(
                 max_keepalive_connections=None,
                 max_connections=None,
                 keepalive_expiry=30,
             )
-            self.base_download_path = Path(
-                str(self.info_dict["download_path"]))
-            self.init_file = Path(
-                self.base_download_path,
-                f"init_file.{self.info_dict['format_id']}")
-            _filename = Path(
-                self.info_dict.get(
-                    "_filename", self.info_dict.get("filename")))
-            self.download_path = Path(
-                self.base_download_path, self.info_dict["format_id"])
+            self.base_download_path = Path(self.info_dict["download_path"])
+            self.init_file = Path(self.base_download_path, f"init_file.{self.info_dict['format_id']}")
+            _filename = Path(self.info_dict.get("_filename", self.info_dict.get("filename")))
+            self.download_path = Path(self.base_download_path, self.info_dict["format_id"])
             self.download_path.mkdir(parents=True, exist_ok=True)
             self.fragments_base_path = Path(
-                self.download_path,
-                _filename.stem + "." + self.info_dict[
-                    "format_id"] + "." + self.info_dict["ext"])
+                self.download_path, f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
             self.filename = Path(
-                self.base_download_path,
-                _filename.stem + "." + self.info_dict[
-                    "format_id"] + "." + "ts")
+                self.base_download_path, f'{_filename.stem}.{self.info_dict["format_id"]}.ts')
 
             self.key_cache = dict()
             self.n_reset = 0
@@ -189,6 +178,11 @@ class AsyncHLSDownloader:
 
                 self._qproxies = put_sequence(Queue(), _seq)
 
+                el1, el2 = cast(tuple, self._qproxies.get())
+                _proxy_port = CONF_PROXIES_BASE_PORT + el1*100 + el2
+                _proxy = f"http://127.0.0.1:{_proxy_port}"
+                self._proxy = {"http://": _proxy, "https://": _proxy}
+
             _proxies = self._proxy if hasattr(self, '_proxy') else None
             self.init_client = httpx.Client(
                 proxies=_proxies,  # type: ignore
@@ -196,17 +190,18 @@ class AsyncHLSDownloader:
                 headers=self.info_dict['http_headers'],
                 limits=self.limits,
                 timeout=self.timeout,
-                verify=False,
-            )
+                verify=False)
+
             self.filesize = None
+
             self.premsg = ''.join([
                 f'[{self.info_dict["id"]}]',
                 f'[{self.info_dict["title"]}]',
                 f'[{self.info_dict["format_id"]}]'])
 
             self.count_msg = ''
-
             self.init()
+
         except Exception as e:
             logger.exception(repr(e))
             self.init_client.close()
@@ -295,6 +290,7 @@ class AsyncHLSDownloader:
 
             self._extractor = try_get(self.info_dict.get(
                 "extractor_key", "Generic").lower(), lambda x: x.lower())
+
             self._limit = getter(self._extractor)
             self.info_frag = []
             self.info_init_section = {}
@@ -305,8 +301,6 @@ class AsyncHLSDownloader:
             self.abr = self.info_dict.get("abr", 0)
             _br = self.tbr or self.abr
 
-            byte_range = {}
-
             self.m3u8_doc = try_get(
                 self.init_client.get(self.info_dict['url']),
                 lambda x: x.content.decode("utf-8", "replace"))
@@ -315,11 +309,9 @@ class AsyncHLSDownloader:
             self.info_dict["init_section"] = self.info_dict[
                 "fragments"][0].init_section
 
-            logger.debug(
-                f'fragments:\n{[str(f) for f in self.info_dict["fragments"]]}')
+            logger.debug(f'fragments:\n{[str(f) for f in self.info_dict["fragments"]]}')
 
-            logger.debug(
-                f'init_section:\n{self.info_dict["init_section"]}')
+            logger.debug(f'init_section:\n{self.info_dict["init_section"]}')
 
             if _frag := self.info_dict["init_section"]:
                 _file_path = Path(str(self.fragments_base_path) + ".Frag0")
@@ -331,10 +323,8 @@ class AsyncHLSDownloader:
                         self.key_cache.update(
                             {_frag.key.absolute_uri:
                                 httpx.get(_frag.key.absolute_uri, headers=self.info_dict['http_headers']).content})
-                        logger.debug(
-                            f'{self.premsg}:' +
-                            f'{self.key_cache[_frag.key.absolute_uri]}')
 
+                        logger.debug(f'{self.premsg}: {self.key_cache[_frag.key.absolute_uri]}')
                         logger.debug(f"{self.premsg}:{_frag.key.iv}")
 
                 self.info_init_section.update({
@@ -349,6 +339,8 @@ class AsyncHLSDownloader:
                 init_data = {int(k): v for k, v in init_data.items()}
             else:
                 init_data = {}
+
+            byte_range = {}
 
             for i, fragment in enumerate(self.info_dict["fragments"]):
 
@@ -488,6 +480,10 @@ class AsyncHLSDownloader:
         _bitrate = self.tbr or self.abr
         return int(self.totalduration * 1000 * _bitrate / 8)
 
+    @property
+    def min_threshold(self):
+        return self.n_workers * CONF_HLS_SPEED_PER_WORKER
+
     def get_info_fragments(self):
 
         try:
@@ -508,14 +504,8 @@ class AsyncHLSDownloader:
             raise AsyncHLSDLErrorFatal(repr(e))
 
     def check_any_event_is_set(self):
-        return any(
-            [
-                self.vid_dl.pause_event.is_set(),
-                self.vid_dl.reset_event.is_set(),
-                self.vid_dl.stop_event.is_set()
-            ]
-
-        )
+        return any([self.vid_dl.pause_event.is_set(), self.vid_dl.reset_event.is_set(),
+                    self.vid_dl.stop_event.is_set()])
 
     def check_stop(self):
         if self.vid_dl.stop_event.is_set():
@@ -528,8 +518,7 @@ class AsyncHLSDownloader:
             cipher = None
             if key is not None and key.method == "AES-128":
                 iv = binascii.unhexlify(key.iv[2:])
-                cipher = AES.new(self.key_cache[key.absolute_uri],
-                                 AES.MODE_CBC, iv)
+                cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
             res = self.init_client.get(uri)
             res.raise_for_status()
             _frag = res.content if not cipher else cipher.decrypt(res.content)
@@ -539,10 +528,7 @@ class AsyncHLSDownloader:
             self.info_init_section.update({"downloaded": True})
 
         except Exception as e:
-
-            logger.exception(
-                f"{self.premsg}:[get_init_section] {repr(e)}"
-            )
+            logger.exception(f"{self.premsg}:[get_init_section] {repr(e)}")
             raise
 
     def multi_extract_info(self, url, proxy=None, msg=None):
@@ -557,17 +543,15 @@ class AsyncHLSDownloader:
             if proxy:
                 with ProxyYTDL(opts=self.ytdl.params.copy(), proxy=proxy) as proxy_ytdl:
                     _info_video = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(url))
-
             else:
-                _info_video = self.ytdl.sanitize_info(
-                    self.ytdl.extract_info(url, download=False))
+                _info_video = self.ytdl.sanitize_info(self.ytdl.extract_info(url, download=False))
 
             self.check_stop()
 
             if not _info_video:
                 raise AsyncHLSDLErrorFatal("no info video")
-
-            return _info_video
+            else:
+                return _info_video
 
         except StatusStop:
             raise
@@ -589,8 +573,7 @@ class AsyncHLSDownloader:
             headers=self.info_dict['http_headers'],
             limits=self.limits,
             timeout=self.timeout,
-            verify=False
-        )
+            verify=False)
 
         self.frags_to_dl = []
 
@@ -669,106 +652,56 @@ class AsyncHLSDownloader:
     @retry
     def get_reset_info(self, _reset_url, first=False):
 
-        _proxy = self._proxy["all://"] if getattr(self, '_proxy', None) else None
-        _print_proxy = _proxy.split(":")[-1] if _proxy else None
+        _proxy = self._proxy["http://"] if getattr(self, '_proxy', None) else None
+        _print_proxy = f':proxy[{_proxy.split(":")[-1]}]' if _proxy else ''
 
-        logger.debug(
-            f"{self.premsg}:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:" +
-            f"FIRST[{first}] proxy [{_print_proxy}]: " +
-            f"get video dict: {_reset_url}")
+        _pre = f"{self.premsg}[get_resetinf][{_reset_url}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]:"
+        _pre += f"isfirst[{first}]{_print_proxy}"
+
+        logger.debug(_pre)
 
         _info = None
-
         info_reset = None
 
         try:
 
             self.check_stop()
-
             if self.fromplns:
 
                 if first:
                     with contextlib.suppress(OSError):
-                        syncos.remove(
-                            self.ytdl.cache._get_cache_fn(
-                                "nakedswordmovie", str(self.fromplns), "json"
-                            )
-                        )
-
-                    _info = self.multi_extract_info(
-                        _reset_url,
-                        proxy=_proxy,
-                        msg=(
-                            f"{self.premsg}:RESET[{self.n_reset}]:" +
-                            f"PLNS[{self.fromplns}]:FIRST[{first}] proxy " +
-                            f"[{_print_proxy}]:"))
-
+                        syncos.remove(self.ytdl.cache._get_cache_fn("nakedswordmovie", str(self.fromplns), "json"))
+                    _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
                     self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
                 else:
                     _info = self.ytdl.cache.load("nakedswordmovie", str(self.fromplns))
-
                     if not _info:
-                        _info = self.multi_extract_info(
-                            _reset_url,
-                            proxy=_proxy,
-                            msg=(
-                                f"{self.premsg}:RESET[{self.n_reset}]:" +
-                                f"PLNS[{self.fromplns}]:FIRST[{first}] " +
-                                f"proxy [{_print_proxy}]:"))
-
+                        _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
                         self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
                 if _info:
-                    info_reset = try_get(traverse_obj(
-                        _info,
-                        (
-                            "entries",
-                            int(self.vid_dl.info_dict["playlist_index"]) - 1
-                        )),
-                        lambda x: get_format_id(
-                            x, self.info_dict["format_id"]) if x else None)
+                    info_reset = try_get(
+                        traverse_obj(_info, ("entries", int(self.vid_dl.info_dict["playlist_index"]) - 1)),
+                        lambda x: get_format_id(x, self.info_dict["format_id"]) if x else None)
 
             else:
-
-                _info = self.multi_extract_info(
-                    _reset_url,
-                    proxy=_proxy,
-                    msg=(
-                        f"{self.premsg}:RESET[{self.n_reset}]:" +
-                        f"PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]:"))
-
+                _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
                 if _info:
                     info_reset = get_format_id(_info, self.info_dict["format_id"])
 
             self.check_stop()
 
             if not info_reset:
-                raise AsyncHLSDLErrorFatal(
-                    f"{self.premsg}:RESET[{self.n_reset}]:" +
-                    f"PLNS[{self.fromplns}]:FIRST[{first}] proxy [{_print_proxy}]: " +
-                    "fails no descriptor")
+                raise AsyncHLSDLErrorFatal(f"{_pre} fails no descriptor")
 
-            logger.debug(
-                f"{self.premsg}:RESET[{self.n_reset}]:" +
-                f"PLNS[{self.fromplns}]:FIRST[{first}] " +
-                f"proxy [{_print_proxy}]: format extracted info video ok")
-
-            logger.debug(
-                f"{self.premsg}:RESET[{self.n_reset}]:" +
-                f"PLNS[{self.fromplns}]:FIRST[{first}] " +
-                f"proxy [{_print_proxy}]: format extracted info video ok\n" +
-                f"%no%{_for_print(info_reset)}")
+            logger.debug(f"{_pre} format extracted info video ok\n{_for_print(info_reset)}")
 
             try:
                 self.prep_reset(info_reset)
                 return {"res": "ok"}
             except Exception as e:
-                logger.exception(
-                    f"{self.premsg}:RESET[{self.n_reset}]:" +
-                    f"PLNS[{self.fromplns}]:FIRST[{first}] " +
-                    f"proxy [{_print_proxy}]: Exception occurred when reset: " +
-                    f"{repr(e)} {_for_print(info_reset)}")
+                logger.exception(f"{_pre} Exception occurred when reset {repr(e)}")
                 raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
 
         except StatusStop:
@@ -776,12 +709,17 @@ class AsyncHLSDownloader:
         except AsyncHLSDLErrorFatal as e:
             return {"error": e}
         except Exception as e:
-            logger.error(f"{self.premsg} fails when extracting reset info {repr(e)}")
+            logger.error(f"{_pre}fails when extracting reset info {repr(e)}")
             return {"error": e}
 
     def resetdl(self, cause=None):
 
-        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:CAUSE[{cause}] fromplns[{self.fromplns}]")
+        _proxy = self._proxy["http://"] if getattr(self, '_proxy', None) else None
+        _print_proxy = f':proxy[{_proxy.split(":")[-1]}]' if _proxy else ''
+
+        _pre = f"{self.premsg}[resetdl]:CAUSE[{cause}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]{_print_proxy}"
+
+        logger.debug(_pre)
 
         _pasres_cont = False
 
@@ -801,13 +739,13 @@ class AsyncHLSDownloader:
 
                 self.check_stop()
 
-                logger.info(f"{self.premsg}:RESET[{self.n_reset}] fin wait in reset cause 403")
+                logger.info(f"{_pre} fin wait in reset cause 403")
 
             if self.enproxy:
                 el1, el2 = cast(tuple, self._qproxies.get())
                 _proxy_port = CONF_PROXIES_BASE_PORT + el1*100 + el2
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
-                self._proxy = {"all://": _proxy}
+                self._proxy = {"http://": _proxy, "https://": _proxy}
 
             _wurl = self.info_dict["webpage_url"]
 
@@ -823,7 +761,7 @@ class AsyncHLSDownloader:
 
                     with (_sem2 := self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"]):
 
-                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}] in sem2")
+                        logger.debug(f"{_pre} in sem2")
 
                         _first = False
                         if _sem2._initial_value == 1:
@@ -843,22 +781,17 @@ class AsyncHLSDownloader:
 
                         _resinfo = self.get_reset_info(_webpage_url, first=_first)
 
-                        #  logger.info(f"{self.premsg}:RESET[{self.n_reset}] resinfo[{_resinfo}]")
-
                         if "res" in _resinfo:
-
                             if _first:
                                 _sem2._initial_value = 100
                                 _sem2.release(50)
                             if _first_all:
-                                #  AsyncHLSDownloader._OK_503.set()
                                 _sem._initial_value = 100
                                 _sem.release(50)
 
                             time.sleep(1)
 
                         self.check_stop()
-
                         if "error" in _resinfo:
                             raise _resinfo["error"]
 
@@ -870,11 +803,10 @@ class AsyncHLSDownloader:
                 self.get_reset_info(_webpage_url)
 
         except StatusStop:
-            logger.error(f"{self.premsg}:RESET[{self.n_reset}]: stop_event")
+            logger.error(f"{_pre} stop_event")
         except Exception as e:
             logger.exception(
-                f"{self.premsg}:RESET[{self.n_reset}]: stop_event:[{self.vid_dl.stop_event.is_set()}] " +
-                f"outer Exception occurred when reset: {repr(e)}")
+                f"{_pre} stop_event:[{self.vid_dl.stop_event.is_set()}] outer Exception {repr(e)}")
             raise
         finally:
             if cause == "403":
@@ -882,8 +814,7 @@ class AsyncHLSDownloader:
 
             if self.fromplns and cause in ("403", "hard"):
 
-                logger.debug(
-                    f'{self.premsg}[resetdl]:RESET[{self.n_reset}] stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY')
+                logger.debug(f'{_pre} stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY')
 
                 with AsyncHLSDownloader._CLASSLOCK:
 
@@ -892,14 +823,12 @@ class AsyncHLSDownloader:
                         _inreset.remove(self.vid_dl.info_dict["playlist_index"])
                     except Exception:
                         logger.warning(
-                            f'{self.premsg}[resetdl]:RESET[{self.n_reset}]: ' +
-                            f'error when removing [{self.vid_dl.info_dict["playlist_index"]}] ' +
+                            f'{_pre} error when removing[{self.vid_dl.info_dict["playlist_index"]}] ' +
                             f'from inreset[{self.fromplns}] {_inreset}')
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
 
-                        logger.debug(
-                            f"{self.premsg}:RESET[{self.n_reset}] end of resets fromplns [{self.fromplns}]")
+                        logger.debug(f"{_pre} end of resets fromplns [{self.fromplns}]")
 
                         self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
                         self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(value=1)
@@ -907,8 +836,7 @@ class AsyncHLSDownloader:
                 if self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
 
                     logger.info(
-                        f"{self.premsg}:RESET[{self.n_reset}] " +
-                        f"waits for rest scenes in [{self.fromplns}] to start DL " +
+                        f"{_pre} waits for rest scenes in [{self.fromplns}] to start DL " +
                         f"[{self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset']}]")
 
                     wait_for_either([self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"], self.vid_dl.stop_event])
@@ -922,243 +850,240 @@ class AsyncHLSDownloader:
 
                     if not self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
 
-                        logger.debug(
-                            f"{self.premsg}:RESET[{self.n_reset}] end for all plns ")
+                        logger.debug(f"{_pre} end for all plns ")
 
                         self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
                         self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
                         self.n_reset += 1
                         if _pasres_cont:
                             FrontEndGUI.pasres_continue()
-                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]: exit reset")
+                        logger.debug(f"{_pre}  exit reset")
                         return
 
                 if self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
 
                     logger.info(
-                        f"{self.premsg}:RESET[{self.n_reset}] " +
-                        f"all scenes in [{self.fromplns}], waiting for scenes in other plns " +
+                        f"{_pre} all scenes in [{self.fromplns}], waiting for scenes in other plns " +
                         f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]")
 
                     wait_for_either([self.vid_dl.info_dl["fromplns"]["ALL"]["reset"], self.vid_dl.stop_event])
 
-                    #  self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].wait()
-
                     self.n_reset += 1
                     if _pasres_cont:
                         FrontEndGUI.pasres_continue()
-                    logger.debug(f"{self.premsg}:RESET[{self.n_reset}] exit reset")
+                    logger.debug(f"{_pre} exit reset")
                     return
             else:
                 self.n_reset += 1
-                logger.debug(f"{self.premsg}:RESET[{self.n_reset}] exit reset")
+                logger.debug(f"{_pre} exit reset")
 
-    async def check_speed(self):
-        def getter(x):
-            return x * CONF_HLS_SPEED_PER_WORKER
+    # async def check_speed(self):
 
-        _speed = []
-        _num_chunks = self._CONF_HLS_MIN_N_TO_CHECK_SPEED
-        _index = self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2
-        _max_bd_det = 0
-        prog = ProgressTimer()
+    #     def getter(x):
+    #         return x * CONF_HLS_SPEED_PER_WORKER
 
-        try:
-            while True:
+    #     _speed = []
+    #     _num_chunks = self._CONF_HLS_MIN_N_TO_CHECK_SPEED
+    #     _index = self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2
+    #     _max_bd_det = 0
+    #     prog = ProgressTimer()
 
-                _res = await async_waitfortasks(
-                    self._qspeed.get(),
-                    events=(self.vid_dl.reset_event,
-                            self.vid_dl.stop_event),
-                    background_tasks=self.background_tasks)
-                if _res.get("event"):
-                    logger.info(f"{self.premsg}[check_speed] event detected")
-                    self._test.append(("event detected"))
-                    return
-                elif (_e := _res.get("exception")):
-                    raise AsyncHLSDLError(f"couldnt get input spped: {repr(_e)}")
-                else:
-                    _input_speed = _res.get("result")
-                    if not _input_speed:
-                        continue
+    #     try:
+    #         while True:
 
-                if isinstance(
-                    _input_speed, tuple) and isinstance(
-                        _input_speed[0], str) and _input_speed[0] == "KILL":
-                    return
+    #             _res = await async_waitfortasks(
+    #                 self._qspeed.get(),
+    #                 events=(self.vid_dl.reset_event,
+    #                         self.vid_dl.stop_event),
+    #                 background_tasks=self.background_tasks)
+    #             if _res.get("event"):
+    #                 logger.info(f"{self.premsg}[check_speed] event detected")
+    #                 self._test.append(("event detected"))
+    #                 return
+    #             elif (_e := _res.get("exception")):
+    #                 raise AsyncHLSDLError(f"couldnt get input spped: {repr(_e)}")
+    #             else:
+    #                 _input_speed = _res.get("result")
+    #                 if not _input_speed:
+    #                     continue
 
-                _speed.append(_input_speed)
+    #             if isinstance(
+    #                 _input_speed, tuple) and isinstance(
+    #                     _input_speed[0], str) and _input_speed[0] == "KILL":
+    #                 return
 
-                nsecs = 20
+    #             _speed.append(_input_speed)
 
-                if len(_speed) > _num_chunks:
+    #             nsecs = 20
 
-                    if any(
-                        [
-                            all(
-                                [
-                                    el == 0
-                                    for el in _speed[
-                                        -(_index):
-                                    ]
-                                ]
-                            ),
-                            not _max_bd_det
-                            and all(
-                                [
-                                    el < getter(self.count)
-                                    for el in _speed[
-                                        -(_index):
-                                    ]
-                                ]
-                            ),
-                        ]
-                    ):
+    #             if len(_speed) > _num_chunks:
 
-                        logger.info(f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]")
-                        self.vid_dl.reset_event.set("speedreset")
-                        self._test.append(("speed reset"))
-                        break
+    #                 if any(
+    #                     [
+    #                         all(
+    #                             [
+    #                                 el == 0
+    #                                 for el in _speed[
+    #                                     -(_index):
+    #                                 ]
+    #                             ]
+    #                         ),
+    #                         not _max_bd_det
+    #                         and all(
+    #                             [
+    #                                 el < getter(self.count)
+    #                                 for el in _speed[
+    #                                     -(_index):
+    #                                 ]
+    #                             ]
+    #                         ),
+    #                     ]
+    #                 ):
 
-                    elif (
-                        self._CONF_HLS_MAX_SPEED_PER_DL
-                        and all(
-                            [
-                                el >= self._CONF_HLS_MAX_SPEED_PER_DL
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        and (
-                            not _max_bd_det
-                            or (_max_bd_det and prog.elapsed_seconds() > nsecs)
-                        )
-                    ):
+    #                     logger.info(f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]")
+    #                     self.vid_dl.reset_event.set("speedreset")
+    #                     self._test.append(("speed reset"))
+    #                     break
 
-                        _old_throttle = self.throttle
+    #                 elif (
+    #                     self._CONF_HLS_MAX_SPEED_PER_DL
+    #                     and all(
+    #                         [
+    #                             el >= self._CONF_HLS_MAX_SPEED_PER_DL
+    #                             for el in _speed[
+    #                                 -(_index):
+    #                             ]
+    #                         ]
+    #                     )
+    #                     and (
+    #                         not _max_bd_det
+    #                         or (_max_bd_det and prog.elapsed_seconds() > nsecs)
+    #                     )
+    #                 ):
 
-                        if not _max_bd_det:
-                            self.throttle = float(f"{self.throttle + 0.05:.2f}")
-                            _max_bd_det += 1
-                            prog.reset()
-                            nsecs = 20
+    #                     _old_throttle = self.throttle
 
-                        else:
+    #                     if not _max_bd_det:
+    #                         self.throttle = float(f"{self.throttle + 0.05:.2f}")
+    #                         _max_bd_det += 1
+    #                         prog.reset()
+    #                         nsecs = 20
 
-                            _max_bd_det += 1
-                            self.throttle = float(f"{self.throttle + 0.01:.2f}")
-                            prog.reset()
-                            nsecs = 20
+    #                     else:
 
-                        _str_speed = ", ".join([
-                            f"{el}" for el in _speed[
-                                -(_index):]
-                            ]
-                        )
-                        logger.info(
-                            f"{self.premsg}[check_speed] MAX BD -> " +
-                            f"decrease speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]")
-                        logger.debug(
-                            f"{self.premsg}[check_speed] MAX BD -> " +
-                            f"decrease speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
-                            f"%no%{_str_speed}")
+    #                         _max_bd_det += 1
+    #                         self.throttle = float(f"{self.throttle + 0.01:.2f}")
+    #                         prog.reset()
+    #                         nsecs = 20
 
-                        self._test.append((f"decrease speed: throttle {_old_throttle} -> {self.throttle}]"))
+    #                     _str_speed = ", ".join([
+    #                         f"{el}" for el in _speed[
+    #                             -(_index):]
+    #                         ]
+    #                     )
+    #                     logger.info(
+    #                         f"{self.premsg}[check_speed] MAX BD -> " +
+    #                         f"decrease speed: throttle[{_old_throttle} -> " +
+    #                         f"{self.throttle}] n_el_speed[{len(_speed)}]")
+    #                     logger.debug(
+    #                         f"{self.premsg}[check_speed] MAX BD -> " +
+    #                         f"decrease speed: throttle[{_old_throttle} -> " +
+    #                         f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
+    #                         f"%no%{_str_speed}")
 
-                    elif (
-                        self._CONF_HLS_MAX_SPEED_PER_DL
-                        and all(
-                            [
-                                0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
-                                <= el
-                                < self._CONF_HLS_MAX_SPEED_PER_DL
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        and (_max_bd_det and prog.elapsed_seconds() > nsecs)
-                    ):
+    #                     self._test.append((f"decrease speed: throttle {_old_throttle} -> {self.throttle}]"))
 
-                        _str_speed = ", ".join(
-                            [
-                                f"{el}"
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
+    #                 elif (
+    #                     self._CONF_HLS_MAX_SPEED_PER_DL
+    #                     and all(
+    #                         [
+    #                             0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
+    #                             <= el
+    #                             < self._CONF_HLS_MAX_SPEED_PER_DL
+    #                             for el in _speed[
+    #                                 -(_index):
+    #                             ]
+    #                         ]
+    #                     )
+    #                     and (_max_bd_det and prog.elapsed_seconds() > nsecs)
+    #                 ):
 
-                        logger.info(
-                            f"{self.premsg}[check_speed] estable with throttle[{self.throttle}]: " +
-                            f"n_el_speed[{len(_speed)}]")
-                        logger.debug(
-                            f"{self.premsg}[check_speed] estable with throttle" +
-                            f"[{self.throttle}]: n_el_speed[{len(_speed)}]\n" +
-                            f"%no%{_str_speed}")
+    #                     _str_speed = ", ".join(
+    #                         [
+    #                             f"{el}"
+    #                             for el in _speed[
+    #                                 -(_index):
+    #                             ]
+    #                         ]
+    #                     )
 
-                        _max_bd_det = 0
-                        self._test.append((f"estable throttle {self.throttle}"))
+    #                     logger.info(
+    #                         f"{self.premsg}[check_speed] estable with throttle[{self.throttle}]: " +
+    #                         f"n_el_speed[{len(_speed)}]")
+    #                     logger.debug(
+    #                         f"{self.premsg}[check_speed] estable with throttle" +
+    #                         f"[{self.throttle}]: n_el_speed[{len(_speed)}]\n" +
+    #                         f"%no%{_str_speed}")
 
-                    elif (
-                        self._CONF_HLS_MAX_SPEED_PER_DL
-                        and all(
-                            [
-                                el < 0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        and (_max_bd_det and prog.elapsed_seconds() > nsecs)
-                    ):
+    #                     _max_bd_det = 0
+    #                     self._test.append((f"estable throttle {self.throttle}"))
 
-                        _old_throttle = self.throttle
+    #                 elif (
+    #                     self._CONF_HLS_MAX_SPEED_PER_DL
+    #                     and all(
+    #                         [
+    #                             el < 0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
+    #                             for el in _speed[
+    #                                 -(_index):
+    #                             ]
+    #                         ]
+    #                     )
+    #                     and (_max_bd_det and prog.elapsed_seconds() > nsecs)
+    #                 ):
 
-                        if _max_bd_det == 1:
-                            self.throttle = float(
-                                f"{self.throttle - 0.01:.2f}")
-                            prog.reset()
-                            nsecs = 20
-                        else:
-                            self.throttle = float(
-                                f"{self.throttle - 0.005:.2f}")
-                            prog.reset()
-                            nsecs = 20
+    #                     _old_throttle = self.throttle
 
-                        if self.throttle < 0:
-                            self.throttle = 0
+    #                     if _max_bd_det == 1:
+    #                         self.throttle = float(
+    #                             f"{self.throttle - 0.01:.2f}")
+    #                         prog.reset()
+    #                         nsecs = 20
+    #                     else:
+    #                         self.throttle = float(
+    #                             f"{self.throttle - 0.005:.2f}")
+    #                         prog.reset()
+    #                         nsecs = 20
 
-                        _str_speed = ", ".join(
-                            [
-                                f"{el}"
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        logger.info(
-                            f"{self.premsg}[check_speed] MIN 0.8 -> " +
-                            f"increase speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]")
-                        logger.debug(
-                            f"{self.premsg}[check_speed] MIN 0.8 -> " +
-                            f"increase speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
-                            f"%no%{_str_speed}")
+    #                     if self.throttle < 0:
+    #                         self.throttle = 0
 
-                        self._test.append((f"increase speed: throttle {_old_throttle} -> {self.throttle}]"))
+    #                     _str_speed = ", ".join(
+    #                         [
+    #                             f"{el}"
+    #                             for el in _speed[
+    #                                 -(_index):
+    #                             ]
+    #                         ]
+    #                     )
+    #                     logger.info(
+    #                         f"{self.premsg}[check_speed] MIN 0.8 -> " +
+    #                         f"increase speed: throttle[{_old_throttle} -> " +
+    #                         f"{self.throttle}] n_el_speed[{len(_speed)}]")
+    #                     logger.debug(
+    #                         f"{self.premsg}[check_speed] MIN 0.8 -> " +
+    #                         f"increase speed: throttle[{_old_throttle} -> " +
+    #                         f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
+    #                         f"%no%{_str_speed}")
 
-                await asyncio.sleep(0)
+    #                     self._test.append((f"increase speed: throttle {_old_throttle} -> {self.throttle}]"))
 
-        except Exception as e:
-            logger.warning(f"{self.premsg}[check_speed] {repr(e)}")
-        finally:
-            self._speed.extend(_speed)
-            logger.debug(f"{self.premsg}[check_speed] bye")
+    #             await asyncio.sleep(0)
+
+    #     except Exception as e:
+    #         logger.warning(f"{self.premsg}[check_speed] {repr(e)}")
+    #     finally:
+    #         self._speed.extend(_speed)
+    #         logger.debug(f"{self.premsg}[check_speed] bye")
 
     async def upt_status(self):
 
@@ -1214,8 +1139,7 @@ class AsyncHLSDownloader:
             follow_redirects=True,
             timeout=self.timeout,
             verify=self.verifycert,
-            headers=self.info_dict['http_headers'],
-        )
+            headers=self.info_dict['http_headers'])
 
         try:
 
@@ -1527,21 +1451,18 @@ class AsyncHLSDownloader:
                     upt_task = [asyncio.create_task(self.upt_status())]
                     self.background_tasks.add(upt_task[0])
                     upt_task[0].add_done_callback(self.background_tasks.discard)
-                    check_task = []
+
+                    check_task = []  # for the check_speed task if needed
+
                     self.tasks = [
-                        asyncio.create_task(self.fetch(i), name=f"{self.premsg}[{i}]")
+                        self.add_task(self.fetch(i), name=f"{self.premsg}[{i}]")
                         for i in range(self.n_workers)]
-                    for _task in self.tasks:
-                        self.background_tasks.add(_task)
-                        _task.add_done_callback(self.background_tasks.discard)
 
                     done, pending = await asyncio.wait(self.tasks)
 
                     self.vid_dl.end_tasks.set()
 
-                    logger.debug(
-                        f'{self.premsg}[fetch_async]: done[{len(list(done))}] ' +
-                        f'pending[{len(list(pending))}]')
+                    logger.debug(f'{self.premsg}[fetch_async]:done[{len(list(done))}]:pending[{len(list(pending))}]')
 
                     _nfragsdl = len(self.fragsdl())
                     inc_frags_dl = _nfragsdl - n_frags_dl
@@ -1549,10 +1470,7 @@ class AsyncHLSDownloader:
 
                     if n_frags_dl == len(self.info_dict["fragments"]):
 
-                        #  await self.clean_from_reset()
-                        #  self.vid_dl.end_tasks.set()
                         self._qspeed.put_nowait("KILL")
-                        #  self.kill.set()
                         await asyncio.sleep(0)
                         await asyncio.wait(check_task + upt_task)
                         break
@@ -1560,21 +1478,16 @@ class AsyncHLSDownloader:
                     else:
                         if self.vid_dl.stop_event.is_set():
 
-                            #  await self.clean_from_reset()
-                            #  self.vid_dl.end_tasks.set()
                             self.status = "stop"
                             await asyncio.wait(check_task + upt_task)
                             return
 
                         else:
 
-                            #  self.vid_dl.end_tasks.set()
-
                             if (_cause := self.vid_dl.reset_event.is_set()):
 
-                                dump_init_task = [asyncio.create_task(self.dump_init_file())]
+                                dump_init_task = [self.add_task(self.dump_init_file())]
                                 self.background_tasks.add(dump_init_task[0])
-                                dump_init_task[0].add_done_callback(self.background_tasks.discard)
 
                                 await asyncio.wait(dump_init_task + check_task + upt_task)
 
@@ -1621,13 +1534,11 @@ class AsyncHLSDownloader:
                                             f'ERROR reset couldnt progress:[{repr(e)}]')
                                         self.status = "error"
                                         await self.clean_when_error()
-                                        raise AsyncHLSDLErrorFatal(
-                                            f'{self.premsg}: ERROR reset couldnt progress')
+                                        raise AsyncHLSDLErrorFatal(f'{self.premsg}: ERROR reset couldnt progress')
 
                                 else:
 
-                                    logger.warning(
-                                        f'{self.premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets')
+                                    logger.warning(f'{self.premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets')
                                     self.status = "error"
                                     await self.clean_when_error()
                                     await asyncio.sleep(0)
@@ -1668,8 +1579,7 @@ class AsyncHLSDownloader:
                                         self.status = "error"
                                         await self.clean_when_error()
                                         await asyncio.sleep(0)
-                                        raise AsyncHLSDLErrorFatal(
-                                            f'{self.premsg}: ERROR reset couldnt progress')
+                                        raise AsyncHLSDLErrorFatal(f'{self.premsg}: ERROR reset couldnt progress')
 
                                 else:
                                     logger.debug(
@@ -1678,8 +1588,7 @@ class AsyncHLSDownloader:
                                         'lets raise an error"')
                                     self.status = "error"
                                     raise AsyncHLSDLErrorFatal(
-                                        f'{self.premsg}: no changes in number ' +
-                                        'of dl frags in one cycle')
+                                        f'{self.premsg}: no changes in number of dl frags in one cycle')
 
                 except AsyncHLSDLErrorFatal:
                     raise
@@ -1711,10 +1620,7 @@ class AsyncHLSDownloader:
 
             self.init_client.close()
             logger.debug(f'{self.premsg}:Frags DL completed')
-            if (
-                not self.vid_dl.stop_event.is_set()
-                and not self.status == "error"
-            ):
+            if not self.vid_dl.stop_event.is_set() and not self.status == "error":
                 self.status = "init_manipulating"
 
     async def clean_from_reset(self):
@@ -1777,8 +1683,8 @@ class AsyncHLSDownloader:
         self.status = "manipulating"
         logger.debug(f"{self.premsg}:{self.filename} Fragments DL \n{self.fragsdl()}")
         _skipped = 0
-        try:
 
+        try:
             async with aiofiles.open(self.filename, mode="wb") as dest:
 
                 for f in self.info_frag:
@@ -1844,7 +1750,7 @@ class AsyncHLSDownloader:
 
         _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
         if getattr(self, '_proxy', None):
-            _proxy = self._proxy.get("all://", "").split(":")[-1]
+            _proxy = self._proxy.get("http://", "").split(":")[-1]
             if _proxy == "":
                 _proxy = None
         else:

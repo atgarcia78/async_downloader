@@ -23,7 +23,8 @@ import selectors
 from concurrent.futures import (
     ThreadPoolExecutor,
     wait as wait_thr,
-    as_completed
+    as_completed,
+    Future
 )
 from datetime import datetime
 
@@ -291,6 +292,13 @@ class SignalHandler:
 
 
 class long_operation_in_thread:
+    '''
+        decorator to run a sync function from sync context in
+        a non blocking thread. The func with this decorator returns without blocking
+        a mysynasyncevent to stop the exeuction of the func in the
+        thread
+    '''
+
     def __init__(self, name: str) -> None:
         self.name = name  # name of thread for logging
 
@@ -308,11 +316,35 @@ class long_operation_in_thread:
         return wrapper
 
 
-class long_operation_in_thread_from_loop:
+class run_operation_in_executor:
+    '''
+        decorator to run a sync function from sync context
+        The func with this decorator returns without blocking
+        a mysynasyncevent to stop the exeuction of the func, and a future
+        that wrappes the function submitted with a thread executor
+    '''
+    def __init__(self, name: str) -> None:
+        self.name = name  # for thread prefix loggin and stop event name
+
+    def __call__(self, func):
+        name = self.name
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs) -> tuple[MySyncAsyncEvent, Future]:
+            stop_event = MySyncAsyncEvent(name)
+            exe = ThreadPoolExecutor(thread_name_prefix=name)
+            _kwargs = {'stop_event': stop_event}
+            _kwargs.update(kwargs)
+            fut = exe.submit(lambda: func(*args, **_kwargs))
+            return (stop_event, fut)
+        return wrapper
+
+
+class run_operation_in_executor_from_loop:
     '''
     decorator to run a sync function from asyncio loop
     with the use loop.run_in_executor method.
-    The func with this decorator returns without blockind
+    The func with this decorator returns without blocking
     a mysynasyncevent to stop the exeuction of the func, and a future
     that wrappes the function
     '''
@@ -376,8 +408,7 @@ async def async_waitfortasks(
         timeout: Union[float, None] = None,
         events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None,
         cancel_tasks: bool = True,
-        **kwargs
-) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
+        **kwargs) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
 
     _final_wait = {}
     _tasks: dict[asyncio.Task, str] = {}
@@ -2364,7 +2395,7 @@ class SimpleCountDown:
         except Exception as e:
             self.logger.exception(repr(e))
 
-    @long_operation_in_thread(name='inptmout')
+    @run_operation_in_executor(name='inptmout')
     def countdown(self, *args, **kwargs):
         exit_event = cast(MySyncAsyncEvent, kwargs['stop_event'])
 
@@ -2402,7 +2433,7 @@ class SimpleCountDown:
             exit_event.set(_input)
 
     def __call__(self):
-        self.exit_event = self.countdown()
+        self.exit_event, _ = self.countdown()
         self.exit_event.wait()
         return self.exit_event.is_set()
 
@@ -2953,7 +2984,7 @@ if PySimpleGUI:
 
             self.list_all_old = list_res
 
-        @long_operation_in_thread_from_loop(name='uptwinthr')
+        @run_operation_in_executor_from_loop(name='uptwinthr')
         def upt_window_periodic(self, *args, **kwargs):
 
             self.logger.debug('[upt_window_periodic] start')
@@ -3016,7 +3047,7 @@ if PySimpleGUI:
                 _media = naturalsize(median(_speed_data), binary=True)
                 return f'DL MEDIA: {_media}ps'
 
-        @long_operation_in_thread_from_loop(name='pasresthr')
+        @run_operation_in_executor_from_loop(name='pasresthr')
         def pasres_periodic(self, *args, **kwargs):
 
             self.logger.debug('[pasres_periodic] START')
@@ -3173,7 +3204,7 @@ try:
                         self.logger.exception(f'[init] {repr(e)}')
                 self.init_ready.set()
 
-        @long_operation_in_thread_from_loop(name='proxythr')
+        @run_operation_in_executor_from_loop(name='proxythr')
         def run_proxy_http(self, *args, **kwargs):
 
             stop_event: MySyncAsyncEvent = kwargs['stop_event']
@@ -3359,25 +3390,25 @@ try:
             self._dont_exist = []
             self._repeated_by_xattr = []
             self._localstorage = LocalStorage()
-            self.file_ready: MySyncAsyncEvent = self.get_videos_cached()
+            self.ready_videos_cached, self.fut_videos_cached = self.get_videos_cached()
 
         async def aready(self):
-            while not self.file_ready.is_set():
+            while not self.ready_videos_cached.is_set():
                 await asyncio.sleep(0)
 
         def ready(self):
-            self.file_ready.wait()
+            self.ready_videos_cached.wait()
 
         def upt_local(self):
-            self.file_ready.clear()
+            self.ready_videos_cached.clear()
             self._videoscached = {}
             self._repeated = []
             self._dont_exist = []
             self._repeated_by_xattr = []
-            self.file_ready = self.get_videos_cached(local=True)
+            self.ready_videos_cached, self.fut_videos_cach = self.get_videos_cached(local=True)
             self.ready()
 
-        @long_operation_in_thread(name='vidcachthr')
+        @run_operation_in_executor(name='vidcach')
         def get_videos_cached(self, *args, **kwargs):
 
             """
