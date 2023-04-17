@@ -444,13 +444,10 @@ class AsyncHLSDownloader:
 
             self.n_total_fragments = len(self.info_dict["fragments"])
 
-            self.totalduration = self.info_dict.get("duration", 0) or 0
-            if not self.totalduration:
-                self.calculate_duration()  # get total duration
-            self.filesize = self.info_dict.get(
-                "filesize") or self.info_dict.get("filesize_approx")
-            if not self.filesize:
-                self.calculate_filesize()  # get filesize estimated
+            self.totalduration = cast(int, self.info_dict.get("duration", self.calculate_duration()))
+
+            self.filesize = cast(int, (self.info_dict.get("filesize") or self.info_dict.get("filesize_approx")
+                                       or self.calculate_filesize()))
 
             self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 120
 
@@ -482,13 +479,14 @@ class AsyncHLSDownloader:
             self.status = "error"
 
     def calculate_duration(self):
-        self.totalduration = 0
+        totalduration = 0
         for fragment in self.info_dict["fragments"]:
-            self.totalduration += fragment.duration
+            totalduration += fragment.duration
+        return totalduration
 
     def calculate_filesize(self):
         _bitrate = self.tbr or self.abr
-        self.filesize = int(self.totalduration * 1000 * _bitrate / 8)
+        return int(self.totalduration * 1000 * _bitrate / 8)
 
     def get_info_fragments(self):
 
