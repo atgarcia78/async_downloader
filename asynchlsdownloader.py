@@ -183,7 +183,7 @@ class AsyncHLSDownloader:
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
                 self._proxy = {"http://": _proxy, "https://": _proxy}
 
-            _proxies = self._proxy if hasattr(self, '_proxy') else None
+            _proxies = getattr(self, '_proxy', None)
             self.init_client = httpx.Client(
                 proxies=_proxies,  # type: ignore
                 follow_redirects=True,
@@ -220,7 +220,7 @@ class AsyncHLSDownloader:
                     self.special_extr = False
                     return limiter_non.ratelimit("transp", delay=True)
                 if "nakedsword" in x:
-                    self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
+                    # self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
                     self.auto_pasres = True
                     logger.debug(
                         f'{self.premsg} ' +
@@ -286,7 +286,7 @@ class AsyncHLSDownloader:
         try:
             self.auto_pasres = False
             self.fromplns = False
-            self._CONF_HLS_MAX_SPEED_PER_DL = None
+            # self._CONF_HLS_MAX_SPEED_PER_DL = None
 
             self._extractor = try_get(self.info_dict.get(
                 "extractor_key", "Generic").lower(), lambda x: x.lower())
@@ -482,7 +482,7 @@ class AsyncHLSDownloader:
 
     @property
     def min_threshold(self):
-        return self.n_workers * CONF_HLS_SPEED_PER_WORKER
+        return self.n_workers*CONF_HLS_SPEED_PER_WORKER
 
     def get_info_fragments(self):
 
@@ -512,8 +512,7 @@ class AsyncHLSDownloader:
             raise StatusStop("stop event")
 
     @dec_retry_error
-    def get_init_section(self, uri, file, key):
-
+    def get_init_section(self, uri, file, key):  
         try:
             cipher = None
             if key is not None and key.method == "AES-128":

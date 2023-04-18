@@ -651,7 +651,7 @@ class VideoDownloader:
                             for _ in ('aria2', 'ffmpeg')) and
                     dl.status == 'manipulating')]
 
-            if (self.info_dict.get('subtitles') or
+            if self.args.subt and (self.info_dict.get('subtitles') or
                     self.info_dict.get('requested_subtitles')):
                 blocking_tasks += [asyncio.create_task(aget_subts_files())]
 

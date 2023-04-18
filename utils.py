@@ -719,6 +719,7 @@ def init_argparser():
         action=ActionNoYes,
         default="6800"
     )
+    parser.add_argument("--subt", action=ActionNoYes, default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--use-http-failover", action="store_true",
                         default=False)
