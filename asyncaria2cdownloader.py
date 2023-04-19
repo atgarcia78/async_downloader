@@ -62,7 +62,7 @@ class AsyncARIA2CDLError(Exception):
 
 
 retry = my_dec_on_exception(
-    AsyncARIA2CDLErrorFatal, max_tries=3, raise_on_giveup=False, interval=5)
+    AsyncARIA2CDLErrorFatal, max_time=60, raise_on_giveup=False, interval=5)
 
 kill_item = object()
 
@@ -145,7 +145,7 @@ class AsyncARIA2CDownloader:
                 maxplits = self.n_workers
 
             _sem = False
-            if maxplits < 16:  # or x in ['']:
+            if maxplits <= 16:  # or x in ['']:
                 _sem = True
                 if x in CONF_ARIA2C_EXTR_GROUP:
                     self._mode = 'group'
@@ -215,6 +215,8 @@ class AsyncARIA2CDownloader:
             return await sync_to_async(func, thread_sensitive=False, executor=self.ex_dl)(*args, **kwargs)
         except requests.exceptions.RequestException as e:
             logger.warning(f'{self.premsg}[acall][{func}] error: {type(e)}')
+            if 'add_uris' in func.__name__:
+                raise AsyncARIA2CDLErrorFatal('add uris fails')
             _res = await self.reset_aria2c()
             if _res:
                 await self.vid_dl.reset()
@@ -780,7 +782,7 @@ class AsyncARIA2CDownloader:
         except BaseException as e:
             logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
-            await self.async_remove([self.dl_cont], clean=True)
+            #  await self.async_remove([self.dl_cont], clean=True)
 
             def _print_el(el):
                 if isinstance(el[1], str):

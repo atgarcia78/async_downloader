@@ -62,7 +62,7 @@ def get_list_interl(res, _pre):
         else:
             _dict[_key].append(ent)
     logger.info(
-        f"{_pre} gvdblogplaylist entries" +
+        f"{_pre}  entries" +
         f"interleave: {len(list(_dict.keys()))} different hosts" +
         f"longst with {len(max(list(_dict.values()), key=len))} entries")
 
@@ -623,7 +623,10 @@ class AsyncDL:
 
                         assert _info and isinstance(_info, dict)
 
-                        if _info.get("extractor_key") in ("GVDBlogPost", "GVDBlogPlaylist"):
+                        if _info.get("extractor_key") in ("GVDBlogPost", "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
+                                                          
+                                                          
+                                                          "MyVidsterSearchPlaylistIE", "MyVidsterRSSPlaylistIE"):
                             _temp_aldl = []
                             _temp_nodl = []
 
