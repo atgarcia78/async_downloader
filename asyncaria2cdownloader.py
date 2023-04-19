@@ -164,7 +164,7 @@ class AsyncARIA2CDownloader:
         self._n_check_speed = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
         _sem, self._decor, self._nsplits = getter(self._extractor)
 
-        self.sync_to_async = lambda x: sync_to_async(x, executor=self.ex_dl)
+        # self.sync_to_async = lambda x: sync_to_async(x, thread_sensitive=False, executor=self.ex_dl)
 
         if not self.enproxy:
             self._mode = 'noproxy'
@@ -210,62 +210,24 @@ class AsyncARIA2CDownloader:
                 if not rc:
                     logger.warning(f'{self.premsg} couldnt set [{key}] to [{value}]')
 
-    async def async_pause(self, list_dl: list[Union[None, aria2p.Download]]):
-        if list_dl:
-            try:
-                await self.sync_to_async(AsyncARIA2CDownloader.aria2_client.pause)(list_dl)
-            except Exception as e:
-                logger.warning(f'{self.premsg}[pause] error: {repr(e)}')
-
-    async def async_resume(self, list_dl):
-        if list_dl:
-            async with self._decor:
-                try:
-                    await self.sync_to_async(AsyncARIA2CDownloader.aria2_client.resume)(list_dl)
-                except Exception as e:
-                    logger.warning(f'{self.premsg}[resume] error: {repr(e)}')
-
-    async def async_remove(self, list_dl, clean=False):
-        if list_dl:
-            try:
-                await self.sync_to_async(AsyncARIA2CDownloader.aria2_client.remove)(list_dl, clean=clean)
-            except Exception as e:
-                logger.warning(f'{self.premsg}[remove] error: {repr(e)}')
-
-    async def async_restart(self, list_dl, clean=False):
-        if list_dl:
-            try:
-                await self.sync_to_async(AsyncARIA2CDownloader.aria2_client.remove)(list_dl, files=True, clean=clean)
-            except Exception as e:
-                logger.warning(f'{self.premsg}[restart] error: {repr(e)}')
-
-    async def add_uris(self, uris: list[str]) -> Union[aria2p.Download, None]:
-        async with self._decor:
-            try:
-                return await self.sync_to_async(AsyncARIA2CDownloader.aria2_client.add_uris)(uris, options=self.opts)
-            except Exception as e:
-                logger.warning(f'{self.premsg}[add_uris] error: {repr(e)}')
-
-    async def aupdate(self, dl_cont):
-        if dl_cont:
-            try:
-                await self.sync_to_async(dl_cont.update)()
-                return {'ok': 'ok'}
-            except requests.exceptions.RequestException as e:
-                logger.warning(f'{self.premsg}[aupdate] error: {type(e)}')
-                _res = await self.reset_aria2c()
-                if _res:
-                    await self.vid_dl.reset()
-                    return {'reset': 'ok'}
-                else:
-                    return {'error': AsyncARIA2CDLErrorFatal('reset failed')}
-            except aria2p.ClientException as e:
-                logger.warning(f'{self.premsg}[aupdate] error: {type(e)}')
+    async def _acall(self, func, /, *args, **kwargs):
+        try:
+            return await sync_to_async(func, thread_sensitive=False, executor=self.ex_dl)(*args, **kwargs)
+        except requests.exceptions.RequestException as e:
+            logger.warning(f'{self.premsg}[acall][{func}] error: {type(e)}')
+            _res = await self.reset_aria2c()
+            if _res:
                 await self.vid_dl.reset()
                 return {'reset': 'ok'}
-            except Exception as e:
-                logger.error(f'{self.premsg}[aupdate] error: {repr(e)}')
-                return {'error': e}
+            else:
+                return {'error': AsyncARIA2CDLErrorFatal('reset failed')}
+        except aria2p.ClientException as e:
+            logger.warning(f'{self.premsg}[acall][{func}] error: {type(e)}')
+            await self.vid_dl.reset()
+            return {'reset': 'ok'}
+        except Exception as e:
+            logger.exception(f'{self.premsg}[acall][{func}] error: {repr(e)}')
+            return {'error': e}
 
     async def reset_aria2c(self):
 
@@ -285,6 +247,31 @@ class AsyncARIA2CDownloader:
                     return True
                 except Exception:
                     logger.info(f'{self.premsg}[reset_aria2c]  test conn no ok')
+
+    async def async_pause(self, list_dl: list[Union[None, aria2p.Download]]):
+        if list_dl:
+            await self._acall(AsyncARIA2CDownloader.aria2_client.pause, list_dl)
+
+    async def async_resume(self, list_dl):
+        if list_dl:
+            async with self._decor:
+                await self._acall(AsyncARIA2CDownloader.aria2_client.resume, list_dl)
+
+    async def async_remove(self, list_dl, clean=False):
+        if list_dl:
+            await self._acall(AsyncARIA2CDownloader.aria2_client.remove, list_dl, clean=clean)
+
+    async def async_restart(self, list_dl, clean=False):
+        if list_dl:
+            await self._acall(AsyncARIA2CDownloader.aria2_client.remove, list_dl, files=True, clean=clean)
+
+    async def add_uris(self, uris: list[str]) -> Union[aria2p.Download, None]:
+        async with self._decor:
+            return await self._acall(AsyncARIA2CDownloader.aria2_client.add_uris, uris, options=self.opts)  # type: ignore
+
+    async def aupdate(self, dl_cont):
+        if dl_cont:
+            await self._acall(dl_cont.update)
 
     @retry
     async def init(self):
