@@ -650,8 +650,8 @@ class AsyncDL:
 
                             if not _ent.get("original_url"):
                                 _ent.update({"original_url": _url})
-                            elif _ent["original_url"] != _url:
-                                _ent["playlist_url"] = _url
+                            # elif _ent["original_url"] != _url:
+                            #     _ent["playlist_url"] = _url
                             if ((_ent.get("extractor_key", _ent.get("ie_key", ""))).lower() == "generic"
                                     and (_ent.get("n_entries", 0) <= 1)):
 
@@ -1342,13 +1342,13 @@ class AsyncDL:
             originalurl = try_get(traverse_obj(
                 vid, ("video_info", "original_url")),
                 lambda x: str(x) if x else None)
-            playlist = traverse_obj(vid, ("video_info", "playlist"))
-            if not webpageurl and not originalurl and not playlist:
+            playlisturl = traverse_obj(vid, ("video_info", "playlist_url"))
+            if not webpageurl and not originalurl and not playlisturl:
                 return url
             nentries = try_get(traverse_obj(
                 vid, ("video_info", "n_entries")),
-                lambda x: int(x) if x else None)
-            if playlist and nentries and nentries > 1:
+                lambda x: int(x) if x else 0)
+            if playlisturl and nentries and nentries > 1:
                 return (
                     f"[{traverse_obj(vid, ('video_info','playlist_index'))}]:" +
                     f"{originalurl or webpageurl}:{url}")

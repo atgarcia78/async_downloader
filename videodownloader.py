@@ -272,17 +272,18 @@ class VideoDownloader:
 
     async def change_numvidworkers(self, n):
 
-        for dl in self.info_dl['downloaders']:
-            dl.n_workers = n
-            if 'aria2' in str(type(dl)).lower():
-                dl.opts.set('split', dl.n_workers)
-
         if self.info_dl['status'] == "downloading":
+
+            for dl in self.info_dl['downloaders']:
+                dl.n_workers = n
+                if 'aria2' in str(type(dl)).lower():
+                    dl.opts.set('split', dl.n_workers)
+
             await self.reset("manual")
 
-        logger.info(
-            f"[{self.info_dict['id']}][{self.info_dict['title']}]: " +
-            f"workers set to {n}")
+            logger.info(
+                f"[{self.info_dict['id']}][{self.info_dict['title']}]: " +
+                f"workers set to {n}")
 
     async def reset_from_console(self):
 
@@ -651,8 +652,7 @@ class VideoDownloader:
                             for _ in ('aria2', 'ffmpeg')) and
                     dl.status == 'manipulating')]
 
-            if self.args.subt and (self.info_dict.get('subtitles') or
-                    self.info_dict.get('requested_subtitles')):
+            if self.args.subt and (self.info_dict.get('subtitles') or self.info_dict.get('requested_subtitles')):
                 blocking_tasks += [asyncio.create_task(aget_subts_files())]
 
             if blocking_tasks:

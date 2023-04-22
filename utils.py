@@ -89,7 +89,7 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min//4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
-CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb"]
+CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb", "doodstream"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
     "GVDBlogPost", "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
