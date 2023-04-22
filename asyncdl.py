@@ -373,7 +373,7 @@ class AsyncDL:
             if self.args.collection:
                 if self.STOP.is_set():
                     raise Exception("STOP")
-                _url_list_cli = list(set(self.args.collection))
+                _url_list_cli = list(dict.fromkeys(self.args.collection))
                 logger.info(f"[get_list_videos] video list cli:\n{_url_list_cli}")
                 _url_list["cli"] = _url_list_cli
 
@@ -1646,8 +1646,8 @@ class AsyncDL:
 
         logger.debug(f"\n{_for_print_videos(self.info_videos)}")
 
-        videos_ko = list(set(info_dict["videoskodl"]["urls"] +
-                             info_dict["videoskoinit"]["urls"]))
+        videos_ko = list(dict.fromkeys(
+            info_dict["videoskodl"]["urls"] + info_dict["videoskoinit"]["urls"]))
 
         if videos_ko:
             videos_ko_str = "\n".join(videos_ko)
