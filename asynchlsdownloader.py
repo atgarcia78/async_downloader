@@ -512,7 +512,7 @@ class AsyncHLSDownloader:
             raise StatusStop("stop event")
 
     @dec_retry_error
-    def get_init_section(self, uri, file, key):  
+    def get_init_section(self, uri, file, key):
         try:
             cipher = None
             if key is not None and key.method == "AES-128":
