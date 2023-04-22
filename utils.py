@@ -91,6 +91,9 @@ CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb"]
 CONF_AUTO_PASRES = ["doodstream"]
+CONF_PLAYLIST_INTERL_URLS = [
+    "GVDBlogPost", "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
+    "MyVidsterSearchPlaylistIE", "MyVidsterRSSPlaylistIE"]
 
 
 def nested_obj(d, *selectors, get_all=True, default=None, v=False):

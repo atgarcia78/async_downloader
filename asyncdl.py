@@ -21,6 +21,7 @@ from tabulate import tabulate
 
 from utils import (
     PATH_LOGS,
+    CONF_PLAYLIST_INTERL_URLS,
     FrontEndGUI,
     MySyncAsyncEvent,
     NWSetUp,
@@ -623,10 +624,7 @@ class AsyncDL:
 
                         assert _info and isinstance(_info, dict)
 
-                        if _info.get("extractor_key") in ("GVDBlogPost", "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
-                                                          
-                                                          
-                                                          "MyVidsterSearchPlaylistIE", "MyVidsterRSSPlaylistIE"):
+                        if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_URLS:
                             _temp_aldl = []
                             _temp_nodl = []
 

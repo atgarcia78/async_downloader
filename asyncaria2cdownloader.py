@@ -73,7 +73,7 @@ class AsyncARIA2CDownloader:
     _CLASSALOCK = asyncio.Lock()
     _LOCK = Lock()
     _INIT = False
-    aria2_client: aria2p.API
+    aria2_API: aria2p.API
 
     def __init__(self, port, enproxy, video_dict, vid_dl):
 
@@ -84,7 +84,7 @@ class AsyncARIA2CDownloader:
 
         with AsyncARIA2CDownloader._LOCK:
             if not AsyncARIA2CDownloader._INIT:
-                AsyncARIA2CDownloader.aria2_client = aria2p.API(aria2p.Client(port=port, timeout=2))
+                AsyncARIA2CDownloader.aria2_API = aria2p.API(aria2p.Client(port=port, timeout=2))
                 AsyncARIA2CDownloader._INIT = True
 
         self.ytdl: myYTDL = self.vid_dl.info_dl['ytdl']
@@ -199,7 +199,7 @@ class AsyncARIA2CDownloader:
         self.block_init = True
 
     def config_client(self, opts_dict):
-        self.opts = AsyncARIA2CDownloader.aria2_client.get_global_options()
+        self.opts = AsyncARIA2CDownloader.aria2_API.get_global_options()
         for key, value in opts_dict.items():
             if not isinstance(value, list):
                 values = [value]
@@ -211,6 +211,9 @@ class AsyncARIA2CDownloader:
                     logger.warning(f'{self.premsg} couldnt set [{key}] to [{value}]')
 
     async def _acall(self, func, /, *args, **kwargs):
+        '''
+        common async executor of aria2 client requests to the server rpc
+        '''
         try:
             return await sync_to_async(func, thread_sensitive=False, executor=self.ex_dl)(*args, **kwargs)
         except requests.exceptions.RequestException as e:
@@ -235,16 +238,16 @@ class AsyncARIA2CDownloader:
 
         async with AsyncARIA2CDownloader._CLASSALOCK:
             try:
-                AsyncARIA2CDownloader.aria2_client.get_stats()
+                AsyncARIA2CDownloader.aria2_API.get_stats()
                 logger.info(f'{self.premsg}[reset_aria2c] test conn ok')
                 return True
             except Exception:
                 logger.info(f'{self.premsg}[reset_aria2c] test conn no ok, lets reset aria2c')
                 res, _port = await self.vid_dl.info_dl['nwsetup'].reset_aria2c()
                 logger.info(f'{self.premsg}[reset_aria2c] {_port} {res}')
-                AsyncARIA2CDownloader.aria2_client.client.port = _port
+                AsyncARIA2CDownloader.aria2_API.client.port = _port
                 try:
-                    AsyncARIA2CDownloader.aria2_client.get_stats()
+                    AsyncARIA2CDownloader.aria2_API.get_stats()
                     logger.info(f'{self.premsg}[reset_aria2c] after reset, test conn ok')
                     return True
                 except Exception:
@@ -252,24 +255,24 @@ class AsyncARIA2CDownloader:
 
     async def async_pause(self, list_dl: list[Union[None, aria2p.Download]]):
         if list_dl:
-            await self._acall(AsyncARIA2CDownloader.aria2_client.pause, list_dl)
+            await self._acall(AsyncARIA2CDownloader.aria2_API.pause, list_dl)
 
-    async def async_resume(self, list_dl):
+    async def async_resume(self, list_dl: list[Union[None, aria2p.Download]]):
         if list_dl:
             async with self._decor:
-                await self._acall(AsyncARIA2CDownloader.aria2_client.resume, list_dl)
+                await self._acall(AsyncARIA2CDownloader.aria2_API.resume, list_dl)
 
-    async def async_remove(self, list_dl, clean=False):
+    async def async_remove(self, list_dl: list[Union[None, aria2p.Download]], clean: bool = False):
         if list_dl:
-            await self._acall(AsyncARIA2CDownloader.aria2_client.remove, list_dl, clean=clean)
+            await self._acall(AsyncARIA2CDownloader.aria2_API.remove, list_dl, clean=clean)
 
-    async def async_restart(self, list_dl, clean=False):
+    async def async_restart(self, list_dl: list[Union[None, aria2p.Download]], clean: bool = False):
         if list_dl:
-            await self._acall(AsyncARIA2CDownloader.aria2_client.remove, list_dl, files=True, clean=clean)
+            await self._acall(AsyncARIA2CDownloader.aria2_API.remove, list_dl, files=True, clean=clean)
 
     async def add_uris(self, uris: list[str]) -> Union[aria2p.Download, None]:
         async with self._decor:
-            return await self._acall(AsyncARIA2CDownloader.aria2_client.add_uris, uris, options=self.opts)  # type: ignore
+            return await self._acall(AsyncARIA2CDownloader.aria2_API.add_uris, uris, options=self.opts)  # type: ignore
 
     async def aupdate(self, dl_cont):
         if dl_cont:
