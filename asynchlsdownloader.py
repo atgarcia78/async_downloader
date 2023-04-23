@@ -7,7 +7,6 @@ import json
 import logging
 import os as syncos
 import random
-import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -496,6 +495,21 @@ class AsyncHLSDownloader:
                     if _key and _key.method != "AES-128":
                         logger.warning(f"key AES method: {_key.method}")
 
+            if (_start_time := self.info_dict.get('_start_time')):
+                logger.info(f"{self.premsg}[get_info_fragments] start time {_start_time}")
+                _duration = try_get(getattr(self.m3u8_obj, 'target_duration', None), lambda x: float(x) if x else None)
+                logger.info(f"{self.premsg}[get_info_fragments] duration {_duration}")
+                if _duration:
+                    _start_segment = int(_start_time // _duration) - 1
+                    logger.info(f"{self.premsg}[get_info_fragments] start seg {_start_segment}")
+                    if (_end_time := self.info_dict.get('_end_time')):
+                        _last_segment = min(int(_end_time // _duration), len(self.m3u8_obj.segments))
+                    else:
+                        _last_segment = len(self.m3u8_obj.segments)
+                    logger.info(f"{self.premsg}[get_info_fragments] last seg {_last_segment}")
+
+                    return self.m3u8_obj.segments[_start_segment:_last_segment]
+
             return self.m3u8_obj.segments
 
         except Exception as e:
@@ -745,7 +759,7 @@ class AsyncHLSDownloader:
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
                 self._proxy = {"http://": _proxy, "https://": _proxy}
 
-            _wurl = self.info_dict["webpage_url"]
+            # _wurl = self.info_dict["webpage_url"]
 
             if self.fromplns and str(cause) in ("403", "hard"):
 
@@ -766,18 +780,19 @@ class AsyncHLSDownloader:
                             _first = True
 
                         if _first_all:
-                            NakedSwordBaseIE._API.logout(msg='[resetdl]')
+                            NakedSwordBaseIE.API_LOGOUT(msg='[resetdl]')
                             time.sleep(5)
-                            NakedSwordBaseIE._API.get_auth(msg='[resetdl]')
+                            NakedSwordBaseIE.API_AUTH(msg='[resetdl]')
                             time.sleep(2)
 
                         _listreset = [int(index) for index in list(self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"])]
                         _aux = {
                             "indexdl": self.vid_dl.index,
                             "args": {"nakedswordmovie": {"listreset": _listreset}}}
-                        _webpage_url = smuggle_url(re.sub(r"(/scene/\d+)", "", _wurl), _aux)
 
-                        _resinfo = self.get_reset_info(_webpage_url, first=_first)
+                        _plns_url = smuggle_url(self.info_dict["original_url"], _aux)
+
+                        _resinfo = self.get_reset_info(_plns_url, first=_first)
 
                         if "res" in _resinfo:
                             if _first:
@@ -795,9 +810,10 @@ class AsyncHLSDownloader:
 
             else:
                 if self.special_extr:
-                    _webpage_url = smuggle_url(_wurl, {"indexdl": self.vid_dl.index})
+                    _webpage_url = smuggle_url(self.info_dict['webpage_url'], {"indexdl": self.vid_dl.index})
                 else:
-                    _webpage_url = _wurl
+                    _webpage_url = self.info_dict['webpage_url']
+
                 self.get_reset_info(_webpage_url)
 
         except StatusStop:

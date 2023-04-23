@@ -2517,7 +2517,7 @@ if PySimpleGUI:
                     if 'init' in values['all']:
                         list_init = values['all']['init']
                         if list_init:
-                            upt = '\n\n' + ''.join(list(list_init.values()))
+                            upt = '\n\n' + ''.join([el[1] for el in sorted(list(list_init.values()), key=lambda x: x[0])])
                         else:
                             upt = ''
                         self.window_root['-ML0-'].update(value=upt)
@@ -2593,10 +2593,10 @@ if PySimpleGUI:
                 if not self.console_dl_status:
                     self.console_dl_status = True
             elif event in ['IncWorkerRun']:
-                self.asyncdl.WorkersRun.add_worker()
+                await self.asyncdl.WorkersRun.add_worker()
                 sg.cprint(f'Workers: {self.asyncdl.WorkersRun.max}')
             elif event in ['DecWorkerRun']:
-                self.asyncdl.WorkersRun.del_worker()
+                await self.asyncdl.WorkersRun.del_worker()
                 sg.cprint(f'Workers: {self.asyncdl.WorkersRun.max}')
             elif event in ['TimePasRes']:
                 if not values['-IN-']:
@@ -2660,7 +2660,8 @@ if PySimpleGUI:
                 'Stop',
                 '+PasRes',
                 '-PasRes',
-                'StopCount'
+                'StopCount',
+                'MoveTopWaitingDL'
             ]:
                 if not self.asyncdl.list_dl:
                     sg.cprint('DL list empty')
@@ -2686,8 +2687,15 @@ if PySimpleGUI:
                     if _index_list:
                         if event in ['+PasRes', '-PasRes']:
                             sg.cprint(f'[pause-resume autom] before: {list(self.asyncdl.list_pasres)}')
+                        # if event == 'MoveTopWaitingDL':
+                        #     if len(_index_list) > 1:
+                        #         sg.cprint('[move to top waiting dl] only can move one dl to top. Will use first value')
+                        #         _index_list = [_index_list[0]]
+
                         info = []
                         for _index in _index_list:
+                            if event == 'MoveTopWaitingDL':
+                                await self.asyncdl.WorkersRun.move_to_waiting_top(_index)
                             if event == 'StopCount':
                                 CountDowns._INPUT.put_nowait(str(_index))
                             elif event == '+PasRes':
@@ -2915,6 +2923,7 @@ if PySimpleGUI:
                         sg.Button("+runwk", key="IncWorkerRun"),
                         sg.Button("-runwk", key="DecWorkerRun"),
                         sg.Button("#vidwk", key="NumVideoWorkers"),
+                        sg.Button("MoveTop", key="MoveTopWaitingDL"),
                         sg.Button("StopCount"),
                         sg.Button("TimePasRes"),
                         sg.Button("Pause"),
@@ -2968,17 +2977,24 @@ if PySimpleGUI:
             # _copy_list_dl = self.asyncdl.list_dl.copy()
 
             _copy_list_dl = self.asyncdl.list_dl.keys()
+            _waiting = list(self.asyncdl.WorkersRun.waiting)
 
             for st in _status:
                 list_upt[st] = {}
                 list_res[st] = {}
 
-                # for i, dl in _copy_list_dl.items():
-                for i in _copy_list_dl:
-                    # if dl.info_dl['status'] in trans[st]:
-                    if self.asyncdl.list_dl[i].info_dl['status'] in trans[st]:
-                        # list_res[st].update({i: dl.print_hookup()})
-                        list_res[st].update({i: self.asyncdl.list_dl[i].print_hookup()})
+                if st == 'init':
+                    _list_items = _waiting
+                    for i, index in enumerate(_list_items):
+
+                        if self.asyncdl.list_dl[index].info_dl['status'] in trans[st]:
+                            list_res[st].update({index: (i, self.asyncdl.list_dl[index].print_hookup())})
+
+                else:
+                    _list_items = _copy_list_dl
+                    for index in _list_items:
+                        if self.asyncdl.list_dl[index].info_dl['status'] in trans[st]:
+                            list_res[st].update({index: self.asyncdl.list_dl[index].print_hookup()})
 
                 if list_res[st] == self.list_all_old[st]:
                     del list_upt[st]
