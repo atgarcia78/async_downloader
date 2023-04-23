@@ -229,8 +229,7 @@ class AsyncHLSDownloader:
                         "MostWatchedScenes",
                         "Search",
                     ):
-                        self.fromplns = self.info_dict.get(
-                            "playlist_id", False)
+                        self.fromplns = self.info_dict.get("_id_movie", False)
 
                     if self.fromplns:
                         if not self.vid_dl.info_dl["fromplns"].get("ALL"):
@@ -247,7 +246,7 @@ class AsyncHLSDownloader:
 
                             self.vid_dl.info_dl["fromplns"][self.fromplns] = {
                                 "downloaders": {
-                                    self.vid_dl.info_dict["playlist_index"]: self.vid_dl},
+                                    self.vid_dl.info_dict["_index_scene"]: self.vid_dl},
                                 "downloading": set(),
                                 "in_reset": set(),
                                 "reset": temp,
@@ -255,7 +254,7 @@ class AsyncHLSDownloader:
                             }
                         else:
                             self.vid_dl.info_dl["fromplns"][self.fromplns]["downloaders"].update(
-                                {self.vid_dl.info_dict["playlist_index"]: self.vid_dl})
+                                {self.vid_dl.info_dict["_index_scene"]: self.vid_dl})
 
                         _downloaders = self.vid_dl.info_dl['fromplns'][self.fromplns]['downloaders']
                         logger.debug(
@@ -681,7 +680,7 @@ class AsyncHLSDownloader:
 
                 if _info:
                     info_reset = try_get(
-                        traverse_obj(_info, ("entries", int(self.vid_dl.info_dict["playlist_index"]) - 1)),
+                        traverse_obj(_info, ("entries", int(self.vid_dl.info_dict["_index_scene"]) - 1)),
                         lambda x: get_format_id(x, self.info_dict["format_id"]) if x else None)
 
             else:
@@ -725,7 +724,7 @@ class AsyncHLSDownloader:
         try:
 
             if str(cause) == "403":
-                AsyncHLSDownloader._INRESET_403.add(self.vid_dl.info_dict["playlist_index"])
+                AsyncHLSDownloader._INRESET_403.add(self.info_dict["id"])
                 with AsyncHLSDownloader._CLASSLOCK:
                     _pasres_cont = FrontEndGUI.pasres_break()
                     if not AsyncHLSDownloader._COUNTDOWNS:
@@ -809,7 +808,11 @@ class AsyncHLSDownloader:
             raise
         finally:
             if cause == "403":
-                AsyncHLSDownloader._INRESET_403.remove(self.vid_dl.info_dict["playlist_index"])
+                try:
+                    AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"])
+                except Exception:
+                    logger.warning(
+                            f'{_pre} error when removing[{self.info_dict["id"]}] from [{AsyncHLSDownloader._INRESET_403}]')
 
             if self.fromplns and cause in ("403", "hard"):
 
@@ -819,10 +822,10 @@ class AsyncHLSDownloader:
 
                     _inreset = self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]
                     try:
-                        _inreset.remove(self.vid_dl.info_dict["playlist_index"])
+                        _inreset.remove(self.vid_dl.info_dict["_index_scene"])
                     except Exception:
                         logger.warning(
-                            f'{_pre} error when removing[{self.vid_dl.info_dict["playlist_index"]}] ' +
+                            f'{_pre} error when removing[{self.vid_dl.info_dict["_index_scene"]}] ' +
                             f'from inreset[{self.fromplns}] {_inreset}')
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
@@ -1420,7 +1423,7 @@ class AsyncHLSDownloader:
                     if _res.get("event") == "stop":
                         return
                 self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"].add(
-                    self.vid_dl.info_dict["playlist_index"])
+                    self.vid_dl.info_dict.get("_index_scene", self.vid_dl.info_dict["_index_scene"]))
                 self.vid_dl.info_dl["fromplns"]["ALL"]["downloading"].add(self.fromplns)
 
         _tstart = time.monotonic()
@@ -1605,11 +1608,11 @@ class AsyncHLSDownloader:
                 if self.fromplns:
                     _downloading = self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]
                     try:
-                        _downloading.remove(self.vid_dl.info_dict["playlist_index"])
+                        _downloading.remove(self.vid_dl.info_dict["_index_scene"])
                     except Exception:
                         logger.warning(
                             f'{self.premsg}[fetch_async] error when removing ' +
-                            f'[{self.vid_dl.info_dict["playlist_index"]}] ' +
+                            f'[{self.vid_dl.info_dict["_index_scene"]}] ' +
                             f'from downloading [{_downloading}]')
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]:
@@ -1630,11 +1633,11 @@ class AsyncHLSDownloader:
         try:
             try:
                 self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"].remove(
-                    self.vid_dl.info_dict["playlist_index"])
+                    self.vid_dl.info_dict["_index_scene"])
             except Exception:
                 logger.warning(
                     f'{self.premsg}[clean_from_reset] error when removing ' +
-                    f'[{self.vid_dl.info_dict["playlist_index"]}] from ' +
+                    f'[{self.vid_dl.info_dict["_index_scene"]}] from ' +
                     f'{self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]}')
 
             if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
@@ -1657,7 +1660,7 @@ class AsyncHLSDownloader:
         except Exception:
             logger.warning(
                 f'{self.premsg}[clean_from_reset] error when removing ' +
-                f'[{self.vid_dl.info_dict["playlist_index"]}] from' +
+                f'[{self.vid_dl.info_dict["_index_scene"]}] from' +
                 f'{self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]}')
 
     async def dump_init_file(self):

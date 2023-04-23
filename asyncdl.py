@@ -1336,25 +1336,30 @@ class AsyncDL:
 
     def get_results_info(self):
         def _getter(url: str, vid: dict) -> str:
-            webpageurl = try_get(traverse_obj(
-                vid, ("video_info", "webpage_url")),
-                lambda x: str(x) if x else None)
-            originalurl = try_get(traverse_obj(
-                vid, ("video_info", "original_url")),
-                lambda x: str(x) if x else None)
+            webpageurl = traverse_obj(
+                vid, ("video_info", "webpage_url"))
+            originalurl = traverse_obj(
+                vid, ("video_info", "original_url"))
             playlisturl = traverse_obj(vid, ("video_info", "playlist_url"))
-            if not webpageurl and not originalurl and not playlisturl:
-                return url
-            nentries = try_get(traverse_obj(
-                vid, ("video_info", "n_entries")),
-                lambda x: int(x) if x else 0)
-            if playlisturl and nentries and nentries > 1:
-                return (
-                    f"[{traverse_obj(vid, ('video_info','playlist_index'))}]:" +
-                    f"{originalurl or webpageurl}:{url}")
+            # if not webpageurl and not originalurl and not playlisturl:
+            # if not webpageurl and not originalurl:
+            #     return url
+            # nentries = try_get(traverse_obj(
+            #     vid, ("video_info", "n_entries")),
+            #     lambda x: int(x) if x else 0)
+            # if playlisturl and nentries and nentries > 1:
+            #     return (
+            #         f"[{traverse_obj(vid, ('video_info','playlist_index'))}]:" +
+            #         f"{originalurl or webpageurl}:{url}")
+            # else:
+            #       _url = originalurl or webpageurl or ""
+            #       return _url
+            assert (isinstance(originalurl, (str, type(None))) and isinstance(webpageurl, (str, type(None)))
+                    and isinstance(playlisturl, (str, type(None))))
+            if webpageurl and 'nakedsword.com' in webpageurl:
+                return (webpageurl or originalurl or url)
             else:
-                _url = originalurl or webpageurl or ""
-                return _url
+                return (originalurl or webpageurl or url)
 
         def _print_list_videos():
             try:

@@ -1370,7 +1370,8 @@ if yt_dlp:
         smuggle_url,
         traverse_obj,
         try_get,
-        unsmuggle_url
+        unsmuggle_url,
+        find_available_port
     )
 
     from yt_dlp.cookies import extract_cookies_from_browser
@@ -1378,6 +1379,7 @@ if yt_dlp:
 
     from yt_dlp import YoutubeDL
 
+    assert find_available_port
     assert unsmuggle_url
     assert smuggle_url
     assert prepend_extension
@@ -2346,12 +2348,19 @@ class CountDowns:
 
 class SimpleCountDown:
 
-    restimeout = object()
-    resexit = object()
+    class token:
+        def __init__(self, msg):
+            self.msg = msg
+
+        def __repr__(self):
+            return f"{self.__class__.__name__}:{self.msg}"
+
+    restimeout = token('restimeout')
+    resexit = token('resexit')
 
     def __init__(self, pb, inputqueue, check: Union[Callable, None] = None, logger=None, indexdl=None, timeout=60):
 
-        self._pre = '[countdown][WAIT503]'
+        self._pre = '[countdown][WAIT403]'
         if not check:
             self.check = lambda: None
         else:
