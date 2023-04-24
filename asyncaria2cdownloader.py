@@ -785,8 +785,6 @@ class AsyncARIA2CDownloader:
         except BaseException as e:
             logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
-            #  await self.async_remove([self.dl_cont], clean=True)
-
             def _print_el(el):
                 if isinstance(el[1], str):
                     return el[1]
