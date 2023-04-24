@@ -1313,8 +1313,9 @@ class AsyncDL:
             await self.close()
             await asyncio.sleep(0)
             self.print_pending_tasks()
-            _pending_tasks = [task for task in asyncio.all_tasks()
-                              if task is not asyncio.current_task() and 'async_ex' not in repr(task.get_coro())]
+            _pending_tasks = [
+                task for task in asyncio.all_tasks() if 
+                task is not asyncio.current_task() and 'async_ex' not in repr(task.get_coro())]
             if _pending_tasks:
                 list(map(lambda task: task.cancel(), _pending_tasks))
                 await asyncio.wait(_pending_tasks)
@@ -1325,7 +1326,6 @@ class AsyncDL:
     async def close(self):
 
         try:
-
             logger.info("[close] start to close")
 
             try:
@@ -1368,8 +1368,7 @@ class AsyncDL:
             await self.localstorage.aready()
 
         except BaseException as e:
-            logger.error(f"[close] {repr(e)}")
-            logger.debug("[close] kill processes")
+            logger.error(f"[close] error {str(e)}. Lets kill processes")
             kill_processes(logger=logger, rpcport=self.args.rpcport)
 
     def get_results_info(self):

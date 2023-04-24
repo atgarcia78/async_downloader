@@ -2687,10 +2687,6 @@ if PySimpleGUI:
                     if _index_list:
                         if event in ['+PasRes', '-PasRes']:
                             sg.cprint(f'[pause-resume autom] before: {list(self.asyncdl.list_pasres)}')
-                        # if event == 'MoveTopWaitingDL':
-                        #     if len(_index_list) > 1:
-                        #         sg.cprint('[move to top waiting dl] only can move one dl to top. Will use first value')
-                        #         _index_list = [_index_list[0]]
 
                         info = []
                         for _index in _index_list:
@@ -2974,8 +2970,6 @@ if PySimpleGUI:
                 else:
                     _status = status
 
-            # _copy_list_dl = self.asyncdl.list_dl.copy()
-
             _copy_list_dl = self.asyncdl.list_dl.keys()
             _waiting = list(self.asyncdl.WorkersRun.waiting)
 
@@ -3051,17 +3045,11 @@ if PySimpleGUI:
             finally:
                 if self.list_nwmon:
                     try:
-
                         def _strdate(el):
                             _secs = el[0].second + (el[0].microsecond / 1000000)
                             return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
 
-                        _str_nwmon = ', '.join(
-                            [
-                                f'{_strdate(el)}'
-                                for el in self.list_nwmon
-                            ]
-                        )
+                        _str_nwmon = ', '.join([f'{_strdate(el)}' for el in self.list_nwmon])
                         self.logger.debug(
                             f'[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}')
                     except Exception as e:
@@ -3112,7 +3100,6 @@ if PySimpleGUI:
                                     for _el in _list:
                                         self.window_console.write_event_value('Resume', str(_el))
 
-                                        #  wait_time(random.uniform(0.75 * _time, 1.25 * _time), event=stop_event)
                                         if wait_for_either(
                                             [stop_event, FrontEndGUI._PASRES_EXIT],
                                                 timeout=random.uniform(0.75*_time, 1.25*_time)) != "TIMEOUT":
@@ -3120,13 +3107,7 @@ if PySimpleGUI:
                                             self.window_console.write_event_value('Resume', ','.join(list(map(str, _list))))
                                             break
 
-                                    #  wait_for_either(
-                                    # [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_from_resume_to_pause)
-
                                 else:
-                                    # if 'pasresexit' in _waitres:
-                                    #     FrontEndGUI._PASRES_EXIT.clear()
-
                                     self.window_console.write_event_value(
                                         'Resume', ','.join(list(map(str, _list))))
 
@@ -3137,10 +3118,6 @@ if PySimpleGUI:
                             else:
                                 self.window_console.write_event_value(
                                     'Reset', ','.join(list(map(str, _list))))
-                                #   wait_time(
-                                #     self.pasres_time_from_resume_to_pause,
-                                #     event=stop_event
-                                # )
                     else:
                         _start_no_pause = None
                         time.sleep(CONF_INTERVAL_GUI)
@@ -3199,14 +3176,11 @@ try:
                 if self.asyncdl.args.aria2c:
                     ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
                     _task_aria2c = add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)
-                    _tasks_init_aria2c = {
-                        _task_aria2c: 'aria2'
-                    }
+                    _tasks_init_aria2c = {_task_aria2c: 'aria2'}
                     self._tasks_init.update(_tasks_init_aria2c)
                 if self.asyncdl.args.enproxy:
                     self.stop_proxy, self.fut_proxy = self.run_proxy_http()
                     add_task(self.fut_proxy, self.asyncdl.background_tasks)
-
                     ainit_proxies = sync_to_async(
                         TorGuardProxies.init_proxies, executor=self.exe)
                     _task_proxies = add_task(ainit_proxies(event=self.asyncdl.end_dl), self.asyncdl.background_tasks)
@@ -3434,7 +3408,7 @@ try:
             self._repeated = []
             self._dont_exist = []
             self._repeated_by_xattr = []
-            self.ready_videos_cached, self.fut_videos_cach = self.get_videos_cached(local=True)
+            self.ready_videos_cached, self.fut_videos_cached = self.get_videos_cached(local=True)
             self.ready()
 
         @run_operation_in_executor(name='vidcach')
@@ -3813,8 +3787,3 @@ def check_if_dl(info_dict, videos=None):
                 if vidname in key:
                     res[vidname].update({key: videos[key]})
     return res
-
-
-############################################################
-# """                     PYSIMPLEGUI                    """
-############################################################
