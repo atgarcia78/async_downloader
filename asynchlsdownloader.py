@@ -761,7 +761,7 @@ class AsyncHLSDownloader:
 
             # _wurl = self.info_dict["webpage_url"]
 
-            if self.fromplns and str(cause) in ("403", "hard"):
+            if self.fromplns and str(cause) in ("403"):
 
                 with (_sem := self.vid_dl.info_dl["fromplns"]["ALL"]["sem"]):
 
@@ -830,7 +830,7 @@ class AsyncHLSDownloader:
                     logger.warning(
                             f'{_pre} error when removing[{self.info_dict["id"]}] from [{AsyncHLSDownloader._INRESET_403}]')
 
-            if self.fromplns and cause in ("403", "hard"):
+            if self.fromplns and cause == "403":
 
                 logger.debug(f'{_pre} stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY')
 

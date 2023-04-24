@@ -164,8 +164,6 @@ class AsyncARIA2CDownloader:
         self._n_check_speed = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
         _sem, self._decor, self._nsplits = getter(self._extractor)
 
-        # self.sync_to_async = lambda x: sync_to_async(x, thread_sensitive=False, executor=self.ex_dl)
-
         if not self.enproxy:
             self._mode = 'noproxy'
 
@@ -715,7 +713,6 @@ class AsyncARIA2CDownloader:
         self._speed = []
 
         try:
-
             while True:
                 async with async_lock(self.sem):
                     try:

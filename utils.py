@@ -781,22 +781,30 @@ def init_aria2c(args):
 
     logger = logging.getLogger("asyncDL")
 
-    if (mobj := find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+",
-                           value=args.rpcport)):
+    if (mobj := find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport)):
         mobj.sort()
         args.rpcport = int(mobj[-1]) + 100
 
+            # subprocess.Popen([aria2d, '--no-conf',
+            #               '--enable-rpc', '--rpc-listen-port=' + str(port),
+            #               '--rpc-max-request-size=2M',
+            #               '--rpc-listen-all', '--quiet=true'],
+            #              stderr=subprocess.PIPE,
+            #              stdout=subprocess.PIPE,
+            #              stdin=subprocess.PIPE,
+            #              shell=False)
+
     _proc = subprocess.Popen(
-        f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc",
+        f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc --rpc-max-request-size=2M --rpc-listen-all --quiet=true".split(" "),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        shell=True,
+        stdin=subprocess.PIPE,
+        shell=False
     )
 
     _proc.poll()
-    if (_proc.returncode not in
-        (0, None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+",
-                                    value=args.rpcport)):
+    if (_proc.returncode not in (0, None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport)):
+
         raise Exception(
             f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
 

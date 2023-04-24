@@ -287,7 +287,7 @@ class VideoDownloader:
 
     async def reset_from_console(self):
 
-        await self.reset(cause="hard")
+        await self.reset("hard")
 
     async def reset(self, cause: Union[str, None] = None):
         if self.info_dl['status'] == "downloading":

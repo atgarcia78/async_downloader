@@ -1314,7 +1314,7 @@ class AsyncDL:
             await asyncio.sleep(0)
             self.print_pending_tasks()
             _pending_tasks = [
-                task for task in asyncio.all_tasks() if 
+                task for task in asyncio.all_tasks() if
                 task is not asyncio.current_task() and 'async_ex' not in repr(task.get_coro())]
             if _pending_tasks:
                 list(map(lambda task: task.cancel(), _pending_tasks))
@@ -1372,6 +1372,8 @@ class AsyncDL:
             kill_processes(logger=logger, rpcport=self.args.rpcport)
 
     def get_results_info(self):
+        _DOMAINS_CONF_PRINT = ['nakedsword.com', 'onlyfans.com']
+
         def _getter(url: str, vid: dict) -> str:
             webpageurl = traverse_obj(
                 vid, ("video_info", "webpage_url"))
@@ -1393,7 +1395,7 @@ class AsyncDL:
             #       return _url
             assert (isinstance(originalurl, (str, type(None))) and isinstance(webpageurl, (str, type(None)))
                     and isinstance(playlisturl, (str, type(None))))
-            if webpageurl and 'nakedsword.com' in webpageurl:
+            if webpageurl and any([_ in webpageurl for _ in _DOMAINS_CONF_PRINT]):
                 return (webpageurl or originalurl or url)
             else:
                 return (originalurl or webpageurl or url)
