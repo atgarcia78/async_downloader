@@ -480,7 +480,7 @@ class AsyncHLSDownloader:
 
     @property
     def min_threshold(self):
-        return self.n_workers*CONF_HLS_SPEED_PER_WORKER
+        return self.n_workers * CONF_HLS_SPEED_PER_WORKER
 
     def get_info_fragments(self):
 
