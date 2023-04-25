@@ -785,24 +785,19 @@ def init_aria2c(args):
         mobj.sort()
         args.rpcport = int(mobj[-1]) + 100
 
-            # subprocess.Popen([aria2d, '--no-conf',
-            #               '--enable-rpc', '--rpc-listen-port=' + str(port),
-            #               '--rpc-max-request-size=2M',
-            #               '--rpc-listen-all', '--quiet=true'],
-            #              stderr=subprocess.PIPE,
-            #              stdout=subprocess.PIPE,
-            #              stdin=subprocess.PIPE,
-            #              shell=False)
-
     _proc = subprocess.Popen(
-        f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc --rpc-max-request-size=2M --rpc-listen-all --quiet=true".split(" "),
+        f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc".split(' ') +
+        "--rpc-max-request-size=2M --rpc-listen-all --quiet=true".split(' '),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.PIPE,
-        shell=False
-    )
+        shell=False)
 
+    time.sleep(1)
     _proc.poll()
+    time.sleep(1)
+    _proc.poll()
+
     if (_proc.returncode not in (0, None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport)):
 
         raise Exception(
