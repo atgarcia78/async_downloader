@@ -782,7 +782,7 @@ class AsyncHLSDownloader:
                         if _first_all:
                             NakedSwordBaseIE.API_LOGOUT(msg='[resetdl]')
                             time.sleep(5)
-                            NakedSwordBaseIE.API_AUTH(msg='[resetdl]')
+                            NakedSwordBaseIE.API_LOGIN(msg='[resetdl]')
                             time.sleep(2)
 
                         _listreset = [int(index) for index in list(self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"])]
