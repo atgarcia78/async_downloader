@@ -272,7 +272,7 @@ class VideoDownloader:
 
     async def change_numvidworkers(self, n):
 
-        if self.info_dl['status'] == "downloading":
+        if self.info_dl['status'] in ("downloading", "init"):
 
             for dl in self.info_dl['downloaders']:
                 dl.n_workers = n
