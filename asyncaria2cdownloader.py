@@ -145,7 +145,7 @@ class AsyncARIA2CDownloader:
                 maxplits = self.n_workers
 
             _sem = False
-            if maxplits <= 16:  # or x in ['']:
+            if maxplits < 16:  # or x in ['']:
                 _sem = True
                 if x in CONF_ARIA2C_EXTR_GROUP:
                     self._mode = 'group'
@@ -162,6 +162,7 @@ class AsyncARIA2CDownloader:
         self._mode = 'simple'
         self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED
         self._n_check_speed = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
+
         _sem, self._decor, self._nsplits = getter(self._extractor)
 
         if not self.enproxy:
@@ -284,10 +285,8 @@ class AsyncARIA2CDownloader:
                 self._index_proxy = -1
                 self._proxy = None
                 self.uris = [unquote(self.info_dict.get('url'))] * self.n_workers
-
             else:
                 self._proxy = None
-
                 async with self.vid_dl.master_hosts_alock:
                     if not self.vid_dl.hosts_dl.get(self._host):
                         _seq = random.sample(range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST)

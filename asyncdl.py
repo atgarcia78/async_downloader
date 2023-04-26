@@ -71,6 +71,7 @@ def get_list_interl(res, _pre):
     for el in list(zip_longest(*list(_dict.values()))):
         _interl.extend([_el for _el in el if _el])
 
+    # logger.info('\n'.join([f"{ent['title']}:{get_domain(ent['url'])}:{ent['url']}" for ent in _interl]))
     return _interl
 
 

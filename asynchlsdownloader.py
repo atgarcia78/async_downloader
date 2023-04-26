@@ -59,7 +59,8 @@ from utils import (
     async_lock,
     StatusStop,
     wait_for_either,
-    change_status_nakedsword
+    change_status_nakedsword,
+    get_domain
 )
 
 from functools import partial
@@ -485,6 +486,7 @@ class AsyncHLSDownloader:
     def get_info_fragments(self):
 
         try:
+            self._host = get_domain(self.info_dict['url'])
             self.m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict['url'])
 
             if not self.m3u8_obj or not self.m3u8_obj.segments:
@@ -1774,10 +1776,10 @@ class AsyncHLSDownloader:
             _proxy = None
 
         if self.status == "done":
-            return f"[HLS][{self.info_dict['format_id']}]: PROXY[{_proxy}] Completed\n"
+            return f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] Completed\n"
 
         elif self.status == "init":
-            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] ',
                             f'Waiting to DL [{_filesize_str}] ',
                             f'[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n'])
 
@@ -1787,7 +1789,7 @@ class AsyncHLSDownloader:
                 if self.filesize
                 else "--"
             )
-            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] ',
                             f'ERROR [{_rel_size_str}] ',
                             f'[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n'])
 
@@ -1797,7 +1799,7 @@ class AsyncHLSDownloader:
                 if self.filesize
                 else "--"
             )
-            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] ',
                             f'STOPPED [{_rel_size_str}] ',
                             f'[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n'])
 
@@ -1842,7 +1844,7 @@ class AsyncHLSDownloader:
                     except Exception:
                         pass
 
-            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: PROXY[{_proxy}] ',
+            return ''.join([f'[HLS][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] ',
                             f'WK[{self.count:2d}/{self.n_workers:2d}] ',
                             f'FR[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]',
                             f'PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]',
