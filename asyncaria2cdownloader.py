@@ -227,6 +227,8 @@ class AsyncARIA2CDownloader:
                 return {'error': AsyncARIA2CDLErrorFatal('reset failed')}
         except aria2p.ClientException as e:
             logger.warning(f'{self.premsg}[acall][{func}] error: {type(e)}')
+            if 'add_uris' in func.__name__:
+                raise AsyncARIA2CDLErrorFatal('add uris fails')
             await self.vid_dl.reset()
             return {'reset': 'ok'}
         except Exception as e:
@@ -279,7 +281,6 @@ class AsyncARIA2CDownloader:
 
     @retry
     async def init(self):
-
         try:
             if self._mode == 'noproxy':
                 self._index_proxy = -1
