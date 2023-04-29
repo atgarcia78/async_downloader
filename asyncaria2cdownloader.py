@@ -89,11 +89,11 @@ class AsyncARIA2CDownloader:
 
         self.ytdl: myYTDL = self.vid_dl.info_dl['ytdl']
 
-        self.video_url = unquote(self.info_dict.get('url'))
-        self.uris = [self.video_url]
-        self._host = urlparse(self.video_url).netloc
+        video_url = unquote(self.info_dict.get('url'))
+        self.uris = [video_url]
+        self._host = urlparse(video_url).netloc
 
-        self.headers = self.info_dict.get('http_headers')
+        self.headers = self.info_dict.get('http_headers', {})
 
         self.download_path = self.info_dict['download_path']
 
@@ -181,7 +181,7 @@ class AsyncARIA2CDownloader:
                     for key, value in self.headers.items()]),
             'dir': str(self.download_path),
             'out': self.filename.name,
-            'uri-selector': 'inorder',
+            # 'uri-selector': 'inorder',
             'min-split-size': CONF_ARIA2C_MIN_SIZE_SPLIT,
         }
 
@@ -285,7 +285,8 @@ class AsyncARIA2CDownloader:
             if self._mode == 'noproxy':
                 self._index_proxy = -1
                 self._proxy = None
-                self.uris = [unquote(self.info_dict.get('url'))] * self.n_workers
+                # self.uris = [unquote(self.info_dict.get('url'))] * self.n_workers
+                # self.uris = [unquote(self.info_dict.get('url'))]
             else:
                 self._proxy = None
                 async with self.vid_dl.master_hosts_alock:
@@ -472,6 +473,12 @@ class AsyncARIA2CDownloader:
                         async with self.vid_dl.alock:
                             self.vid_dl.info_dl["filesize"] = self.filesize
 
+                if self.dl_cont.completed_length:
+                    if not self.down_size:
+                        self.down_size = self.dl_cont.completed_length
+                        async with self.vid_dl.alock:
+                            self.vid_dl.info_dl['down_size'] += self.down_size
+
         except BaseException as e:
             if isinstance(e, KeyboardInterrupt):
                 raise
@@ -635,6 +642,7 @@ class AsyncARIA2CDownloader:
             if event == 'stop':
                 self._speed.append((datetime.now(), 'stop'))
                 if self.status == 'stop':
+                    await self.async_remove([self.dl_cont])
                     return {"event": "exit"}
                 self.vid_dl.stop_event.clear()
                 await self.async_restart([self.dl_cont])
@@ -706,6 +714,25 @@ class AsyncARIA2CDownloader:
             self.status = 'error'
             self.error_message = _msg_error
 
+    async def update_uris(self):
+        if self._mode == 'noproxy':
+            _init_url = self.info_dict.get('webpage_url')
+            if self.special_extr:
+                _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
+            _ytdl_opts = self.ytdl.params.copy()
+            async with ProxyYTDL(opts=_ytdl_opts, executor=self.ex_dl) as proxy_ytdl:
+
+                proxy_info = get_format_id(
+                    proxy_ytdl.sanitize_info(
+                        await proxy_ytdl.async_extract_info(_init_url)),
+                    self.info_dict['format_id'])
+            if (_url := proxy_info.get("url")):
+                video_url = unquote(_url)
+                self.uris = [video_url]
+                self._host = urlparse(video_url).netloc
+                # self.headers = _info.get('http_headers', {})
+                # self.opts.set('header', '\n'.join([f'{key}: {value}' for key, value in self.headers.items()]))
+
     async def fetch_async(self):
 
         self.progress_timer = ProgressTimer()
@@ -744,6 +771,7 @@ class AsyncARIA2CDownloader:
                                     return
                                 elif event in ('stop', 'reset'):
                                     self.block_init = True
+                                    await self.update_uris()
                                     continue
                         finally:
                             self._qspeed.put_nowait(kill_item)
@@ -800,16 +828,16 @@ class AsyncARIA2CDownloader:
         msg = ''
 
         if self.status == 'done':
-            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: Completed\n'
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] Completed\n'
         elif self.status == 'init':
-            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: Waiting ' +\
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] Waiting ' +\
                   f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
         elif self.status == 'error':
-            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: ERROR ' +\
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] ERROR ' +\
                   f'{naturalsize(self.down_size, format_=".2f")} ' +\
                   f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
         elif self.status == 'stop':
-            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: STOPPED ' +\
+            msg = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] STOPPED ' +\
                   f'{naturalsize(self.down_size, format_=".2f")} ' +\
                   f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
         elif self.status == 'downloading':
@@ -853,7 +881,7 @@ class AsyncARIA2CDownloader:
                     _substr = 'UNKNOWN'
 
                 msg = f'[ARIA2C][{self.info_dict["format_id"]}]: ' +\
-                      f'HOST[{self._host.split(".")[0]}]' +\
+                      f'HOST[{self._host.split(".")[0]}] ' +\
                       f'{_substr} DL PR[{self.last_progress_str}]\n'
 
         elif self.status == 'manipulating':
