@@ -49,6 +49,8 @@ import queue
 from ipaddress import ip_address
 from operator import getitem
 
+from urllib.parse import urlparse
+
 try:
     import PySimpleGUI
     import psutil
@@ -75,7 +77,7 @@ CONF_DASH_SPEED_PER_WORKER = 102400
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
 CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/114.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
-CONF_HLS_RESET_403_TIME = 100
+CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
 CONF_PROXIES_MAX_N_GR_HOST = 10  # 10
 CONF_PROXIES_N_GR_VIDEO = 8  # 8
@@ -94,6 +96,11 @@ CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
     "GVDBlogPost", "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
     "MyVidsterSearchPlaylistIE", "MyVidsterRSSPlaylistIE"]
+
+
+def get_host(url: str) -> str:
+    _host = urlparse(url).netloc
+    return re.sub(r'^www\.', '', _host)
 
 
 def nested_obj(d, *selectors, get_all=True, default=None, v=False):

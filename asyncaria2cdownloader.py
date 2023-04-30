@@ -43,7 +43,8 @@ from utils import (
     myYTDL,
     async_waitfortasks,
     put_sequence,
-    my_dec_on_exception
+    my_dec_on_exception,
+    get_host
 )
 
 logger = logging.getLogger('async_ARIA2C_DL')
@@ -91,7 +92,7 @@ class AsyncARIA2CDownloader:
 
         video_url = unquote(self.info_dict.get('url'))
         self.uris = [video_url]
-        self._host = urlparse(video_url).netloc
+        self._host = get_host(video_url)
 
         self.headers = self.info_dict.get('http_headers', {})
 
@@ -395,7 +396,7 @@ class AsyncARIA2CDownloader:
 
                             _url_as_dict = urlparse(_url)._asdict()
                             _temp = f"__routing={_proxy_port}__.{_url_as_dict['netloc']}"
-                            _url_as_dict["netloc"] = _temp
+                            _url_as_dict["netloc"] = _temp.replace('__.www', '__.')
                             return urlunparse(list(_url_as_dict.values()))
 
                         except Exception as e:
@@ -729,7 +730,7 @@ class AsyncARIA2CDownloader:
             if (_url := proxy_info.get("url")):
                 video_url = unquote(_url)
                 self.uris = [video_url]
-                self._host = urlparse(video_url).netloc
+                self._host = get_host(video_url)
                 # self.headers = _info.get('http_headers', {})
                 # self.opts.set('header', '\n'.join([f'{key}: {value}' for key, value in self.headers.items()]))
 

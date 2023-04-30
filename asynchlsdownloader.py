@@ -60,7 +60,7 @@ from utils import (
     StatusStop,
     wait_for_either,
     change_status_nakedsword,
-    get_domain
+    get_host
 )
 
 from functools import partial
@@ -486,7 +486,7 @@ class AsyncHLSDownloader:
     def get_info_fragments(self):
 
         try:
-            self._host = get_domain(self.info_dict['url'])
+            self._host = get_host(self.info_dict['url'])
             self.m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict['url'])
 
             if not self.m3u8_obj or not self.m3u8_obj.segments:
