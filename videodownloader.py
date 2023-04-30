@@ -25,6 +25,7 @@ from asyncdashdownloader import AsyncDASHDownloader
 from asyncffmpegdownloader import AsyncFFMPEGDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
+from asyncsaldownloader import AsyncSALDownloader
 
 from utils import (
     naturalsize,
@@ -35,7 +36,7 @@ from utils import (
     async_waitfortasks,
     MySyncAsyncEvent)
 
-FORCE_TO_HTTP = []  # ['doodstream']
+FORCE_TO_SAL = ['doodstream']  # ['doodstream']
 
 logger = logging.getLogger("video_DL")
 
@@ -203,7 +204,7 @@ class VideoDownloader:
                 if protocol in ('http', 'https'):
                     if self.info_dl['rpcport'] and (
                         info.get(
-                            'extractor_key').lower() not in FORCE_TO_HTTP):
+                            'extractor_key').lower() not in FORCE_TO_SAL):
                         try:
                             dl = AsyncARIA2CDownloader(
                                 self.info_dl['rpcport'],
@@ -230,7 +231,7 @@ class VideoDownloader:
                             else:
                                 raise
 
-                    else:
+                    elif info.get('extractor_key').lower() not in FORCE_TO_SAL:
 
                         dl = AsyncHTTPDownloader(info, self)
                         logger.debug(
@@ -238,6 +239,12 @@ class VideoDownloader:
                             f"[{info['format_id']}][get_dl] DL type HTTP")
                         if dl.auto_pasres:
                             self.info_dl.update({'auto_pasres': True})
+
+                    else:
+                        dl = AsyncSALDownloader(info, self)
+                        logger.debug(
+                            f"[{info['id']}][{info['title']}]" +
+                            f"[{info['format_id']}][get_dl] DL type SAL")
 
                 elif protocol in ('m3u8', 'm3u8_native'):
                     dl = AsyncHLSDownloader(self.args.enproxy, info, self)
@@ -649,7 +656,7 @@ class VideoDownloader:
                 asyncio.create_task(dl.ensamble_file())
                 for dl in self.info_dl['downloaders'] if (
                     not any(_ in str(type(dl)).lower()
-                            for _ in ('aria2', 'ffmpeg')) and
+                            for _ in ('aria2', 'ffmpeg', 'saldownloader')) and
                     dl.status == 'manipulating')]
 
             if self.args.subt and (self.info_dict.get('subtitles') or self.info_dict.get('requested_subtitles')):

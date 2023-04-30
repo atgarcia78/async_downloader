@@ -3232,7 +3232,7 @@ try:
                         '--log-level',
                         log_level,
                         '--plugins',
-                        'proxy.plugin.ProxyPoolByHostPlugin',
+                        'plugins.ProxyPoolByHostPlugin',
                     ]
                 ) as p:
 
