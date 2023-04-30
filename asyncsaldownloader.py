@@ -1,0 +1,261 @@
+import logging
+import asyncio
+import subprocess
+import re
+from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import unquote
+
+from pathlib import Path
+
+from yt_dlp.utils import (
+    shell_quote,
+    parse_filesize,
+    smuggle_url
+)
+
+from utils import (
+    naturalsize,
+    ProxyYTDL,
+    get_format_id
+)
+
+logger = logging.getLogger("async_SALDL_DL")
+
+
+class AsyncSALDLErrorFatal(Exception):
+    """Error during info extraction."""
+
+    def __init__(self, msg, exc_info=None):
+
+        super().__init__(msg)
+
+        self.exc_info = exc_info
+
+
+class AsyncSALDLError(Exception):
+    """Error during info extraction."""
+
+    def __init__(self, msg, exc_info=None):
+
+        super().__init__(msg)
+
+        self.exc_info = exc_info
+
+
+class AsyncSALDownloader():
+
+    def __init__(self, video_dict, vid_dl):
+
+        try:
+
+            self.info_dict = video_dict.copy()
+            self.vid_dl = vid_dl
+
+            self.ytdl = self.vid_dl.info_dl['ytdl']
+
+            self.download_path = self.info_dict['download_path']
+
+            self.download_path.mkdir(parents=True, exist_ok=True)
+
+            _filename = self.info_dict.get('_filename', self.info_dict.get('filename'))
+            self.filename = Path(
+                self.download_path,
+                f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
+
+            self.filesize = self.info_dict.get('filesize') or self._get_filesize(self.info_dict)
+
+            self.down_size = 0
+            self.downsize_ant = 0
+            self.dl_cont = []
+
+            self.dl_cont.append(
+                {'download_str': 'pending', 'speed_str': 'pending', 'eta_str': 'pending', 'progress_str': 'pending'})
+
+            self.status = 'init'
+            self.error_message = ""
+
+            self.ex_dl = ThreadPoolExecutor(thread_name_prefix='ex_saldl')
+
+        except Exception as e:
+            logger.exception(repr(e))
+            raise
+
+    def _make_cmd(self, filepath, info_dict, conn) -> str:
+        cmd = ['saldl', info_dict['url'], '--resume', '-o', str(filepath)]
+        if info_dict.get('http_headers') is not None:
+            for key, val in info_dict['http_headers'].items():
+                cmd += ['-H', f'{key}: {val}']
+        cmd += ['-c', str(conn), '-i', '0.2']
+        return shell_quote(cmd)
+
+    def _get_filesize(self, info_dict):
+        cmd = ['saldl', info_dict['url']]
+        if info_dict.get('http_headers') is not None:
+            for key, val in info_dict['http_headers'].items():
+                cmd += ['-H', f'{key}: {val}']
+        cmd += ['--get-info', 'file-size']
+        filesize_str = subprocess.run(cmd, encoding='utf-8', capture_output=True).stdout.strip('\n')
+        logger.debug(f'filesize: {filesize_str}')
+        return int(filesize_str)
+
+    async def update_uri(self):
+        _init_url = self.info_dict.get('webpage_url')
+        _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
+        _ytdl_opts = self.ytdl.params.copy()
+        async with ProxyYTDL(opts=_ytdl_opts, executor=self.ex_dl) as proxy_ytdl:
+
+            proxy_info = get_format_id(
+                proxy_ytdl.sanitize_info(
+                    await proxy_ytdl.async_extract_info(_init_url)),
+                self.info_dict['format_id'])
+
+        if (_url := proxy_info.get("url")):
+            self.info_dict['url'] = unquote(_url)
+
+    async def event_handle(self):
+
+        _res = {}
+        _event = [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]
+        if _event:
+            _res = {"event": _event[0]}
+        return _res
+
+    async def _async_call_downloader(self, filepath, info_dict):
+
+        try:
+
+            progress_pattern = re.compile(
+                r'(?:(?P<finished>Download Finished)|(Size complete:\s+(?P<download_str>[^\s]+)\s+/\s+([^\s]+)\s*\((?P<progress_str>[^\)]+)\).*Rate:\s+([^\s]+)\s*\:\s*(?P<speed_str>[^\s]+)\s*Remaining:\s+([^\s]+)\s*\:\s*(?P<eta_str>[^\s]+)\s*Duration))')
+
+            async def read_stream(aproc):
+
+                _buffer_prog = ""
+                _buffer_stderr = ""
+
+                try:
+                    if aproc.returncode == 1:
+                        buffer = await aproc.stderr.read()
+                        if buffer:
+                            _buffer_stderr = buffer.decode('utf-8')
+                        return _buffer_stderr
+
+                    while not aproc.returncode:
+                        try:
+                            _res = await self.event_handle()
+                            if _res.get("event") in ("stop", "reset"):
+                                logger.info(
+                                    f"[{self.info_dict['id']}][{self.info_dict['title']}][read stream] terminate proc {aproc}")
+                                aproc.terminate()
+                                break
+                            line = await aproc.stderr.readline()
+                        except (asyncio.LimitOverrunError, ValueError):
+                            await asyncio.sleep(0)
+                            continue
+                        if line:
+                            _line = line.decode('utf-8').replace('\n', ' ')
+                            if not re.search(r'^\d+', _line):
+                                # logger.info(f"{_line}")
+                                _buffer_prog += _line
+                                _buffer_stderr += _line
+                                # logger.info(_buffer_prog)
+                                _prog_info = re.search(progress_pattern, _buffer_prog)
+                                if _prog_info:
+                                    _status = _prog_info.groupdict()
+                                    if _status.get("finished"):
+                                        self.status = "done"
+                                        break
+                                    _dl_size = parse_filesize(_status['download_str'])
+                                    if _dl_size:
+                                        _status.update({'download_bytes': _dl_size})
+                                        self.down_size = _dl_size
+                                        self.vid_dl.info_dl['down_size'] += (self.down_size - self.downsize_ant)
+                                        self.downsize_ant = _dl_size
+                                    # logger.debug(_status)
+                                    self.dl_cont.append(_status)
+                                    _buffer_prog = ""
+                                    if _status['progress_str'] == '100.00%':
+                                        break
+                            await asyncio.sleep(0)
+                    return _buffer_stderr
+                except Exception as e:
+                    logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][read stream] {repr(e)}")
+                    raise
+
+            cmd = self._make_cmd(filepath, info_dict, '5')
+            _proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+            await asyncio.sleep(0)
+
+            _coros = [read_stream(_proc), _proc.wait()]
+
+            results = await asyncio.gather(*_coros, return_exceptions=True)
+            failed_results = [repr(result) for result in results if isinstance(result, Exception)]
+
+            if failed_results:
+                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][async call dl] {failed_results}")
+                self.status = "error"
+                return
+
+            if results[1] == 1:
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][async call dl] error proc: {results[0]}")
+                if "exists, quiting..." in results[0]:
+                    self.status = "done"
+                    return
+                else:
+                    self.status = "error"
+                    return
+
+        except Exception as e:
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][read stream] {repr(e)}")
+
+    async def fetch_async(self):
+
+        self.status = "downloading"
+
+        try:
+            while True:
+                task_dl = asyncio.create_task(self._async_call_downloader(str(self.filename), self.info_dict))
+
+                done, _ = await asyncio.wait([task_dl])
+                if self.vid_dl.stop_event.is_set():
+                    self.status = "stop"
+                    return
+                elif self.vid_dl.reset_event.is_set():
+                    self.vid_dl.reset_event.clear()
+                    await self.update_uri()
+                    continue
+                elif self.status == "done":
+                    return
+                elif self.dl_cont[-1].get('progress_str') == '100.00%':
+                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL completed")
+                    self.status = "done"
+                    return
+                elif self.status == "error":
+                    return
+
+        except Exception as e:
+            logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] error {repr(e)}")
+            self.status = "error"
+
+    def print_hookup(self):
+
+        msg = ""
+
+        try:
+
+            if self.status == "done":
+                msg = f'[SAL][{self.info_dict["format_id"]}]: Completed\n'
+            elif self.status == "init":
+                msg = f'[SAL][{self.info_dict["format_id"]}]: Waiting '
+                msg += f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
+            elif self.status == "error":
+                msg = f'[SAL][{self.info_dict["format_id"]}]: ERROR ' +\
+                    f'{naturalsize(self.down_size, format_=".2f")} ' +\
+                    f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
+            elif self.status == "downloading":
+                msg = f"[SAL]: DL[{self.dl_cont[-1].get('speed_str') or '--'}] PR[{self.dl_cont[-1].get('progress_str') or '--'}]"
+                msg += f" ETA[{self.dl_cont[-1].get('eta_str') or '--'}]\n"
+
+        except Exception as e:
+            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][print hookup] error {repr(e)}")
+
+        return msg
