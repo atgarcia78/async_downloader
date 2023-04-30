@@ -43,6 +43,7 @@ from typing import (
     Callable
 )
 
+
 import queue
 
 
@@ -1353,6 +1354,8 @@ def get_wd_conf(name=None, pre=None):
 
 if yt_dlp:
 
+    from pyrate_limiter import LimitContextDecorator
+
     from yt_dlp.extractor.commonwebdriver import (
         CONFIG_EXTRACTORS,
         SeleniumInfoExtractor,
@@ -1389,6 +1392,7 @@ if yt_dlp:
 
     from yt_dlp import YoutubeDL
 
+    assert LimitContextDecorator
     assert find_available_port
     assert unsmuggle_url
     assert smuggle_url

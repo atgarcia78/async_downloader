@@ -60,7 +60,8 @@ from utils import (
     StatusStop,
     wait_for_either,
     change_status_nakedsword,
-    get_host
+    get_host,
+    LimitContextDecorator
 )
 
 from functools import partial
@@ -214,11 +215,11 @@ class AsyncHLSDownloader:
 
     def init(self):
 
-        def getter(x: Union[str, None]):
+        def getter(x: Union[str, None]) -> tuple[Union[int, float], LimitContextDecorator]:
             try:
                 if not x:
                     self.special_extr = False
-                    return limiter_non.ratelimit("transp", delay=True)
+                    return (0, limiter_non.ratelimit("transp", delay=True))
                 if "nakedsword" in x:
                     # self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
                     self.auto_pasres = True
@@ -267,30 +268,27 @@ class AsyncHLSDownloader:
                 logger.exception(f'{self.premsg}: {str(e)}')
 
             value, key_text = try_get(
-                [
-                    (v, kt)
-                    for k, v in self._CONFIG.items()
-                    if any(x == (kt := _) for _ in k)
-                ],
-                lambda y: y[0],
-            ) or ("", "")
+                    [(v, sk) for k, v in self._CONFIG.items()
+                        for sk in k if sk == x], lambda y: y[0]
+                ) or ('', '')
 
             if value:
                 self.special_extr = True
-                return value["ratelimit"].ratelimit(key_text, delay=True)
+                if 'nakedsword' in key_text:
+                    key_text = 'nakedsword'
+                return (value["interval"], value["ratelimit"].ratelimit(key_text, delay=True))
             else:
                 self.special_extr = False
-                return limiter_non.ratelimit("transp", delay=True)
+                return (0, limiter_non.ratelimit("transp", delay=True))
 
         try:
             self.auto_pasres = False
             self.fromplns = False
             # self._CONF_HLS_MAX_SPEED_PER_DL = None
 
-            self._extractor = try_get(self.info_dict.get(
-                "extractor_key", "Generic").lower(), lambda x: x.lower())
+            self._extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
 
-            self._limit = getter(self._extractor)
+            self._interv, self._limit = getter(self._extractor)
             self.info_frag = []
             self.info_init_section = {}
             self.frags_to_dl = []
@@ -1213,6 +1211,7 @@ class AsyncHLSDownloader:
 
                         async with self._limit:
                             logger.debug(f'{_premsg}: limiter speed')
+                            await asyncio.sleep(self._interv)
 
                         if (_res := await self.event_handle()):
                             if _res.get("event") in ("stop", "reset"):
