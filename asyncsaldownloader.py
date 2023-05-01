@@ -16,7 +16,10 @@ from yt_dlp.utils import (
 from utils import (
     naturalsize,
     ProxyYTDL,
-    get_format_id
+    get_format_id,
+    try_get,
+    CONFIG_EXTRACTORS,
+    limiter_non
 )
 
 logger = logging.getLogger("async_SALDL_DL")
@@ -44,6 +47,8 @@ class AsyncSALDLError(Exception):
 
 class AsyncSALDownloader():
 
+    _CONFIG = CONFIG_EXTRACTORS.copy()
+
     def __init__(self, video_dict, vid_dl):
 
         try:
@@ -52,6 +57,8 @@ class AsyncSALDownloader():
             self.vid_dl = vid_dl
 
             self.ytdl = self.vid_dl.info_dl['ytdl']
+
+            self.n_workers = self.vid_dl.info_dl['n_workers']
 
             self.download_path = self.info_dict['download_path']
 
@@ -76,16 +83,37 @@ class AsyncSALDownloader():
 
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix='ex_saldl')
 
+            def getter(x):
+                if not x:
+                    value, key_text = ('', '')
+                else:
+                    value, key_text = try_get(
+                        [(v, sk) for k, v in self._CONFIG.items()
+                            for sk in k if sk == x], lambda y: y[0]
+                    ) or ('', '')
+
+                if value:
+                    limit = value['ratelimit'].ratelimit(key_text, delay=True)
+                    maxplits = value['maxsplits']
+                else:
+                    limit = limiter_non.ratelimit('transp', delay=True)
+                    maxplits = self.n_workers
+
+                return (limit, maxplits)
+
+            self._extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
+            self._limit, self._conn = getter(self._extractor)
+
         except Exception as e:
             logger.exception(repr(e))
             raise
 
-    def _make_cmd(self, filepath, info_dict, conn) -> str:
+    def _make_cmd(self, filepath, info_dict) -> str:
         cmd = ['saldl', info_dict['url'], '--resume', '-o', str(filepath)]
         if info_dict.get('http_headers') is not None:
             for key, val in info_dict['http_headers'].items():
                 cmd += ['-H', f'{key}: {val}']
-        cmd += ['-c', str(conn), '-i', '0.2']
+        cmd += ['-c', str(self._conn), '-i', '0.2']
         return shell_quote(cmd)
 
     def _get_filesize(self, info_dict):
@@ -182,7 +210,7 @@ class AsyncSALDownloader():
                     logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][read stream] {repr(e)}")
                     raise
 
-            cmd = self._make_cmd(filepath, info_dict, '5')
+            cmd = self._make_cmd(filepath, info_dict)
             _proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             await asyncio.sleep(0)
             _coros = [read_stream(_proc), _proc.wait()]
