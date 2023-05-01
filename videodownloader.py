@@ -10,7 +10,8 @@ from functools import partial
 from pathlib import Path
 from queue import Queue
 
-import myaiofiles.os
+import aiofiles.os
+import os
 
 import httpx
 import m3u8
@@ -640,6 +641,7 @@ class VideoDownloader:
             partial(shutil.rmtree, ignore_errors=True),
             executor=self.ex_videodl)
         amove = sync_to_async(shutil.move, executor=self.ex_videodl)
+        autime = sync_to_async(os.utime, executor=self.ex_videodl)
 
         blocking_tasks = []
 
@@ -679,7 +681,7 @@ class VideoDownloader:
 
             res = True
             for dl in self.info_dl['downloaders']:
-                _exists = await myaiofiles.os.path.exists(dl.filename)
+                _exists = await aiofiles.os.path.exists(dl.filename)
                 res = res and _exists and dl.status == "done"
                 logger.debug(
                     f"[{self.info_dict['id']}][{self.info_dict['title']}] " +
@@ -728,7 +730,7 @@ class VideoDownloader:
                                 f"[{self.info_dict['id']}]" +
                                 f"[{self.info_dict['title']}]: error when manipulating {repr(e)}")
 
-                    if rc == 0 and (await myaiofiles.os.path.exists(
+                    if rc == 0 and (await aiofiles.os.path.exists(
                             temp_filename)):
 
                         #  self.info_dl['status'] = "done"
@@ -765,13 +767,13 @@ class VideoDownloader:
 
                     rc = res.returncode
 
-                    if rc == 0 and (await myaiofiles.os.path.exists(
+                    if rc == 0 and (await aiofiles.os.path.exists(
                             temp_filename)):
 
                         #  self.info_dl['status'] = "done"
                         for dl in self.info_dl['downloaders']:
 
-                            await myaiofiles.os.remove(dl.filename)
+                            await aiofiles.os.remove(dl.filename)
 
                         logger.debug(
                             f"[{self.info_dict['id']}]" +
@@ -814,9 +816,9 @@ class VideoDownloader:
                             f"[{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n" +
                             f"{res.stdout}\n[stderr]{res.stderr}")
                         if res.returncode == 0:
-                            await myaiofiles.os.replace(
+                            await aiofiles.os.replace(
                                 embed_filename, self.info_dl['filename'])
-                            await myaiofiles.os.remove(temp_filename)
+                            await aiofiles.os.remove(temp_filename)
                             self.info_dl['status'] = "done"
                     except Exception as e:
                         logger.exception(
@@ -825,7 +827,7 @@ class VideoDownloader:
 
                 else:
                     try:
-                        await myaiofiles.os.replace(
+                        await aiofiles.os.replace(
                             temp_filename, self.info_dl['filename'])
                         self.info_dl['status'] = "done"
                     except Exception as e:
@@ -842,7 +844,7 @@ class VideoDownloader:
 
                 try:
                     if (mtime := self.info_dict.get("release_timestamp")):
-                        await myaiofiles.os.utime(
+                        await autime(
                             self.info_dl['filename'],
                             (int(datetime.now().timestamp()), mtime))
                 except Exception as e:
@@ -869,7 +871,7 @@ class VideoDownloader:
                             f"[{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n" +
                             f"{res.stdout}\n[stderr]{res.stderr}")
                         if res.returncode == 0:
-                            await myaiofiles.os.replace(
+                            await aiofiles.os.replace(
                                 temp_filename, self.info_dl['filename'])
 
                         xattr.setxattr(
