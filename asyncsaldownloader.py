@@ -69,7 +69,7 @@ class AsyncSALDownloader():
             self.dl_cont = []
 
             self.dl_cont.append(
-                {'download_str': 'pending', 'speed_str': 'pending', 'eta_str': 'pending', 'progress_str': 'pending'})
+                {'download_str': '--', 'speed_str': '--', 'eta_str': '--', 'progress_str': '--'})
 
             self.status = 'init'
             self.error_message = ""
@@ -124,8 +124,11 @@ class AsyncSALDownloader():
 
         try:
 
+            # progress_pattern = re.compile(
+            #     r'(?:(?P<finished>Download Finished)|(Size complete:\s+(?P<download_str>[^\s]+)\s+/\s+([^\s]+)\s*\((?P<progress_str>[^\)]+)\).*Rate:\s+([^\s]+)\s*\:\s*(?P<speed_str>[^\s]+)\s*Remaining:\s+([^\s]+)\s*\:\s*(?P<eta_str>[^\s]+)\s*Duration))')
+
             progress_pattern = re.compile(
-                r'(?:(?P<finished>Download Finished)|(Size complete:\s+(?P<download_str>[^\s]+)\s+/\s+([^\s]+)\s*\((?P<progress_str>[^\)]+)\).*Rate:\s+([^\s]+)\s*\:\s*(?P<speed_str>[^\s]+)\s*Remaining:\s+([^\s]+)\s*\:\s*(?P<eta_str>[^\s]+)\s*Duration))')
+                r'Size complete:\s+(?P<download_str>[^\s]+)\s+/\s+([^\s]+)\s*\((?P<progress_str>[^\)]+)\).*Rate:\s+([^\s]+)\s*\:\s*(?P<speed_str>[^\s]+)\s*Remaining:\s+([^\s]+)\s*\:\s*(?P<eta_str>[^\s]+)\s*Duration')
 
             async def read_stream(aproc):
 
@@ -158,12 +161,11 @@ class AsyncSALDownloader():
                                 _buffer_prog += _line
                                 _buffer_stderr += _line
                                 # logger.info(_buffer_prog)
-                                _prog_info = re.search(progress_pattern, _buffer_prog)
-                                if _prog_info:
+                                if 'Download Finished' in _buffer_prog:
+                                    self.status = "done"
+                                    break
+                                if (_prog_info := re.search(progress_pattern, _buffer_prog)):
                                     _status = _prog_info.groupdict()
-                                    if _status.get("finished"):
-                                        self.status = "done"
-                                        break
                                     _dl_size = parse_filesize(_status['download_str'])
                                     if _dl_size:
                                         _status.update({'download_bytes': _dl_size})
@@ -174,6 +176,7 @@ class AsyncSALDownloader():
                                     self.dl_cont.append(_status)
                                     _buffer_prog = ""
                                     if _status['progress_str'] == '100.00%':
+                                        self.status = "done"
                                         break
                             await asyncio.sleep(0)
                     return _buffer_stderr
@@ -184,7 +187,6 @@ class AsyncSALDownloader():
             cmd = self._make_cmd(filepath, info_dict, '5')
             _proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
             await asyncio.sleep(0)
-
             _coros = [read_stream(_proc), _proc.wait()]
 
             results = await asyncio.gather(*_coros, return_exceptions=True)
@@ -224,10 +226,7 @@ class AsyncSALDownloader():
                     await self.update_uri()
                     continue
                 elif self.status == "done":
-                    return
-                elif self.dl_cont[-1].get('progress_str') == '100.00%':
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL completed")
-                    self.status = "done"
                     return
                 elif self.status == "error":
                     return
@@ -252,8 +251,13 @@ class AsyncSALDownloader():
                     f'{naturalsize(self.down_size, format_=".2f")} ' +\
                     f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
             elif self.status == "downloading":
-                msg = f"[SAL]: DL[{self.dl_cont[-1].get('speed_str') or '--'}] PR[{self.dl_cont[-1].get('progress_str') or '--'}]"
-                msg += f" ETA[{self.dl_cont[-1].get('eta_str') or '--'}]\n"
+                if (_speed := self.dl_cont[-1].get('speed_str')) and _speed != '--':
+                    _speed_bytes = parse_filesize(_speed)
+                    _speed_str = f"{naturalsize(_speed_bytes)}ps"
+                else:
+                    _speed_str = '--'
+                msg = f"[SAL]: DL[{_speed_str:>10}] PR[{self.dl_cont[-1].get('progress_str') or '--':>7}]"
+                msg += f" ETA[{self.dl_cont[-1].get('eta_str') or '--':>6}]\n"
 
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][print hookup] error {repr(e)}")

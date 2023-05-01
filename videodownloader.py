@@ -36,7 +36,7 @@ from utils import (
     async_waitfortasks,
     MySyncAsyncEvent)
 
-FORCE_TO_SAL = ['doodstream']  # ['doodstream']
+FORCE_TO_SAL = ['doodstream', 'myvidster']  # ['doodstream']
 
 logger = logging.getLogger("video_DL")
 
@@ -231,14 +231,14 @@ class VideoDownloader:
                             else:
                                 raise
 
-                    elif info.get('extractor_key').lower() not in FORCE_TO_SAL:
+                    # elif info.get('extractor_key').lower() not in FORCE_TO_SAL:
 
-                        dl = AsyncHTTPDownloader(info, self)
-                        logger.debug(
-                            f"[{info['id']}][{info['title']}]" +
-                            f"[{info['format_id']}][get_dl] DL type HTTP")
-                        if dl.auto_pasres:
-                            self.info_dl.update({'auto_pasres': True})
+                    #     dl = AsyncHTTPDownloader(info, self)
+                    #     logger.debug(
+                    #         f"[{info['id']}][{info['title']}]" +
+                    #         f"[{info['format_id']}][get_dl] DL type HTTP")
+                    #     if dl.auto_pasres:
+                    #         self.info_dl.update({'auto_pasres': True})
 
                     else:
                         dl = AsyncSALDownloader(info, self)
