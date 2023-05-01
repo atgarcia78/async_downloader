@@ -1392,6 +1392,8 @@ if yt_dlp:
 
     from yt_dlp import YoutubeDL
 
+    from yt_dlp import parse_options
+
     assert LimitContextDecorator
     assert find_available_port
     assert unsmuggle_url
@@ -1457,6 +1459,13 @@ if yt_dlp:
             except Exception as e:
                 logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
         return ("Generic", ies["Generic"])
+
+    def cli_to_api(*opts):
+        default = yt_dlp.parse_options([]).ydl_opts
+        diff = {k: v for k, v in parse_options(opts).ydl_opts.items() if default[k] != v}
+        if 'postprocessors' in diff:
+            diff['postprocessors'] = [pp for pp in diff['postprocessors'] if pp not in default['postprocessors']]
+        return diff
 
     class myYTDL(YoutubeDL):
 
