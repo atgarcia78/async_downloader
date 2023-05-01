@@ -96,8 +96,10 @@ class VideoDownloader:
         downloaders = []
 
         _new_info_dict = self.info_dict.copy()
-        _new_info_dict.update({'filename': self.info_dl['filename'],
-                               'download_path': self.info_dl['download_path']})
+        _new_info_dict.update({
+            'filename': self.info_dl['filename'],
+            'download_path': self.info_dl['download_path']
+        })
 
         if (dl := self._check_if_apple(_new_info_dict)):
             downloaders.append(dl)
@@ -181,7 +183,6 @@ class VideoDownloader:
     def _get_dl(self, info):
 
         try:
-
             if not (_info := info.get('requested_formats')):
                 _info = [info]
                 _streams = False
@@ -193,7 +194,8 @@ class VideoDownloader:
                         '_filename': self.info_dl['filename'],
                         'download_path': self.info_dl['download_path'],
                         'webpage_url': self.info_dl['webpage_url'],
-                        'extractor_key': self.info_dict.get('extractor_key')})
+                        'extractor_key': self.info_dict.get('extractor_key')
+                    })
                 _streams = True
 
             res_dl = []
@@ -203,15 +205,10 @@ class VideoDownloader:
                 dl = None
                 protocol = determine_protocol(info)
                 if protocol in ('http', 'https'):
-                    if self.info_dl['rpcport'] and (
-                        info.get(
-                            'extractor_key').lower() not in FORCE_TO_SAL):
+                    if self.info_dl['rpcport'] and (info.get('extractor_key').lower() not in FORCE_TO_SAL):
                         try:
                             dl = AsyncARIA2CDownloader(
-                                self.info_dl['rpcport'],
-                                self.args.enproxy,
-                                info,
-                                self)
+                                self.info_dl['rpcport'], self.args.enproxy, info, self)
                             logger.debug(
                                 f"[{info['id']}][{info['title']}]" +
                                 f"[{info['format_id']}][get_dl] DL type ARIA2C")
@@ -390,8 +387,8 @@ class VideoDownloader:
             await async_waitfortasks(_tasks_all, events=self.stop_event, background_tasks=self.background_tasks)
 
     async def stop(self, cause=None):
-        try:
 
+        try:
             if not cause:
                 if 'aria2' not in str(
                         type(self.info_dl['downloaders'][0])).lower():
