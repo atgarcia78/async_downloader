@@ -65,7 +65,6 @@ from utils import (
 )
 
 from functools import partial
-
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 logger = logging.getLogger("async_HLS_DL")
@@ -310,7 +309,7 @@ class AsyncHLSDownloader:
 
             logger.debug(f'init_section:\n{self.info_dict["init_section"]}')
 
-            if _frag := self.info_dict["init_section"]:
+            if (_frag := self.info_dict["init_section"]):
                 _file_path = Path(str(self.fragments_base_path) + ".Frag0")
                 _url = _frag.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
@@ -1253,9 +1252,7 @@ class AsyncHLSDownloader:
 
                                 if not self.filesize and _hsize:
                                     async with self._LOCK:
-                                        self.filesize = _hsize * \
-                                            len(self.info_dict[
-                                                "fragments"])
+                                        self.filesize = _hsize * len(self.info_dict["fragments"])
                                     async with self.vid_dl.alock:
                                         self.vid_dl.info_dl[
                                             "filesize"] += self.filesize
@@ -1263,14 +1260,8 @@ class AsyncHLSDownloader:
                                 if self.info_frag[q - 1]["downloaded"]:
 
                                     if filename_exists:
-                                        _size = self.info_frag[q - 1][
-                                            "size"] = (await os.stat(
-                                                filename)).st_size
-                                        if _hsize and (
-                                            _hsize - 100
-                                            <= _size
-                                            <= _hsize + 100
-                                        ) or not _hsize:
+                                        _size = self.info_frag[q - 1]["size"] = (await os.stat(filename)).st_size
+                                        if _hsize and (_hsize - 100 <= _size <= _hsize + 100) or not _hsize:
 
                                             logger.debug(f'{_premsg}:DL-hsize[{_hsize}] size [{_size}]')
                                             break
