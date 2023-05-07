@@ -180,8 +180,7 @@ class MySyncAsyncEvent:
         if cause is None:
             cause = "noinfo"
         self._cause = cause
-        if not self._flag:
-            self._flag = True
+        self._flag = True
 
     def is_set(self) -> Union[str, bool]:
         """Return True if and only if the internal flag is true."""
@@ -1357,7 +1356,8 @@ if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
 
     from yt_dlp.extractor.commonwebdriver import (
-        CONFIG_EXTRACTORS,
+        load_config_extractors,
+        getter_basic_config_extr,
         SeleniumInfoExtractor,
         StatusStop,
         dec_on_exception,
@@ -1401,7 +1401,8 @@ if yt_dlp:
     assert prepend_extension
     assert get_domain
     assert NakedSwordBaseIE
-    assert CONFIG_EXTRACTORS
+    assert load_config_extractors
+    assert getter_basic_config_extr
     assert SeleniumInfoExtractor
     assert StatusStop
     assert dec_on_exception

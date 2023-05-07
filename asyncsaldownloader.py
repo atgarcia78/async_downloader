@@ -2,10 +2,13 @@ import logging
 import asyncio
 import subprocess
 import re
+import contextlib
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import unquote
-
+from typing import cast
+from threading import Lock
 from pathlib import Path
+from datetime import timedelta
 
 from yt_dlp.utils import (
     shell_quote,
@@ -15,11 +18,20 @@ from yt_dlp.utils import (
 
 from utils import (
     naturalsize,
+    ProgressTimer,
     ProxyYTDL,
+    SmoothETA,
+    SpeedometerMA,
     get_format_id,
     try_get,
-    CONFIG_EXTRACTORS,
-    limiter_non
+    load_config_extractors,
+    getter_basic_config_extr,
+    limiter_non,
+    get_host,
+    async_lock,
+    async_waitfortasks,
+    MySyncAsyncEvent,
+    CONF_INTERVAL_GUI
 )
 
 logger = logging.getLogger("async_SALDL_DL")
@@ -47,7 +59,7 @@ class AsyncSALDLError(Exception):
 
 class AsyncSALDownloader():
 
-    _CONFIG = CONFIG_EXTRACTORS.copy()
+    _CONFIG = load_config_extractors()
     progress_pattern = re.compile(
                 r'Size complete:\s+(?P<download_str>[^\s]+)\s+/\s+([^\s]+)\s*\((?P<progress_str>[^\)]+)\).*' +
                 r'Rate:\s+([^\s]+)\s*\:\s*(?P<speed_str>[^\s]+)\s*Remaining:\s+([^\s]+)\s*\:\s*(?P<eta_str>[^\s]+)\s*Duration')
@@ -55,7 +67,7 @@ class AsyncSALDownloader():
     def __init__(self, video_dict, vid_dl):
 
         try:
-
+            self.background_tasks = set()
             self.info_dict = video_dict.copy()
             self.vid_dl = vid_dl
             self.ytdl = self.vid_dl.info_dl['ytdl']
@@ -67,7 +79,6 @@ class AsyncSALDownloader():
                 self.download_path,
                 f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
 
-            self.filesize = self.info_dict.get('filesize') or self._get_filesize()
             self.down_size = 0
             self.downsize_ant = 0
             self.dl_cont = [{'download_str': '--', 'speed_str': '--', 'eta_str': '--', 'progress_str': '--'}]
@@ -78,15 +89,9 @@ class AsyncSALDownloader():
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix='ex_saldl')
 
             def getter(x):
-                if not x:
-                    value, key_text = ('', '')
-                else:
-                    value, key_text = try_get(
-                        [(v, sk) for k, v in self._CONFIG.items()
-                            for sk in k if sk == x], lambda y: y[0]
-                    ) or ('', '')
+                value, key_text = getter_basic_config_extr(x, AsyncSALDownloader._CONFIG) or (None, None)
 
-                if value:
+                if value and key_text:
                     limit = value['ratelimit'].ratelimit(key_text, delay=True)
                     maxplits = value['maxsplits']
                 else:
@@ -95,19 +100,39 @@ class AsyncSALDownloader():
 
                 return (limit, maxplits)
 
+            self._host = get_host(unquote(self.info_dict.get('url')))
             self._extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
             self._limit, self._conn = getter(self._extractor)
+            if self._conn < 16:
+
+                with self.ytdl.params.setdefault('lock', Lock()):
+                    self.ytdl.params.setdefault('sem', {})
+                    self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
+            else:
+                self.sem = contextlib.nullcontext()
+
+            self.filesize = self.info_dict.get('filesize') or self._get_filesize()
+
+            self._proc = None
+
+            self.ready_check = MySyncAsyncEvent("readycheck")
 
         except Exception as e:
             logger.exception(repr(e))
             raise
+
+    def add_task(self, coro):
+        _task = asyncio.create_task(coro)
+        self.background_tasks.add(_task)
+        _task.add_done_callback(self.background_tasks.discard)
+        return _task
 
     def _make_cmd(self) -> str:
         cmd = ['saldl', self.info_dict['url'], '--resume', '-o', str(self.filename)]
         if self.info_dict.get('http_headers') is not None:
             for key, val in self.info_dict['http_headers'].items():
                 cmd += ['-H', f'{key}: {val}']
-        cmd += ['-c', str(self._conn), '-i', '0.1']
+        cmd += ['-c', str(self._conn), '-i', '0.05']
         return shell_quote(cmd)
 
     def _get_filesize(self) -> int:
@@ -116,7 +141,9 @@ class AsyncSALDownloader():
             for key, val in self.info_dict['http_headers'].items():
                 cmd += ['-H', f'{key}: {val}']
         cmd += ['--get-info', 'file-size']
-        filesize_str = subprocess.run(cmd, encoding='utf-8', capture_output=True).stdout.strip('\n')
+        with self.sem:
+            with self._limit:
+                filesize_str = subprocess.run(cmd, encoding='utf-8', capture_output=True).stdout.strip('\n')
         logger.debug(f'filesize: {filesize_str}')
         return int(filesize_str)
 
@@ -137,39 +164,118 @@ class AsyncSALDownloader():
     async def event_handle(self) -> dict:
 
         _res = {}
-        if (_event := [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]):
-            _res = {"event": _event[0]}
+        if self.vid_dl.pause_event.is_set():
+            if self._proc and self._proc.returncode is None:
+                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][ev_handle] pause terminate proc {self._proc}")
+                self._proc.terminate()
+                await asyncio.sleep(0)
+            if self._tasks:
+                await asyncio.wait(self._tasks)
+            _res = await async_waitfortasks(
+                events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
+                background_tasks=self.background_tasks)
+            self.vid_dl.pause_event.clear()
+            self.vid_dl.resume_event.clear()
+            if (event := _res.get("event")):
+                if event == 'stop':
+                    self.status = 'stop'
+                    await asyncio.sleep(0)
+                    return {"event": "stop"}
+
+                elif event == 'reset':
+                    self.vid_dl.reset_event.clear()
+                    await self.update_uri()
+                    await asyncio.sleep(0)
+                    return {"event": "reset"}
+
+                else:
+                    if self.status not in ('done', 'error'):
+                        self._proc = await asyncio.create_subprocess_shell(
+                            self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                        # await asyncio.sleep(0)
+                        self._tasks = [self.add_task(self.read_stream()), self.add_task(self._proc.wait())]
+                    return {"event": "resume"}
+            # else:
+            #     _res = await async_waitfortasks(
+            #         events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
+            #         background_tasks=self.background_tasks)
+            # self.vid_dl.pause_event.clear()
+            # self.vid_dl.resume_event.clear()
+            # await asyncio.sleep(0)
+        elif (_event := [
+            _ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event, self.ready_check)
+                if _ev.is_set()]):
+            _res = {"event": _event}
+            if any([_ in _event for _ in ('reset', 'stop')]):
+                if self._proc and self._proc.returncode is None:
+                    logger.info(
+                        f"[{self.info_dict['id']}][{self.info_dict['title']}][ev_handle] {_event} termproc {self._proc}")
+                    self._proc.terminate()
+                    await asyncio.sleep(0)
+                if self._tasks:
+
+                    await asyncio.wait(self._tasks)
+
+                if 'stop' in _event:
+                    self.status = 'stop'
+                    await asyncio.sleep(0)
+                    return {"event": "stop"}
+
+                elif 'reset' in _event:
+                    self.vid_dl.reset_event.clear()
+                    await asyncio.sleep(0)
+                    await self.update_uri()
+                    return {"event": "reset"}
+
+            elif 'readycheck' in _event:
+                await asyncio.sleep(0)
+                if self._tasks:
+                    done, _ = await asyncio.wait(self._tasks)
+                    failed_results = [repr(result.exception()) for result in done if result.exception()]
+                    if failed_results:
+                        # logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][ev_handle] {failed_results}")
+                        self.status = "error"
+                        await asyncio.sleep(0)
+                        return {"error": failed_results}
+                    if self.status == "done":
+                        await asyncio.sleep(0)
+                        return {"done": "done"}
+                    results = [result.result() for result in done]
+                    if results[1] == 1:
+                        if "exists, quiting..." in results[0]:
+                            self.status = "done"
+                            await asyncio.sleep(0)
+                            return {"done": "exists, quiting..."}
+                        else:
+                            self.status = "error"
+                            await asyncio.sleep(0)
+                            return {"error": results[0]}
+
         return _res
 
-    async def read_stream(self, aproc: asyncio.subprocess.Process):
+    async def read_stream(self):
 
         _buffer_prog = ""
         _buffer_stderr = ""
+        self.ready_check.clear()
 
         try:
-            assert aproc.stderr
+            assert self._proc and self._proc.stderr
 
-            if aproc.returncode is not None:
-                if (buffer := await aproc.stderr.read()):
+            if self._proc.returncode is not None:
+                if (buffer := await self._proc.stderr.read()):  # type: ignore
                     _buffer_stderr = buffer.decode('utf-8')
                 return _buffer_stderr
 
-            while aproc.returncode is None:
+            while self._proc.returncode is None:
                 try:
-                    _res = await self.event_handle()
-                    if _res.get("event") in ("stop", "reset"):
-                        logger.info(
-                            f"[{self.info_dict['id']}][{self.info_dict['title']}][read stream] terminate proc {aproc}")
-                        aproc.terminate()
-                        await asyncio.sleep(0)
-                        break
-                    line = await aproc.stderr.readline()
+                    line = await self._proc.stderr.readline()
                 except (asyncio.LimitOverrunError, ValueError):
                     await asyncio.sleep(0)
                     continue
                 if line:
-                    _line = line.decode('utf-8').replace('\n', ' ')
-                    if not re.search(r'^\d+', _line):
+                    _line = re.sub(r'\n', ' ', line.decode())
+                    if not re.match(r'\d+', _line):
                         # logger.info(f"{_line}")
                         _buffer_prog += _line
                         _buffer_stderr += _line
@@ -181,7 +287,13 @@ class AsyncSALDownloader():
                             _status = _prog_info.groupdict()
                             _dl_size = parse_filesize(_status['download_str'])
                             if _dl_size:
-                                _status.update({'download_bytes': _dl_size})
+                                _speed_meter = self.speedometer(_dl_size)
+                                _status.update(
+                                    {'download_bytes': _dl_size, 'speed_meter': _speed_meter})
+                                if _speed_meter and self.filesize:
+                                    _est_time = (self.filesize - _dl_size) / _speed_meter
+                                    _est_time_smooth = self.smooth_eta(_est_time)
+                                    _status.update({'eta_smooth': _est_time_smooth})
                                 self.down_size = _dl_size
                                 self.vid_dl.info_dl['down_size'] += (self.down_size - self.downsize_ant)
                                 self.downsize_ant = _dl_size
@@ -191,40 +303,17 @@ class AsyncSALDownloader():
                             if _status['progress_str'] == '100.00%':
                                 self.status = "done"
                                 break
+                            # await asyncio.sleep(CONF_INTERVAL_GUI / 2)
+                            # continue
                     await asyncio.sleep(0)
+                else:
+                    break
             return _buffer_stderr
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][read stream] {repr(e)}")
             raise
-
-    async def _async_call_downloader(self):
-
-        try:
-
-            cmd = self._make_cmd()
-            _proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-            await asyncio.sleep(0)
-            _coros = [self.read_stream(_proc), _proc.wait()]
-
-            results = await asyncio.gather(*_coros, return_exceptions=True)
-            failed_results = [repr(result) for result in results if isinstance(result, Exception)]
-
-            if failed_results:
-                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][async call dl] {failed_results}")
-                self.status = "error"
-                return
-
-            if results[1] == 1:
-                logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][async call dl] error proc: {results[0]}")
-                if "exists, quiting..." in results[0]:
-                    self.status = "done"
-                    return
-                else:
-                    self.status = "error"
-                    return
-
-        except Exception as e:
-            logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][read stream] {repr(e)}")
+        finally:
+            self.ready_check.set()
 
     async def fetch_async(self):
 
@@ -232,21 +321,32 @@ class AsyncSALDownloader():
 
         try:
             while True:
-                task_dl = asyncio.create_task(self._async_call_downloader())
-
-                done, _ = await asyncio.wait([task_dl])
-                if self.vid_dl.stop_event.is_set():
-                    self.status = "stop"
-                    return
-                elif self.vid_dl.reset_event.is_set():
-                    self.vid_dl.reset_event.clear()
-                    await self.update_uri()
-                    continue
-                elif self.status == "done":
-                    logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}]: DL completed")
-                    return
-                elif self.status == "error":
-                    return
+                self.speedometer = SpeedometerMA(
+                        initial_bytes=self.down_size)
+                self.progress_timer = ProgressTimer()
+                self.smooth_eta = SmoothETA()
+                async with async_lock(self.sem):
+                    async with self._limit:
+                        self._proc = await asyncio.create_subprocess_shell(
+                            self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                        # await asyncio.sleep(0)
+                        self._tasks = [self.add_task(self.read_stream()), self.add_task(self._proc.wait())]
+                        while True:
+                            _res = await self.event_handle()
+                            if (event := _res.get("event")):
+                                if event == 'stop':
+                                    return
+                                elif event == 'reset':
+                                    break
+                            if (done := (_res.get('done') or ("ok" if self.status == "done" else None))):
+                                logger.debug(
+                                    f"[{self.info_dict['id']}][{self.info_dict['title']}][fetch_async] DL completed {done}")
+                                return
+                            if (error := (_res.get('error') or ("error" if self.status == "error" else None))):
+                                logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][fetch_async] {error}")
+                                return
+                            await asyncio.sleep(CONF_INTERVAL_GUI / 2)
+                        await asyncio.sleep(0)
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] error {repr(e)}")
             self.status = "error"
@@ -267,13 +367,44 @@ class AsyncSALDownloader():
                     f'{naturalsize(self.down_size, format_=".2f")} ' +\
                     f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
             elif self.status == "downloading":
-                if (_speed := self.dl_cont[-1].get('speed_str')) and _speed != '--':
-                    _speed_bytes = parse_filesize(_speed)
-                    _speed_str = f"{naturalsize(_speed_bytes)}ps"
+                if not any(
+                    [
+                        self.vid_dl.reset_event.is_set(),
+                        self.vid_dl.stop_event.is_set(),
+                        self.vid_dl.pause_event.is_set(),
+                    ]
+                ) and self.dl_cont:
+                    # if (_speed := self.dl_cont[-1].get('speed_str')) and _speed != '--':
+                    #     _speed_bytes = parse_filesize(_speed)
+                    #     _speed_str = f"{naturalsize(_speed_bytes)}ps"
+                    _temp = self.dl_cont[-1].copy()
+                    if (_speed_meter := _temp.get('speed_meter')) and _speed_meter != '--':
+                        _speed_str = f"{naturalsize(_speed_meter)}ps"
+                    else:
+                        _speed_str = '--'
+                    if ((_eta_smooth := cast(float, _temp.get('eta_smooth'))) and _eta_smooth < 3600):
+
+                        _eta_smooth_str = ":".join(
+                            [_item.split(".")[0]
+                                for _item in
+                                f"{timedelta(seconds=_eta_smooth)}".split(
+                                    ":"
+                                )[1:]]
+                        )
+                    else:
+                        _eta_smooth_str = "--"
+                    msg = f"[SAL]: DL[{_speed_str:>10}] PR[{_temp.get('progress_str') or '--':>7}]"
+                    msg += f" ETA[{_eta_smooth_str:>6}]\n"
                 else:
-                    _speed_str = '--'
-                msg = f"[SAL]: DL[{_speed_str:>10}] PR[{self.dl_cont[-1].get('progress_str') or '--':>7}]"
-                msg += f" ETA[{self.dl_cont[-1].get('eta_str') or '--':>6}]\n"
+                    _substr = 'UNKNOWN'
+                    if self.vid_dl.pause_event.is_set():
+                        _substr = 'PAUSED'
+                    elif self.vid_dl.reset_event.is_set():
+                        _substr = 'RESET'
+                    elif self.vid_dl.stop_event.is_set():
+                        _substr = 'STOPPED'
+
+                    msg = f"[SAL]: {_substr} DL PR[{self.dl_cont[-1].get('progress_str', '--') if self.dl_cont else '--':>7}]\n"
 
         except Exception as e:
             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][print hookup] error {repr(e)}")

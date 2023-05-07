@@ -20,12 +20,12 @@ from utils import (
     int_or_none,
     naturalsize,
     none_to_zero,
-    try_get,
     traverse_obj,
     async_lock,
     limiter_non,
     dec_retry_error,
-    CONFIG_EXTRACTORS,
+    load_config_extractors,
+    getter_basic_config_extr,
     CONF_INTERVAL_GUI,
     get_domain,
     smuggle_url,
@@ -70,7 +70,7 @@ class AsyncHTTPDownloader:
     _MIN_SIZE = 10485760  # 10MB
     _CHUNK_SIZE = 102400  # 100KB
     _MAX_RETRIES = 10
-    _CONFIG = CONFIG_EXTRACTORS.copy()
+    _CONFIG = load_config_extractors()
 
     def __init__(self, video_dict, vid_dl):
 
@@ -166,12 +166,8 @@ class AsyncHTTPDownloader:
                         limiter_non.ratelimit("transp", delay=True),
                         self.n_parts
                     )
-                value, key_text = try_get(
-                    [(v, sk)
-                     for k, v in self._CONFIG.items()
-                     for sk in k if sk == x],
-                    lambda y: y[0]) or ("", "")
-                if value:
+                value, key_text = getter_basic_config_extr(x, AsyncHTTPDownloader._CONFIG) or (None, None)
+                if value and key_text:
                     self.special_extr = True
                     return (
                         value["ratelimit"].ratelimit(key_text, delay=True),

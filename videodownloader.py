@@ -302,8 +302,7 @@ class VideoDownloader:
                 self.reset_event.set(cause)
                 await asyncio.sleep(0)
                 for dl in self.info_dl['downloaders']:
-                    if 'hls' in str(type(dl)).lower() and hasattr(dl, 'tasks')\
-                            and dl.tasks:
+                    if 'asynchls' in str(type(dl)).lower() and getattr(dl, 'tasks', None):
                         _tasks = [
                             _task for _task in dl.tasks
                             if not _task.done() and not _task.cancelled()

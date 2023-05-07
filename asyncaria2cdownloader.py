@@ -28,7 +28,8 @@ from utils import (
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO,
-    CONFIG_EXTRACTORS,
+    load_config_extractors,
+    getter_basic_config_extr,
     ProgressTimer,
     ProxyYTDL,
     async_lock,
@@ -70,7 +71,7 @@ kill_item = object()
 
 class AsyncARIA2CDownloader:
 
-    _CONFIG = CONFIG_EXTRACTORS.copy()
+    _CONFIG = load_config_extractors()
     _CLASSALOCK = asyncio.Lock()
     _LOCK = Lock()
     _INIT = False
@@ -128,15 +129,8 @@ class AsyncARIA2CDownloader:
     def prep_init(self):
 
         def getter(x):
-            if not x:
-                value, key_text = ('', '')
-            else:
-                value, key_text = try_get(
-                    [(v, sk) for k, v in self._CONFIG.items()
-                        for sk in k if sk == x], lambda y: y[0]
-                ) or ('', '')
-
-            if value:
+            value, key_text = getter_basic_config_extr(x, AsyncARIA2CDownloader._CONFIG) or (None, None)
+            if value and key_text:
                 self.special_extr = True
                 limit = value['ratelimit'].ratelimit(key_text, delay=True)
                 maxplits = value['maxsplits']
@@ -794,6 +788,7 @@ class AsyncARIA2CDownloader:
                         logger.error(f'{self.premsg}[fetch_async] {_msg} error: {_msg_error}')
                         self.status = 'error'
                         self.error_message = _msg_error
+                        return
 
                     finally:
                         if all([

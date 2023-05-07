@@ -27,7 +27,8 @@ from utils import (
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
-    CONFIG_EXTRACTORS,
+    load_config_extractors,
+    getter_basic_config_extr,
     FrontEndGUI,
     ProgressTimer,
     ProxyYTDL,
@@ -119,7 +120,7 @@ class AsyncHLSDownloader:
     _MAX_RETRIES = 5
     _MAX_RESETS = 10
     _MIN_TIME_RESETS = 15
-    _CONFIG = CONFIG_EXTRACTORS.copy()
+    _CONFIG = load_config_extractors()
     _CLASSLOCK = threading.Lock()
     _OK_403 = MySyncAsyncEvent("ok_403")
     _CLEAN = MySyncAsyncEvent("clean")
@@ -266,12 +267,9 @@ class AsyncHLSDownloader:
             except Exception as e:
                 logger.exception(f'{self.premsg}: {str(e)}')
 
-            value, key_text = try_get(
-                    [(v, sk) for k, v in self._CONFIG.items()
-                        for sk in k if sk == x], lambda y: y[0]
-                ) or ('', '')
+            value, key_text = getter_basic_config_extr(x, AsyncHLSDownloader._CONFIG) or (None, None)
 
-            if value:
+            if value and key_text:
                 self.special_extr = True
                 if 'nakedsword' in key_text:
                     key_text = 'nakedsword'
