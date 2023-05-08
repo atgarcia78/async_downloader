@@ -176,7 +176,7 @@ class AsyncARIA2CDownloader:
                     for key, value in self.headers.items()]),
             'dir': str(self.download_path),
             'out': self.filename.name,
-            # 'uri-selector': 'inorder',
+            'uri-selector': 'inorder',
             'min-split-size': CONF_ARIA2C_MIN_SIZE_SPLIT,
         }
 
@@ -199,8 +199,8 @@ class AsyncARIA2CDownloader:
                 values = [value]
             else:
                 values = value
-            for value in values:
-                rc = self.opts.set(key, value)
+            for el in values:
+                rc = self.opts.set(key, el)
                 if not rc:
                     logger.warning(f'{self.premsg} couldnt set [{key}] to [{value}]')
 
@@ -659,6 +659,7 @@ class AsyncARIA2CDownloader:
 
         try:
             assert self.dl_cont
+            # self.dl_cont = await self.init()
             while self.dl_cont.status in ['active', 'paused', 'waiting']:
 
                 if (event := traverse_obj(await self.event_handle(), 'event')):
