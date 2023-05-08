@@ -316,6 +316,8 @@ class VideoDownloader:
             else:
                 self.reset_event.set(cause)
 
+            await asyncio.sleep(0)
+
             return _wait_tasks
 
     async def reset_plns(self, cause: Union[str, None] = "403", plns=None):
@@ -407,7 +409,10 @@ class VideoDownloader:
                     f"stop - {cause}")
 
                 self.stop_event.set()
+                await asyncio.sleep(0)
 
+            if cause == "exit" and self.reset_event.is_set():
+                self.reset_event.clear()
                 await asyncio.sleep(0)
 
         except Exception as e:
@@ -422,7 +427,7 @@ class VideoDownloader:
             await asyncio.sleep(0)
 
     async def resume(self):
-        if self.info_dl['status'] == "downloading":
+        if self.info_dl['status'] == "downloading" and self.pause_event.is_set():
             self.pause_event.clear()
             self.resume_event.set()
             await asyncio.sleep(0)

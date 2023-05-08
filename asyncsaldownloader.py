@@ -195,13 +195,7 @@ class AsyncSALDownloader():
                         # await asyncio.sleep(0)
                         self._tasks = [self.add_task(self.read_stream()), self.add_task(self._proc.wait())]
                     return {"event": "resume"}
-            # else:
-            #     _res = await async_waitfortasks(
-            #         events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
-            #         background_tasks=self.background_tasks)
-            # self.vid_dl.pause_event.clear()
-            # self.vid_dl.resume_event.clear()
-            # await asyncio.sleep(0)
+
         elif (_event := [
             _ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event, self.ready_check)
                 if _ev.is_set()]):

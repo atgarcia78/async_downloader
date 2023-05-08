@@ -413,6 +413,28 @@ def add_task(coro, bktasks, name=None):
     return _task
 
 
+async def async_wait_for_any(events, timeout=None):
+    if not isinstance(events, Iterable):
+        events = [events]
+
+    if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
+        return {"event": _res}
+    else:
+        def check_timeout(_st, _n):
+            if _n is None:
+                return False
+            else:
+                return (time.monotonic() - _st >= _n)
+
+        start = time.monotonic()
+        while True:
+            if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
+                return {"event": _res}
+            elif check_timeout(start, timeout):
+                return {"timeout": timeout}
+            await asyncio.sleep(CONF_INTERVAL_GUI)
+
+
 async def async_waitfortasks(
         fs: Union[Iterable, Coroutine, asyncio.Task, None] = None,
         timeout: Union[float, None] = None,
