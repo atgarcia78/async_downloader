@@ -131,10 +131,13 @@ class WorkersRun:
             if WorkersRun._max > 0:
                 WorkersRun._max -= 1
 
-    async def check_to_stop(self):
+    async def check_to_stop(self, force=False):
+        self.logger.info(f'[check_to_stop] force[{force}] running[{self.running_count}] waiting[{self.waiting_count}]')
         async with WorkersRun._alock:
-            if not WorkersRun._waiting and not WorkersRun._running and not WorkersRun._tasks:
-                self.logger.debug('set exit')
+            if (not force and not WorkersRun._waiting and not WorkersRun._running) or force:
+                if force:
+                    WorkersRun._waiting.clear()
+                self.logger.info('[check_to_stop] set exit')
                 WorkersRun._exit.set()
                 self.asyncdl.end_dl.set()
                 self.logger.debug("end_dl set")
@@ -358,6 +361,8 @@ class AsyncDL:
         self.localstorage = LocalVideos(self)
 
     async def cancel_all_dl(self):
+        self.WorkersRun.max = 0
+        self.WorkersRun.waiting.clear()
         self.STOP.set()
         await asyncio.sleep(0)
         await self.ytdl.stop()
@@ -365,6 +370,7 @@ class AsyncDL:
             for _, dl in self.list_dl.items():
                 await dl.stop("exit")
                 await asyncio.sleep(0)
+        await self.WorkersRun.check_to_stop()
 
     def print_pending_tasks(self):
         try:
@@ -913,16 +919,15 @@ class AsyncDL:
 
                     logger.warning(
                         f"[prepare_entry_pl_for_dl] {_url}: has not been added" +
-                        f"to video list because it gets same video than {_same_video_url}")
+                        f" to video list because it gets same video than {_same_video_url}")
 
                     await self._prepare_for_dl(_url)
                 else:
                     await self._prepare_for_dl(_url)
                     self.list_videos.append(self.info_videos[_url]["video_info"])
             else:
-                logger.warning(
-                    f"{_pre} {_url}: has not been added to" +
-                    "info_videos because it is already")
+                logger.debug(
+                    f"{_pre} {_url}: has not been added to info_videos because it is already")
 
         except Exception as e:
             logger.exception(f'{_pre} error {repr(e)} with entry\n{entry}')

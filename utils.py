@@ -3016,7 +3016,7 @@ if PySimpleGUI:
                 else:
                     _status = status
 
-            _copy_list_dl = self.asyncdl.list_dl.keys()
+            _copy_list_dl = self.asyncdl.list_dl.copy()
             _waiting = list(self.asyncdl.WorkersRun.waiting)
 
             for st in _status:

@@ -402,14 +402,12 @@ class VideoDownloader:
                 for dl in self.info_dl['downloaders']:
                     dl.status = "stop"
 
-            if not self.stop_event.is_set():
+            logger.info(
+                f"[{self.info_dict['id']}][{self.info_dict['title']}]: " +
+                f"stop - {cause}")
 
-                logger.info(
-                    f"[{self.info_dict['id']}][{self.info_dict['title']}]: " +
-                    f"stop - {cause}")
-
-                self.stop_event.set()
-                await asyncio.sleep(0)
+            self.stop_event.set(cause)
+            await asyncio.sleep(0)
 
             if cause == "exit" and self.reset_event.is_set():
                 self.reset_event.clear()

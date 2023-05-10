@@ -122,8 +122,6 @@ class AsyncHLSDownloader:
     _MIN_TIME_RESETS = 15
     _CONFIG = load_config_extractors()
     _CLASSLOCK = threading.Lock()
-    _OK_403 = MySyncAsyncEvent("ok_403")
-    _CLEAN = MySyncAsyncEvent("clean")
     _COUNTDOWNS = None
     _QUEUE = {}
     _INPUT = Queue()
@@ -740,7 +738,7 @@ class AsyncHLSDownloader:
                     _pasres_cont = FrontEndGUI.pasres_break()
                     if not AsyncHLSDownloader._COUNTDOWNS:
                         AsyncHLSDownloader._COUNTDOWNS = CountDowns(
-                            AsyncHLSDownloader, events=AsyncHLSDownloader._OK_403, logger=logger)
+                            AsyncHLSDownloader, logger=logger)
                         logger.debug(f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
 
                 AsyncHLSDownloader._COUNTDOWNS.add(
