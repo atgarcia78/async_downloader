@@ -74,18 +74,18 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
                 return request
         except ValueError:
             pass
-
-        # logger.info(f"host is {str(request.host)}")
-        key = re.findall(r'__routing=([^_]+)__', str(request.host))
+            
+        logger.info(f"host is {str(request.host)}")
+        key = re.findall(r'__routing__([^\.]+)\.', str(request.host))
 
         if key:
-            # logger.info(f"Key is {key[0]}")
+            logger.info(f"Key is {key[0]}")
             _proxy = f'http://127.0.0.1:{key[0]}'
             self._endpoint = Url.from_bytes(bytes_(_proxy))
 
-            _host = bytes_(re.sub(r'(__routing=([^_]+)__.)', '', text_(request.host)))
+            _host = bytes_(re.sub(r'(__routing__([^\.]+)\.)', '', text_(request.host)))
             request.host = _host
-            # logger.info(f"request.host {request.host}")
+            logger.info(f"request.host {request.host}")
             if request.has_header(b'host'):
                 request.del_header(b'host')
                 request.add_header(b'host', _host)
@@ -145,8 +145,8 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         assert url.hostname
         host, port = url.hostname.decode('utf-8'), url.port
         # logger.info(f"{host}:{port}")
-        if '__routing=' in host:
-            host = re.sub(r'(__routing=([^_]+)__.)', '', host)
+        if '__routing__' in host:
+            host = re.sub(r'(__routing__([^\.]+)\.)', '', host)
             _host = bytes_(f'{host}:{port}') if port else bytes_(f'{host}')
             request.host = _host
             if request.has_header(b'host'):

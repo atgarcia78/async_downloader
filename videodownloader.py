@@ -243,6 +243,8 @@ class VideoDownloader:
                         logger.debug(
                             f"[{info['id']}][{info['title']}]" +
                             f"[{info['format_id']}][get_dl] DL type SAL")
+                        if dl.auto_pasres:
+                            self.info_dl.update({'auto_pasres': True})
 
                 elif protocol in ('m3u8', 'm3u8_native'):
                     dl = AsyncHLSDownloader(self.args.enproxy, info, self)
@@ -389,6 +391,9 @@ class VideoDownloader:
 
     async def stop(self, cause=None):
 
+        if self.info_dl['status'] in ("done", "error"):
+            return
+
         try:
             if not cause:
                 if 'aria2' not in str(
@@ -420,15 +425,23 @@ class VideoDownloader:
 
     async def pause(self):
         if self.info_dl['status'] == "downloading":
-            self.resume_event.clear()
-            self.pause_event.set()
-            await asyncio.sleep(0)
+            if self.pause_event.is_set():
+                self.pause_event.clear()
+                await asyncio.sleep(0)
+            else:
+                self.resume_event.clear()
+                self.pause_event.set()
+                await asyncio.sleep(0)
 
     async def resume(self):
-        if self.info_dl['status'] == "downloading" and self.pause_event.is_set():
-            self.pause_event.clear()
-            self.resume_event.set()
-            await asyncio.sleep(0)
+        if self.info_dl['status'] == "downloading":
+            if self.pause_event.is_set():
+                self.resume_event.set()
+                #  self.pause_event.clear()
+                await asyncio.sleep(0)
+            else:
+                self.resume_event.clear()
+                await asyncio.sleep(0)
 
     async def run_dl(self):
 

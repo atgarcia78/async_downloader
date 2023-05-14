@@ -7,7 +7,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from itertools import zip_longest
+from collections import deque, defaultdict
 import signal
+
 
 from pathlib import Path
 
@@ -45,34 +47,78 @@ from utils import (
 )
 
 from videodownloader import VideoDownloader
-from collections import deque
 
 logger = logging.getLogger('asyncDL')
 
 
-def get_list_interl(res, _pre):
+def get_dif(_dict, _interl, workers):
+    dif = defaultdict(lambda: [])
+    for host, group in _dict.items():
+        index_old = None
+        # el_old = None
+        _group = sorted(group, key=lambda x: _interl.index(x))
+        # print('\n', group, _group)
+        for el in _group:
+            index = _interl.index(el)
+            # print(
+            #    f'\tel={el}, index={index}, el_ant={el_old if el_old else "NA"}, ')
+            # print(
+            #    f'\tindex_ant={index_old if index_old else "NA"}, dif={str(index - index_old) if index_old else "NA"}')
+            if index_old:
+                if index - index_old < workers:
+                    # print('\t\tcheck')
+                    dif[host].append(el)
+            index_old = index
+            # el_old = el
+    return dif
+
+
+def get_list_interl(res, asyncdl, _pre):
+
     if not res:
         return []
     if len(res) < 3:
         return res
-    _dict = {}
+    _dict = defaultdict(lambda: [])
     for ent in res:
-        _key = get_domain(ent["url"])
-        if not _dict.get(_key):
-            _dict[_key] = [ent]
-        else:
-            _dict[_key].append(ent)
+        _dict[get_domain(ent["url"])].append(ent['id'])
+
+    # print(list(_dict.values()))
+
     logger.info(
-        f"{_pre}  entries" +
+        f"{_pre}[get_list_interl]  entries" +
         f"interleave: {len(list(_dict.keys()))} different hosts" +
-        f"longst with {len(max(list(_dict.values()), key=len))} entries")
+        f"longest with {len(max(list(_dict.values()), key=len))} entries")
 
-    _interl = []
-    for el in list(zip_longest(*list(_dict.values()))):
-        _interl.extend([_el for _el in el if _el])
+    _workers = asyncdl.workers
+    while _workers > asyncdl.workers // 2:
+        _interl = []
+        for el in list(zip_longest(*list(_dict.values()))):
+            _interl.extend([_el for _el in el if _el])
+        for tunein in range(3):
 
-    # logger.info('\n'.join([f"{ent['title']}:{get_domain(ent['url'])}:{ent['url']}" for ent in _interl]))
-    return _interl
+            dif = get_dif(_dict, _interl, _workers)
+
+            if dif:
+                if tunein < 2:
+                    for i, host in enumerate(list(dif.keys())):
+                        group = [el for el in _dict[host]]
+
+                        for j, el in enumerate(group):
+                            _interl.pop(_interl.index(el))
+                            _interl.insert(_workers*(j+1) + i, el)
+                    continue
+                else:
+                    logger.info(f"{_pre}[get_list_interl] tune in NOK, try with less num of workers")
+                    _workers -= 1
+                    break
+
+            else:
+                logger.info(f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
+                asyncdl.workers = _workers
+                return sorted(res, key=lambda x: _interl.index(x['id']))
+
+    return sorted(res, key=lambda x: _interl.index(x['id']))
 
 
 class WorkersRun:
@@ -679,7 +725,7 @@ class AsyncDL:
                                 else:
                                     _temp_aldl.append(_ent)
 
-                            _info["entries"] = get_list_interl(_temp_nodl, _pre) + _temp_aldl
+                            _info["entries"] = get_list_interl(_temp_nodl, self, _pre) + _temp_aldl
 
                     for _ent in _info["entries"]:
 

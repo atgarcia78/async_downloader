@@ -158,7 +158,7 @@ class MySyncAsyncEvent:
     def __init__(self, name: Union[str, None] = None, initset: bool = False):
         if name:
             self.name = name
-        self._cause = "noinfo"
+        self._cause = None
         self.event = threading.Event()
         self.aevent = asyncio.Event()
         self._flag = False
@@ -167,26 +167,27 @@ class MySyncAsyncEvent:
 
     def __repr__(self):
         cls = self.__class__
-        status = 'set' if self._flag else 'unset'
+        status = f'set, cause: {self._cause}' if self._flag else 'unset'
         _res = f"<{cls.__module__}.{cls.__qualname__} at {id(self):#x}: {status}"
         _res += f"\n\tname: {self.name if hasattr(self, 'name') else 'noname'}"
         _res += f"\n\tsync event: {repr(self.event)}\n\tasync event: {repr(self.aevent)}\n>"
         return _res
 
-    def set(self, cause: Union[str, None] = "noinfo"):
+    def set(self, cause: Union[str, None] = None):
 
         self.aevent.set()
         self.event.set()
-        if cause is None:
-            cause = "noinfo"
-        self._cause = cause
         self._flag = True
+        self._cause = cause
 
     def is_set(self) -> Union[str, bool]:
-        """Return True if and only if the internal flag is true."""
+        """Return cause(true if cause is none) if and only if the internal flag is true."""
 
         if self._flag:
-            return self._cause
+            if self._cause:
+                return self._cause
+            else:
+                return True
         else:
             return False
 
@@ -195,7 +196,7 @@ class MySyncAsyncEvent:
         self.aevent.clear()
         self.event.clear()
         self._flag = False
-        self._cause = "noinfo"
+        self._cause = None
 
     def wait(self, timeout: Union[float, None] = None) -> bool:
         return self.event.wait(timeout=timeout)
@@ -413,11 +414,13 @@ def add_task(coro, bktasks, name=None):
     return _task
 
 
-async def async_wait_for_any(events, timeout=None):
+async def async_wait_for_any(events, timeout=None) -> dict:
     if not isinstance(events, Iterable):
-        events = [events]
+        _events = [events]
+    else:
+        _events = events
 
-    if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
+    if (_res := [getattr(_ev, 'name', 'noname') for _ev in _events if _ev.is_set()]):
         return {"event": _res}
     else:
         def check_timeout(_st, _n):
@@ -428,7 +431,7 @@ async def async_wait_for_any(events, timeout=None):
 
         start = time.monotonic()
         while True:
-            if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
+            if (_res := [getattr(_ev, 'name', 'noname') for _ev in _events if _ev.is_set()]):
                 return {"event": _res}
             elif check_timeout(start, timeout):
                 return {"timeout": timeout}
@@ -1521,14 +1524,12 @@ if yt_dlp:
             ies_close(self._ies_instances)
 
         async def stop(self):
-            _stop = self.params.get('stop')
-            if _stop:
+            if (_stop := self.params.get('stop')):
                 _stop.set()
                 await asyncio.sleep(0)
-            _stop_dl = self.params.get('stop_dl')
-            if _stop_dl:
-                for _, _stop in _stop_dl.items():
-                    _stop.set()
+            if (_stop_dl := self.params.get('stop_dl')):
+                for _, _ev_stop_dl in _stop_dl.items():
+                    _ev_stop_dl.set()
                     await asyncio.sleep(0)
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
@@ -2561,18 +2562,16 @@ if PySimpleGUI:
                 elif event == 'all':
                     self.window_root['ST'].update(values['all']['nwmon'])
                     if 'init' in values['all']:
-                        list_init = values['all']['init']
-                        if list_init:
+                        if (list_init := values['all']['init']):
                             upt = '\n\n' + ''.join([el[1] for el in sorted(list(list_init.values()), key=lambda x: x[0])])
                         else:
                             upt = ''
                         self.window_root['-ML0-'].update(value=upt)
                     if 'downloading' in values['all']:
-                        list_downloading = values['all']['downloading']
-                        _text = ['\n\n-------DOWNLOADING VIDEO------------\n\n']
-                        if list_downloading:
-                            _text.extend(list(list_downloading.values()))
-                        upt = ''.join(_text)
+                        if (list_downloading := values['all']['downloading']):
+                            upt = '\n\n' + ''.join(list((list_downloading.values())))
+                        else:
+                            upt = ''
                         self.window_root['-ML1-'].update(value=upt)
                         if self.console_dl_status:
                             upt = '\n'.join(list_downloading.values())
@@ -2751,7 +2750,7 @@ if PySimpleGUI:
                             elif event == 'Reset':
                                 await self.asyncdl.list_dl[_index].reset_from_console()
                             elif event == 'Stop':
-                                await self.asyncdl.list_dl[_index].stop()
+                                await self.asyncdl.list_dl[_index].stop("exit")
                             elif event in ['Info', 'ToFile']:
                                 _thr = getattr(self.asyncdl.list_dl[_index].info_dl['downloaders'][0], 'throttle', None)
                                 sg.cprint(f'[{_index}] throttle [{_thr}]')
