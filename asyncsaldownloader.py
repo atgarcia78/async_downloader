@@ -180,11 +180,10 @@ class AsyncSALDownloader():
         async with AsyncSALDownloader._CLASSALOCK:
             async with self._limit:
                 proc = await asyncio.create_subprocess_shell(
-                                self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                    self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                 await asyncio.sleep(0)
                 self._proc[proc.pid] = proc
-                self._tasks[proc.pid] = [
-                    self.add_task(self.read_stream(proc)), self.add_task(proc.wait())]
+                self._tasks[proc.pid] = [self.add_task(self.read_stream(proc)), self.add_task(proc.wait())]
                 return proc.pid
 
     async def event_handle(self, pid) -> dict:
@@ -212,15 +211,6 @@ class AsyncSALDownloader():
                     await self.update_uri()
                     await asyncio.sleep(0)
                     return {"event": ["reset"]}
-
-                # if 'resume' in event:
-                #     if self.status not in ('done', 'error'):
-                #         async with self._limit:
-                #             self._proc = await asyncio.create_subprocess_shell(
-                #                 self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-                #             await asyncio.sleep(0)
-                #         self._tasks = [self.add_task(self.read_stream()), self.add_task(self._proc.wait())]
-                #     return {"event": ["resume"]}
 
         elif (_event := [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event, self.ready_check)
                          if _ev.is_set()]):
@@ -288,10 +278,8 @@ class AsyncSALDownloader():
                 if line:
                     _line = re.sub(r'\n', ' ', line.decode())
                     if not re.match(r'\d+', _line):
-                        # logger.info(f"{_line}")
                         _buffer_prog += _line
                         _buffer_stderr += _line
-                        # logger.info(_buffer_prog)
                         if 'Download Finished' in _buffer_prog:
                             self.status = "done"
                             break
@@ -309,14 +297,11 @@ class AsyncSALDownloader():
                                 self.down_size = _dl_size
                                 self.vid_dl.info_dl['down_size'] += (self.down_size - self.downsize_ant)
                                 self.downsize_ant = _dl_size
-                            # logger.debug(_status)
                             self.dl_cont.append(_status)
                             _buffer_prog = ""
                             if _status['progress_str'] == '100.00%':
                                 self.status = "done"
                                 break
-                            # await asyncio.sleep(CONF_INTERVAL_GUI / 2)
-                            # continue
                     await asyncio.sleep(0)
                 else:
                     break
@@ -363,9 +348,9 @@ class AsyncSALDownloader():
                     except Exception as e:
                         logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] inner error {repr(e)}")
                         self.status = "error"
+                        return
                     finally:
                         await asyncio.wait(self._tasks[pid])
-
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] error {repr(e)}")
             self.status = "error"
@@ -373,9 +358,7 @@ class AsyncSALDownloader():
     def print_hookup(self):
 
         msg = ""
-
         try:
-
             if self.status == "done":
                 msg = f'[SAL][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}] Completed\n'
             elif self.status == "init":
@@ -387,15 +370,9 @@ class AsyncSALDownloader():
                     f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
             elif self.status == "downloading":
                 if not any(
-                    [
-                        self.vid_dl.reset_event.is_set(),
-                        self.vid_dl.stop_event.is_set(),
-                        self.vid_dl.pause_event.is_set(),
-                    ]
+                    [self.vid_dl.reset_event.is_set(), self.vid_dl.stop_event.is_set(), self.vid_dl.pause_event.is_set()]
                 ) and self.dl_cont:
-                    # if (_speed := self.dl_cont[-1].get('speed_str')) and _speed != '--':
-                    #     _speed_bytes = parse_filesize(_speed)
-                    #     _speed_str = f"{naturalsize(_speed_bytes)}ps"
+
                     _temp = self.dl_cont[-1].copy()
                     if (_speed_meter := _temp.get('speed_meter')) and _speed_meter != '--':
                         _speed_str = f"{naturalsize(_speed_meter)}ps"
@@ -404,12 +381,7 @@ class AsyncSALDownloader():
                     if ((_eta_smooth := cast(float, _temp.get('eta_smooth'))) and _eta_smooth < 3600):
 
                         _eta_smooth_str = ":".join(
-                            [_item.split(".")[0]
-                                for _item in
-                                f"{timedelta(seconds=_eta_smooth)}".split(
-                                    ":"
-                                )[1:]]
-                        )
+                            [_item.split(".")[0] for _item in f"{timedelta(seconds=_eta_smooth)}".split(":")[1:]])
                     else:
                         _eta_smooth_str = "--"
                     msg = f"[SAL][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] DL[{_speed_str:>10}] "

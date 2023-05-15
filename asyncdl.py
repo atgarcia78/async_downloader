@@ -10,7 +10,6 @@ from itertools import zip_longest
 from collections import deque, defaultdict
 import signal
 
-
 from pathlib import Path
 
 import os as syncos
@@ -51,30 +50,25 @@ from videodownloader import VideoDownloader
 logger = logging.getLogger('asyncDL')
 
 
-def get_dif(_dict, _interl, workers):
+def get_dif_interl(_dict, _interl, workers):
+    '''
+    get dif in the interl list if distance of elements
+    with same host is less than num runners dl workers of asyncdl
+    '''
     dif = defaultdict(lambda: [])
     for host, group in _dict.items():
         index_old = None
-        # el_old = None
         _group = sorted(group, key=lambda x: _interl.index(x))
-        # print('\n', group, _group)
         for el in _group:
             index = _interl.index(el)
-            # print(
-            #    f'\tel={el}, index={index}, el_ant={el_old if el_old else "NA"}, ')
-            # print(
-            #    f'\tindex_ant={index_old if index_old else "NA"}, dif={str(index - index_old) if index_old else "NA"}')
             if index_old:
                 if index - index_old < workers:
-                    # print('\t\tcheck')
                     dif[host].append(el)
             index_old = index
-            # el_old = el
     return dif
 
 
 def get_list_interl(res, asyncdl, _pre):
-
     if not res:
         return []
     if len(res) < 3:
@@ -83,8 +77,6 @@ def get_list_interl(res, asyncdl, _pre):
     for ent in res:
         _dict[get_domain(ent["url"])].append(ent['id'])
 
-    # print(list(_dict.values()))
-
     logger.info(
         f"{_pre}[get_list_interl]  entries" +
         f"interleave: {len(list(_dict.keys()))} different hosts" +
@@ -92,12 +84,14 @@ def get_list_interl(res, asyncdl, _pre):
 
     _workers = asyncdl.workers
     while _workers > asyncdl.workers // 2:
+
         _interl = []
         for el in list(zip_longest(*list(_dict.values()))):
             _interl.extend([_el for _el in el if _el])
+
         for tunein in range(3):
 
-            dif = get_dif(_dict, _interl, _workers)
+            dif = get_dif_interl(_dict, _interl, _workers)
 
             if dif:
                 if tunein < 2:
@@ -114,7 +108,7 @@ def get_list_interl(res, asyncdl, _pre):
                     break
 
             else:
-                logger.info(f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
+                logger.info(f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
                 asyncdl.workers = _workers
                 return sorted(res, key=lambda x: _interl.index(x['id']))
 
@@ -189,7 +183,6 @@ class WorkersRun:
                 self.logger.debug("end_dl set")
 
     async def move_to_waiting_top(self, dl_index):
-
         async with WorkersRun._alock:
             if dl_index in WorkersRun._waiting:
                 if WorkersRun._waiting.index(dl_index) > 0:
@@ -198,7 +191,6 @@ class WorkersRun:
                     self.logger.debug(f'[move_to_waiting_top] {list(self.waiting)}')
 
     async def add_dl(self, dl, url_key):
-
         _pre = f"[add_dl]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
 
         WorkersRun._info_dl.update({dl.index: {'url': url_key, 'dl': dl}})
@@ -214,14 +206,12 @@ class WorkersRun:
                 self._start_task(dl.index)
 
     def _start_task(self, dl_index):
-
         WorkersRun._running.add(dl_index)
         url_key = WorkersRun._info_dl[dl_index]['url']
         WorkersRun._tasks.update({add_task(self._task(dl_index), self.asyncdl.background_tasks): url_key})
         self.logger.debug(f'[{url_key}] task ok {WorkersRun._tasks}')
 
     async def _task(self, dl_index):
-
         url_key, dl = WorkersRun._info_dl[dl_index]['url'], WorkersRun._info_dl[dl_index]['dl']
         _pre = f"[_task]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
 
@@ -1432,19 +1422,7 @@ class AsyncDL:
             originalurl = traverse_obj(
                 vid, ("video_info", "original_url"))
             playlisturl = traverse_obj(vid, ("video_info", "playlist_url"))
-            # if not webpageurl and not originalurl and not playlisturl:
-            # if not webpageurl and not originalurl:
-            #     return url
-            # nentries = try_get(traverse_obj(
-            #     vid, ("video_info", "n_entries")),
-            #     lambda x: int(x) if x else 0)
-            # if playlisturl and nentries and nentries > 1:
-            #     return (
-            #         f"[{traverse_obj(vid, ('video_info','playlist_index'))}]:" +
-            #         f"{originalurl or webpageurl}:{url}")
-            # else:
-            #       _url = originalurl or webpageurl or ""
-            #       return _url
+
             assert (isinstance(originalurl, (str, type(None))) and isinstance(webpageurl, (str, type(None)))
                     and isinstance(playlisturl, (str, type(None))))
             if webpageurl and any([_ in webpageurl for _ in _DOMAINS_CONF_PRINT]):
