@@ -1,5 +1,4 @@
 import asyncio
-import copy
 import datetime
 import logging
 import random
@@ -8,9 +7,7 @@ import time
 import traceback
 from concurrent.futures import CancelledError, ThreadPoolExecutor
 from pathlib import Path
-from queue import Queue
 from shutil import rmtree
-from statistics import median
 from urllib.parse import urljoin
 
 import aiofiles
@@ -20,9 +17,10 @@ import httpx
 from utils import (CONF_DASH_SPEED_PER_WORKER, _for_print_entry,
                    async_wait_time, int_or_none,
                    naturalsize, print_norm_time, smuggle_url, try_get,
-                   unsmuggle_url, sync_to_async, ProxyYTDL)
+                   sync_to_async, ProxyYTDL)
 
 logger = logging.getLogger("async_DASH_DL")
+
 
 class EMA:
     """
@@ -633,7 +631,7 @@ class AsyncDASHDownloader:
 
                                 try:
 
-                                    await sync_to_async(self.reset, executor=self.ex_dl)()
+                                    await sync_to_async(self.reset, thread_sensitive=False, executor=self.ex_dl)()
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     if ((_t := time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
@@ -668,7 +666,7 @@ class AsyncDASHDownloader:
 
                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [{n_frags_dl} -> {inc_frags_dl}] new cycle with no fatal error")
                                 try:
-                                    await sync_to_async(self.reset, executor=self.ex_dl)()
+                                    await sync_to_async(self.reset, thread_sensitive=False, executor=self.ex_dl)()
                                     self.frags_queue = asyncio.Queue()
                                     for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
                                     for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")

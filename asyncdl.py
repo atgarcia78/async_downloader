@@ -818,7 +818,7 @@ class AsyncDL:
             logger.warning(f'{_pre} error {repr(e)}')
 
     async def async_check_if_aldl(self, info_dict, test=False):
-        return await sync_to_async(self._check_if_aldl, executor=self.ex_winit)(info_dict, test=test)
+        return await sync_to_async(self._check_if_aldl, thread_sensitive=False, executor=self.ex_winit)(info_dict, test=test)
 
     def _check_if_same_video(self, url_to_check: str) -> Union[str, None]:
 
@@ -840,7 +840,7 @@ class AsyncDL:
                     return urlkey
 
     async def async_check_if_same_video(self, url_to_check):
-        return await sync_to_async(self._check_if_same_video, executor=self.ex_winit)(url_to_check)
+        return await sync_to_async(self._check_if_same_video, thread_sensitive=False, executor=self.ex_winit)(url_to_check)
 
     async def _prepare_for_dl(self, url: str, put: bool = True) -> None:
         self.info_videos[url].update({"todl": True})
@@ -1031,7 +1031,8 @@ class AsyncDL:
             async def async_videodl_init(*args, **kwargs) -> VideoDownloader:
                 if not self.is_ready_to_dl.is_set():
                     await self.is_ready_to_dl.async_wait()
-                return await sync_to_async(VideoDownloader, executor=self.ex_winit)(*args, **kwargs)  # type: ignore
+                return await sync_to_async(
+                    VideoDownloader, thread_sensitive=False, executor=self.ex_winit)(*args, **kwargs)  # type: ignore
 
             dl = await async_videodl_init(
                 self.info_videos[url_key]["video_info"],

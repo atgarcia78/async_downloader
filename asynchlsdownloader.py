@@ -1404,7 +1404,7 @@ class AsyncHLSDownloader:
 
         self._LOCK = asyncio.Lock()
         self.frags_queue = asyncio.Queue()
-        self.areset = sync_to_async(self.resetdl, executor=self.ex_dl)
+        self.areset = sync_to_async(self.resetdl, thread_sensitive=False, executor=self.ex_dl)
 
         for frag in self.frags_to_dl:
             self.frags_queue.put_nowait(frag)
@@ -1718,7 +1718,7 @@ class AsyncHLSDownloader:
         finally:
             if await os.path.exists(self.filename):
                 armtree = sync_to_async(
-                    partial(rmtree, ignore_errors=True), executor=self.ex_dl)
+                    partial(rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_dl)
                 await armtree(str(self.download_path))
                 self.status = "done"
                 logger.debug(

@@ -373,7 +373,9 @@ class run_operation_in_executor_from_loop:
             stop_event = MySyncAsyncEvent(name)
             kwargs['stop_event'] = stop_event
             _task = asyncio.create_task(
-                sync_to_async(func, executor=ThreadPoolExecutor(thread_name_prefix=name))(*args, **kwargs), name=name)
+                sync_to_async(
+                    func, thread_sensitive=False, executor=ThreadPoolExecutor(thread_name_prefix=name))(*args, **kwargs),
+                name=name)
             return (stop_event, _task)
         return wrapper
 
@@ -1018,8 +1020,11 @@ class TorGuardProxies:
                 f"ps_print [{len(_line_ps_pr)}]")
 
         for proc in proc_gost:
-            proc.kill()
-            # proc.poll()
+            proc.terminate()
+            proc.wait()
+            proc.stdout.close()
+            proc.stderr.close()
+            proc.stdin.close()
 
         if _res_bad:
             cached_res = cls.CONF_TORPROXIES_NOK
@@ -1174,8 +1179,11 @@ class TorGuardProxies:
                 if proc_gost:
                     for proc in proc_gost:
                         try:
-                            proc.kill()
-                            proc.poll()
+                            proc.terminate()
+                            proc.wait()
+                            proc.stdout.close()
+                            proc.stderr.close()
+                            proc.stdin.close()
                         except Exception:
                             pass
                 return [], {}
@@ -1536,11 +1544,11 @@ if yt_dlp:
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
             return await sync_to_async(
-                self.extract_info, executor=self.executor)(*args, **kwargs)
+                self.extract_info, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
 
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
             return await sync_to_async(
-                self.process_ie_result, executor=self.executor)(*args, **kwargs)
+                self.process_ie_result, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
 
     class ProxyYTDL(YoutubeDL):
 
@@ -1600,11 +1608,11 @@ if yt_dlp:
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
             return await sync_to_async(
-                self.extract_info, executor=self.executor)(*args, **kwargs)
+                self.extract_info, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
 
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
             return await sync_to_async(
-                self.process_ie_result, executor=self.executor)(*args, **kwargs)
+                self.process_ie_result, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
 
     def is_playlist_extractor(url, ytdl):
 
@@ -2164,10 +2172,9 @@ def patch_http_connection_pool(**constructor_kwargs):
     you want to give to the connection pool)
     """
     from urllib3 import connectionpool, poolmanager
-    from urllib3.util.connection import _TYPE_SOCKET_OPTIONS
     import socket
 
-    specificoptions: _TYPE_SOCKET_OPTIONS = [
+    specificoptions = [
         (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
         (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
         (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
@@ -3231,7 +3238,7 @@ try:
             self._tasks_init = {}
             if not self.asyncdl.args.nodl:
                 if self.asyncdl.args.aria2c:
-                    ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+                    ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
                     _task_aria2c = add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)
                     _tasks_init_aria2c = {_task_aria2c: 'aria2'}
                     self._tasks_init.update(_tasks_init_aria2c)
@@ -3239,7 +3246,7 @@ try:
                     self.stop_proxy, self.fut_proxy = self.run_proxy_http()
                     add_task(self.fut_proxy, self.asyncdl.background_tasks)
                     ainit_proxies = sync_to_async(
-                        TorGuardProxies.init_proxies, executor=self.exe)
+                        TorGuardProxies.init_proxies, thread_sensitive=False, executor=self.exe)
                     _task_proxies = add_task(ainit_proxies(event=self.asyncdl.end_dl), self.asyncdl.background_tasks)
                     _task_init_proxies = {_task_proxies: 'proxies'}
                     self._tasks_init.update(_task_init_proxies)
@@ -3302,20 +3309,32 @@ try:
                     self.logger.debug('[close] gost')
                     for proc in self.proc_gost:
                         try:
-                            proc.kill()
+                            proc.terminate()
+                            await sync_to_async(proc.wait, thread_sensitive=False, executor=self.exe)()
+                            proc.stdout.close()
+                            proc.stderr.close()
+                            proc.stdin.close()
+                            await asyncio.sleep(0)
                         except BaseException as e:
                             self.logger.exception(f'[close] {repr(e)}')
 
             if self.proc_aria2c:
                 self.logger.debug('[close] aria2c')
-                self.proc_aria2c.kill()
+                self.proc_aria2c.terminate()
+                await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+                self.proc_aria2c.stdout.close()
+                self.proc_aria2c.stderr.close()
+                self.proc_aria2c.stdin.close()
 
         async def reset_aria2c(self):
             if self.proc_aria2c:
                 self.logger.debug('[close] aria2c')
-                self.proc_aria2c.kill()
-                await asyncio.sleep(5)
-                ainit_aria2c = sync_to_async(init_aria2c, executor=self.exe)
+                self.proc_aria2c.terminate()
+                await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+                self.proc_aria2c.stdout.close()
+                self.proc_aria2c.stderr.close()
+                self.proc_aria2c.stdin.close()
+                ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
                 _task_aria2c = [add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)]
                 done, _ = await asyncio.wait(_task_aria2c)
                 for task in done:

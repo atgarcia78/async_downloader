@@ -645,15 +645,14 @@ class VideoDownloader:
     async def run_manip(self):
 
         aget_subts_files = sync_to_async(
-            self._get_subts_files, executor=self.ex_videodl)
+            self._get_subts_files, thread_sensitive=False, executor=self.ex_videodl)
         apostffmpeg = sync_to_async(
-            self.syncpostffmpeg, executor=self.ex_videodl)
+            self.syncpostffmpeg, thread_sensitive=False, executor=self.ex_videodl)
         initproc = partial(subprocess.CompletedProcess, None, None)
         armtree = sync_to_async(
-            partial(shutil.rmtree, ignore_errors=True),
-            executor=self.ex_videodl)
-        amove = sync_to_async(shutil.move, executor=self.ex_videodl)
-        autime = sync_to_async(os.utime, executor=self.ex_videodl)
+            partial(shutil.rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_videodl)
+        amove = sync_to_async(shutil.move, thread_sensitive=False, executor=self.ex_videodl)
+        autime = sync_to_async(os.utime, thread_sensitive=False, executor=self.ex_videodl)
 
         blocking_tasks = []
 

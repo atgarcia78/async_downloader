@@ -740,7 +740,7 @@ class AsyncHTTPDownloader:
         try:
             self._ALOCK = asyncio.Lock()
             # self.first_data = asyncio.Event()
-            self.areset = sync_to_async(self.resetdl, executor=self.ex_dl)
+            self.areset = sync_to_async(self.resetdl, thread_sensitive=False, executor=self.ex_dl)
 
             while True:
 
@@ -860,7 +860,7 @@ class AsyncHTTPDownloader:
 
         if await os.path.exists(self.filename):
             armtree = sync_to_async(
-                    partial(rmtree, ignore_errors=True), executor=self.ex_dl)
+                    partial(rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_dl)
             await armtree(self.download_path)
             self.status = "done"
             logger.debug(f"{self.premsg}[ensamble_file] file ensambled")
