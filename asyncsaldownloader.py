@@ -18,7 +18,6 @@ from yt_dlp.utils import (
 
 from utils import (
     naturalsize,
-    ProgressTimer,
     ProxyYTDL,
     SmoothETA,
     SpeedometerMA,
@@ -187,7 +186,6 @@ class AsyncSALDownloader():
                 return proc.pid
 
     async def event_handle(self, pid) -> dict:
-
         _res = {}
         if self.vid_dl.pause_event.is_set():
             await self.async_terminate(pid, "pause")
@@ -253,7 +251,6 @@ class AsyncSALDownloader():
                     await self.update_uri()
                     await asyncio.sleep(0)
                     return {"event": ["reset"]}
-
         return _res
 
     async def read_stream(self, proc: asyncio.subprocess.Process):
@@ -317,14 +314,13 @@ class AsyncSALDownloader():
         self.status = "downloading"
         self._proc = {}
         self._tasks = {}
+        self.speedometer = SpeedometerMA(initial_bytes=self.down_size)
+        self.smooth_eta = SmoothETA()
 
         try:
             while True:
                 async with async_lock(self.sem):
-                    self.speedometer = SpeedometerMA(
-                            initial_bytes=self.down_size)
-                    self.progress_timer = ProgressTimer()
-                    self.smooth_eta = SmoothETA()
+
                     self.ready_check.clear()
                     pid = await self.async_start()
                     self.vid_dl.reset_event.clear()

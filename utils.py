@@ -13,8 +13,10 @@ import signal
 import subprocess
 import threading
 import time
+import uvloop
 
 import sys
+import os
 from statistics import median
 from queue import Empty, Queue
 import termios
@@ -2162,9 +2164,10 @@ def patch_http_connection_pool(**constructor_kwargs):
     you want to give to the connection pool)
     """
     from urllib3 import connectionpool, poolmanager
+    from urllib3.util.connection import _TYPE_SOCKET_OPTIONS
     import socket
 
-    specificoptions = [
+    specificoptions: _TYPE_SOCKET_OPTIONS = [
         (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
         (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
         (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
@@ -2176,7 +2179,7 @@ def patch_http_connection_pool(**constructor_kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPConnectionPool, self).__init__(*args, **kwargs)
 
-            self.ConnectionCls.default_socket_options += specificoptions
+            self.ConnectionCls.default_socket_options += specificoptions  # type: ignore
 
     poolmanager.pool_classes_by_scheme[  # type: ignore
         "http"] = MyHTTPConnectionPool
@@ -2206,10 +2209,19 @@ def patch_https_connection_pool(**constructor_kwargs):
             kwargs.update(constructor_kwargs)
             super(MyHTTPSConnectionPool, self).__init__(*args, **kwargs)
 
-            self.ConnectionCls.default_socket_options += specificoptions
+            self.ConnectionCls.default_socket_options += specificoptions  # type: ignore
 
     poolmanager.pool_classes_by_scheme[  # type: ignore
         "https"] = MyHTTPSConnectionPool
+
+
+def init_config():
+    uvloop.install()
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+    patch_http_connection_pool(maxsize=1000)
+    patch_https_connection_pool(maxsize=1000)
+    os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
+    os.environ['MOZ_HEADLESS_HEIGHT'] = '1080'
 
 
 ############################################################

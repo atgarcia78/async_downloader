@@ -161,8 +161,8 @@ class AsyncARIA2CDownloader:
             self.sem = contextlib.nullcontext()
 
         self.n_workers = self._nsplits
-        self.filesize = self.info_dict.get('filesize')
         self.down_size = 0
+        self.filesize = self.info_dict.get('filesize')
         if not self.filesize:
             if _res := self._get_filesize(self.uris):
                 self.filesize, self.down_size = _res[0], _res[1]
@@ -477,6 +477,26 @@ class AsyncARIA2CDownloader:
             logger.exception(f'{self.premsg}[init] {_msg} error: {_msg_error}')
             self.status = "error"
 
+    async def update_uris(self):
+        if self._mode == 'noproxy':
+            _init_url = self.info_dict.get('webpage_url')
+            if self.special_extr:
+                _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
+            _ytdl_opts = self.ytdl.params.copy()
+            async with ProxyYTDL(opts=_ytdl_opts, executor=self.ex_dl) as proxy_ytdl:
+                proxy_info = get_format_id(
+                    proxy_ytdl.sanitize_info(
+                        await proxy_ytdl.async_extract_info(_init_url)),
+                    self.info_dict['format_id'])
+            if (_url := proxy_info.get("url")):
+                video_url = unquote(_url)
+                self.uris = [video_url]
+                if (_host := get_host(video_url)) != self._host:
+                    self._host = _host
+                    if isinstance(self.sem, Lock):
+                        with self.ytdl.params['lock']:
+                            self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
+
     async def check_speed(self):
         def getter(x):
             if x <= 2:
@@ -522,22 +542,14 @@ class AsyncARIA2CDownloader:
                                 perc_below(_speed[-_index:]) >= 50
                             ]):
 
-                        def _print_el(item):
-                            if isinstance(item, str):
-                                return item
-                            else:
-                                return f"['speed': {item[0]}, 'connec': {item[1]}]"
-
-                        def _strdate(item):
+                        def _print_el(item: tuple) -> str:
                             _secs = item[2].second + item[2].microsecond / 1000000
-                            return f'{item[2].strftime("%H:%M:")}{_secs:06.3f}'
+                            return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
 
-                        _str_speed = ', '.join([f'({_strdate(el)}, {_print_el(el)})' for el in _speed[-_index:]])
+                        _str_speed = ', '.join([_print_el(el) for el in _speed[-_index:]])
 
-                        logger.debug(
-                            f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]')
-                        logger.debug(
-                            f'{self.premsg}[check_speed] speed reset\n{_str_speed}')
+                        logger.debug(f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]')
+                        logger.debug(f'{self.premsg}[check_speed] speed reset\n{_str_speed}')
 
                         await self.vid_dl.reset()
 
@@ -694,25 +706,6 @@ class AsyncARIA2CDownloader:
             self.status = 'error'
             self.error_message = _msg_error
 
-    async def update_uris(self):
-        if self._mode == 'noproxy':
-            _init_url = self.info_dict.get('webpage_url')
-            if self.special_extr:
-                _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
-            _ytdl_opts = self.ytdl.params.copy()
-            async with ProxyYTDL(opts=_ytdl_opts, executor=self.ex_dl) as proxy_ytdl:
-
-                proxy_info = get_format_id(
-                    proxy_ytdl.sanitize_info(
-                        await proxy_ytdl.async_extract_info(_init_url)),
-                    self.info_dict['format_id'])
-            if (_url := proxy_info.get("url")):
-                video_url = unquote(_url)
-                self.uris = [video_url]
-                self._host = get_host(video_url)
-                # self.headers = _info.get('http_headers', {})
-                # self.opts.set('header', '\n'.join([f'{key}: {value}' for key, value in self.headers.items()]))
-
     async def fetch_async(self):
 
         self.progress_timer = ProgressTimer()
@@ -767,9 +760,7 @@ class AsyncARIA2CDownloader:
 
                             async with self.vid_dl.master_hosts_alock:
                                 self.vid_dl.hosts_dl[self._host]['count'] -= 1
-                                self.vid_dl.hosts_dl[self._host][
-                                    'queue'].put_nowait(
-                                    self._index_proxy)
+                                self.vid_dl.hosts_dl[self._host]['queue'].put_nowait(self._index_proxy)
                             self._proxy = None
 
         except BaseException as e:

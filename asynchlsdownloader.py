@@ -191,7 +191,7 @@ class AsyncHLSDownloader:
                 timeout=self.timeout,
                 verify=False)
 
-            self.filesize = None
+            self.filesize = self.info_dict.get("filesize") or self.info_dict.get("filesize_approx")
 
             self.premsg = ''.join([
                 f'[{self.info_dict["id"]}]',
@@ -430,8 +430,8 @@ class AsyncHLSDownloader:
 
             self.totalduration = cast(int, self.info_dict.get("duration", self.calculate_duration()))
 
-            self.filesize = cast(int, (self.info_dict.get("filesize") or self.info_dict.get("filesize_approx")
-                                       or self.calculate_filesize()))
+            if not self.filesize:
+                self.filesize = self.calculate_filesize()
 
             self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 120
 
