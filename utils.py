@@ -1615,7 +1615,7 @@ if yt_dlp:
                     return (ie_key, ytdl.get_info_extractor(ie_key))
             except Exception as e:
                 logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
-        return ("Generic", ytdl.get_imnfo_extractgor("Generic"))
+        return ("Generic", ytdl.get_info_extractor("Generic"))
 
     def cli_to_api(*opts):
         default = yt_dlp.parse_options([]).ydl_opts
