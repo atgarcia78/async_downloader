@@ -685,17 +685,23 @@ def init_argparser():
     parser = argparse.ArgumentParser(
         description="Async downloader videos / playlist videos HLS / HTTP"
     )
-    parser.add_argument("-w", help="Number of DL workers",
-                        default="5", type=int)
+    parser.add_argument(
+        "-w",
+        help="Number of DL workers",
+        default="5",
+        type=int
+    )
     parser.add_argument(
         "--winit",
         help="Number of init workers, default is same number for DL workers",
-        default="0",
+        default="10",
         type=int,
     )
     parser.add_argument(
-        "-p", "--parts", help="Number of workers for each DL",
-        default="16", type=int
+        "-p", "--parts",
+        help="Number of workers for each DL",
+        default="16",
+        type=int
     )
     parser.add_argument(
         "--format",
@@ -704,27 +710,56 @@ def init_argparser():
         type=str,
     )
     parser.add_argument(
-        "--sort", help="Formats sort preferred",
-        default="ext:mp4:m4a", type=str
+        "--sort",
+        help="Formats sort preferred",
+        default="ext:mp4:m4a",
+        type=str
     )
     parser.add_argument(
-        "--index", help="index of a video in a playlist",
-        default=None, type=int
+        "--index",
+        help="index of a video in a playlist",
+        default=None,
+        type=int
     )
     parser.add_argument(
-        "--file", help="jsonfiles", action="append",
-        dest="collection_files", default=[]
+        "--file",
+        help="jsonfiles",
+        action="append",
+        dest="collection_files",
+        default=[]
     )
     parser.add_argument(
-        "--checkcert", help="checkcertificate",
-        action="store_true", default=False
+        "--checkcert",
+        help="checkcertificate",
+        action="store_true",
+        default=False
     )
-    parser.add_argument("--ytdlopts", help="init dict de conf", default="",
-                        type=str)
-    parser.add_argument("--proxy", action=ActionNoYes, default=None)
-    parser.add_argument("--useragent", default=CONF_FIREFOX_UA, type=str)
-    parser.add_argument("--first", default=None, type=int)
-    parser.add_argument("--last", default=None, type=int)
+    parser.add_argument(
+        "--ytdlopts",
+        help="init dict de conf",
+        default="",
+        type=str
+    )
+    parser.add_argument(
+        "--proxy",
+        action=ActionNoYes,
+        default=None
+    )
+    parser.add_argument(
+        "--useragent",
+        default=CONF_FIREFOX_UA,
+        type=str
+    )
+    parser.add_argument(
+        "--first",
+        default=None,
+        type=int
+    )
+    parser.add_argument(
+        "--last",
+        default=None,
+        type=int
+    )
     parser.add_argument(
         "--nodl", help="not download", action="store_true", default=False
     )
@@ -1485,16 +1520,15 @@ if yt_dlp:
                     pass
 
     def get_extractor(url, ytdl):
-
         logger = logging.getLogger('asyncdl')
         ies = ytdl._ies
         for ie_key, ie in ies.items():
             try:
                 if ie.suitable(url) and (ie_key != "Generic"):
-                    return (ie_key, ie)
+                    return (ie_key, ytdl.get_info_extractor(ie_key))
             except Exception as e:
                 logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
-        return ("Generic", ies["Generic"])
+        return ("Generic", ytdl.get_imnfo_extractgor("Generic"))
 
     def cli_to_api(*opts):
         default = yt_dlp.parse_options([]).ydl_opts

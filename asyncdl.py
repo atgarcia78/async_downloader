@@ -526,6 +526,7 @@ class AsyncDL:
 
                         if self.STOP.is_set():
                             raise Exception("STOP")
+
                         is_pl, ie_key = self.ytdl.is_playlist(_elurl)
 
                         if not is_pl:
@@ -645,7 +646,8 @@ class AsyncDL:
                 logger.info(f"{_pre}[{self._count_pl}/{len(self.url_pl_list) + len(self.url_pl_list2)}] processing")
 
                 try:
-                    _info = await self.ytdl.async_extract_info(_url, download=False, process=False)
+                    # _info = await self.ytdl.async_extract_info(_url, download=False, process=False)
+                    _info = await self.ytdl.async_extract_info(_url, download=False)
                     if not _info:
                         raise Exception("no info")
                 except Exception as e:
@@ -665,10 +667,10 @@ class AsyncDL:
                     # caso generic que es playlist default,
                     # pero luego puede ser url, url_trans
 
-                    _info = self.ytdl.sanitize_info(
-                        await self.ytdl.async_process_ie_result(_info, download=False))
+                    #  _info = self.ytdl.sanitize_info(
+                    #    await self.ytdl.async_process_ie_result(_info, download=False))
 
-                    assert isinstance(_info, dict)
+                    # assert isinstance(_info, dict)
 
                     if not _info.get("original_url"):
                         _info.update({"original_url": _url})
@@ -700,10 +702,10 @@ class AsyncDL:
                                 _entries_ok.append(_ent)
 
                         _info["entries"] = _entries_ok
-                        _info = self.ytdl.sanitize_info(
-                            await self.ytdl.async_process_ie_result(_info, download=False))
+                        # _info = self.ytdl.sanitize_info(
+                        #     await self.ytdl.async_process_ie_result(_info, download=False))
 
-                        assert _info and isinstance(_info, dict)
+                        # assert _info and isinstance(_info, dict)
 
                         if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_URLS:
                             _temp_aldl = []
@@ -724,10 +726,10 @@ class AsyncDL:
 
                         if _ent.get("_type", "video") == "video" and not _ent.get("error"):
 
-                            _ent = self.ytdl.sanitize_info(
-                                await self.ytdl.async_process_ie_result(_ent, download=False))
+                            # _ent = self.ytdl.sanitize_info(
+                            #     await self.ytdl.async_process_ie_result(_ent, download=False))
 
-                            assert isinstance(_ent, dict)
+                            # assert isinstance(_ent, dict)
 
                             if not _ent.get("original_url"):
                                 _ent.update({"original_url": _url})
