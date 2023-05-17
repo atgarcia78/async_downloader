@@ -418,7 +418,7 @@ class AsyncDL:
 
     async def get_list_videos(self):
 
-        logger.info("[get_list_videos] start")
+        logger.debug("[get_list_videos] start")
 
         try:
 
@@ -1371,7 +1371,7 @@ class AsyncDL:
     async def close(self):
 
         try:
-            logger.info("[close] start to close")
+            logger.debug("[close] start to close")
 
             try:
                 logger.debug("[close] start to close countdowns")
@@ -1428,6 +1428,7 @@ class AsyncDL:
 
             assert (isinstance(originalurl, (str, type(None))) and isinstance(webpageurl, (str, type(None)))
                     and isinstance(playlisturl, (str, type(None))))
+
             if webpageurl and any([_ in webpageurl for _ in _DOMAINS_CONF_PRINT]):
                 return (webpageurl or originalurl or url)
             else:
