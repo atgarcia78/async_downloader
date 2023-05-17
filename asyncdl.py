@@ -795,7 +795,7 @@ class AsyncDL:
                 if test:
                     return True
                 vid_path = Path(vid_path_str)
-                logger.info(f"{_pre} already DL")  #: {vid_path}")
+                logger.debug(f"{_pre} already DL")  #: {vid_path}")
 
                 if not self.args.nosymlinks:
                     if self.args.path:
