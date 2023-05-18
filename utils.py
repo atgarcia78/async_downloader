@@ -94,6 +94,8 @@ def load_module(name, path: str):
 
 assert cast
 
+MAXLEN_TITLE = 150
+
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 CONF_DASH_SPEED_PER_WORKER = 102400
@@ -1683,6 +1685,9 @@ if yt_dlp:
                 for _, _ev_stop_dl in _stop_dl.items():
                     _ev_stop_dl.set()
                     await asyncio.sleep(0)
+
+        def sanitize_info(self, *args, **kwargs) -> dict:
+            return cast(dict, super().sanitize_info(*args, **kwargs))
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
             return await sync_to_async(
