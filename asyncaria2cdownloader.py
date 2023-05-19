@@ -546,10 +546,10 @@ class AsyncARIA2CDownloader:
                             _secs = item[2].second + item[2].microsecond / 1000000
                             return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
 
-                        _str_speed = ', '.join([_print_el(el) for el in _speed[-_index:]])
+                        # _str_speed = ', '.join([_print_el(el) for el in _speed[-_index:]])
 
-                        logger.debug(f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]')
-                        logger.debug(f'{self.premsg}[check_speed] speed reset\n{_str_speed}')
+                        # logger.debug(f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]')
+                        # logger.debug(f'{self.premsg}[check_speed] speed reset\n{_str_speed}')
 
                         await self.vid_dl.reset()
 
@@ -778,9 +778,9 @@ class AsyncARIA2CDownloader:
 
                 return f'({_str0}, {_str1})'
 
-            _str_speed = ', '.join([_print_el(el) for el in self._speed])
+            # _str_speed = ', '.join([_print_el(el) for el in self._speed])
 
-            logger.debug(f'{self.premsg}[fetch_async] exiting [{len(self._speed)}]\n{_str_speed}')
+            # logger.debug(f'{self.premsg}[fetch_async] exiting [{len(self._speed)}]\n{_str_speed}')
 
     def print_hookup(self):
         msg = ''

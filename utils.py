@@ -2081,7 +2081,7 @@ if yt_dlp:
 
 def _for_print_entry(entry):
     if not entry:
-        return
+        return ""
     _entry = copy.deepcopy(entry)
 
     if _formats := _entry.get("formats"):
@@ -2113,12 +2113,12 @@ def _for_print_entry(entry):
 
         _entry["fragments"] = [_frag[0], ..., _frag[-1]]
 
-    return _entry
+    return str(_entry)
 
 
 def _for_print(info):
     if not info:
-        return
+        return ""
     _info = copy.deepcopy(info)
     if _entries := _info.get("entries"):
         _info["entries"] = [_for_print_entry(_el) for _el in _entries]
@@ -2129,7 +2129,7 @@ def _for_print(info):
 
 def _for_print_videos(videos):
     if not videos:
-        return
+        return ""
     _videos = copy.deepcopy(videos)
 
     if isinstance(videos, dict):
@@ -2138,11 +2138,11 @@ def _for_print_videos(videos):
             if _info := traverse_obj(_values, "video_info"):
                 _values["video_info"] = _for_print(_info)
 
-        return _videos
+        return '\n'.join(_videos)
 
     elif isinstance(videos, list):
         _videos = [_for_print(_vid) for _vid in _videos]
-        return _videos
+        return '\n'.join(_videos)
 
 
 def print_tasks(tasks):

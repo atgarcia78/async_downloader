@@ -95,7 +95,7 @@ class FilterModule(logging.Filter):
 class FilterMsg(logging.Filter):
 
     def __init__(self, patterns):
-        super().__init__()
+        super(FilterMsg, self).__init__()
         self._patterns = patterns
 
     def filter(self, record):

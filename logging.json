@@ -34,7 +34,8 @@
                 "pyrate_limiter.limit_context_decorator",
                 "oauth2client.client",
                 "parso.python.diff",
-                "seleniumwire"
+                "seleniumwire",
+                "httpcore"
             ]
         },
         "filtermsg": {
@@ -58,6 +59,17 @@
                         "Started",
                         "Shutting down"
                     ]
+                },
+                {
+                    "name": "yt_dlp",
+                    "text": [
+                        "Sort order given by user",
+                        "Formats sorted by",
+                        "Downloading item",
+                        "Downloading playlist",
+                        "Finished downloading playlist"
+
+                    ]
                 }
             ]
         }
@@ -79,7 +91,8 @@
             "formatter": "file_format",
             "filename": "{path_logs}/asyncdl.log",
             "filters": [
-                "filtermodules"
+                "filtermodules",
+                "filtermsg"
             ],
             "maxBytes": 3155360,
             "backupCount": 20,

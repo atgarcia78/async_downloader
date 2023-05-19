@@ -70,6 +70,9 @@ from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 logger = logging.getLogger("async_HLS_DL")
 
+assert _for_print_entry
+assert print_tasks
+
 
 class AsyncHLSDLErrorFatal(Exception):
     def __init__(self, msg, exc_info=None):
@@ -221,9 +224,9 @@ class AsyncHLSDownloader:
                 if "nakedsword" in x:
                     # self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
                     self.auto_pasres = True
-                    logger.debug(
-                        f'{self.premsg} ' +
-                        f'{_for_print_entry(self.info_dict)}')
+                    # logger.debug(
+                    #     f'{self.premsg} ' +
+                    #     f'{_for_print_entry(self.info_dict)}')
                     if self.info_dict.get("playlist_title", "") not in (
                         "MostWatchedScenes",
                         "Search",
@@ -301,9 +304,9 @@ class AsyncHLSDownloader:
             self.info_dict["init_section"] = self.info_dict[
                 "fragments"][0].init_section
 
-            logger.debug(f'fragments:\n{[str(f) for f in self.info_dict["fragments"]]}')
+            # logger.debug(f'fragments:\n{[str(f) for f in self.info_dict["fragments"]]}')
 
-            logger.debug(f'init_section:\n{self.info_dict["init_section"]}')
+            # logger.debug(f'init_section:\n{self.info_dict["init_section"]}')
 
             if (_frag := self.info_dict["init_section"]):
                 _file_path = Path(str(self.fragments_base_path) + ".Frag0")
@@ -316,8 +319,8 @@ class AsyncHLSDownloader:
                             {_frag.key.absolute_uri:
                                 httpx.get(_frag.key.absolute_uri, headers=self.info_dict['http_headers']).content})
 
-                        logger.debug(f'{self.premsg}: {self.key_cache[_frag.key.absolute_uri]}')
-                        logger.debug(f"{self.premsg}:{_frag.key.iv}")
+                        # logger.debug(f'{self.premsg}: {self.key_cache[_frag.key.absolute_uri]}')
+                        # logger.debug(f"{self.premsg}:{_frag.key.iv}")
 
                 self.info_init_section.update({
                     "frag": 0, "url": _url,
@@ -415,16 +418,16 @@ class AsyncHLSDownloader:
                                     headers=self.info_dict['http_headers']
                                 ).content
                             })
-                        logger.debug(
-                            f"{self.premsg}:{self.key_cache[fragment.key.absolute_uri]}")
-                        logger.debug(f"{self.premsg}:{fragment.key.iv}")
+                        # logger.debug(
+                        #     f"{self.premsg}:{self.key_cache[fragment.key.absolute_uri]}")
+                        # logger.debug(f"{self.premsg}:{fragment.key.iv}")
 
             logger.debug(
                 f"{self.premsg}: Frags already DL: {len(self.fragsdl())}, " +
                 f"Frags not DL: {len(self.fragsnotdl())}, " +
                 f"Frags to request: {len(self.frags_to_dl)}")
-            logger.debug(
-                f"{self.premsg}: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
+            # logger.debug(
+            #     f"{self.premsg}: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
 
             self.n_total_fragments = len(self.info_dict["fragments"])
 
@@ -1179,7 +1182,7 @@ class AsyncHLSDownloader:
 
                 _premsg = f'{self.premsg}:[worker-{nco}]:[frag-{q}] '
 
-                logger.debug(f'{_premsg}\n{self.info_frag[q - 1]}')
+                # logger.debug(f'{_premsg}\n{self.info_frag[q - 1]}')
 
                 if (_res := await self.event_handle()):
                     if _res.get("event") in ("stop", "reset"):
@@ -1205,7 +1208,7 @@ class AsyncHLSDownloader:
                     try:
 
                         async with self._limit:
-                            logger.debug(f'{_premsg}: limiter speed')
+                            # logger.debug(f'{_premsg}: limiter speed')
                             await asyncio.sleep(self._interv)
 
                         if (_res := await self.event_handle()):
@@ -1217,9 +1220,9 @@ class AsyncHLSDownloader:
                             client.stream("GET", url, headers=headers) as res
                         ):
 
-                            logger.debug(
-                                f'{_premsg}:{res.request}, {res.status_code}, ' +
-                                f'{res.reason_phrase}, {res.headers}')
+                            # logger.debug(
+                            #     f'{_premsg}:{res.request}, {res.status_code}, ' +
+                            #     f'{res.reason_phrase}, {res.headers}')
 
                             if res.status_code == 403:
 
@@ -1227,8 +1230,8 @@ class AsyncHLSDownloader:
                                     _wait_tasks = await self.vid_dl.reset_plns("403", plns=None)
                                 else:
                                     _wait_tasks = await self.vid_dl.reset("403")
-                                logger.debug(
-                                    f'{_premsg}: wait_tasks\n{_wait_tasks}\n{print_tasks(_wait_tasks)}')
+                                # logger.debug(
+                                #     f'{_premsg}: wait_tasks\n{print_tasks(_wait_tasks)}')
                                 if _wait_tasks:
                                     done, pending = await asyncio.wait(_wait_tasks)
                                     logger.debug(
@@ -1259,7 +1262,7 @@ class AsyncHLSDownloader:
                                         _size = self.info_frag[q - 1]["size"] = (await os.stat(filename)).st_size
                                         if _hsize and (_hsize - 100 <= _size <= _hsize + 100) or not _hsize:
 
-                                            logger.debug(f'{_premsg}:DL-hsize[{_hsize}] size [{_size}]')
+                                            # logger.debug(f'{_premsg}:DL-hsize[{_hsize}] size [{_size}]')
                                             break
                                         else:
                                             await f.truncate(0)
@@ -1339,10 +1342,10 @@ class AsyncHLSDownloader:
                             self.info_frag[q - 1]["size"] = _size
                             async with self._LOCK:
                                 self.n_dl_fragments += 1
-                            logger.debug(
-                                f'{_premsg}: OK DL: total' +
-                                f'[{self.n_dl_fragments}]\n' +
-                                f'{self.info_frag[q - 1]}')
+                            # logger.debug(
+                            #     f'{_premsg}: OK DL: total' +
+                            #     f'[{self.n_dl_fragments}]\n' +
+                            #     f'{self.info_frag[q - 1]}')
                             break
                         else:
                             logger.warning(
@@ -1621,7 +1624,7 @@ class AsyncHLSDownloader:
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]:
                         self.vid_dl.info_dl["fromplns"]["ALL"]["downloading"].remove(self.fromplns)
 
-            logger.debug(f'{self.premsg}%no%\n\n{json.dumps(self._test)}')
+            # logger.debug(f'{self.premsg}%no%\n\n{json.dumps(self._test)}')
 
             self.init_client.close()
             logger.debug(f'{self.premsg}:Frags DL completed')
@@ -1672,7 +1675,7 @@ class AsyncHLSDownloader:
         async with aiofiles.open(self.init_file, mode="w") as f:
             await f.write(json.dumps(init_data))
 
-        logger.debug(f'{self.premsg} init data\n{init_data}')
+        # logger.debug(f'{self.premsg} init data\n{init_data}')
 
     async def clean_when_error(self):
         for f in self.info_frag:
@@ -1686,7 +1689,7 @@ class AsyncHLSDownloader:
 
     async def ensamble_file(self):
         self.status = "manipulating"
-        logger.debug(f"{self.premsg}:{self.filename} Fragments DL \n{self.fragsdl()}")
+        # logger.debug(f"{self.premsg}:{self.filename} Fragments DL \n{self.fragsdl()}")
         _skipped = 0
 
         try:

@@ -210,7 +210,7 @@ class WorkersRun:
         WorkersRun._running.add(dl_index)
         url_key = WorkersRun._info_dl[dl_index]['url']
         WorkersRun._tasks.update({add_task(self._task(dl_index), self.asyncdl.background_tasks): url_key})
-        self.logger.debug(f'[{url_key}] task ok {WorkersRun._tasks}')
+        self.logger.debug(f'[{url_key}] task ok {print_tasks(WorkersRun._tasks)}')
 
     async def _task(self, dl_index):
         url_key, dl = WorkersRun._info_dl[dl_index]['url'], WorkersRun._info_dl[dl_index]['dl']
@@ -302,7 +302,7 @@ class WorkersInit:
         self.running.add(url_key)
 
         self.tasks.update({add_task(self._task(url_key), self.asyncdl.background_tasks): url_key})
-        self.logger.debug(f'[{url_key}] task ok {self.tasks}')
+        self.logger.debug(f'[{url_key}] task ok {print_tasks(self.tasks)}')
 
     async def _task(self, url_key):
 
@@ -412,7 +412,7 @@ class AsyncDL:
     def print_pending_tasks(self):
         try:
             pending_tasks = asyncio.all_tasks()
-            logger.debug(f"[pending_all_tasks] {pending_tasks}")
+            # logger.debug(f"[pending_all_tasks] {pending_tasks}")
             logger.debug(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
