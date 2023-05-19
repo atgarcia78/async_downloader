@@ -648,7 +648,7 @@ class AsyncDL:
 
                 try:
                     # _info = await self.ytdl.async_extract_info(_url, download=False, process=False)
-                    _info = await self.ytdl.async_extract_info(_url, download=False)
+                    _info = self.ytdl.sanitize_info(await self.ytdl.async_extract_info(_url, download=False))
                     if not _info:
                         raise Exception("no info")
                 except Exception as e:
@@ -664,14 +664,6 @@ class AsyncDL:
                     continue
 
                 if (_info.get("_type", "video") != "playlist"):
-
-                    # caso generic que es playlist default,
-                    # pero luego puede ser url, url_trans
-
-                    #  _info = self.ytdl.sanitize_info(
-                    #    await self.ytdl.async_process_ie_result(_info, download=False))
-
-                    # assert isinstance(_info, dict)
 
                     if not _info.get("original_url"):
                         _info.update({"original_url": _url})
@@ -969,7 +961,7 @@ class AsyncDL:
         except Exception as e:
             logger.exception(f'{_pre} error {repr(e)} with entry\n{entry}')
 
-    async def get_dl(self, url_key, infdict, extradict=None):
+    async def get_dl(self, url_key):
 
         if not self.args.nodl:
 
@@ -1019,8 +1011,7 @@ class AsyncDL:
 
             else:
 
-                if not self.args.nodl:
-                    await self.WorkersRun.add_dl(dl, url_key)
+                await self.WorkersRun.add_dl(dl, url_key)
 
                 logger.debug(f"{_pre} init OK, ready to DL")
 
@@ -1093,12 +1084,10 @@ class AsyncDL:
             else:
                 info = vid
 
-            assert isinstance(info, dict)
-
             if (_type := info.get("_type", "video")) == "video":
 
                 if not self.STOP.is_set():
-                    await self.get_dl(url_key, infdict=info, extradict=vid)
+                    await self.get_dl(url_key)
 
             elif _type == "playlist":
 
@@ -1140,7 +1129,7 @@ class AsyncDL:
                                     try:
                                         await self._prepare_for_dl(_url, put=False)
                                         if not self.STOP.is_set():
-                                            await self.get_dl(_url, infdict=_entry)
+                                            await self.get_dl(_url)
                                     except Exception:
                                         raise
 

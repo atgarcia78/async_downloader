@@ -88,10 +88,13 @@ class AsyncSALDownloader():
 
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix='ex_saldl')
 
+            self.special_extr = False
+
             def getter(x):
                 value, key_text = getter_basic_config_extr(x, AsyncSALDownloader._CONFIG) or (None, None)
 
                 if value and key_text:
+                    self.special_extr = True
                     limit = value['ratelimit'].ratelimit(key_text, delay=True)
                     maxplits = value['maxsplits']
                 else:
@@ -107,7 +110,6 @@ class AsyncSALDownloader():
 
             self._limit, self._conn = getter(self._extractor)
             if self._conn < 16:
-
                 with self.ytdl.params.setdefault('lock', Lock()):
                     self.ytdl.params.setdefault('sem', {})
                     self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
@@ -152,7 +154,8 @@ class AsyncSALDownloader():
 
     async def update_uri(self):
         _init_url = self.info_dict.get('webpage_url')
-        _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
+        if self.special_extr:
+            _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
         _ytdl_opts = self.ytdl.params.copy()
         async with ProxyYTDL(opts=_ytdl_opts, executor=self.ex_dl) as proxy_ytdl:
 
@@ -162,8 +165,13 @@ class AsyncSALDownloader():
                 self.info_dict['format_id'])
 
         if (_url := proxy_info.get("url")):
-            self.info_dict['url'] = unquote(_url)
-            self._host = get_host(unquote(_url))
+            video_url = unquote(_url)
+            self.info_dict['url'] = video_url
+            if (_host := get_host(video_url)) != self._host:
+                self._host = _host
+                if isinstance(self.sem, Lock):
+                    async with async_lock(self.ytdl.params['lock']):
+                        self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
 
     async def async_terminate(self, pid, msg=None):
         premsg = '[async_term]'

@@ -8,14 +8,17 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from urllib.parse import unquote, urlparse, urlunparse
+from urllib.parse import (
+    unquote,
+    urlparse,
+    urlunparse
+)
 from typing import (
     cast,
-    Union)
-
+    Union
+)
 import aria2p
 import requests
-
 from utils import (
     CONF_AUTO_PASRES,
     CONF_ARIA2C_EXTR_GROUP,
@@ -494,7 +497,7 @@ class AsyncARIA2CDownloader:
                 if (_host := get_host(video_url)) != self._host:
                     self._host = _host
                     if isinstance(self.sem, Lock):
-                        with self.ytdl.params['lock']:
+                        async with async_lock(self.ytdl.params['lock']):
                             self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
 
     async def check_speed(self):
@@ -542,14 +545,14 @@ class AsyncARIA2CDownloader:
                                 perc_below(_speed[-_index:]) >= 50
                             ]):
 
-                        def _print_el(item: tuple) -> str:
-                            _secs = item[2].second + item[2].microsecond / 1000000
-                            return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
+                        # def _print_el(item: tuple) -> str:
+                        #     _secs = item[2].second + item[2].microsecond / 1000000
+                        #     return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
 
                         # _str_speed = ', '.join([_print_el(el) for el in _speed[-_index:]])
 
                         # logger.debug(f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]')
-                        # logger.debug(f'{self.premsg}[check_speed] speed reset\n{_str_speed}')
+                        logger.debug(f'{self.premsg}[check_speed] speed reset')  # \n{_str_speed}')
 
                         await self.vid_dl.reset()
 
@@ -767,20 +770,20 @@ class AsyncARIA2CDownloader:
             logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
 
-            def _print_el(el: tuple):
+            # def _print_el(el: tuple):
 
-                _secs = el[0].second + el[0].microsecond / 1000000
-                _str0 = f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
-                if isinstance(el[1], str):
-                    _str1 = el[1]
-                else:
-                    _str1 = f"['status': {el[1].status}, 'speed': {el[1].download_speed}]"
+            #     _secs = el[0].second + el[0].microsecond / 1000000
+            #     _str0 = f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
+            #     if isinstance(el[1], str):
+            #         _str1 = el[1]
+            #     else:
+            #         _str1 = f"['status': {el[1].status}, 'speed': {el[1].download_speed}]"
 
-                return f'({_str0}, {_str1})'
+            #     return f'({_str0}, {_str1})'
 
             # _str_speed = ', '.join([_print_el(el) for el in self._speed])
 
-            # logger.debug(f'{self.premsg}[fetch_async] exiting [{len(self._speed)}]\n{_str_speed}')
+            logger.debug(f'{self.premsg}[fetch_async] exiting')  # [{len(self._speed)}]\n{_str_speed}')
 
     def print_hookup(self):
         msg = ''
