@@ -3254,17 +3254,17 @@ if PySimpleGUI:
             except Exception as e:
                 self.logger.exception(f'[upt_window_periodic]: error: {repr(e)}')
             finally:
-                if self.list_nwmon:
-                    try:
-                        def _strdate(el):
-                            _secs = el[0].second + (el[0].microsecond / 1000000)
-                            return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
+                # if self.list_nwmon:
+                #     try:
+                #         # def _strdate(el):
+                #         #     _secs = el[0].second + (el[0].microsecond / 1000000)
+                #         #     return f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
 
-                        _str_nwmon = ', '.join([f'{_strdate(el)}' for el in self.list_nwmon])
-                        self.logger.debug(
-                            f'[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}')
-                    except Exception as e:
-                        self.logger.exception(f'[upt_window_periodic] {repr(e)}')
+                #         # _str_nwmon = ', '.join([f'{_strdate(el)}' for el in self.list_nwmon])
+                #         # self.logger.debug(
+                #         #     f'[upt_window_periodic] nwmon {len(self.list_nwmon)}]\n{_str_nwmon}')
+                #     except Exception as e:
+                #         self.logger.exception(f'[upt_window_periodic] {repr(e)}')
 
                 self.exit_upt.set()
                 self.logger.debug('[upt_window_periodic] BYE')
