@@ -111,6 +111,7 @@ class AsyncARIA2CDownloader:
         self.dl_cont = None
 
         self.status = 'init'
+        self.block_init = True
         self.error_message = ''
 
         self.n_workers = self.vid_dl.info_dl['n_workers']
@@ -480,7 +481,7 @@ class AsyncARIA2CDownloader:
             logger.exception(f'{self.premsg}[init] {_msg} error: {_msg_error}')
             self.status = "error"
 
-    async def update_uris(self):
+    async def update_uri(self):
         if self._mode == 'noproxy':
             _init_url = self.info_dict.get('webpage_url')
             if self.special_extr:
@@ -731,7 +732,7 @@ class AsyncARIA2CDownloader:
                                 if 'exit' in events:
                                     return
                                 elif any([_ in events for _ in ('stop', 'reset')]):
-                                    await self.update_uris()
+                                    await self.update_uri()
                                     continue
                         finally:
                             self._qspeed.put_nowait(kill_item)

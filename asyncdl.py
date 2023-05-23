@@ -190,6 +190,12 @@ class WorkersRun:
                     WorkersRun._waiting.remove(dl_index)
                     WorkersRun._waiting.appendleft(dl_index)
                     self.logger.debug(f'[move_to_waiting_top] {list(self.waiting)}')
+            elif dl_index not in WorkersRun._running and WorkersRun._info_dl[dl_index]['dl'].info_dl['status'] == "stop":
+                await WorkersRun._info_dl[dl_index]['dl'].reinit()
+                if self.running_count >= WorkersRun._max:
+                    WorkersRun._waiting.append(dl_index)
+                else:
+                    self._start_task(dl_index)
 
     async def add_dl(self, dl, url_key):
         _pre = f"[add_dl]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
@@ -615,11 +621,9 @@ class AsyncDL:
                         await asyncio.wait(tasks_pl_list2)
 
                     logger.info(
-                        "[get_list_videos] entries from playlists:" +
-                        f"{len(self._url_pl_entries)}")
+                        f"[get_list_videos] entries from playlists: {len(self._url_pl_entries)}")
                     logger.debug(
-                        "[get_list_videos] " +
-                        f"{_for_print_videos(self._url_pl_entries)}")
+                        f"[get_list_videos]\n{_for_print_videos(self._url_pl_entries)}")
 
         except BaseException as e:
             logger.exception(f"[get_list_videos]: Error {repr(e)}")
@@ -1652,7 +1656,7 @@ class AsyncDL:
         except Exception as e:
             logger.exception(f"[get_results] {repr(e)}")
 
-        logger.debug(f"\n{_for_print_videos(self.info_videos)}")
+        logger.debug(f"[info_videos]\n{_for_print_videos(self.info_videos)}")
 
         videos_ko = list(dict.fromkeys(
             info_dict["videoskodl"]["urls"] + info_dict["videoskoinit"]["urls"]))

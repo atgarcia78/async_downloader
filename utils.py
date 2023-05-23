@@ -19,6 +19,7 @@ import sys
 import os
 from statistics import median
 from queue import Empty, Queue
+from collections import defaultdict
 import termios
 import selectors
 
@@ -697,7 +698,7 @@ class ActionNoYes(argparse.Action):
                 setattr(namespace, self.dest, False)
             else:
                 if not values:
-                    _val = None
+                    _val = True
                 else:
                     _val = values
                 setattr(namespace, self.dest, _val)
@@ -789,15 +790,9 @@ def init_argparser():
     parser.add_argument("--headers", default="", type=str)
     parser.add_argument("-u", action="append", dest="collection", default=[])
     parser.add_argument(
-        "--nodlcaching",
-        help="dont get new cache videos dl, use previous",
-        action="store_true",
-        default=False,
-    )
-    parser.add_argument(
         "--dlcaching",
-        help="force to check external storage",
-        action="store_true",
+        help="whether to force to check external storage or not",
+        action=ActionNoYes,
         default=False,
     )
     parser.add_argument("--path", default=None, type=str)
@@ -818,8 +813,8 @@ def init_argparser():
     )
     parser.add_argument("--subt", action=ActionNoYes, default=False)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
-    parser.add_argument("--use-http-failover", action="store_true",
-                        default=False)
+    parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"],
+                        default="aria2c")
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=False)
     parser.add_argument("--no-embed", action="store_true", default=False)
@@ -832,9 +827,13 @@ def init_argparser():
 
     if args.aria2c is False:
         args.rpcport = None
+
     else:
-        args.rpcport = int(args.aria2c)
-        args.aria2c = True
+        if args.aria2c is True:
+            args.rpcport = 6800
+        else:
+            args.rpcport = int(args.aria2c)
+            args.aria2c = True
 
     if args.path and len(args.path.split("/")) == 1:
         args.path = str(Path(Path.home(), "testing", args.path))
@@ -847,17 +846,26 @@ def init_argparser():
         args.enproxy = False
         args.proxy = None
 
-    if args.dlcaching:
-        args.nodlcaching = False
-    else:
-        args.nodlcaching = True
-
     if args.checkcert:
         args.nocheckcert = False
     else:
         args.nocheckcert = True
 
     return args
+
+
+def get_listening_tcp() -> dict:
+    '''
+    dict of result executing 'listening' in shell with keys:
+        tcp port,
+        command
+    '''
+    printout = subprocess.run(["listening"], encoding='utf-8', capture_output=True).stdout
+    final_list = defaultdict(list)
+    for el in re.findall(r'^([^\s]+)\s+(\d+)[^\:]+\:(\d+)', printout, re.MULTILINE):
+        final_list[el[0]].append({'port': int(el[2]), 'pid': int(el[1])})
+        final_list[int(el[2])].append({'pid': int(el[1]), 'command': el[0]})
+    return dict(final_list)
 
 
 def find_in_ps(pattern, value=None):
@@ -875,9 +883,14 @@ def init_aria2c(args):
 
     logger = logging.getLogger("asyncDL")
 
-    if (mobj := find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport)):
-        mobj.sort()
-        args.rpcport = int(mobj[-1]) + 100
+    _info = get_listening_tcp()
+    _in_use_aria2c_ports = cast(list, traverse_obj(_info, ('aria2c', ..., 'port'), default=[None]))
+    if args.rpcport in _info:
+        _port = _in_use_aria2c_ports[-1] or args.rpcport
+        for n in range(10):
+            args.rpcport = _port + (n + 1)*100
+            if args.rpcport not in _info:
+                break
 
     _proc = subprocess.Popen(
         f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc".split(' ') +
@@ -892,7 +905,7 @@ def init_aria2c(args):
     time.sleep(1)
     _proc.poll()
 
-    if (_proc.returncode not in (0, None) or not find_in_ps(r"aria2c.+--rpc-listen-port ([^ ]+).+", value=args.rpcport)):
+    if _proc.returncode is not None or args.rpcport not in traverse_obj(get_listening_tcp(), ('aria2c', ..., 'port')):
 
         raise Exception(
             f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
@@ -1652,20 +1665,21 @@ if yt_dlp:
         def __init__(self, params: Union[None, dict] = None, auto_init: Union[bool, str] = True, **kwargs):
             self._close: bool = kwargs.get("close", True)
             self.executor: ThreadPoolExecutor = kwargs.get(
-                "executor", ThreadPoolExecutor(thread_name_prefix="myYTDL"))
+                "executor", ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower()))
             super().__init__(params=params, auto_init=auto_init)  # type: ignore
 
         def __exit__(self, *args):
-
             super().__exit__(*args)
             if self._close:
                 self.close()
 
         async def __aenter__(self):
-            return super().__enter__()
+            return await sync_to_async(
+                super().__enter__, thread_sensitive=False, executor=self.executor)()
 
         async def __aexit__(self, *args):
-            self.__exit__(*args)
+            return await sync_to_async(
+                self.__exit__, thread_sensitive=False, executor=self.executor)(*args)
 
         def is_playlist(self, url):
             ie_key, ie = get_extractor(url, self)
@@ -1697,10 +1711,32 @@ if yt_dlp:
             return await sync_to_async(
                 self.process_ie_result, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
 
-    class ProxyYTDL(YoutubeDL):
+    class ProxyYTDL(myYTDL):
+        def __init__(self, **kwargs):
+            _kwargs = kwargs.copy()
+            opts = _kwargs.pop("opts", {}).copy()
+            proxy = _kwargs.pop("proxy", None)
+            quiet = _kwargs.pop("quiet", True)
+            verbose = _kwargs.pop("verbose", False)
+            verboseplus = _kwargs.pop("verboseplus", False)
+            _kwargs.pop("auto_init", None)
+
+            opts["quiet"] = quiet
+            opts["verbose"] = verbose
+            opts["verboseplus"] = verboseplus
+            opts["logger"] = MyLogger(
+                logging.getLogger(self.__class__.__name__.lower()),
+                quiet=opts["quiet"],
+                verbose=opts["verbose"],
+                superverbose=opts["verboseplus"])
+            opts["proxy"] = proxy
+
+            super().__init__(params=opts, auto_init="no_verbose_header", **_kwargs)  # type: ignore
+
+    class _ProxyYTDL(YoutubeDL):
 
         def __init__(self, **kwargs):
-            opts = kwargs.get("opts", {})
+            opts = kwargs.get("opts", {}).copy()
             proxy = kwargs.get("proxy", None)
             quiet = kwargs.get("quiet", True)
             verbose = kwargs.get("verbose", False)
@@ -1722,15 +1758,18 @@ if yt_dlp:
 
             super().__init__(params=opts, auto_init="no_verbose_header")  # type: ignore
 
-        def __exit__(self, *args, **kwargs):
+        def __exit__(self, *args):
+            super().__exit__(*args)
             if self._close:
                 self.close()
 
         async def __aenter__(self):
-            return self
+            return await sync_to_async(
+                super().__enter__, thread_sensitive=False, executor=self.executor)()
 
-        async def __aexit__(self, *args, **kwargs):
-            self.__exit__(*args, **kwargs)
+        async def __aexit__(self, *args):
+            return await sync_to_async(
+                self.__exit__, thread_sensitive=False, executor=self.executor)(*args)
 
         def is_playlist(self, url):
             ie_key, ie = get_extractor(url, self)
@@ -2113,7 +2152,7 @@ def _for_print_entry(entry):
 
         _entry["fragments"] = [_frag[0], ..., _frag[-1]]
 
-    return str(_entry)
+    return _entry
 
 
 def _for_print(info):
@@ -2132,17 +2171,17 @@ def _for_print_videos(videos):
         return ""
     _videos = copy.deepcopy(videos)
 
-    if isinstance(videos, dict):
+    if isinstance(_videos, dict):
 
-        for _, _values in _videos.items():
-            if _info := traverse_obj(_values, "video_info"):
-                _values["video_info"] = _for_print(_info)
+        for _urlkey, _value in _videos.items():
+            if _info := traverse_obj(_value, "video_info"):
+                _value["video_info"] = _for_print(_info)
 
-        return '\n'.join(_videos)
+        return '{' + ',\n'.join([f"'{key}': {value}" for key, value in _videos.items()]) + '}'
 
-    elif isinstance(videos, list):
-        _videos = [_for_print(_vid) for _vid in _videos]
-        return '\n'.join(_videos)
+    elif isinstance(_videos, list):
+        _videos = [str(_for_print(_vid)) for _vid in _videos]
+        return '[' + ',\n'.join(_videos) + ']'
 
 
 def print_tasks(tasks):
@@ -2759,7 +2798,7 @@ if PySimpleGUI:
                         self.window_root['-ML3-'].update(value=upt)
 
                     if 'finish' in values['all']:
-                        self.list_finish.update(values['all']['finish'])
+                        self.list_finish = values['all']['finish']
 
                         if self.list_finish:
                             upt = '\n\n' + ''.join(list(self.list_finish.values()))
@@ -3649,7 +3688,7 @@ try:
             force_local = kwargs.get('local', False)
 
             self.logger.debug(
-                f"[videos_cached] start scanning - nodlcaching[{self.asyncdl.args.nodlcaching}] - local[{force_local}]")
+                f"[videos_cached] start scanning - dlcaching[{self.asyncdl.args.dlcaching}] - local[{force_local}]")
 
             last_time_sync = {}
 
@@ -3663,7 +3702,7 @@ try:
 
                     last_time_sync = self._localstorage._last_time_sync
 
-                    if self.asyncdl.args.nodlcaching or force_local:
+                    if not self.asyncdl.args.dlcaching or force_local:
                         for _vol, _folder in self._localstorage.config_folders.items():
                             if _vol != 'local':
                                 if not force_local:

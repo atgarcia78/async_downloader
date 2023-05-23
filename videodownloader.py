@@ -37,7 +37,10 @@ from utils import (
     async_waitfortasks,
     MySyncAsyncEvent)
 
-FORCE_TO_SAL = ['doodstream', 'myvidster']  # ['doodstream']
+FORCE_TO_SAL = {
+    'extractors': ['myvidster'],  # ['doodstream']
+    'filesize': 300000000
+}
 
 logger = logging.getLogger("video_DL")
 
@@ -85,7 +88,6 @@ class VideoDownloader:
                 sanitize_filename(self.info_dict['title'], restricted=True)
                 + "." + self.info_dict.get('ext', 'mp4')
             ),
-            'backup_http': self.args.use_http_failover,
             'fromplns': VideoDownloader._PLNS,
             'error_message': "",
             'nwsetup': nwsetup
@@ -205,44 +207,29 @@ class VideoDownloader:
                 dl = None
                 protocol = determine_protocol(info)
                 if protocol in ('http', 'https'):
-                    if self.info_dl['rpcport'] and (info.get('extractor_key').lower() not in FORCE_TO_SAL):
-                        try:
-                            dl = AsyncARIA2CDownloader(
-                                self.info_dl['rpcport'], self.args.enproxy, info, self)
-                            logger.debug(
-                                f"[{info['id']}][{info['title']}]" +
-                                f"[{info['format_id']}][get_dl] DL type ARIA2C")
-                            if dl.auto_pasres:
-                                self.info_dl.update({'auto_pasres': True})
-                        except Exception:
-                            if self.info_dl['backup_http']:
-                                logger.warning(
-                                    f"[{info['id']}][{info['title']}]" +
-                                    f"[{info['format_id']}][{info.get('extractor_key').lower()}]: " +
-                                    "aria2c init failed, swap to HTTP DL")
-                                dl = AsyncHTTPDownloader(info, self)
-                                logger.debug(
-                                    f"[{info['id']}][{info['title']}]" +
-                                    f"[{info['format_id']}][get_dl] DL type HTTP")
-                                if dl.auto_pasres:
-                                    self.info_dl.update({'auto_pasres': True})
-                            else:
-                                raise
-
-                    # elif info.get('extractor_key').lower() not in FORCE_TO_SAL:
-
-                    #     dl = AsyncHTTPDownloader(info, self)
-                    #     logger.debug(
-                    #         f"[{info['id']}][{info['title']}]" +
-                    #         f"[{info['format_id']}][get_dl] DL type HTTP")
-                    #     if dl.auto_pasres:
-                    #         self.info_dl.update({'auto_pasres': True})
-
-                    else:
+                    if any([self.args.http_downloader == "saldl", info.get('extractor_key').lower() in FORCE_TO_SAL["extractors"],
+                            (info.get('filesize') or 0) > FORCE_TO_SAL["filesize"],
+                            self.args.http_downloader == "aria2c" and not self.args.aria2c]):
                         dl = AsyncSALDownloader(info, self)
                         logger.debug(
                             f"[{info['id']}][{info['title']}]" +
                             f"[{info['format_id']}][get_dl] DL type SAL")
+                        if dl.auto_pasres:
+                            self.info_dl.update({'auto_pasres': True})
+                    elif self.args.http_downloader == "aria2c" and self.args.aria2c:
+                        dl = AsyncARIA2CDownloader(
+                            self.info_dl['rpcport'], self.args.enproxy, info, self)
+                        logger.debug(
+                            f"[{info['id']}][{info['title']}]" +
+                            f"[{info['format_id']}][get_dl] DL type ARIA2C")
+                        if dl.auto_pasres:
+                            self.info_dl.update({'auto_pasres': True})
+                    else:
+
+                        dl = AsyncHTTPDownloader(info, self)
+                        logger.debug(
+                            f"[{info['id']}][{info['title']}]" +
+                            f"[{info['format_id']}][get_dl] DL type HTTP")
                         if dl.auto_pasres:
                             self.info_dl.update({'auto_pasres': True})
 
@@ -442,6 +429,19 @@ class VideoDownloader:
             else:
                 self.resume_event.clear()
                 await asyncio.sleep(0)
+
+    async def reinit(self):
+        self.pause_event.clear()
+        self.resume_event.clear()
+        self.stop_event.clear()
+        self.end_tasks.clear()
+        self.reset_event.clear()
+        self.info_dl['status'] = "init"
+        await asyncio.sleep(0)
+        for dl in self.info_dl['downloaders']:
+            dl.status = "init"
+            if hasattr(dl, 'update_uri'):
+                await dl.update_uri()
 
     async def run_dl(self):
 
