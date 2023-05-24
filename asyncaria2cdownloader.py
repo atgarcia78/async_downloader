@@ -727,8 +727,8 @@ class AsyncARIA2CDownloader:
                             await self.fetch()
                             if self.status in ('done', 'error', 'stop'):
                                 return
-                            if (events := traverse_obj(await self.event_handle(status='fetch_async'), 'event')):
-                                events = cast(list[str], events)
+                            if (events := traverse_obj(await self.event_handle(status='fetch_async'), ('event'))):
+                                events = cast(list, events)
                                 if 'exit' in events:
                                     return
                                 elif any([_ in events for _ in ('stop', 'reset')]):
@@ -757,9 +757,7 @@ class AsyncARIA2CDownloader:
                         return
 
                     finally:
-                        if all([
-                                self._mode != 'noproxy', hasattr(self, '_index_proxy'),
-                                self._index_proxy, isinstance(self._index_proxy, int),
+                        if all([self._mode != 'noproxy', getattr(self, '_index_proxy', None),
                                 self._index_proxy >= 0]):  # type: ignore
 
                             async with self.vid_dl.master_hosts_alock:
