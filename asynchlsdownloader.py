@@ -893,214 +893,6 @@ class AsyncHLSDownloader:
                 self.n_reset += 1
                 logger.debug(f"{_pre} exit reset")
 
-    """ async def ___check_speed(self):
-
-        def getter(x):
-            return x * CONF_HLS_SPEED_PER_WORKER
-
-        _speed = []
-        _num_chunks = self._CONF_HLS_MIN_N_TO_CHECK_SPEED
-        _index = self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2
-        _max_bd_det = 0
-        prog = ProgressTimer()
-
-        try:
-            while True:
-
-                _res = await async_waitfortasks(
-                    self._qspeed.get(),
-                    events=(self.vid_dl.reset_event,
-                            self.vid_dl.stop_event),
-                    background_tasks=self.background_tasks)
-                if _res.get("event"):
-                    logger.info(f"{self.premsg}[check_speed] event detected")
-                    self._test.append(("event detected"))
-                    return
-                elif (_e := _res.get("exception")):
-                    raise AsyncHLSDLError(f"couldnt get input spped: {repr(_e)}")
-                else:
-                    _input_speed = _res.get("result")
-                    if not _input_speed:
-                        continue
-
-                if isinstance(
-                    _input_speed, tuple) and isinstance(
-                        _input_speed[0], str) and _input_speed[0] == "KILL":
-                    return
-
-                _speed.append(_input_speed)
-
-                nsecs = 20
-
-                if len(_speed) > _num_chunks:
-
-                    if any(
-                        [
-                            all(
-                                [
-                                    el == 0
-                                    for el in _speed[
-                                        -(_index):
-                                    ]
-                                ]
-                            ),
-                            not _max_bd_det
-                            and all(
-                                [
-                                    el < getter(self.count)
-                                    for el in _speed[
-                                        -(_index):
-                                    ]
-                                ]
-                            ),
-                        ]
-                    ):
-
-                        logger.info(f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]")
-                        self.vid_dl.reset_event.set("speedreset")
-                        self._test.append(("speed reset"))
-                        break
-
-                    elif (
-                        self._CONF_HLS_MAX_SPEED_PER_DL
-                        and all(
-                            [
-                                el >= self._CONF_HLS_MAX_SPEED_PER_DL
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        and (
-                            not _max_bd_det
-                            or (_max_bd_det and prog.elapsed_seconds() > nsecs)
-                        )
-                    ):
-
-                        _old_throttle = self.throttle
-
-                        if not _max_bd_det:
-                            self.throttle = float(f"{self.throttle + 0.05:.2f}")
-                            _max_bd_det += 1
-                            prog.reset()
-                            nsecs = 20
-
-                        else:
-
-                            _max_bd_det += 1
-                            self.throttle = float(f"{self.throttle + 0.01:.2f}")
-                            prog.reset()
-                            nsecs = 20
-
-                        _str_speed = ", ".join([
-                            f"{el}" for el in _speed[
-                                -(_index):]
-                            ]
-                        )
-                        logger.info(
-                            f"{self.premsg}[check_speed] MAX BD -> " +
-                            f"decrease speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]")
-                        logger.debug(
-                            f"{self.premsg}[check_speed] MAX BD -> " +
-                            f"decrease speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
-                            f"%no%{_str_speed}")
-
-                        self._test.append((f"decrease speed: throttle {_old_throttle} -> {self.throttle}]"))
-
-                    elif (
-                        self._CONF_HLS_MAX_SPEED_PER_DL
-                        and all(
-                            [
-                                0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
-                                <= el
-                                < self._CONF_HLS_MAX_SPEED_PER_DL
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        and (_max_bd_det and prog.elapsed_seconds() > nsecs)
-                    ):
-
-                        _str_speed = ", ".join(
-                            [
-                                f"{el}"
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-
-                        logger.info(
-                            f"{self.premsg}[check_speed] estable with throttle[{self.throttle}]: " +
-                            f"n_el_speed[{len(_speed)}]")
-                        logger.debug(
-                            f"{self.premsg}[check_speed] estable with throttle" +
-                            f"[{self.throttle}]: n_el_speed[{len(_speed)}]\n" +
-                            f"%no%{_str_speed}")
-
-                        _max_bd_det = 0
-                        self._test.append((f"estable throttle {self.throttle}"))
-
-                    elif (
-                        self._CONF_HLS_MAX_SPEED_PER_DL
-                        and all(
-                            [
-                                el < 0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        and (_max_bd_det and prog.elapsed_seconds() > nsecs)
-                    ):
-
-                        _old_throttle = self.throttle
-
-                        if _max_bd_det == 1:
-                            self.throttle = float(
-                                f"{self.throttle - 0.01:.2f}")
-                            prog.reset()
-                            nsecs = 20
-                        else:
-                            self.throttle = float(
-                                f"{self.throttle - 0.005:.2f}")
-                            prog.reset()
-                            nsecs = 20
-
-                        if self.throttle < 0:
-                            self.throttle = 0
-
-                        _str_speed = ", ".join(
-                            [
-                                f"{el}"
-                                for el in _speed[
-                                    -(_index):
-                                ]
-                            ]
-                        )
-                        logger.info(
-                            f"{self.premsg}[check_speed] MIN 0.8 -> " +
-                            f"increase speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]")
-                        logger.debug(
-                            f"{self.premsg}[check_speed] MIN 0.8 -> " +
-                            f"increase speed: throttle[{_old_throttle} -> " +
-                            f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
-                            f"%no%{_str_speed}")
-
-                        self._test.append((f"increase speed: throttle {_old_throttle} -> {self.throttle}]"))
-
-                await asyncio.sleep(0)
-
-        except Exception as e:
-            logger.warning(f"{self.premsg}[check_speed] {repr(e)}")
-        finally:
-            self._speed.extend(_speed)
-            logger.debug(f"{self.premsg}[check_speed] bye") """
-
     async def upt_status(self):
 
         while not self.vid_dl.end_tasks.is_set():
@@ -1856,3 +1648,213 @@ class AsyncHLSDownloader:
                 else f"[{naturalsize(_size)}]"
             )
             return f"[HLS][{self.info_dict['format_id']}]: Ensambling {_str}\n"
+
+    '''
+    async def ___check_speed(self):
+
+        def getter(x):
+            return x * CONF_HLS_SPEED_PER_WORKER
+
+        _speed = []
+        _num_chunks = self._CONF_HLS_MIN_N_TO_CHECK_SPEED
+        _index = self._CONF_HLS_MIN_N_TO_CHECK_SPEED // 2
+        _max_bd_det = 0
+        prog = ProgressTimer()
+
+        try:
+            while True:
+
+                _res = await async_waitfortasks(
+                    self._qspeed.get(),
+                    events=(self.vid_dl.reset_event,
+                            self.vid_dl.stop_event),
+                    background_tasks=self.background_tasks)
+                if _res.get("event"):
+                    logger.info(f"{self.premsg}[check_speed] event detected")
+                    self._test.append(("event detected"))
+                    return
+                elif (_e := _res.get("exception")):
+                    raise AsyncHLSDLError(f"couldnt get input spped: {repr(_e)}")
+                else:
+                    _input_speed = _res.get("result")
+                    if not _input_speed:
+                        continue
+
+                if isinstance(
+                    _input_speed, tuple) and isinstance(
+                        _input_speed[0], str) and _input_speed[0] == "KILL":
+                    return
+
+                _speed.append(_input_speed)
+
+                nsecs = 20
+
+                if len(_speed) > _num_chunks:
+
+                    if any(
+                        [
+                            all(
+                                [
+                                    el == 0
+                                    for el in _speed[
+                                        -(_index):
+                                    ]
+                                ]
+                            ),
+                            not _max_bd_det
+                            and all(
+                                [
+                                    el < getter(self.count)
+                                    for el in _speed[
+                                        -(_index):
+                                    ]
+                                ]
+                            ),
+                        ]
+                    ):
+
+                        logger.info(f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]")
+                        self.vid_dl.reset_event.set("speedreset")
+                        self._test.append(("speed reset"))
+                        break
+
+                    elif (
+                        self._CONF_HLS_MAX_SPEED_PER_DL
+                        and all(
+                            [
+                                el >= self._CONF_HLS_MAX_SPEED_PER_DL
+                                for el in _speed[
+                                    -(_index):
+                                ]
+                            ]
+                        )
+                        and (
+                            not _max_bd_det
+                            or (_max_bd_det and prog.elapsed_seconds() > nsecs)
+                        )
+                    ):
+
+                        _old_throttle = self.throttle
+
+                        if not _max_bd_det:
+                            self.throttle = float(f"{self.throttle + 0.05:.2f}")
+                            _max_bd_det += 1
+                            prog.reset()
+                            nsecs = 20
+
+                        else:
+
+                            _max_bd_det += 1
+                            self.throttle = float(f"{self.throttle + 0.01:.2f}")
+                            prog.reset()
+                            nsecs = 20
+
+                        _str_speed = ", ".join([
+                            f"{el}" for el in _speed[
+                                -(_index):]
+                            ]
+                        )
+                        logger.info(
+                            f"{self.premsg}[check_speed] MAX BD -> " +
+                            f"decrease speed: throttle[{_old_throttle} -> " +
+                            f"{self.throttle}] n_el_speed[{len(_speed)}]")
+                        logger.debug(
+                            f"{self.premsg}[check_speed] MAX BD -> " +
+                            f"decrease speed: throttle[{_old_throttle} -> " +
+                            f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
+                            f"%no%{_str_speed}")
+
+                        self._test.append((f"decrease speed: throttle {_old_throttle} -> {self.throttle}]"))
+
+                    elif (
+                        self._CONF_HLS_MAX_SPEED_PER_DL
+                        and all(
+                            [
+                                0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
+                                <= el
+                                < self._CONF_HLS_MAX_SPEED_PER_DL
+                                for el in _speed[
+                                    -(_index):
+                                ]
+                            ]
+                        )
+                        and (_max_bd_det and prog.elapsed_seconds() > nsecs)
+                    ):
+
+                        _str_speed = ", ".join(
+                            [
+                                f"{el}"
+                                for el in _speed[
+                                    -(_index):
+                                ]
+                            ]
+                        )
+
+                        logger.info(
+                            f"{self.premsg}[check_speed] estable with throttle[{self.throttle}]: " +
+                            f"n_el_speed[{len(_speed)}]")
+                        logger.debug(
+                            f"{self.premsg}[check_speed] estable with throttle" +
+                            f"[{self.throttle}]: n_el_speed[{len(_speed)}]\n" +
+                            f"%no%{_str_speed}")
+
+                        _max_bd_det = 0
+                        self._test.append((f"estable throttle {self.throttle}"))
+
+                    elif (
+                        self._CONF_HLS_MAX_SPEED_PER_DL
+                        and all(
+                            [
+                                el < 0.8 * self._CONF_HLS_MAX_SPEED_PER_DL
+                                for el in _speed[
+                                    -(_index):
+                                ]
+                            ]
+                        )
+                        and (_max_bd_det and prog.elapsed_seconds() > nsecs)
+                    ):
+
+                        _old_throttle = self.throttle
+
+                        if _max_bd_det == 1:
+                            self.throttle = float(
+                                f"{self.throttle - 0.01:.2f}")
+                            prog.reset()
+                            nsecs = 20
+                        else:
+                            self.throttle = float(
+                                f"{self.throttle - 0.005:.2f}")
+                            prog.reset()
+                            nsecs = 20
+
+                        if self.throttle < 0:
+                            self.throttle = 0
+
+                        _str_speed = ", ".join(
+                            [
+                                f"{el}"
+                                for el in _speed[
+                                    -(_index):
+                                ]
+                            ]
+                        )
+                        logger.info(
+                            f"{self.premsg}[check_speed] MIN 0.8 -> " +
+                            f"increase speed: throttle[{_old_throttle} -> " +
+                            f"{self.throttle}] n_el_speed[{len(_speed)}]")
+                        logger.debug(
+                            f"{self.premsg}[check_speed] MIN 0.8 -> " +
+                            f"increase speed: throttle[{_old_throttle} -> " +
+                            f"{self.throttle}] n_el_speed[{len(_speed)}]\n" +
+                            f"%no%{_str_speed}")
+
+                        self._test.append((f"increase speed: throttle {_old_throttle} -> {self.throttle}]"))
+
+                await asyncio.sleep(0)
+
+        except Exception as e:
+            logger.warning(f"{self.premsg}[check_speed] {repr(e)}")
+        finally:
+            self._speed.extend(_speed)
+            logger.debug(f"{self.premsg}[check_speed] bye")
+        '''
