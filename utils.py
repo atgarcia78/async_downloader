@@ -884,7 +884,7 @@ def init_aria2c(args):
     logger = logging.getLogger("asyncDL")
 
     _info = get_listening_tcp()
-    _in_use_aria2c_ports = cast(list, traverse_obj(_info, ('aria2c', ..., 'port'), default=[None]))
+    _in_use_aria2c_ports = cast(list, traverse_obj(_info, ('aria2c', ..., 'port')) or [None])
     if args.rpcport in _info:
         _port = _in_use_aria2c_ports[-1] or args.rpcport
         for n in range(10):
@@ -1704,8 +1704,8 @@ if yt_dlp:
             return cast(dict, super().sanitize_info(*args, **kwargs))
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
-            return await sync_to_async(
-                self.extract_info, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
+            return cast(dict, await sync_to_async(
+                self.extract_info, thread_sensitive=False, executor=self.executor)(*args, **kwargs))
 
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
             return await sync_to_async(
@@ -1793,8 +1793,8 @@ if yt_dlp:
                     await asyncio.sleep(0)
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
-            return await sync_to_async(
-                self.extract_info, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
+            return cast(dict, await sync_to_async(
+                self.extract_info, thread_sensitive=False, executor=self.executor)(*args, **kwargs))
 
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
             return await sync_to_async(
@@ -3736,8 +3736,8 @@ try:
                                 if not force_local:
                                     if not file.is_symlink():
                                         try:
-                                            _xattr_desc = self.getxattr(
-                                                file, 'user.dublincore.description').decode()
+                                            _xattr_desc = cast(bytes, self.getxattr(
+                                                file, 'user.dublincore.description')).decode()
                                             if not self._videoscached.get(_xattr_desc):
                                                 self._videoscached.update({_xattr_desc: str(file)})
                                             else:

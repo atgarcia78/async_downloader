@@ -43,6 +43,7 @@ from utils import (
     traverse_obj,
     try_get,
     Union,
+    cast,
     add_task
 )
 
@@ -1630,13 +1631,15 @@ class AsyncDL:
 
             if videos_kodl:
                 logger.info("Videos TOTAL ERROR DL:")
-                _videos_kodl_uniq_url = list(dict.fromkeys(list(map(lambda x: re.sub(r'#\d+$', '', x), videos_kodl))))
+                _videos_kodl_uniq_url = cast(
+                    list, list(dict.fromkeys(list(map(lambda x: re.sub(r'#\d+$', '', x), videos_kodl)))))
                 logger.info(
                     f"%no%\n\n{videos_kodl} \n[{_path_str}-u {' -u '.join(_videos_kodl_uniq_url)}")
             else:
                 logger.info("Videos TOTAL ERROR DL: []")
             if videos_koinit:
-                _videos_koinit_uniq_url = list(dict.fromkeys(list(map(lambda x: re.sub(r'#\d+$', '', x), videos_koinit))))
+                _videos_koinit_uniq_url = cast(
+                    list, list(dict.fromkeys(list(map(lambda x: re.sub(r'#\d+$', '', x), videos_koinit)))))
                 logger.info("Videos ERROR INIT DL:")
                 logger.info(
                     f"%no%\n\n{videos_koinit} \n[{_path_str}-u {' -u '.join(_videos_koinit_uniq_url)}]")
