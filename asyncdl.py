@@ -1520,13 +1520,12 @@ class AsyncDL:
         _videos_url_tocheck = (
             [_url for _url, _ in self.list_urls_to_check]
             if self.list_urls_to_check
-            else []
-        )
+            else [])
+
         _videos_url_tocheck_str = (
             [f"{_url}:{_error}" for _url, _error in self.list_urls_to_check]
             if self.list_urls_to_check
-            else []
-        )
+            else [])
 
         videos_okdl = []
         videos_kodl = []
@@ -1660,16 +1659,5 @@ class AsyncDL:
             logger.exception(f"[get_results] {repr(e)}")
 
         logger.debug(f"[info_videos]\n{_for_print_videos(self.info_videos)}")
-
-        videos_ko = list(dict.fromkeys(
-            info_dict["videoskodl"]["urls"] + info_dict["videoskoinit"]["urls"]))
-
-        if videos_ko:
-            videos_ko_str = "\n".join(videos_ko)
-        else:
-            videos_ko_str = ""
-
-        with open(Path(PATH_LOGS, "error_links.txt"), "w") as file:
-            file.write(videos_ko_str)
 
         return info_dict
