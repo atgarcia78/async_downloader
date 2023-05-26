@@ -841,6 +841,10 @@ def init_argparser():
     if args.vv:
         args.verbose = True
 
+    if args.quiet:
+        args.verbose = False
+        args.vv = False
+
     args.enproxy = True
     if args.proxy is False:
         args.enproxy = False
@@ -1533,12 +1537,23 @@ if yt_dlp:
 
         return not_found
 
-    class MyLogger(logging.LoggerAdapter):
+    class mylogger(logging.LoggerAdapter):
+        def __init__(self, logger):
+            super().__init__(logger)
+            self.quiet = False
+
+        def info(self, msg, *args, **kwargs):
+            if self.quiet:
+                self.log(logging.DEBUG, msg, *args, **kwargs)
+            else:
+                self.log(logging.INFO, msg, *args, **kwargs)
+
+    class MyYTLogger(logging.LoggerAdapter):
         """
         para ser compatible con el logging de yt_dlp: yt_dlp usa debug para enviar los debug y
         los info. Los debug llevan '[debug] ' antes.
         se pasa un logger de logging al crear la instancia
-        mylogger = MyLogger(logging.getLogger("name_ejemplo", {}))
+        mylogger = MyYTLogger(logging.getLogger("name_ejemplo", {}))
         """
         _debug_phr = [
             'Falling back on generic information extractor',
@@ -1724,7 +1739,7 @@ if yt_dlp:
             opts["quiet"] = quiet
             opts["verbose"] = verbose
             opts["verboseplus"] = verboseplus
-            opts["logger"] = MyLogger(
+            opts["logger"] = MyYTLogger(
                 logging.getLogger(self.__class__.__name__.lower()),
                 quiet=opts["quiet"],
                 verbose=opts["verbose"],
@@ -1745,7 +1760,7 @@ if yt_dlp:
             opts["quiet"] = quiet
             opts["verbose"] = verbose
             opts["verboseplus"] = verboseplus
-            opts["logger"] = MyLogger(
+            opts["logger"] = MyYTLogger(
                 logging.getLogger("proxyYTDL"),
                 quiet=opts["quiet"],
                 verbose=opts["verbose"],
@@ -2039,9 +2054,11 @@ if yt_dlp:
         ytdl_opts = {
             "retries": 1,
             "extractor_retries": 1,
+            "force_generic_extractor": False,
+            "allowed_extractors": ['default'],
             "http_headers": headers,
             "proxy": args.proxy,
-            "logger": MyLogger(
+            "logger": MyYTLogger(
                 logger,
                 quiet=args.quiet,
                 verbose=args.verbose,
@@ -2060,7 +2077,7 @@ if yt_dlp:
             "ignoreerrors": False,
             "no_abort_on_errors": False,
             "extract_flat": "in_playlist",
-            "no_color": True,
+            "color": {},
             "usenetrc": True,
             "skip_download": True,
             "writesubtitles": True,
@@ -2415,6 +2432,7 @@ def init_config():
     patch_https_connection_pool(maxsize=1000)
     os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
     os.environ['MOZ_HEADLESS_HEIGHT'] = '1080'
+    init_logging()
 
 
 ############################################################

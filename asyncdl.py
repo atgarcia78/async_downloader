@@ -24,6 +24,7 @@ from utils import (
     PATH_LOGS,
     CONF_PLAYLIST_INTERL_URLS,
     MAXLEN_TITLE,
+    mylogger,
     FrontEndGUI,
     MySyncAsyncEvent,
     NWSetUp,
@@ -49,7 +50,7 @@ from utils import (
 
 from videodownloader import VideoDownloader
 
-logger = logging.getLogger('asyncDL')
+logger = mylogger(logging.getLogger('asyncDL'))
 
 
 def get_dif_interl(_dict, _interl, workers):
@@ -112,6 +113,7 @@ def get_list_interl(res, asyncdl, _pre):
             else:
                 logger.info(f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
                 asyncdl.workers = _workers
+                asyncdl.WorkersRun.max = _workers
                 return sorted(res, key=lambda x: _interl.index(x['id']))
 
     return sorted(res, key=lambda x: _interl.index(x['id']))
@@ -173,26 +175,25 @@ class WorkersRun:
             if WorkersRun._max > 0:
                 WorkersRun._max -= 1
 
-    async def check_to_stop(self, force=False):
-        self.logger.info(f'[check_to_stop] force[{force}] running[{self.running_count}] waiting[{self.waiting_count}]')
+    async def check_to_stop(self):
+        self.logger.debug(f'[check_to_stop] running[{self.running_count}] waiting[{self.waiting_count}]')
         async with WorkersRun._alock:
-            if (not force and not WorkersRun._waiting and not WorkersRun._running) or force:
-                if force:
-                    WorkersRun._waiting.clear()
-                self.logger.info('[check_to_stop] set exit')
+            if not WorkersRun._waiting and not WorkersRun._running:
+                self.logger.debug('[check_to_stop] set exit')
                 WorkersRun._exit.set()
                 self.asyncdl.end_dl.set()
-                self.logger.debug("end_dl set")
 
     async def move_to_waiting_top(self, dl_index):
         async with WorkersRun._alock:
+            dl = WorkersRun._info_dl[dl_index]['dl']
+            dl_status = dl.info_dl['status']
             if dl_index in WorkersRun._waiting:
                 if WorkersRun._waiting.index(dl_index) > 0:
                     WorkersRun._waiting.remove(dl_index)
                     WorkersRun._waiting.appendleft(dl_index)
                     self.logger.debug(f'[move_to_waiting_top] {list(self.waiting)}')
-            elif dl_index not in WorkersRun._running and WorkersRun._info_dl[dl_index]['dl'].info_dl['status'] == "stop":
-                await WorkersRun._info_dl[dl_index]['dl'].reinit()
+            elif dl_index not in WorkersRun._running and dl_status == "stop":
+                await dl.reinit()
                 if self.running_count >= WorkersRun._max:
                     WorkersRun._waiting.append(dl_index)
                 else:
@@ -230,11 +231,13 @@ class WorkersRun:
                     _msg = f", added this dl[{dl.index}] to auto_pasres{list(self.asyncdl.list_pasres)}"
                     self.logger.debug(f"{_pre} pause-resume update{_msg}")
 
-                await async_waitfortasks(
-                    dl.run_dl(), background_tasks=self.asyncdl.background_tasks)
+                # await async_waitfortasks(
+                #     dl.run_dl(), background_tasks=self.asyncdl.background_tasks)
+                await dl.run_dl()
 
-            await async_waitfortasks(
-                self.asyncdl.run_callback(dl, url_key), background_tasks=self.asyncdl.background_tasks)
+            # await async_waitfortasks(
+            #     self.asyncdl.run_callback(dl, url_key), background_tasks=self.asyncdl.background_tasks)
+            await self.asyncdl.run_callback(dl, url_key)
 
             async with WorkersRun._alock:
                 WorkersRun._running.remove(dl_index)
@@ -333,8 +336,10 @@ class WorkersInit:
                 self.exit.set()
                 await self.asyncdl.WorkersRun.check_to_stop()
             else:
-                await async_waitfortasks(
-                    self.asyncdl.init_callback(url_key), background_tasks=self.asyncdl.background_tasks)
+                # await async_waitfortasks(
+                #     self.asyncdl.init_callback(url_key), background_tasks=self.asyncdl.background_tasks)
+
+                await self.asyncdl.init_callback(url_key)
 
                 async with self.alock:
                     self.running.remove(url_key)
@@ -351,9 +356,11 @@ class AsyncDL:
 
     def __init__(self, args):
 
-        self.background_tasks = set()
-        # args
         self.args = args
+        logger.quiet = self.args.quiet
+
+        self.background_tasks = set()
+
         self.workers = self.args.w
         self.init_nworkers = self.args.winit or self.args.w
 
@@ -402,6 +409,7 @@ class AsyncDL:
             text="[timers] Time spent by init workers: {:.2f}",
             logger=logger.info)
 
+        logger.info(f"Hi, lets dl!\n{args}")
         self.localstorage = LocalVideos(self)
 
     async def cancel_all_dl(self):
