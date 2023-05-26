@@ -660,7 +660,6 @@ class AsyncDL:
                 logger.info(f"{_pre}[{self._count_pl}/{len(self.url_pl_list) + len(self.url_pl_list2)}] processing")
 
                 try:
-                    # _info = await self.ytdl.async_extract_info(_url, download=False, process=False)
                     _info = self.ytdl.sanitize_info(await self.ytdl.async_extract_info(_url, download=False))
                     if not _info:
                         raise Exception("no info")
@@ -708,10 +707,6 @@ class AsyncDL:
                                 _entries_ok.append(_ent)
 
                         _info["entries"] = _entries_ok
-                        # _info = self.ytdl.sanitize_info(
-                        #     await self.ytdl.async_process_ie_result(_info, download=False))
-
-                        # assert _info and isinstance(_info, dict)
 
                         if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_URLS:
                             _temp_aldl = []
@@ -732,15 +727,9 @@ class AsyncDL:
 
                         if _ent.get("_type", "video") == "video" and not _ent.get("error"):
 
-                            # _ent = self.ytdl.sanitize_info(
-                            #     await self.ytdl.async_process_ie_result(_ent, download=False))
-
-                            # assert isinstance(_ent, dict)
-
                             if not _ent.get("original_url"):
                                 _ent.update({"original_url": _url})
-                            # elif _ent["original_url"] != _url:
-                            #     _ent["playlist_url"] = _url
+
                             if ((_ent.get("extractor_key", _ent.get("ie_key", ""))).lower() == "generic"
                                     and (_ent.get("n_entries", 0) <= 1)):
 
