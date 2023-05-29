@@ -578,7 +578,7 @@ async def async_waitfortasks(
 @contextlib.asynccontextmanager
 async def async_lock(lock: Union[threading.Lock, contextlib.nullcontext, None] = None):
 
-    if (isinstance(lock, contextlib.nullcontext)) or not lock:
+    if not lock or (isinstance(lock, contextlib.nullcontext)):
         try:
             yield
         finally:
@@ -1403,7 +1403,7 @@ class TorGuardProxies:
                 _ip = try_get(re.search(r'Endpoint = (?P<ip>[^\:]+)\:', _config), lambda x: x.groupdict().get('ip')) or ""
                 _file = data['oserver[]'].split('.')[0].upper() + _ip.replace(".", "_") + '.conf'
             else:
-                _file = kwargs.get('pre', '') + data['server'].replace(".", "_") + '.conf'
+                _file = (kwargs.get('pre', '') or '') + data['server'].replace(".", "_") + '.conf'
             with open(f'/Users/antoniotorres/testing/{_file}', 'w') as f:
                 f.write(_config)
         else:
@@ -1448,7 +1448,8 @@ def get_wd_conf(name=None, pre=None):
             proxies = TorGuardProxies()
             proxies.genwgconf(name, pre=pre)
         except Exception as e:
-            print(repr(e))
+            logger = logging.getLogger('wdconf')
+            logger.exception(repr(e))
     else:
         print('Use ip or torguard domain xx.torguard.com')
 
@@ -2338,7 +2339,7 @@ def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
     if abs_bytes == 1 and not gnu:
         return f"{abs_bytes:{format_}} KB"
     elif abs_bytes < base and not gnu:
-        return f"{abs_bytes:{format_}} KB"
+        return f"{abs_bytes:{format_}} B"
     elif abs_bytes < base and gnu:
         return f"{abs_bytes:{format_}} B"
 
@@ -3294,8 +3295,9 @@ if PySimpleGUI:
                         if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
                             _recv = psutil.net_io_counters().bytes_recv
                             ds = speedometer(_recv)
-                            msg = f'RECV: {naturalsize(_recv - init_bytes_recv,True)}  ' +\
-                                f'DL: {naturalsize(ds,True)}ps'
+                            msg = f'RECV: {naturalsize(_recv - init_bytes_recv)}  '
+                            msg += f'DL: {naturalsize(ds, binary=True) + "ps" if ds else "--"} / '
+                            msg += f'{naturalsize(ds*8) + "itps" if ds else "--"}'
 
                             self.update_window('all', nwmon=msg)
                             if short_progress_timer.has_elapsed(

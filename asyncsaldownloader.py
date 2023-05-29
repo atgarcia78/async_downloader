@@ -112,7 +112,7 @@ class AsyncSALDownloader():
             if self._conn < 16:
                 with self.ytdl.params.setdefault('lock', Lock()):
                     self.ytdl.params.setdefault('sem', {})
-                    self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
+                    self.sem = cast(type(Lock()), self.ytdl.params['sem'].setdefault(self._host, Lock()))
             else:
                 self.sem = contextlib.nullcontext()
 
@@ -169,9 +169,9 @@ class AsyncSALDownloader():
             self.info_dict['url'] = video_url
             if (_host := get_host(video_url)) != self._host:
                 self._host = _host
-                if isinstance(self.sem, Lock):
+                if isinstance(self.sem, type(Lock())):
                     async with async_lock(self.ytdl.params['lock']):
-                        self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
+                        self.sem = cast(type(Lock()), self.ytdl.params['sem'].setdefault(self._host, Lock()))
 
     async def async_terminate(self, pid, msg=None):
         premsg = '[async_term]'
@@ -245,7 +245,8 @@ class AsyncSALDownloader():
                     else:
                         self.status = "error"
                         await asyncio.sleep(0)
-                        return {"error": f"returncode[{results[1]}] {results[0]}"}
+                        _msgerr = try_get(re.search(r'\[fatal\]\s*.*', results[0]), lambda x: x.group()) or results[0]
+                        return {"error": f"returncode[{results[1]}] {_msgerr}"}
 
             if any([_ in _event for _ in ('reset', 'stop')]):
                 await self.async_terminate(pid, str(_event))
@@ -379,7 +380,7 @@ class AsyncSALDownloader():
 
                     _temp = self.dl_cont[-1].copy()
                     if (_speed_meter := _temp.get('speed_meter')) and _speed_meter != '--':
-                        _speed_str = f"{naturalsize(_speed_meter)}ps"
+                        _speed_str = f"{naturalsize(_speed_meter, binary=True)}ps"
                     else:
                         _speed_str = '--'
                     if ((_eta_smooth := cast(float, _temp.get('eta_smooth'))) and _eta_smooth < 3600):

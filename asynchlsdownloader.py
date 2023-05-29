@@ -150,10 +150,10 @@ class AsyncHLSDownloader:
                 keepalive_expiry=30,
             )
             self.base_download_path = Path(self.info_dict["download_path"])
-            self.init_file = Path(self.base_download_path, f"init_file.{self.info_dict['format_id']}")
             _filename = Path(self.info_dict.get("_filename", self.info_dict.get("filename")))
             self.download_path = Path(self.base_download_path, self.info_dict["format_id"])
             self.download_path.mkdir(parents=True, exist_ok=True)
+            self.init_file = Path(self.base_download_path, f"init_file.{self.info_dict['format_id']}")
             self.fragments_base_path = Path(
                 self.download_path, f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
             self.filename = Path(

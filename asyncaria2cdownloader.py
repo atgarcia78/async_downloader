@@ -160,7 +160,7 @@ class AsyncARIA2CDownloader:
 
             with self.ytdl.params.setdefault('lock', Lock()):
                 self.ytdl.params.setdefault('sem', {})
-                self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
+                self.sem = cast(type(Lock()), self.ytdl.params['sem'].setdefault(self._host, Lock()))
         else:
             self.sem = contextlib.nullcontext()
 
@@ -497,9 +497,9 @@ class AsyncARIA2CDownloader:
                 self.uris = [video_url]
                 if (_host := get_host(video_url)) != self._host:
                     self._host = _host
-                    if isinstance(self.sem, Lock):
+                    if isinstance(self.sem, type(Lock())):
                         async with async_lock(self.ytdl.params['lock']):
-                            self.sem = cast(Lock, self.ytdl.params['sem'].setdefault(self._host, Lock()))
+                            self.sem = cast(type(Lock()), self.ytdl.params['sem'].setdefault(self._host, Lock()))
 
     async def check_speed(self):
         def getter(x):
@@ -815,8 +815,7 @@ class AsyncARIA2CDownloader:
 
                 _speed_temp = naturalsize(
                     _temp.download_speed,
-                    binary=True,
-                    format_="6.2f")
+                    binary=True)
                 _speed_str = f'{_speed_temp}ps'
                 _progress_str = f"{_temp.progress:.0f}%"
                 self.last_progress_str = _progress_str

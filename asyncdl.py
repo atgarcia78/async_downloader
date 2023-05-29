@@ -427,8 +427,7 @@ class AsyncDL:
     def print_pending_tasks(self):
         try:
             pending_tasks = asyncio.all_tasks()
-            # logger.debug(f"[pending_all_tasks] {pending_tasks}")
-            logger.debug(f"[pending_all_tasks]\n{print_tasks(pending_tasks)}")
+            logger.debug(f"[pending_all_tasks] {pending_tasks}\n{print_tasks(pending_tasks)}")
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {repr(e)}")
 
@@ -1144,7 +1143,7 @@ class AsyncDL:
 
         except Exception as e:
             self.list_initnok.append((vid, f"Error:{repr(e)}"))
-            logger.error(f"{_pre} init nok - Error:{repr(e)}")
+            logger.debug(f"{_pre} init nok - Error:{repr(e)}")
             self.list_urls_to_check.append((url_key, repr(e)))
             self.info_videos[url_key]["error"].append(f"DL constructor error:{repr(e)}")
             self.info_videos[url_key]["status"] = "initnok"

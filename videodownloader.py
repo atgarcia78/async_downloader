@@ -45,6 +45,15 @@ FORCE_TO_SAL = {
 logger = logging.getLogger("video_DL")
 
 
+class AsyncDLError:
+    def __init__(self, info_dict, msg_error=None):
+        self.status = 'error'
+        self.error_message = msg_error
+        self.info_dict = info_dict
+        self.filesize = info_dict.get('filesize')
+        self.down_size = 0
+
+
 class VideoDownloader:
 
     _PLNS = {}
@@ -93,7 +102,7 @@ class VideoDownloader:
             'nwsetup': nwsetup
         }
 
-        self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)
+        # self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)
 
         downloaders = []
 
@@ -184,27 +193,31 @@ class VideoDownloader:
 
     def _get_dl(self, info):
 
-        try:
-            if not (_info := info.get('requested_formats')):
-                _info = [info]
-                _streams = False
-            else:
-                for f in _info:
-                    f.update({
-                        'id': self.info_dl['id'],
-                        'title': self.info_dl['title'],
-                        '_filename': self.info_dl['filename'],
-                        'download_path': self.info_dl['download_path'],
-                        'webpage_url': self.info_dl['webpage_url'],
-                        'extractor_key': self.info_dict.get('extractor_key')
-                    })
-                _streams = True
+        if not (_info := info.get('requested_formats')):
+            _info = [info]
+            _streams = False
+        else:
+            for f in _info:
+                f.update({
+                    'id': self.info_dl['id'],
+                    'title': self.info_dl['title'],
+                    '_filename': self.info_dl['filename'],
+                    'download_path': self.info_dl['download_path'],
+                    'webpage_url': self.info_dl['webpage_url'],
+                    'extractor_key': self.info_dict.get('extractor_key')
+                })
+            _streams = True
 
-            res_dl = []
+        res_dl = []
 
-            for n, info in enumerate(_info):
+        for n, info in enumerate(_info):
 
-                dl = None
+            try:
+
+                if info.get('_has_drm'):
+                    res_dl.append(AsyncDLError(info, 'has drm'))
+                    continue
+
                 protocol = determine_protocol(info)
                 if protocol in ('http', 'https'):
                     if any([self.args.http_downloader == "saldl", info.get('extractor_key').lower() in FORCE_TO_SAL["extractors"],
@@ -256,13 +269,12 @@ class VideoDownloader:
                         ":protocol not supported")
                     raise NotImplementedError("protocol not supported")
 
-                if dl:
-                    res_dl.append(dl)
+                res_dl.append(dl)
+            except Exception as e:
+                logger.exception(repr(e))
+                res_dl.append(AsyncDLError(info, repr(e)))
 
-            return res_dl
-
-        except Exception as e:
-            logger.exception(repr(e))
+        return res_dl
 
     async def change_numvidworkers(self, n):
 
@@ -648,7 +660,7 @@ class VideoDownloader:
             self._get_subts_files, thread_sensitive=False, executor=self.ex_videodl)
         apostffmpeg = sync_to_async(
             self.syncpostffmpeg, thread_sensitive=False, executor=self.ex_videodl)
-        initproc = partial(subprocess.CompletedProcess, None, None)
+        # initproc = partial(subprocess.CompletedProcess, None, None)
         armtree = sync_to_async(
             partial(shutil.rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_videodl)
         amove = sync_to_async(shutil.move, thread_sensitive=False, executor=self.ex_videodl)
@@ -716,14 +728,14 @@ class VideoDownloader:
                                 f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"" +
                                 f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{temp_filename}\"")
 
-                        res = initproc()
-                        await apostffmpeg(cmd, res)
+                        # res = initproc()
+                        proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]" +
-                            f"[{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n" +
-                            f"{res.stdout}\n[stderr]{res.stderr}")
+                            f"[{self.info_dict['title']}]: {cmd}\n[rc] {proc.returncode}\n[stdout]\n" +
+                            f"{proc.stdout}\n[stderr]{proc.stderr}")
 
-                        rc = res.returncode
+                        rc = proc.returncode
 
                     else:
 
@@ -769,14 +781,14 @@ class VideoDownloader:
 
                     rc = -1
 
-                    res = initproc()
-                    await apostffmpeg(cmd, res)
+                    # res = initproc()
+                    proc = await apostffmpeg(cmd)
 
                     logger.debug(
                         f"[{self.info_dict['id']}][{self.info_dict['title']}]" +
-                        f": ffmpeg rc[{res.returncode}]\n{res.stdout}")
+                        f": ffmpeg rc[{proc.returncode}]\n{proc.stdout}")
 
-                    rc = res.returncode
+                    rc = proc.returncode
 
                     if rc == 0 and (await aiofiles.os.path.exists(
                             temp_filename)):
@@ -820,13 +832,13 @@ class VideoDownloader:
                                 f"-metadata:s:s:0 language={lang} -movflags +faststart file:" +
                                 f"\"{embed_filename}\"")
 
-                        res = initproc()
-                        await apostffmpeg(cmd, res)
+                        # res = initproc()
+                        proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]" +
-                            f"[{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n" +
-                            f"{res.stdout}\n[stderr]{res.stderr}")
-                        if res.returncode == 0:
+                            f"[{self.info_dict['title']}]: {cmd}\n[rc] {proc.returncode}\n[stdout]\n" +
+                            f"{proc.stdout}\n[stderr]{proc.stderr}")
+                        if proc.returncode == 0:
                             await aiofiles.os.replace(
                                 embed_filename, self.info_dl['filename'])
                             await aiofiles.os.remove(temp_filename)
@@ -875,13 +887,13 @@ class VideoDownloader:
                                 f"-c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart " +
                                 f"file:\"{temp_filename}\"")
 
-                        res = initproc()
-                        await apostffmpeg(cmd, res)
+                        # res = initproc()
+                        proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]" +
-                            f"[{self.info_dict['title']}]: {cmd}\n[rc] {res.returncode}\n[stdout]\n" +
-                            f"{res.stdout}\n[stderr]{res.stderr}")
-                        if res.returncode == 0:
+                            f"[{self.info_dict['title']}]: {cmd}\n[rc] {proc.returncode}\n[stdout]\n" +
+                            f"{proc.stdout}\n[stderr]{proc.stderr}")
+                        if proc.returncode == 0:
                             await aiofiles.os.replace(
                                 temp_filename, self.info_dl['filename'])
 
@@ -910,16 +922,14 @@ class VideoDownloader:
         finally:
             await asyncio.sleep(0)
 
-    def syncpostffmpeg(self, cmd, r=None):
+    def syncpostffmpeg(self, cmd):
 
-        res = subprocess.run(shlex.split(
-            cmd), encoding='utf-8', capture_output=True)
-        if r:
-            r.returncode = res.returncode
-            r.stdout = res.stdout
-            r.stderr = res.stderr
-            r.args = res.args
-        return res
+        try:
+            res = subprocess.run(shlex.split(
+                cmd), encoding='utf-8', capture_output=True, timeout=120)
+            return res
+        except Exception as e:
+            return subprocess.CompletedProcess(shlex.split(cmd), 1, stdout=None, stderr=repr(e))
 
     def print_hookup(self):
 
