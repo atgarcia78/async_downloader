@@ -231,12 +231,8 @@ class WorkersRun:
                     _msg = f", added this dl[{dl.index}] to auto_pasres{list(self.asyncdl.list_pasres)}"
                     self.logger.debug(f"{_pre} pause-resume update{_msg}")
 
-                # await async_waitfortasks(
-                #     dl.run_dl(), background_tasks=self.asyncdl.background_tasks)
                 await dl.run_dl()
 
-            # await async_waitfortasks(
-            #     self.asyncdl.run_callback(dl, url_key), background_tasks=self.asyncdl.background_tasks)
             await self.asyncdl.run_callback(dl, url_key)
 
             async with WorkersRun._alock:

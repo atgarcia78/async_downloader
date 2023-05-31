@@ -655,12 +655,10 @@ class VideoDownloader:
                             f"couldnt generate subtitle file: {repr(e)}")
 
     async def run_manip(self):
-
         aget_subts_files = sync_to_async(
             self._get_subts_files, thread_sensitive=False, executor=self.ex_videodl)
         apostffmpeg = sync_to_async(
             self.syncpostffmpeg, thread_sensitive=False, executor=self.ex_videodl)
-        # initproc = partial(subprocess.CompletedProcess, None, None)
         armtree = sync_to_async(
             partial(shutil.rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_videodl)
         amove = sync_to_async(shutil.move, thread_sensitive=False, executor=self.ex_videodl)
@@ -728,7 +726,6 @@ class VideoDownloader:
                                 f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"" +
                                 f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{temp_filename}\"")
 
-                        # res = initproc()
                         proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]" +
@@ -781,7 +778,6 @@ class VideoDownloader:
 
                     rc = -1
 
-                    # res = initproc()
                     proc = await apostffmpeg(cmd)
 
                     logger.debug(
@@ -832,7 +828,6 @@ class VideoDownloader:
                                 f"-metadata:s:s:0 language={lang} -movflags +faststart file:" +
                                 f"\"{embed_filename}\"")
 
-                        # res = initproc()
                         proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]" +
@@ -887,7 +882,6 @@ class VideoDownloader:
                                 f"-c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart " +
                                 f"file:\"{temp_filename}\"")
 
-                        # res = initproc()
                         proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]" +
@@ -923,7 +917,6 @@ class VideoDownloader:
             await asyncio.sleep(0)
 
     def syncpostffmpeg(self, cmd):
-
         try:
             res = subprocess.run(shlex.split(
                 cmd), encoding='utf-8', capture_output=True, timeout=120)
@@ -932,7 +925,6 @@ class VideoDownloader:
             return subprocess.CompletedProcess(shlex.split(cmd), 1, stdout=None, stderr=repr(e))
 
     def print_hookup(self):
-
         msg = ""
         for dl in self.info_dl['downloaders']:
             msg += f"  {dl.print_hookup()}"
