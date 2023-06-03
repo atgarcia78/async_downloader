@@ -351,7 +351,7 @@ class AsyncSALDownloader():
                                 break
                             await asyncio.sleep(0)
                     except Exception as e:
-                        logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}] inner error {repr(e)}")
+                        logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}] inner error {repr(e)}")
                         self.status = "error"
                         return
                     finally:
