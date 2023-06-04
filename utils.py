@@ -811,7 +811,7 @@ def init_argparser():
         action=ActionNoYes,
         default="6800"
     )
-    parser.add_argument("--subt", action=ActionNoYes, default=False)
+    parser.add_argument("--subt", action=ActionNoYes, default=True)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"],
                         default="aria2c")
