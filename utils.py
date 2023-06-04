@@ -114,7 +114,7 @@ CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
 CONF_ARIA2C_SPEED_PER_CONNECTION = 102400  # 102400 * 1.5# 102400
 CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = _min = 240  # 120
 
-CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min//4  # 60
+CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min // 4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
@@ -518,7 +518,7 @@ async def async_waitfortasks(
 
     if not _final_wait:
         if timeout:
-            _task_sleep = add_task(asyncio.sleep(timeout*2), _background_tasks)
+            _task_sleep = add_task(asyncio.sleep(timeout * 2), _background_tasks)
             _tasks.update({_task_sleep: "task"})
             _final_wait.update(_tasks)
         else:
@@ -625,7 +625,7 @@ async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CO
             await async_wait_time(interv)
 
 
-def wait_until(timeout, statement=None, args=(None,), kwargs={},  interv=CONF_INTERVAL_GUI):
+def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
     if not statement:
         def func(*args, **kwargs):
@@ -648,7 +648,7 @@ def wait_until(timeout, statement=None, args=(None,), kwargs={},  interv=CONF_IN
 ############################################################
 
 
-def init_logging(file_path=None):
+def init_logging(file_path=None, test=False):
 
     # PATH_LOGS = Path(Path.home(), "Projects/common/logs")
     if not file_path:
@@ -676,6 +676,9 @@ def init_logging(file_path=None):
     logger.setLevel(logging.WARNING)
     logger = logging.getLogger("proxy.http.handler")
     logger.setLevel(logging.ERROR)
+
+    if test:
+        return logging.getLogger('test')
 
 
 class ActionNoYes(argparse.Action):
@@ -874,10 +877,9 @@ def get_listening_tcp() -> dict:
 
 def find_in_ps(pattern, value=None):
     res = subprocess.run(
-            ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
-            encoding="utf-8",
-            capture_output=True,
-        ).stdout
+        ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
+        encoding="utf-8",
+        capture_output=True).stdout
     mobj = re.findall(pattern, res)
     if not value or str(value) in mobj:
         return mobj
@@ -892,13 +894,13 @@ def init_aria2c(args):
     if args.rpcport in _info:
         _port = _in_use_aria2c_ports[-1] or args.rpcport
         for n in range(10):
-            args.rpcport = _port + (n + 1)*100
+            args.rpcport = _port + (n + 1) * 100
             if args.rpcport not in _info:
                 break
-
+    _cmd = f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc "
+    _cmd += "--rpc-max-request-size=2M --rpc-listen-all --quiet=true"
     _proc = subprocess.Popen(
-        f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc".split(' ') +
-        "--rpc-max-request-size=2M --rpc-listen-all --quiet=true".split(' '),
+        _cmd.split(' '),
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         stdin=subprocess.PIPE,
@@ -940,6 +942,14 @@ _CLIENT_CONFIG = {
     'follow_redirects': True,
     'verify': False
 }
+
+
+def get_httpx_client():
+    return httpx.Client(**_CLIENT_CONFIG)
+
+
+def get_httpx_async_client():
+    return httpx.AsyncClient(**_CLIENT_CONFIG)
 
 
 def is_ipaddr(res):
@@ -1651,7 +1661,7 @@ if yt_dlp:
     def ies_close(ies):
         if not ies:
             return
-        for ie, ins in ies.items():
+        for _, ins in ies.items():
             if close := getattr(ins, "close", None):
                 try:
                     close()
@@ -2383,7 +2393,7 @@ def patch_http_connection_pool(**constructor_kwargs):
         (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
         (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
         (socket.SOL_TCP, socket.TCP_KEEPCNT, 6)
-     ]
+    ]
 
     class MyHTTPConnectionPool(connectionpool.HTTPConnectionPool):
         def __init__(self, *args, **kwargs):
@@ -2413,7 +2423,7 @@ def patch_https_connection_pool(**constructor_kwargs):
         (socket.SOL_TCP, socket.TCP_KEEPALIVE, 45),
         (socket.SOL_TCP, socket.TCP_KEEPINTVL, 10),
         (socket.SOL_TCP, socket.TCP_KEEPCNT, 6)
-     ]
+    ]
 
     class MyHTTPSConnectionPool(connectionpool.HTTPSConnectionPool):
         def __init__(self, *args, **kwargs):
@@ -2538,7 +2548,7 @@ class CountDowns:
     def start_countdown(self, n, index, event=None):
 
         def send_queue(x):
-            if ((x == self.N_PER_SECOND*n) or (x % self.N_PER_SECOND) == 0):
+            if ((x == self.N_PER_SECOND * n) or (x % self.N_PER_SECOND) == 0):
                 _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}"
                 self.klass._QUEUE[index].put_nowait(_msg)
 
@@ -2547,7 +2557,7 @@ class CountDowns:
         if event:
             _events += [event]
 
-        for i in range(self.N_PER_SECOND*n, 0, -1):
+        for i in range(self.N_PER_SECOND * n, 0, -1):
             send_queue(i)
             _res = [getattr(ev, 'name', 'noname') for ev in _events if ev.is_set()]
             if _res:
@@ -3301,10 +3311,10 @@ if PySimpleGUI:
 
                             self.update_window('all', nwmon=msg)
                             if short_progress_timer.has_elapsed(
-                                    seconds=10*CONF_INTERVAL_GUI):
+                                    seconds=10 * CONF_INTERVAL_GUI):
                                 self.list_nwmon.append((datetime.now(), ds))
                         else:
-                            time.sleep(CONF_INTERVAL_GUI/4)
+                            time.sleep(CONF_INTERVAL_GUI / 4)
                     else:
                         time.sleep(CONF_INTERVAL_GUI)
                         progress_timer.reset()
@@ -3372,7 +3382,7 @@ if PySimpleGUI:
 
                                         if wait_for_either(
                                             [stop_event, FrontEndGUI._PASRES_EXIT],
-                                                timeout=random.uniform(0.75*_time, 1.25*_time)) != "TIMEOUT":
+                                                timeout=random.uniform(0.75 * _time, 1.25 * _time)) != "TIMEOUT":
 
                                             self.window_console.write_event_value('Resume', ','.join(list(map(str, _list))))
                                             break
@@ -3956,8 +3966,8 @@ try:
                                 "title": _name,
                                 "file_not_exist": str(_file),
                                 "links": [
-                                            str(_l) for _l in
-                                            (_links_file[0:-1] + _links_video_path[0:-1])]
+                                    str(_l) for _l in
+                                    (_links_file[0:-1] + _links_video_path[0:-1])]
                             })
 
                 else:

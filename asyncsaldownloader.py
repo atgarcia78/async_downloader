@@ -60,9 +60,9 @@ class AsyncSALDownloader():
 
     _CLASSALOCK = asyncio.Lock()
     _CONFIG = load_config_extractors()
-    progress_pattern = re.compile(
-                r'Size complete:\s+(?P<download_str>[^\s]+)\s+/\s+([^\s]+)\s*\((?P<progress_str>[^\)]+)\).*' +
-                r'Rate:\s+([^\s]+)\s*\:\s*(?P<speed_str>[^\s]+)\s*Remaining:\s+([^\s]+)\s*\:\s*(?P<eta_str>[^\s]+)\s*Duration')
+    _pattern = r'Size complete:\s+(?P<download_str>[^\s]+)\s+/\s+([^\s]+)\s*\((?P<progress_str>[^\)]+)\).*'
+    _pattern += r'Rate:\s+([^\s]+)\s*\:\s*(?P<speed_str>[^\s]+)\s*Remaining:\s+([^\s]+)\s*\:\s*(?P<eta_str>[^\s]+)\s*Duration'
+    progress_pattern = re.compile(_pattern)
 
     def __init__(self, video_dict, vid_dl):
 

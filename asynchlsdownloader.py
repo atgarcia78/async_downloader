@@ -181,7 +181,7 @@ class AsyncHLSDownloader:
                 self._qproxies = put_sequence(Queue(), _seq)
 
                 el1, el2 = cast(tuple, self._qproxies.get())
-                _proxy_port = CONF_PROXIES_BASE_PORT + el1*100 + el2
+                _proxy_port = CONF_PROXIES_BASE_PORT + el1 * 100 + el2
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
                 self._proxy = {"http://": _proxy, "https://": _proxy}
 
@@ -753,7 +753,7 @@ class AsyncHLSDownloader:
 
             if self.enproxy:
                 el1, el2 = cast(tuple, self._qproxies.get())
-                _proxy_port = CONF_PROXIES_BASE_PORT + el1*100 + el2
+                _proxy_port = CONF_PROXIES_BASE_PORT + el1 * 100 + el2
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
                 self._proxy = {"http://": _proxy, "https://": _proxy}
 
@@ -826,7 +826,7 @@ class AsyncHLSDownloader:
                     AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"])
                 except Exception:
                     logger.warning(
-                            f'{_pre} error when removing[{self.info_dict["id"]}] from [{AsyncHLSDownloader._INRESET_403}]')
+                        f'{_pre} error when removing[{self.info_dict["id"]}] from [{AsyncHLSDownloader._INRESET_403}]')
 
             if self.fromplns and cause == "403":
 
@@ -1605,12 +1605,11 @@ class AsyncHLSDownloader:
                 ) and _est_time_smooth < 3600:
 
                     _eta_smooth_str = ":".join(
-                        [_item.split(".")[0]
+                        [
+                            _item.split(".")[0]
                             for _item in
-                            f"{timedelta(seconds=_est_time_smooth)}".split(
-                                ":"
-                            )[1:]]
-                    )
+                            f"{timedelta(seconds=_est_time_smooth)}".split(":")[1:]
+                        ])
                 else:
                     _eta_smooth_str = "--"
 

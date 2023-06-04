@@ -228,7 +228,7 @@ class AsyncFFmpegFD(FFmpegFD):
 
         args = [encodeArgument(opt) for opt in args]
         args.append(encodeFilename(ffpp._ffmpeg_filename_argument(tmpfilename), True))
-        args.extend(['-progress', 'pipe:1', '-stats_period', '0.2']) #progress stats to stdout every 0.2secs
+        args.extend(['-progress', 'pipe:1', '-stats_period', '0.2'])  # progress stats to stdout every 0.2secs
 
         try:
             start_time, end_time, total_time_to_dl = None, None, None
@@ -277,7 +277,7 @@ class AsyncFFmpegFD(FFmpegFD):
             cmd = self._get_cmd(args)
 
             progress_pattern = re.compile(
-                    r'(frame=\s*(?P<frame>\S+)\nfps=\s*(?P<fps>\S+)\nstream_0_0_q=\s*(?P<stream_0_0_q>\S+)\n)?bitrate=\s*(?P<bitrate>\S+)\ntotal_size=\s*(?P<total_size>\S+)\nout_time_us=\s*(?P<out_time_us>\S+)\nout_time_ms=\s*(?P<out_time_ms>\S+)\nout_time=\s*(?P<out_time>\S+)\ndup_frames=\s*(?P<dup_frames>\S+)\ndrop_frames=\s*(?P<drop_frames>\S+)\nspeed=\s*(?P<speed>\S+)\nprogress=\s*(?P<progress>\S+)')
+                r'(frame=\s*(?P<frame>\S+)\nfps=\s*(?P<fps>\S+)\nstream_0_0_q=\s*(?P<stream_0_0_q>\S+)\n)?bitrate=\s*(?P<bitrate>\S+)\ntotal_size=\s*(?P<total_size>\S+)\nout_time_us=\s*(?P<out_time_us>\S+)\nout_time_ms=\s*(?P<out_time_ms>\S+)\nout_time=\s*(?P<out_time>\S+)\ndup_frames=\s*(?P<dup_frames>\S+)\ndrop_frames=\s*(?P<drop_frames>\S+)\nspeed=\s*(?P<speed>\S+)\nprogress=\s*(?P<progress>\S+)')
 
             proc = await asyncio.create_subprocess_shell(
                 cmd, env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -307,8 +307,8 @@ class AsyncFFmpegFD(FFmpegFD):
                                 else:
                                     eta_seconds = 0
                                 bitrate_int = None
-                                bitrate_str = re.match(r"(?P<E>\d+)(\.(?P<f>\d+))?(?P<U>g|m|k)?bits/s",
-                                                    ffmpeg_prog_infos['bitrate'])
+                                bitrate_str = re.match(
+                                    r"(?P<E>\d+)(\.(?P<f>\d+))?(?P<U>g|m|k)?bits/s", ffmpeg_prog_infos['bitrate'])
                                 if bitrate_str:
                                     bitrate_int = compute_prefix(bitrate_str)
                                 dl_bytes_str = re.match(r"\d+", ffmpeg_prog_infos['total_size'])
@@ -349,6 +349,7 @@ class AsyncFFMPEGDLErrorFatal(Exception):
 
         self.exc_info = exc_info
 
+
 class AsyncFFMPEGDLError(Exception):
     """Error during info extraction."""
 
@@ -357,6 +358,7 @@ class AsyncFFMPEGDLError(Exception):
         super().__init__(msg)
 
         self.exc_info = exc_info
+
 
 class AsyncFFMPEGDownloader():
 

@@ -626,8 +626,8 @@ class VideoDownloader:
                             _final_subts_file = Path(
                                 str(_subts_file).replace(f".{_format}", ".srt"))
                             cmd = (
-                                    'ffmpeg -y -loglevel repeat+info -i file:' +
-                                    f'\"{_subts_file}\" -f srt -movflags +faststart file:\"{_final_subts_file}\"')
+                                'ffmpeg -y -loglevel repeat+info -i file:' +
+                                f'\"{_subts_file}\" -f srt -movflags +faststart file:\"{_final_subts_file}\"')
                             logger.info(
                                 f"[{self.info_dict['id']}][{self.info_dict['title']}]: convert subt - {cmd}")
                             res = self.syncpostffmpeg(cmd)
@@ -722,9 +722,9 @@ class VideoDownloader:
                     if "ts" in self.info_dl['downloaders'][0].filename.suffix:
 
                         cmd = (
-                                "ffmpeg -y -probesize max -loglevel " +
-                                f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"" +
-                                f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{temp_filename}\"")
+                            "ffmpeg -y -probesize max -loglevel " +
+                            f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"" +
+                            f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{temp_filename}\"")
 
                         proc = await apostffmpeg(cmd)
                         logger.debug(
@@ -767,11 +767,11 @@ class VideoDownloader:
                 else:
 
                     cmd = (
-                            "ffmpeg -y -loglevel repeat+info -i file:" +
-                            f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:" +
-                            f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 " +
-                            "-map 1:a:0 -bsf:a:0 aac_adtstoasc " +
-                            f"-movflags +faststart file:\"{temp_filename}\"")
+                        "ffmpeg -y -loglevel repeat+info -i file:" +
+                        f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:" +
+                        f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 " +
+                        "-map 1:a:0 -bsf:a:0 aac_adtstoasc " +
+                        f"-movflags +faststart file:\"{temp_filename}\"")
 
                     logger.debug(
                         f"[{self.info_dict['id']}][{self.info_dict['title']}]:{cmd}")
@@ -822,11 +822,11 @@ class VideoDownloader:
                             self.info_dl['filename'], 'embed')
 
                         cmd = (
-                                "ffmpeg -y -loglevel repeat+info -i " +
-                                f"file:\"{temp_filename}\" -i file:\"{str(subtfile)}\" -map 0 -dn " +
-                                "-ignore_unknown -c copy -c:s mov_text -map -0:s -map 1:0 " +
-                                f"-metadata:s:s:0 language={lang} -movflags +faststart file:" +
-                                f"\"{embed_filename}\"")
+                            "ffmpeg -y -loglevel repeat+info -i " +
+                            f"file:\"{temp_filename}\" -i file:\"{str(subtfile)}\" -map 0 -dn " +
+                            "-ignore_unknown -c copy -c:s mov_text -map -0:s -map 1:0 " +
+                            f"-metadata:s:s:0 language={lang} -movflags +faststart file:" +
+                            f"\"{embed_filename}\"")
 
                         proc = await apostffmpeg(cmd)
                         logger.debug(
@@ -877,10 +877,10 @@ class VideoDownloader:
                             str(self.info_dl['filename']), 'temp')
 
                         cmd = (
-                                "ffmpeg -y -loglevel repeat+info -i " +
-                                f"file:\"{str(self.info_dl['filename'])}\" -map 0 -dn -ignore_unknown " +
-                                f"-c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart " +
-                                f"file:\"{temp_filename}\"")
+                            "ffmpeg -y -loglevel repeat+info -i " +
+                            f"file:\"{str(self.info_dl['filename'])}\" -map 0 -dn -ignore_unknown " +
+                            f"-c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart " +
+                            f"file:\"{temp_filename}\"")
 
                         proc = await apostffmpeg(cmd)
                         logger.debug(
@@ -936,8 +936,7 @@ class VideoDownloader:
             _maxlen = 10
 
         _title = self.info_dict['title'] if ((_len := len(
-            self.info_dict['title'])) >= _len) else self.info_dict['title'] +\
-            ' '*(_maxlen - _len)
+            self.info_dict['title'])) >= _len) else self.info_dict['title'] + ' ' * (_maxlen - _len)
 
         if self.info_dl['status'] == "done":
             return (

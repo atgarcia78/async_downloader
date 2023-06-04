@@ -17,7 +17,7 @@ import httpx
 from utils import (CONF_DASH_SPEED_PER_WORKER, _for_print_entry,
                    async_wait_time, int_or_none,
                    naturalsize, print_norm_time, smuggle_url, try_get,
-                   sync_to_async, ProxyYTDL)
+                   sync_to_async)
 
 logger = logging.getLogger("async_DASH_DL")
 
@@ -57,6 +57,7 @@ class EMA:
             self.calls += 1
         return self.last / (1 - beta**self.calls) if self.calls else self.last
 
+
 class AsyncDASHDLErrorFatal(Exception):
 
     def __init__(self, msg):
@@ -64,6 +65,7 @@ class AsyncDASHDLErrorFatal(Exception):
         super(AsyncDASHDLErrorFatal, self).__init__(msg)
 
         self.exc_info = sys.exc_info()  # preserve original exception
+
 
 class AsyncDASHDLError(Exception):
 
@@ -73,6 +75,7 @@ class AsyncDASHDLError(Exception):
 
         self.exc_info = sys.exc_info()  # preserve original exception
 
+
 class AsyncDASHDLReset(Exception):
 
     def __init__(self, msg):
@@ -80,6 +83,7 @@ class AsyncDASHDLReset(Exception):
         super(AsyncDASHDLReset, self).__init__(msg)
 
         self.exc_info = sys.exc_info()  # preserve original exception
+
 
 class AsyncDASHDownloader:
 
@@ -93,7 +97,7 @@ class AsyncDASHDownloader:
         self.info_dict = video_dict.copy()
         self.video_downloader = vid_dl
         self.is_audio = False
-        if (stream == None):
+        if stream is None:
             self.streams = False
         else:
             self.streams = True
@@ -102,7 +106,7 @@ class AsyncDASHDownloader:
                 logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[init] audio stream")
 
         self.n_workers = vid_dl.info_dl['n_workers']
-        self.count = 0 #cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
+        self.count = 0  # cuenta de los workers activos haciendo DL. Al comienzo serán igual a n_workers
         self.video_url = self.info_dict.get('url')
         self.webpage_url = self.info_dict.get('webpage_url')
         self.fragment_base_url = self.info_dict.get('fragment_base_url')
@@ -144,7 +148,7 @@ class AsyncDASHDownloader:
 
         self.n_dl_fragments = 0
 
-        self.tbr = self.info_dict.get('tbr', 0) #for audio streams tbr is not present
+        self.tbr = self.info_dict.get('tbr', 0)  # for audio streams tbr is not present
         self.abr = self.info_dict.get('abr', 0)
         _br = self.tbr or self.abr
 
@@ -152,26 +156,26 @@ class AsyncDASHDownloader:
 
             if not (_url := fragment.get('url')):
                 _url = urljoin(self.fragment_base_url, fragment['path'])
-            _file_path =  Path(self.download_path, fragment['path'])
+            _file_path = Path(self.download_path, fragment['path'])
 
             est_size = int(_br * fragment.get('duration', 0) * 1000 / 8)
             if _file_path.exists():
                 size = _file_path.stat().st_size
-                self.info_frag.append({"frag" : i+1, "url" : _url, "file" : _file_path, "downloaded" : True, "estsize" : est_size, "headersize" : None, "size": size, "n_retries": 0, "error" : ["AlreadyDL"]})
+                self.info_frag.append({"frag": i + 1, "url": _url, "file": _file_path, "downloaded": True, "estsize": est_size, "headersize": None, "size": size, "n_retries": 0, "error": ["AlreadyDL"]})
 
                 self.n_dl_fragments += 1
                 self.down_size += size
-                self.frags_to_dl.append(i+1)
+                self.frags_to_dl.append(i + 1)
 
             else:
-                self.info_frag.append({"frag" : i+1, "url" : _url, "file" : _file_path, "downloaded" : False, "estsize" : est_size, "headersize": None, "size": None, "n_retries": 0, "error" : []})
-                self.frags_to_dl.append(i+1)
+                self.info_frag.append({"frag": i + 1, "url": _url, "file": _file_path, "downloaded": False, "estsize": est_size, "headersize": None, "size": None, "n_retries": 0, "error": []})
+                self.frags_to_dl.append(i + 1)
 
         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: \nFrags DL: {self.fragsdl()}\nFrags not DL: {self.fragsnotdl()}")
 
         self.n_total_fragments = len(self.info_dict['fragments'])
-        self.calculate_duration() #get total duration
-        self.calculate_filesize() #get filesize estimated
+        self.calculate_duration()  # get total duration
+        self.calculate_filesize()  # get filesize estimated
 
         if self.is_audio:
             self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 60
@@ -180,14 +184,15 @@ class AsyncDASHDownloader:
         else:
             self._CONF_DASH_MIN_N_TO_CHECK_SPEED = 30
 
-        if self.filesize == 0: _est_size = "NA"
+        if self.filesize == 0:
+            _est_size = "NA"
         else:
             _est_size = naturalsize(self.filesize)
 
             if (self.filesize - self.down_size) < 250000000:
                 if not self.is_audio:
                     self.n_workers = min(self.n_workers, 16)
-            elif 250000000 <= (self.filesize - self.down_size)< 500000000:
+            elif 250000000 <= (self.filesize - self.down_size) < 500000000:
                 if not self.is_audio:
                     self.n_workers = min(self.n_workers, 32)
             elif 500000000 <= (self.filesize - self.down_size) < 1250000000:
@@ -253,17 +258,19 @@ class AsyncDASHDownloader:
                     if info_reset.get('requested_formats'):
                         info_format = [_info_format for _info_format in info_reset['requested_formats'] if _info_format['format_id'] == self.info_dict['format_id']]
                         self.prep_reset(info_format[0])
-                    else: self.prep_reset(info_reset)
+                    else:
+                        self.prep_reset(info_reset)
                     self.n_reset += 1
                     break
                 except Exception as e:
                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]: Exception occurred when reset: {repr(e)}")
                     raise AsyncDASHDLErrorFatal("RESET fails: preparation segs failed")
-            except Exception as e:
+            except Exception:
                 raise
             finally:
                 count += 1
-                if count == 5: raise AsyncDASHDLErrorFatal("Reset failed")
+                if count == 5:
+                    raise AsyncDASHDLErrorFatal("Reset failed")
 
     def prep_reset(self, info_reset):
 
@@ -278,10 +285,10 @@ class AsyncDASHDownloader:
 
             if not (_url := fragment.get('url')):
                 _url = urljoin(self.fragment_base_url, fragment['path'])
-            _file_path =  Path(self.download_path, fragment['path'])
+            _file_path = Path(self.download_path, fragment['path'])
 
             if not self.info_frag[i]['downloaded'] or (self.info_frag[i]['downloaded'] and not self.info_frag[i]['headersize']):
-                self.frags_to_dl.append(i+1)
+                self.frags_to_dl.append(i + 1)
                 self.info_frag[i]['url'] = _url
                 self.info_frag[i]['file'] = _file_path
                 if not self.info_frag[i]['downloaded'] and self.info_frag[i]['file'].exists():
@@ -297,12 +304,13 @@ class AsyncDASHDownloader:
     async def check_speed(self):
 
         def getter(x):
-            return x*CONF_DASH_SPEED_PER_WORKER
+            return x * CONF_DASH_SPEED_PER_WORKER
 
         try:
             while True:
                 done, pending = await asyncio.wait([asyncio.create_task(self.video_downloader.reset_event.wait()), asyncio.create_task(self.video_downloader.stop_event.wait()), asyncio.create_task(self._qspeed.get())], return_when=asyncio.FIRST_COMPLETED)
-                for _el in pending: _el.cancel()
+                for _el in pending:
+                    _el.cancel()
                 await asyncio.wait(pending)
                 if any([self.video_downloader.reset_event.is_set(), self.video_downloader.stop_event.is_set()]):
                     logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] event detected")
@@ -323,7 +331,8 @@ class AsyncDASHDownloader:
                             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][check_speed] speed reset: n_el_speed[{len(self._speed)}]\n{self._speed[self._CONF_DASH_MIN_N_TO_CHECK_SPEED // 2:]}")
                             self._speed = []
 
-                    else: self._speed = self._speed[1:]
+                    else:
+                        self._speed = self._speed[1:]
 
                 await asyncio.sleep(0)
 
@@ -355,7 +364,8 @@ class AsyncDASHDownloader:
 
                 if self.video_downloader.pause_event.is_set():
                     done, pending = await asyncio.wait([asyncio.create_task(self.video_downloader.resume_event.wait()), asyncio.create_task(self.video_downloader.reset_event.wait()), asyncio.create_task(self.video_downloader.stop_event.wait())], return_when=asyncio.FIRST_COMPLETED)
-                    for _el in pending: _el.cancel()
+                    for _el in pending:
+                        _el.cancel()
                     await asyncio.wait(pending)
                     self.video_downloader.pause_event.clear()
                     self.video_downloader.resume_event.clear()
@@ -395,7 +405,7 @@ class AsyncDASHDownloader:
 
                                     _hsize = int_or_none(res.headers.get('content-length'))
                                     if _hsize:
-                                        self.info_frag[q-1]['headersize'] = _hsize
+                                        self.info_frag[q - 1]['headersize'] = _hsize
                                         async with self._LOCK:
                                             if not self.filesize:
                                                 self.filesize = _hsize * len(self.info_dict['fragments'])
@@ -405,17 +415,17 @@ class AsyncDASHDownloader:
                                         self.video_downloader.reset_event.set()
                                         raise AsyncDASHDLErrorFatal(f"Frag:{str(q)} _hsize is None")
 
-                                    if self.info_frag[q-1]['downloaded']:
+                                    if self.info_frag[q - 1]['downloaded']:
 
                                         if filename_exists:
-                                            _size = self.info_frag[q-1]['size'] = (await os.stat(filename)).st_size
-                                            if _size and  (_hsize - 100 <= _size <= _hsize + 100):
+                                            _size = self.info_frag[q - 1]['size'] = (await os.stat(filename)).st_size
+                                            if _size and (_hsize - 100 <= _size <= _hsize + 100):
 
                                                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: Already DL with hsize[{_hsize}] and size [{_size}] check[{_hsize - 100 <=_size <= _hsize + 100}]")
                                                 break
                                             else:
                                                 await f.truncate(0)
-                                                self.info_frag[q-1]['downloaded'] = False
+                                                self.info_frag[q - 1]['downloaded'] = False
                                                 async with self._LOCK:
                                                     self.n_dl_fragments -= 1
                                                     self.down_size -= _size
@@ -424,12 +434,12 @@ class AsyncDASHDownloader:
                                                         self.video_downloader.info_dl['down_size'] -= _size
                                         else:
                                             logger.warning(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}] frag with mark downloaded but file [{filename}] doesnt exists")
-                                            self.info_frag[q-1]['downloaded'] = False
+                                            self.info_frag[q - 1]['downloaded'] = False
                                             async with self._LOCK:
                                                 self.n_dl_fragments -= 1
 
-                                    if self.info_frag[q-1]['headersize'] < self._CHUNK_SIZE:
-                                        _chunk_size = self.info_frag[q-1]['headersize']
+                                    if self.info_frag[q - 1]['headersize'] < self._CHUNK_SIZE:
+                                        _chunk_size = self.info_frag[q - 1]['headersize']
                                     else:
                                         _chunk_size = self._CHUNK_SIZE
 
@@ -451,7 +461,7 @@ class AsyncDASHDownloader:
                                         async with self._LOCK:
                                             self.down_size += (_iter_bytes := res.num_bytes_downloaded - num_bytes_downloaded)
                                             if (_diff := self.down_size - self.filesize) > 0:
-                                                    self.filesize += _diff
+                                                self.filesize += _diff
                                         async with self.video_downloader.alock:
                                             if _diff > 0:
                                                 self.video_downloader.info_dl['filesize'] += _diff
@@ -465,7 +475,7 @@ class AsyncDASHDownloader:
                                         _started = time.monotonic()
 
                         _size = (await os.stat(filename)).st_size
-                        _hsize = self.info_frag[q-1]['headersize']
+                        _hsize = self.info_frag[q - 1]['headersize']
                         if (_hsize - 100 <= _size <= _hsize + 100):
                             self.info_frag[q - 1]['downloaded'] = True
                             self.info_frag[q - 1]['size'] = _size
@@ -493,10 +503,10 @@ class AsyncDASHDownloader:
                                 async with self.video_downloader.alock:
                                     self.video_downloader.info_dl['down_size'] -= _size
 
-                        #await asyncio.sleep(0)
+                        # await asyncio.sleep(0)
                         return
                     except (asyncio.exceptions.CancelledError, asyncio.CancelledError, CancelledError) as e:
-                        #logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: cancelled exception")
+                        # logger.info(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: cancelled exception")
                         self.info_frag[q - 1]['error'].append(repr(e))
                         self.info_frag[q - 1]['downloaded'] = False
                         lines = traceback.format_exception(*sys.exc_info())
@@ -532,7 +542,7 @@ class AsyncDASHDownloader:
                         self.info_frag[q - 1]['error'].append(repr(e))
                         self.info_frag[q - 1]['downloaded'] = False
                         lines = traceback.format_exception(*sys.exc_info())
-                        if not "httpx" in str(e.__class__) and not "AsyncDASHDLError" in str(e.__class__):
+                        if "httpx" not in str(e.__class__) and "AsyncDASHDLError" not in str(e.__class__):
                             logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {str(e.__class__)}")
 
                         logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:[worker-{nco}]: frag[{q}]: error {repr(e)} \n{'!!'.join(lines)}")
@@ -552,8 +562,8 @@ class AsyncDASHDownloader:
 
                         if self.info_frag[q - 1]['n_retries'] < self._MAX_RETRIES:
 
-                                await async_wait_time(random.choice([i for i in range(1,5)]))
-                                await asyncio.sleep(0)
+                            await async_wait_time(random.choice([i for i in range(1, 5)]))
+                            await asyncio.sleep(0)
 
                         else:
                             self.info_frag[q - 1]['error'].append("MaxLimitRetries")
@@ -588,7 +598,7 @@ class AsyncDASHDownloader:
                 logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] TASKS INIT")
 
                 try:
-                    #self.client = httpx.AsyncClient(proxies=self._proxy, limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
+                    # self.client = httpx.AsyncClient(proxies=self._proxy, limits=self.limits, follow_redirects=True, timeout=self.timeout, verify=self.verifycert, headers=self.headers)
 
                     self.count = self.n_workers
                     self.down_temp = self.down_size
@@ -633,12 +643,14 @@ class AsyncDASHDownloader:
 
                                     await sync_to_async(self.reset, thread_sensitive=False, executor=self.ex_dl)()
                                     self.frags_queue = asyncio.Queue()
-                                    for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
+                                    for frag in self.frags_to_dl:
+                                        self.frags_queue.put_nowait(frag)
                                     if ((_t := time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
                                         self.n_workers -= self.n_workers // 4
                                     _tstart = _t
-                                    for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
-                                    #await self.client.aclose()
+                                    for _ in range(self.n_workers):
+                                        self.frags_queue.put_nowait("KILL")
+                                    # await self.client.aclose()
                                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
                                     await asyncio.sleep(0)
                                     continue
@@ -668,11 +680,13 @@ class AsyncDASHDownloader:
                                 try:
                                     await sync_to_async(self.reset, thread_sensitive=False, executor=self.ex_dl)()
                                     self.frags_queue = asyncio.Queue()
-                                    for frag in self.frags_to_dl: self.frags_queue.put_nowait(frag)
-                                    for _ in range(self.n_workers): self.frags_queue.put_nowait("KILL")
+                                    for frag in self.frags_to_dl:
+                                        self.frags_queue.put_nowait(frag)
+                                    for _ in range(self.n_workers):
+                                        self.frags_queue.put_nowait("KILL")
                                     logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:RESET new cycle[{self.n_reset}]:OK:Pending frags {len(self.fragsnotdl())}")
                                     self.n_reset -= 1
-                                    #await self.client.aclose()
+                                    # await self.client.aclose()
                                     continue
 
                                 except Exception as e:
@@ -691,27 +705,29 @@ class AsyncDASHDownloader:
                 except Exception as e:
                     logger.exception(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}][fetch_async] error {repr(e)}")
                 finally:
-                    #await self.client.aclose()
+                    # await self.client.aclose()
                     await asyncio.sleep(0)
 
         except Exception as e:
             logger.error(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}] error {repr(e)}")
-        finally:
-            if self._proxy:
-                #self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
-                #self.video_downloader.hosts_dl[self._host]['count'] -= 1
-                _ytdl_opts = self.ytdl.params.copy()
-                _proxy = self._proxy['http://']
-                with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, quiet=False) as proxy_ytdl: #logout
-                    _info = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(smuggle_url(self.webpage_url, {'indexdl': self.video_downloader.index}), download=False))
-            #self.init_client.close()
+            self.status = "error"
+        else:
+            # if self._proxy:
+            #     # self.video_downloader.hosts_dl[self._host]['queue'].put_nowait(self._index)
+            #     # self.video_downloader.hosts_dl[self._host]['count'] -= 1
+            #     _ytdl_opts = self.ytdl.params.copy()
+            #     _proxy = self._proxy['http://']
+            #     with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, quiet=False) as proxy_ytdl:  # logout
+            #         _info = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(smuggle_url(self.webpage_url, {'indexdl': self.video_downloader.index}), download=False))
+            # # self.init_client.close()
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]:Frags DL completed")
             self.status = "init_manipulating"
-            #self.ex_dl.shutdown(wait=False, cancel_futures=True)
+            # self.ex_dl.shutdown(wait=False, cancel_futures=True)
+
     async def clean_when_error(self):
 
         for f in self.info_frag:
-            if f['downloaded'] == False:
+            if f['downloaded'] is False:
 
                 if (await asyncio.to_thread(f['file'].exists)):
                     await asyncio.to_thread(f['file'].unlink)
@@ -719,7 +735,7 @@ class AsyncDASHDownloader:
     def sync_clean_when_error(self):
 
         for f in self.info_frag:
-            if f['downloaded'] == False:
+            if f['downloaded'] is False:
                 if f['file'].exists():
                     f['file'].unlink()
 
@@ -737,17 +753,18 @@ class AsyncDASHDownloader:
                         _skipped += 1
                         continue
                     if not f['size']:
-                        if f['file'].exists(): f['size'] = f['file'].stat().st_size
+                        if f['file'].exists():
+                            f['size'] = f['file'].stat().st_size
                         if f['size'] and (f['headersize'] - 100 <= f['size'] <= f['headersize'] + 100):
 
                             with open(f['file'], 'rb') as source:
                                 dest.write(source.read())
-                        else: raise AsyncDASHDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {f}")
+                        else:
+                            raise AsyncDASHDLError(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: error when ensambling: {f}")
                     else:
                         with open(f['file'], 'rb') as source:
-                                dest.write(source.read())
-
-        except Exception as e:
+                            dest.write(source.read())
+        except Exception:
             if self.filename.exists():
                 self.filename.unlink()
             lines = traceback.format_exception(*sys.exc_info())
@@ -757,7 +774,7 @@ class AsyncDASHDownloader:
             raise
 
         if self.filename.exists():
-            rmtree(str(self.download_path),ignore_errors=True)
+            rmtree(str(self.download_path), ignore_errors=True)
             self.status = "done"
             logger.debug(f"[{self.info_dict['id']}][{self.info_dict['title']}][{self.info_dict['format_id']}]: [ensamble_file] file ensambled")
             if _skipped:
@@ -770,14 +787,14 @@ class AsyncDASHDownloader:
     def fragsnotdl(self):
         res = []
         for frag in self.info_frag:
-            if (frag['downloaded'] == False) and not frag.get('skipped', False):
+            if (frag['downloaded'] is False) and not frag.get('skipped', False):
                 res.append(frag['frag'])
         return res
 
     def fragsdl(self):
         res = []
         for frag in self.info_frag:
-            if (frag['downloaded'] == True) or frag.get('skipped', False):
+            if (frag['downloaded'] is True) or frag.get('skipped', False):
                 res.append({'frag': frag['frag'], 'headersize': frag['headersize'], 'size': frag['size']})
         return res
 
@@ -804,10 +821,11 @@ class AsyncDASHDownloader:
             _down_size = self.down_size
             _new = time.monotonic()
             _speed = (_down_size - self.down_temp) / (_new - self.started)
-            _speed_ema = (_diff_size_ema := self.ema_s(_down_size - self.down_temp)) / (_diff_time_ema := self.ema_t(_new - self.started))
+            _speed_ema = (self.ema_s(_down_size - self.down_temp)) / (self.ema_t(_new - self.started))
 
             if not any([self.video_downloader.reset_event and self.video_downloader.reset_event.is_set(), self.video_downloader.stop_event and self.video_downloader.stop_event.is_set(), self.video_downloader.pause_event and self.video_downloader.pause_event.is_set()]):
-                if self._qspeed: self._qspeed.put_nowait(_speed)
+                if self._qspeed:
+                    self._qspeed.put_nowait(_speed)
 
             if self.video_downloader.pause_event and self.video_downloader.pause_event.is_set():
                 _speed_str = "--"
@@ -816,11 +834,13 @@ class AsyncDASHDownloader:
                 _speed_str = f'{naturalsize(_speed_ema,True)}ps'
                 if _speed_ema and self.filesize:
 
-                    if (_est_time := (self.filesize - _down_size)/_speed_ema) < 3600:
+                    if (_est_time := (self.filesize - _down_size) / _speed_ema) < 3600:
                         _eta = datetime.timedelta(seconds=_est_time)
                         _eta_str = ":".join([_item.split(".")[0] for _item in f"{_eta}".split(":")[1:]])
-                    else: _eta_str = "--"
-                else: _eta_str = "--"
+                    else:
+                        _eta_str = "--"
+                else:
+                    _eta_str = "--"
 
             _progress_str = f'{(_down_size/self.filesize)*100:5.2f}%' if self.filesize else '-----'
             self.down_temp = _down_size
@@ -831,7 +851,9 @@ class AsyncDASHDownloader:
         elif self.status == "init_manipulating":
             return f"[DASH][{self.info_dict['format_id']}]: Waiting for Ensambling \n"
         elif self.status == "manipulating":
-            if self.filename.exists(): _size = self.filename.stat().st_size
-            else: _size = 0
+            if self.filename.exists():
+                _size = self.filename.stat().st_size
+            else:
+                _size = 0
             _str = f'[{naturalsize(_size)}/{naturalsize(self.filesize)}]({(_size/self.filesize)*100:.2f}%)' if self.filesize else f'[{naturalsize(_size)}]'
             return f"[DASH][{self.info_dict['format_id']}]: Ensambling {_str} \n"

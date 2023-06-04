@@ -103,7 +103,7 @@ def get_list_interl(res, asyncdl, _pre):
 
                         for j, el in enumerate(group):
                             _interl.pop(_interl.index(el))
-                            _interl.insert(_workers*(j+1) + i, el)
+                            _interl.insert(_workers * (j + 1) + i, el)
                     continue
                 else:
                     logger.info(f"{_pre}[get_list_interl] tune in NOK, try with less num of workers")

@@ -323,9 +323,9 @@ class AsyncARIA2CDownloader:
                         self.vid_dl.hosts_dl.update({self._host: {'count': 0, 'queue': queue_}})
 
                 _res = await async_waitfortasks(
-                        self.vid_dl.hosts_dl[self._host]['queue'].get(),
-                        events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
-                        background_tasks=self.background_tasks)
+                    self.vid_dl.hosts_dl[self._host]['queue'].get(),
+                    events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
+                    background_tasks=self.background_tasks)
 
                 if _res.get('event'):
                     return
@@ -346,7 +346,7 @@ class AsyncARIA2CDownloader:
                     _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
 
                 if self._mode == 'simple':
-                    _proxy_port = CONF_PROXIES_BASE_PORT+self._index_proxy*100
+                    _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
                     self._proxy = f'http://127.0.0.1:{_proxy_port}'
                     self.opts.set('all-proxy', self._proxy)
 
@@ -379,7 +379,7 @@ class AsyncARIA2CDownloader:
                     await asyncio.sleep(0)
 
                 elif self._mode == 'group':
-                    _port = CONF_PROXIES_BASE_PORT+self._index_proxy*100+50
+                    _port = CONF_PROXIES_BASE_PORT + self._index_prox * 100 + 50
                     self._proxy = f'http://127.0.0.1:{_port}'
                     self.opts.set('all-proxy', self._proxy)
 
@@ -401,7 +401,7 @@ class AsyncARIA2CDownloader:
                         assert isinstance(self._index_proxy, int)
 
                         _ytdl_opts = self.ytdl.params.copy()
-                        _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy*100+i
+                        _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100 + i
                         _proxy = f'http://127.0.0.1:{_proxy_port}'
                         logger.debug(f'{self.premsg} proxy ip{i} {_proxy}')
 
@@ -517,7 +517,7 @@ class AsyncARIA2CDownloader:
         def perc_below(_list):
             total = len(_list)
             _below = sum([1 for el in _list if el[0] < getter(el[1])])
-            return int((_below/total)*100)
+            return int((_below / total) * 100)
 
         _speed = []
 
@@ -560,7 +560,7 @@ class AsyncARIA2CDownloader:
                         break
 
                     else:
-                        _speed[0:_min_check - _index//2 + 1] = ()
+                        _speed[0:_min_check - _index // 2 + 1] = ()
                         await asyncio.sleep(0)
 
                 else:

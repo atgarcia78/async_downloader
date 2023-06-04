@@ -151,9 +151,9 @@ class AsyncHTTPDownloader:
         self.n_parts: int = self.vid_dl.info_dl.get("n_workers", 16)
 
         self.premsg = ''.join([
-                f'[{self.info_dict["id"]}]',
-                f'[{self.info_dict["title"]}]',
-                f'[{self.info_dict["format_id"]}]'])
+            f'[{self.info_dict["id"]}]',
+            f'[{self.info_dict["title"]}]',
+            f'[{self.info_dict["format_id"]}]'])
 
         self.init()
 
@@ -570,13 +570,12 @@ class AsyncHTTPDownloader:
     async def fetch(self, i):
 
         client = httpx.AsyncClient(
-                #  proxies=try_get(self.proxies, lambda x: x[i]),
-                limits=self.limits,
-                follow_redirects=True,
-                timeout=self.timeout,
-                verify=self.verifycert,
-                headers=self.headers,
-            )
+            #  proxies=try_get(self.proxies, lambda x: x[i]),
+            limits=self.limits,
+            follow_redirects=True,
+            timeout=self.timeout,
+            verify=self.verifycert,
+            headers=self.headers)
 
         try:
 
@@ -860,7 +859,7 @@ class AsyncHTTPDownloader:
 
         if await os.path.exists(self.filename):
             armtree = sync_to_async(
-                    partial(rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_dl)
+                partial(rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_dl)
             await armtree(self.download_path)
             self.status = "done"
             logger.debug(f"{self.premsg}[ensamble_file] file ensambled")
@@ -920,9 +919,9 @@ class AsyncHTTPDownloader:
                 else:
                     _eta_smooth_str = "--"
 
-            _temp_size = _temp.get("down_size", self.down_size)/self.filesize
+            _temp_size = _temp.get("down_size", self.down_size) / self.filesize
             _progress_str = (
-                f'{_temp_size*100:5.2f}%'
+                f'{_temp_size * 100:5.2f}%'
                 if self.filesize
                 else "-----"
             )
