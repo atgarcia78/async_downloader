@@ -57,11 +57,11 @@ from urllib.parse import urlparse
 
 try:
     import PySimpleGUI
-    import psutil
 except Exception:
     PySimpleGUI = None
 
 import httpx
+import psutil
 
 from asgiref.sync import (
     sync_to_async,
@@ -78,8 +78,6 @@ except Exception:
 
 from importlib.machinery import SOURCE_SUFFIXES, FileFinder, SourceFileLoader
 from importlib.util import module_from_spec
-
-
 _loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
 
 
@@ -92,8 +90,6 @@ def load_module(name, path: str):
     spec.loader.exec_module(mod)
     return mod
 
-
-assert cast
 
 MAXLEN_TITLE = 150
 
@@ -241,7 +237,6 @@ class ProgressTimer:
         return (f"{self.elapsed_seconds():.2f}")
 
     def reset(self):
-        # self._last_ts += self.elapsed_seconds()
         self._last_ts = self.TIMER_FUNC()
 
     def elapsed_seconds(self) -> float:
@@ -382,7 +377,7 @@ class run_operation_in_executor_from_loop:
     decorator to run a sync function from asyncio loop
     with the use loop.run_in_executor method.
     The func with this decorator returns without blocking
-    a mysynasyncevent to stop the exeuction of the func, and a future
+    a mysynasyncevent to stop the exeuction of the func, and a future/task
     that wrappes the function
     '''
 
@@ -408,6 +403,15 @@ class run_operation_in_executor_from_loop:
 # """                     SYNC ASYNC                     """
 ############################################################
 
+def add_task(coro, bktasks, name=None):
+    if not isinstance(coro, asyncio.Task):
+        _task = asyncio.create_task(coro, name=name)
+    else:
+        _task = coro
+    bktasks.add(_task)
+    _task.add_done_callback(bktasks.discard)
+    return _task
+
 
 def wait_for_either(events, timeout=None):
 
@@ -430,16 +434,6 @@ def wait_for_either(events, timeout=None):
             elif check_timeout(start, timeout):
                 return 'TIMEOUT'
             time.sleep(CONF_INTERVAL_GUI)
-
-
-def add_task(coro, bktasks, name=None):
-    if not isinstance(coro, asyncio.Task):
-        _task = asyncio.create_task(coro, name=name)
-    else:
-        _task = coro
-    bktasks.add(_task)
-    _task.add_done_callback(bktasks.discard)
-    return _task
 
 
 async def async_wait_for_any(events, timeout=None) -> dict:
@@ -709,115 +703,34 @@ class ActionNoYes(argparse.Action):
 
 def init_argparser():
 
-    parser = argparse.ArgumentParser(
-        description="Async downloader videos / playlist videos HLS / HTTP"
-    )
-    parser.add_argument(
-        "-w",
-        help="Number of DL workers",
-        default="5",
-        type=int
-    )
-    parser.add_argument(
-        "--winit",
-        help="Number of init workers, default is same number for DL workers",
-        default="10",
-        type=int,
-    )
-    parser.add_argument(
-        "-p", "--parts",
-        help="Number of workers for each DL",
-        default="16",
-        type=int
-    )
-    parser.add_argument(
-        "--format",
-        help="Format preferred of the video in youtube-dl format",
-        default="bv*+ba/b",
-        type=str,
-    )
-    parser.add_argument(
-        "--sort",
-        help="Formats sort preferred",
-        default="ext:mp4:m4a",
-        type=str
-    )
-    parser.add_argument(
-        "--index",
-        help="index of a video in a playlist",
-        default=None,
-        type=int
-    )
-    parser.add_argument(
-        "--file",
-        help="jsonfiles",
-        action="append",
-        dest="collection_files",
-        default=[]
-    )
-    parser.add_argument(
-        "--checkcert",
-        help="checkcertificate",
-        action="store_true",
-        default=False
-    )
-    parser.add_argument(
-        "--ytdlopts",
-        help="init dict de conf",
-        default="",
-        type=str
-    )
-    parser.add_argument(
-        "--proxy",
-        action=ActionNoYes,
-        default=None
-    )
-    parser.add_argument(
-        "--useragent",
-        default=CONF_FIREFOX_UA,
-        type=str
-    )
-    parser.add_argument(
-        "--first",
-        default=None,
-        type=int
-    )
-    parser.add_argument(
-        "--last",
-        default=None,
-        type=int
-    )
-    parser.add_argument(
-        "--nodl", help="not download", action="store_true", default=False
-    )
+    parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
+    parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
+    parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="10", type=int)
+    parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
+    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
+    parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str)
+    parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
+    parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
+    parser.add_argument("--checkcert", help="checkcertificate", action="store_true", default=False)
+    parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
+    parser.add_argument("--proxy", action=ActionNoYes, default=None)
+    parser.add_argument("--useragent", default=CONF_FIREFOX_UA, type=str)
+    parser.add_argument("--first", default=None, type=int)
+    parser.add_argument("--last", default=None, type=int)
+    parser.add_argument("--nodl", help="not download", action="store_true", default=False)
     parser.add_argument("--headers", default="", type=str)
     parser.add_argument("-u", action="append", dest="collection", default=[])
-    parser.add_argument(
-        "--dlcaching",
-        help="whether to force to check external storage or not",
-        action=ActionNoYes,
-        default=False,
-    )
+    parser.add_argument("--dlcaching", help="whether to force to check external storage or not", action=ActionNoYes, default=False)
     parser.add_argument("--path", default=None, type=str)
     parser.add_argument("--caplinks", action="store_true", default=False)
-    parser.add_argument(
-        "-v", "--verbose", help="verbose", action="store_true", default=False
-    )
-    parser.add_argument("--vv", help="verbose plus", action="store_true",
-                        default=False)
-    parser.add_argument(
-        "-q", "--quiet", help="quiet", action="store_true", default=False
-    )
-    parser.add_argument(
-        "--aria2c",
-        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
-        action=ActionNoYes,
-        default="6800"
-    )
+    parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
+    parser.add_argument("--vv", help="verbose plus", action="store_true", default=False)
+    parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
+    parser.add_argument("--aria2c", action=ActionNoYes, default="6800",
+                        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable")
     parser.add_argument("--subt", action=ActionNoYes, default=True)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
-    parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"],
-                        default="aria2c")
+    parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"], default="aria2c")
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=False)
     parser.add_argument("--no-embed", action="store_true", default=False)
@@ -912,9 +825,7 @@ def init_aria2c(args):
     _proc.poll()
 
     if _proc.returncode is not None or args.rpcport not in traverse_obj(get_listening_tcp(), ('aria2c', ..., 'port')):
-
-        raise Exception(
-            f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
+        raise Exception(f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
 
     logger.info(f"[init_aria2c] running on port: {args.rpcport}")
 
@@ -974,8 +885,7 @@ class myIP:
             encoding="utf-8",
             capture_output=True,
         ).stdout
-        _tavg = try_get(re.findall(r"= [^\/]+\/([^\/]+)\/", res),
-                        lambda x: float(x[0]))
+        _tavg = try_get(re.findall(r"= [^\/]+\/([^\/]+)\/", res), lambda x: float(x[0]))
         return {"ip": ip, "time": _tavg}
 
     @classmethod
