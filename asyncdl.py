@@ -558,8 +558,9 @@ class AsyncDL:
                                     "error": [],
                                 }
 
-                                await self._prepare_for_dl(_elurl)
-                                self.list_videos.append(_entry)
+                                # await self._prepare_for_dl(_elurl)
+                                await self.WorkersInit.add_init(_elurl)
+                                # self.list_videos.append(_entry)
 
                         else:
                             if not self.url_pl_list.get(_elurl):
@@ -868,6 +869,9 @@ class AsyncDL:
                     await self.WorkersInit.add_init(url)
                 self.num_videos_to_check += 1
                 self.num_videos_pending += 1
+            return True
+        else:
+            return False
 
     async def _prepare_entry_pl_for_dl(self, entry: dict) -> None:
 
@@ -1026,7 +1030,7 @@ class AsyncDL:
 
         try:
             if vid.get("_type", "video") != "video":
-
+                _check_prepare = False
                 try:
                     _ext_info = try_get(vid.get("original_url"), lambda x: {"original_url": x}) or {}
                     logger.debug(f"{_pre} extra_info={_ext_info or vid}")
@@ -1080,11 +1084,14 @@ class AsyncDL:
 
             else:
                 info = vid
+                _check_prepare = True
 
             if (_type := info.get("_type", "video")) == "video":
 
                 if not self.STOP.is_set():
-                    await self.get_dl(url_key)
+                    if _check_prepare or await self._prepare_for_dl(url_key, put=False):
+                        await self.get_dl(url_key)
+                        self.list_videos.append(self.info_videos[url_key]["video_info"])
 
             elif _type == "playlist":
 
@@ -1124,9 +1131,10 @@ class AsyncDL:
 
                                 else:
                                     try:
-                                        await self._prepare_for_dl(_url, put=False)
                                         if not self.STOP.is_set():
-                                            await self.get_dl(_url)
+                                            if await self._prepare_for_dl(_url, put=False):
+                                                self.list_videos.append(self.info_videos[_url]["video_info"])
+                                                await self.get_dl(_url)
                                     except Exception:
                                         raise
 
