@@ -57,11 +57,11 @@ from urllib.parse import urlparse
 
 try:
     import PySimpleGUI
+    import psutil
 except Exception:
     PySimpleGUI = None
 
 import httpx
-import psutil
 
 from asgiref.sync import (
     sync_to_async,
