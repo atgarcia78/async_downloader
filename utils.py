@@ -1998,7 +1998,7 @@ if yt_dlp:
             "ignoreerrors": False,
             "no_abort_on_errors": False,
             "extract_flat": "in_playlist",
-            "color": {},
+            "color": {'stderr': 'no_color', 'stdout': 'no_color'},
             "usenetrc": True,
             "skip_download": True,
             "writesubtitles": True,
