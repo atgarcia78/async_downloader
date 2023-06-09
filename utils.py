@@ -98,7 +98,7 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
-CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/115.0"
+CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/116.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -2359,10 +2359,6 @@ def init_config():
 ############################################################
 # """                     PYSIMPLEGUI                    """
 ############################################################
-
-
-class TimeoutOccurred(Exception):
-    pass
 
 
 class CountDowns:
