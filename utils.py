@@ -1621,8 +1621,19 @@ if yt_dlp:
             return await sync_to_async(
                 self.__exit__, thread_sensitive=False, executor=self.executor)(*args)
 
+        def get_extractor(self, url):
+            ies = self._ies
+            for ie_key, ie in ies.items():
+                try:
+                    if ie.suitable(url) and (ie_key != "Generic"):
+                        return (ie_key, self.get_info_extractor(ie_key))
+                except Exception as e:
+                    logger = logging.getLogger('asyncdl')
+                    logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
+            return ("Generic", self.get_info_extractor("Generic"))
+
         def is_playlist(self, url):
-            ie_key, ie = get_extractor(url, self)
+            ie_key, ie = self.get_extractor(url)
             if ie_key == "Generic":
                 return (True, ie_key)
             else:
