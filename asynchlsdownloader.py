@@ -128,6 +128,7 @@ class AsyncHLSDownloader:
     _QUEUE = {}
     _INPUT = Queue()
     _INRESET_403 = InReset403()
+    _qproxies = None
 
     def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
 
@@ -169,17 +170,20 @@ class AsyncHLSDownloader:
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
             self.special_extr: bool = False
             if self.enproxy:
-                _seq = zip(
-                    random.sample(
-                        range(CONF_PROXIES_MAX_N_GR_HOST),
-                        CONF_PROXIES_MAX_N_GR_HOST),
-                    random.sample(
-                        range(CONF_PROXIES_MAX_N_GR_HOST),
-                        CONF_PROXIES_MAX_N_GR_HOST))
+                with AsyncHLSDownloader._CLASSLOCK:
+                    if not AsyncHLSDownloader._qproxies:
 
-                self._qproxies = put_sequence(Queue(), _seq)
+                        _seq = zip(
+                            random.sample(
+                                range(CONF_PROXIES_MAX_N_GR_HOST),
+                                CONF_PROXIES_MAX_N_GR_HOST),
+                            random.sample(
+                                range(CONF_PROXIES_MAX_N_GR_HOST),
+                                CONF_PROXIES_MAX_N_GR_HOST))
 
-                el1, el2 = cast(tuple, self._qproxies.get())
+                        AsyncHLSDownloader._qproxies = put_sequence(Queue(), _seq)
+
+                el1, el2 = cast(tuple, AsyncHLSDownloader._qproxies.get())
                 _proxy_port = CONF_PROXIES_BASE_PORT + el1 * 100 + el2
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
                 self._proxy = {"http://": _proxy, "https://": _proxy}
@@ -201,6 +205,20 @@ class AsyncHLSDownloader:
                 f'[{self.info_dict["format_id"]}]'])
 
             self.count_msg = ''
+
+            if self.enproxy:
+                try:
+                    if 'gvdblog.com' not in (_url := self.info_dict['original_url']):
+                        _url = self.info_dict['webpage_url']
+                    info = self.multi_extract_info(_url, proxy=_proxy)
+                    if info:
+                        if info.get('entries') and (_pl_index := self.info_dict['playlist_index']):
+                            info = info['entries'][_pl_index - 1]
+                        new_info = get_format_id(info, self.info_dict["format_id"])
+                        self.info_dict.update(new_info)
+                except Exception as e:
+                    logger.exception(f'[init info proxy] {repr(e)}')
+
             self.init()
 
         except Exception as e:
@@ -697,6 +715,8 @@ class AsyncHLSDownloader:
             else:
                 _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
                 if _info:
+                    if _info.get('entries') and (_pl_index := self.info_dict['playlist_index']):
+                        _info = _info['entries'][_pl_index - 1]
                     info_reset = get_format_id(_info, self.info_dict["format_id"])
 
             self.check_stop()
@@ -750,11 +770,11 @@ class AsyncHLSDownloader:
 
                 logger.info(f"{_pre} fin wait in reset cause 403")
 
-            if self.enproxy:
-                el1, el2 = cast(tuple, self._qproxies.get())
-                _proxy_port = CONF_PROXIES_BASE_PORT + el1 * 100 + el2
-                _proxy = f"http://127.0.0.1:{_proxy_port}"
-                self._proxy = {"http://": _proxy, "https://": _proxy}
+            # if self.enproxy:
+            #     el1, el2 = cast(tuple, AsyncHLSDownloader._qproxies.get())
+            #     _proxy_port = CONF_PROXIES_BASE_PORT + el1 * 100 + el2
+            #     _proxy = f"http://127.0.0.1:{_proxy_port}"
+            #     self._proxy = {"http://": _proxy, "https://": _proxy}
 
             # _wurl = self.info_dict["webpage_url"]
 

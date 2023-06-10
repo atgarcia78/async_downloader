@@ -259,16 +259,53 @@ class ProgressTimer:
                 time.sleep(0.2)
 
 
+class EMA:
+    """
+    Exponential moving average: smoothing to give progressively lower
+    weights to older values.
+
+    Parameters
+    ----------
+    smoothing  : float, optional
+        Smoothing factor in range [0, 1], [default: 0.3].
+        Increase to give more weight to recent values.
+        Ranges from 0 (yields old value) to 1 (yields new value).
+    """
+
+    def __init__(self, smoothing=0.3):
+        self.alpha = smoothing
+        self.last = 0
+        self.calls = 0
+
+    def reset(self):
+        self.last = 0
+        self.calls = 0
+
+    def __call__(self, x=None):
+        """
+        Parameters
+        ----------
+        x  : float
+            New value to include in EMA.
+        """
+        beta = 1 - self.alpha
+        if x is not None:
+            self.last = self.alpha * x + beta * self.last
+            self.calls += 1
+        return self.last / (1 - beta**self.calls) if self.calls else self.last
+
+
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
 
-    def __init__(self, initial_bytes: int = 0, upt_time: Union[int, float] = CONF_INTERVAL_GUI,
+    def __init__(self, initial_bytes: int = 0, upt_time: Union[int, float] = 1.0,
                  ave_time: Union[int, float] = 5.0):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
         self.last_value = None
         self.UPDATE_TIMESPAN_S = float(upt_time)
         self.AVERAGE_TIMESPAN_S = float(ave_time)
+        self.ema_value = EMA(smoothing=0.01)
 
     def __call__(self, byte_counter: int):
         time_now = self.TIMER_FUNC()
@@ -286,7 +323,7 @@ class SpeedometerMA:
         if self.timer.has_elapsed(seconds=self.UPDATE_TIMESPAN_S):
             self.last_value = speed
 
-        return self.last_value or speed
+        return self.ema_value(self.last_value or speed)
 
 
 class SmoothETA:
@@ -1016,10 +1053,17 @@ class TorGuardProxies:
 
         for proc in proc_gost:
             proc.terminate()
-            proc.wait()
-            proc.stdout.close()
-            proc.stderr.close()
-            proc.stdin.close()
+            try:
+                if proc.stdout:
+                    proc.stdout.close()
+                if proc.stderr:
+                    proc.stderr.close()
+                if proc.stdin:
+                    proc.stdin.close()
+            except Exception:
+                pass
+            finally:
+                proc.wait()
 
         if _res_bad:
             cached_res = cls.CONF_TORPROXIES_NOK
@@ -1173,14 +1217,18 @@ class TorGuardProxies:
                 TorGuardProxies.logger.exception(repr(e))
                 if proc_gost:
                     for proc in proc_gost:
+                        proc.terminate()
                         try:
-                            proc.terminate()
-                            proc.wait()
-                            proc.stdout.close()
-                            proc.stderr.close()
-                            proc.stdin.close()
+                            if proc.stdout:
+                                proc.stdout.close()
+                            if proc.stderr:
+                                proc.stderr.close()
+                            if proc.stdin:
+                                proc.stdin.close()
                         except Exception:
                             pass
+                        finally:
+                            proc.wait()
                 return [], {}
         finally:
             TorGuardProxies.logger.info("[init_proxies] done")
@@ -3445,32 +3493,51 @@ try:
                 if self.proc_gost:
                     self.logger.debug('[close] gost')
                     for proc in self.proc_gost:
+                        proc.terminate()
                         try:
-                            proc.terminate()
+                            if proc.stdout:
+                                proc.stdout.close()
+                            if proc.stderr:
+                                proc.stderr.close()
+                            if proc.stdin:
+                                proc.stdin.close()
+                        except Exception:
+                            pass
+                        finally:
                             await sync_to_async(proc.wait, thread_sensitive=False, executor=self.exe)()
-                            proc.stdout.close()
-                            proc.stderr.close()
-                            proc.stdin.close()
                             await asyncio.sleep(0)
-                        except BaseException as e:
-                            self.logger.exception(f'[close] {repr(e)}')
 
             if self.proc_aria2c:
                 self.logger.debug('[close] aria2c')
                 self.proc_aria2c.terminate()
-                await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
-                self.proc_aria2c.stdout.close()
-                self.proc_aria2c.stderr.close()
-                self.proc_aria2c.stdin.close()
+                try:
+                    if self.proc_aria2c.stdout:
+                        self.proc_aria2c.stdout.close()
+                    if self.proc_aria2c.stderr:
+                        self.proc_aria2c.stderr.close()
+                    if self.proc_aria2c.stdin:
+                        self.proc_aria2c.stdin.close()
+                except Exception:
+                    pass
+                finally:
+                    await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
 
         async def reset_aria2c(self):
             if self.proc_aria2c:
                 self.logger.debug('[close] aria2c')
                 self.proc_aria2c.terminate()
-                await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
-                self.proc_aria2c.stdout.close()
-                self.proc_aria2c.stderr.close()
-                self.proc_aria2c.stdin.close()
+                try:
+                    if self.proc_aria2c.stdout:
+                        self.proc_aria2c.stdout.close()
+                    if self.proc_aria2c.stderr:
+                        self.proc_aria2c.stderr.close()
+                    if self.proc_aria2c.stdin:
+                        self.proc_aria2c.stdin.close()
+                except Exception:
+                    pass
+                finally:
+                    await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+
                 ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
                 _task_aria2c = [add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)]
                 done, _ = await asyncio.wait(_task_aria2c)
@@ -3591,11 +3658,26 @@ try:
             self._data_for_scan = {}  # data ready for scan
             self._last_time_sync = {}
 
+    def upartial(f, *args, **kwargs):
+        """
+        An upgraded version of partial which accepts not named parameters
+        """
+        params = f.__code__.co_varnames[1:]
+        kwargs = {**{param: arg for param, arg in zip(params, args)}, **kwargs}
+        return functools.partial(f, **kwargs)
+
+    import xattr
+
+    getxattr = lambda x: upartial(xattr.getxattr, attr='user.dublincore.description')(x).decode()
+    # getxattr = lambda x: try_get(upartial(xattr.getxattr, attr='user.dublincore.description')(x), lambda y: y.decode())
+
+    def _getxattr(f):
+        try:
+            return re.sub(r'(\?alt=yes$)', '', getxattr(f))
+        except OSError:
+            pass
+
     class LocalVideos:
-
-        import xattr
-
-        getxattr = functools.partial(xattr.getxattr)
 
         def __init__(self, asyncdl, deep=False):
             self.asyncdl = asyncdl
@@ -3687,13 +3769,13 @@ try:
                                 if not force_local:
                                     if not file.is_symlink():
                                         try:
-                                            _xattr_desc = cast(bytes, self.getxattr(
-                                                file, 'user.dublincore.description')).decode()
-                                            if not self._videoscached.get(_xattr_desc):
-                                                self._videoscached.update({_xattr_desc: str(file)})
-                                            else:
-                                                self._repeated_by_xattr.append(
-                                                    {_xattr_desc: [self._videoscached[_xattr_desc], str(file)]})
+                                            _xattr_desc = _getxattr(file)
+                                            if _xattr_desc:
+                                                if not self._videoscached.get(_xattr_desc):
+                                                    self._videoscached.update({_xattr_desc: str(file)})
+                                                else:
+                                                    self._repeated_by_xattr.append(
+                                                        {_xattr_desc: [self._videoscached[_xattr_desc], str(file)]})
                                         except Exception:
                                             pass
 
@@ -3963,40 +4045,115 @@ try:
             _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
             return _ord_res_dict
 
+    def check_if_dl(info_dict, videos=None):
+
+        if not videos:
+            ls = LocalStorage()
+            ls.load_info()
+            videos = ls._data_for_scan
+        if isinstance(info_dict, dict):
+            info = [info_dict]
+            if info_dict.get('entries'):
+                info = info_dict['entries']
+
+            res = {}
+            for vid in info:
+                if (not (_id := vid.get("id")) or
+                        not (_title := vid.get("title"))):
+                    continue
+
+                _title = sanitize_filename(_title, restricted=True).upper()
+                vid_name = f"{_id}_{_title}"
+                res.update({vid_name: videos.get(vid_name)})
+        else:
+            if isinstance(info_dict, str):
+                info = [info_dict]
+            else:
+                info = info_dict
+            res = {}
+            for vid in info:
+                vidname = sanitize_filename(vid, restricted=True).upper()
+                res[vidname] = {}
+                for key in videos.keys():
+                    if vidname in key:
+                        res[vidname].update({key: videos[key]})
+        return res
+
+    def change_title(info_dict, videos=None):
+        if not videos:
+            ls = LocalStorage()
+            ls.load_info()
+            videos = ls._data_for_scan
+        if isinstance(info_dict, dict):
+            info = [info_dict]
+            if info_dict.get('entries'):
+                info = info_dict['entries']
+
+            res = {}
+            for vid in info:
+                if (not (_id := vid.get("id")) or
+                        not (_title := vid.get("title"))):
+                    continue
+
+                _title = sanitize_filename(_title, restricted=True)
+                vid_name = _id
+                res[vid_name] = {'title': _title}
+                for key in videos.keys():
+                    if key.startswith(_id + '_'):
+                        file = Path(videos[key])
+                        res[vid_name]['file'] = file
+                        res[vid_name]['file_name'] = file.stem
+                        res[vid_name]['file_name_def'] = f'{vid_name}_{_title}'
+                        if res[vid_name]['file_name'] != res[vid_name]['file_name_def']:
+                            res[vid_name]['file_change'] = Path(file.parent, res[vid_name]['file_name_def'] + file.suffix)
+                        break
+            return res
+
+    # tools for gvd files, xattr, move files etc
+    def dl_gvd_best_videos(date, ytdl):
+        from utils import naturalsize
+        url = 'https://www.gvdblog.com/search?date=' + date
+        resleg = ytdl.extract_info(url, download=False)
+        res = ytdl.extract_info(url + '&alt=yes', download=False)
+        urls_dl = []
+        for i, ent in enumerate(res['entries']):
+            entleg = resleg['entries'][i]
+            if ent['format_id'].startswith('hls') and not entleg['format_id'].startswith('hls'):
+                entfilesize = ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8)
+                entlegfilesize = entleg.get('filesize')
+                if not entlegfilesize:
+                    print(i, ent['title'], 'no filesize in legacy')
+                    continue
+                if entfilesize >= 1.5 * entlegfilesize:
+                    print(i, ent['format_id'], ent['id'], ent['title'], naturalsize(ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8)), naturalsize(entleg['filesize']))
+                    print(ent['original_url'])
+                    urls_dl.append(ent['original_url'] + '?alt=yes')
+        print(urls_dl)
+        cmd = f'--path SearchGVDBlogPlaylistdate={date}_alt=yes -u ' + ' -u '.join(urls_dl)
+        print(cmd)
+        return cmd
+
+    def get_files_same_meta(folder1, folder2):
+        from collections import defaultdict
+        files = defaultdict(list)
+        for folder in (folder1, folder2):
+            for file in Path(folder).rglob('*'):
+                if file.is_file() and not file.is_symlink() and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.zip'):
+                    files[_getxattr(str(file)) or 'nometa'].append(str(file))
+
+        return files
+
+    def move_gvd_files_same_meta(date):
+        info = get_files_same_meta(f'/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}', f'/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}_alt=yes')
+        _share = f'/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}/share'
+        os.mkdir(_share)
+
+        for key, val in info.items():
+            if len(val) > 1:
+                print(key, '\n\t', val[0], '\n\t', val[1], '\n')
+                shutil.move(val[0], _share)
+                shutil.move(val[1], _share)
+
+
 except ModuleNotFoundError:
     pass
-
-
-def check_if_dl(info_dict, videos=None):
-
-    if not videos:
-        ls = LocalStorage()
-        ls.load_info()
-        videos = ls._data_for_scan
-    if isinstance(info_dict, dict):
-        info = [info_dict]
-        if info_dict.get('entries'):
-            info = info_dict['entries']
-
-        res = {}
-        for vid in info:
-            if (not (_id := vid.get("id")) or
-                    not (_title := vid.get("title"))):
-                continue
-
-            _title = sanitize_filename(_title, restricted=True).upper()
-            vid_name = f"{_id}_{_title}"
-            res.update({vid_name: videos.get(vid_name)})
-    else:
-        if isinstance(info_dict, str):
-            info = [info_dict]
-        else:
-            info = info_dict
-        res = {}
-        for vid in info:
-            vidname = sanitize_filename(vid, restricted=True).upper()
-            res[vidname] = {}
-            for key in videos.keys():
-                if vidname in key:
-                    res[vidname].update({key: videos[key]})
-    return res

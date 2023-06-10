@@ -79,6 +79,16 @@ class VideoDownloader:
         else:
             _download_path = Path(self.args.path, self.info_dict['id'])
 
+        self.pause_event = MySyncAsyncEvent("pause")
+        self.resume_event = MySyncAsyncEvent("resume")
+        self.stop_event = MySyncAsyncEvent("stop")
+        self.end_tasks = MySyncAsyncEvent("end_tasks")
+        self.reset_event = MySyncAsyncEvent("reset")
+
+        self.alock = asyncio.Lock()
+
+        self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
+
         self.info_dl = {
 
             'id': self.info_dict['id'],
@@ -137,16 +147,6 @@ class VideoDownloader:
             'down_size': sum([dl.down_size for dl in downloaders]),
             'status': _status
         })
-
-        self.pause_event = MySyncAsyncEvent("pause")
-        self.resume_event = MySyncAsyncEvent("resume")
-        self.stop_event = MySyncAsyncEvent("stop")
-        self.end_tasks = MySyncAsyncEvent("end_tasks")
-        self.reset_event = MySyncAsyncEvent("reset")
-
-        self.alock = asyncio.Lock()
-
-        self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
 
     @property
     def index(self):
