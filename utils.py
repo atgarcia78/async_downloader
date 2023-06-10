@@ -1401,7 +1401,9 @@ if yt_dlp:
         ReExtractInfo,
         ConnectError,
         StatusError503,
-        my_dec_on_exception
+        my_dec_on_exception,
+        ec,
+        By
     )
 
     from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
@@ -1446,6 +1448,8 @@ if yt_dlp:
     assert ConnectError
     assert StatusError503
     assert my_dec_on_exception
+    assert ec
+    assert By
 
     def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
 

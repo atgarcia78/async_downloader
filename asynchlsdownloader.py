@@ -36,7 +36,6 @@ from utils import (
     SpeedometerMA,
     _for_print,
     _for_print_entry,
-    async_wait_time,
     dec_retry_error,
     get_format_id,
     int_or_none,
@@ -1116,10 +1115,10 @@ class AsyncHLSDownloader:
                                     self.info_frag[q - 1]["nchunks_dl"] += 1
                                     self.info_frag[q - 1]["sizechunks"].append(_iter_bytes)
 
-                                    if self.throttle:
-                                        await async_wait_time(self.throttle)
-                                    else:
-                                        await asyncio.sleep(0)
+                                    # if self.throttle:
+                                    #     await async_wait_time(self.throttle)
+                                    # else:
+                                    #     await asyncio.sleep(0)
 
                                     if (_res := await self.event_handle()):
                                         if _res.get("event") in ("stop", "reset"):
