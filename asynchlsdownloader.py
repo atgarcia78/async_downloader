@@ -1115,14 +1115,11 @@ class AsyncHLSDownloader:
                                     self.info_frag[q - 1]["nchunks_dl"] += 1
                                     self.info_frag[q - 1]["sizechunks"].append(_iter_bytes)
 
-                                    # if self.throttle:
-                                    #     await async_wait_time(self.throttle)
-                                    # else:
-                                    #     await asyncio.sleep(0)
-
                                     if (_res := await self.event_handle()):
                                         if _res.get("event") in ("stop", "reset"):
-                                            pass
+                                            raise AsyncHLSDLErrorFatal(_res.get("event"))
+
+                                    await asyncio.sleep(0)
                                     _started = time.monotonic()
 
                         _size = (await os.stat(filename)).st_size
