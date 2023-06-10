@@ -262,7 +262,7 @@ class ProgressTimer:
 class SpeedometerMA:
     TIMER_FUNC = time.monotonic
 
-    def __init__(self, initial_bytes: int = 0, upt_time: Union[int, float] = 1.0,
+    def __init__(self, initial_bytes: int = 0, upt_time: Union[int, float] = CONF_INTERVAL_GUI,
                  ave_time: Union[int, float] = 5.0):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
