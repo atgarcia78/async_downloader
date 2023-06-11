@@ -4127,7 +4127,7 @@ try:
                 if entfilesize >= 1.5 * entlegfilesize:
                     print(i, ent['format_id'], ent['id'], ent['title'], naturalsize(ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8)), naturalsize(entleg['filesize']))
                     print(ent['original_url'])
-                    urls_dl.append(ent['original_url'] + '?alt=yes')
+                    urls_dl.append(ent['original_url'])
         print(urls_dl)
         cmd = f'--path SearchGVDBlogPlaylistdate={date}_alt=yes -u ' + ' -u '.join(urls_dl)
         print(cmd)
