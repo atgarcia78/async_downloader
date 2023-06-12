@@ -4111,7 +4111,8 @@ try:
 
     # tools for gvd files, xattr, move files etc
     def dl_gvd_best_videos(date, ytdl):
-        from utils import naturalsize
+
+        logger = logging.getLogger('dl_gvd')
         url = 'https://www.gvdblog.com/search?date=' + date
         resleg = ytdl.extract_info(url, download=False)
         res = ytdl.extract_info(url + '&alt=yes', download=False)
@@ -4122,15 +4123,15 @@ try:
                 entfilesize = ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8)
                 entlegfilesize = entleg.get('filesize')
                 if not entlegfilesize:
-                    print(i, ent['title'], 'no filesize in legacy')
+                    logger.warning(f"{i}: {ent['title']} no filesize in legacy")
                     continue
                 if entfilesize >= 1.5 * entlegfilesize:
-                    print(i, ent['format_id'], ent['id'], ent['title'], naturalsize(ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8)), naturalsize(entleg['filesize']))
-                    print(ent['original_url'])
+                    logger.info(f"{i}: {ent['format_id']}, {ent['id']}, {ent['title']}, {naturalsize(ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8))}, {naturalsize(entleg['filesize'])}")
+                    logger.info(ent['original_url'])
                     urls_dl.append(ent['original_url'])
-        print(urls_dl)
+        logger.info(urls_dl)
         cmd = f'--path SearchGVDBlogPlaylistdate={date}_alt=yes -u ' + ' -u '.join(urls_dl)
-        print(cmd)
+        logger.info(cmd)
         return cmd
 
     def get_files_same_meta(folder1, folder2):
