@@ -2409,14 +2409,15 @@ def patch_https_connection_pool(**constructor_kwargs):
         "https"] = MyHTTPSConnectionPool
 
 
-def init_config():
+def init_config(quiet=False):
     uvloop.install()
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     patch_http_connection_pool(maxsize=1000)
     patch_https_connection_pool(maxsize=1000)
     os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
     os.environ['MOZ_HEADLESS_HEIGHT'] = '1080'
-    init_logging()
+    if not quiet:
+        init_logging()
 
 
 ############################################################
@@ -4110,28 +4111,40 @@ try:
             return res
 
     # tools for gvd files, xattr, move files etc
-    def dl_gvd_best_videos(date, ytdl):
+    def dl_gvd_best_videos(date, ytdl=None, quiet=False):
+        if not ytdl:
+            kwargs = {el[0]: el[1] for el in args._get_kwargs()}
+            _args = argparse.Namespace(**kwargs)
+            if quiet:
+                _args.quiet = True
+                _args.verbose = False
+            ytdl = init_ytdl(_args)
 
-        logger = logging.getLogger('dl_gvd')
+        logger = logging.getLogger('dl_gvd') if not quiet else object()
         url = 'https://www.gvdblog.com/search?date=' + date
         resleg = ytdl.extract_info(url, download=False)
-        res = ytdl.extract_info(url + '&alt=yes', download=False)
+        resalt = ytdl.extract_info(url + '&alt=yes', download=False)
         urls_dl = []
-        for i, ent in enumerate(res['entries']):
-            entleg = resleg['entries'][i]
-            if ent['format_id'].startswith('hls') and not entleg['format_id'].startswith('hls'):
-                entfilesize = ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8)
-                entlegfilesize = entleg.get('filesize')
-                if not entlegfilesize:
-                    logger.warning(f"{i}: {ent['title']} no filesize in legacy")
-                    continue
-                if entfilesize >= 1.5 * entlegfilesize:
-                    logger.info(f"{i}: {ent['format_id']}, {ent['id']}, {ent['title']}, {naturalsize(ent.get('filesize') or (ent['tbr'] * ent['duration'] * 1024 / 8))}, {naturalsize(entleg['filesize'])}")
-                    logger.info(ent['original_url'])
-                    urls_dl.append(ent['original_url'])
-        logger.info(urls_dl)
+        for i, (entleg, entalt) in enumerate(zip(resleg['entries'], resalt['entries'])):
+            if entleg['format_id'].startswith('hls') or not entalt['format_id'].startswith('hls'):
+                continue
+            entfilesize = entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8)
+            entlegfilesize = entleg.get('filesize')
+            if not entlegfilesize or not entfilesize:
+                if not quiet:
+                    logger.warning(f"{i}: {entalt['title']} no filesize in legacy")
+                continue
+            if entfilesize >= 1.5 * entlegfilesize:
+                if not quiet:
+                    logger.info(f"{i}: {entalt['format_id']}, {entalt['id']}, {entalt['title']}, {naturalsize(entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8))}, {naturalsize(entleg['filesize'])}")
+                    logger.info(entalt['original_url'])
+                urls_dl.append(entalt['original_url'])
+
         cmd = f'--path SearchGVDBlogPlaylistdate={date}_alt=yes -u ' + ' -u '.join(urls_dl)
-        logger.info(cmd)
+        if not quiet:
+            logger.info(cmd)
+        else:
+            print(cmd)
         return cmd
 
     def get_files_same_meta(folder1, folder2):
@@ -4158,3 +4171,19 @@ try:
 
 except ModuleNotFoundError:
     pass
+
+
+args = argparse.Namespace(
+    w=8, winit=10, parts=16, format='bv*+ba/b', sort='ext:mp4:m4a',
+    index=None, collection_files=[], checkcert=False, ytdlopts='', proxy=None,
+    useragent=CONF_FIREFOX_UA,
+    first=None, last=None, nodl=False, headers='',
+    collection=[],
+    dlcaching=False, path=None, caplinks=False, verbose=True, vv=False,
+    quiet=False, aria2c=True, subt=True, nosymlinks=False,
+    http_downloader='aria2c', use_path_pl=False, use_cookies=False, no_embed=False,
+    rep_pause=False, rpcport=6800, enproxy=False, nocheckcert=True)
+
+
+def get_ytdl(_args):
+    return init_ytdl(_args)
