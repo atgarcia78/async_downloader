@@ -761,7 +761,7 @@ def init_argparser():
     parser.add_argument("--path", default=None, type=str)
     parser.add_argument("--caplinks", action="store_true", default=False)
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
-    parser.add_argument("--vv", help="verbose plus", action="store_true", default=False)
+    parser.add_argument("--vv", help="verbose plus", action=ActionNoYes, default=False)
     parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
     parser.add_argument("--aria2c", action=ActionNoYes, default="6800",
                         help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable")
@@ -1512,7 +1512,7 @@ if yt_dlp:
 
     class mylogger(logging.LoggerAdapter):
         def __init__(self, logger):
-            super().__init__(logger)
+            super().__init__(logger, {})
             self.quiet = False
 
         def info(self, msg, *args, **kwargs):
@@ -1520,6 +1520,21 @@ if yt_dlp:
                 self.log(logging.DEBUG, msg, *args, **kwargs)
             else:
                 self.log(logging.INFO, msg, *args, **kwargs)
+
+        def warning(self, msg, *args, **kwargs):
+            if self.quiet:
+                self.log(logging.DEBUG, msg, *args, **kwargs)
+            else:
+                self.log(logging.WARNING, msg, *args, **kwargs)
+
+        def error(self, msg, *args, **kwargs):
+            if self.quiet:
+                self.log(logging.DEBUG, msg, *args, **kwargs)
+            else:
+                self.log(logging.ERROR, msg, *args, **kwargs)
+
+        def pprint(self, msg):
+            print(msg)
 
     class MyYTLogger(logging.LoggerAdapter):
         """
@@ -4112,40 +4127,41 @@ try:
 
     # tools for gvd files, xattr, move files etc
     def dl_gvd_best_videos(date, ytdl=None, quiet=False):
+
         if not ytdl:
             kwargs = {el[0]: el[1] for el in args._get_kwargs()}
             _args = argparse.Namespace(**kwargs)
             if quiet:
                 _args.quiet = True
                 _args.verbose = False
+                _args.vv = False
             ytdl = init_ytdl(_args)
 
-        logger = logging.getLogger('dl_gvd') if not quiet else object()
+        logger = mylogger(logging.getLogger('dl_gvd'))
+        logger.quiet = quiet
         url = 'https://www.gvdblog.com/search?date=' + date
         resleg = ytdl.extract_info(url, download=False)
         resalt = ytdl.extract_info(url + '&alt=yes', download=False)
         urls_dl = []
-        for i, (entleg, entalt) in enumerate(zip(resleg['entries'], resalt['entries'])):
-            if entleg['format_id'].startswith('hls') or not entalt['format_id'].startswith('hls'):
-                continue
-            entfilesize = entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8)
-            entlegfilesize = entleg.get('filesize')
-            if not entlegfilesize or not entfilesize:
-                if not quiet:
+        if resleg and resleg.get('entries') and resalt and resalt.get('entries'):
+            for i, (entleg, entalt) in enumerate(zip(resleg['entries'], resalt['entries'])):
+                if entleg['format_id'].startswith('hls') or not entalt['format_id'].startswith('hls'):
+                    continue
+                entfilesize = entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8)
+                entlegfilesize = entleg.get('filesize')
+                if not entlegfilesize or not entfilesize:
                     logger.warning(f"{i}: {entalt['title']} no filesize in legacy")
-                continue
-            if entfilesize >= 1.5 * entlegfilesize:
-                if not quiet:
+                    continue
+                if entfilesize >= 1.5 * entlegfilesize:
                     logger.info(f"{i}: {entalt['format_id']}, {entalt['id']}, {entalt['title']}, {naturalsize(entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8))}, {naturalsize(entleg['filesize'])}")
                     logger.info(entalt['original_url'])
-                urls_dl.append(entalt['original_url'])
+                    urls_dl.append(entalt['original_url'])
+        if urls_dl:
+            cmd = f'--path SearchGVDBlogPlaylistdate={date}_alt=yes -u ' + ' -u '.join(urls_dl)
+            logger.pprint(cmd)
 
-        cmd = f'--path SearchGVDBlogPlaylistdate={date}_alt=yes -u ' + ' -u '.join(urls_dl)
-        if not quiet:
-            logger.info(cmd)
         else:
-            print(cmd)
-        return cmd
+            raise Exception('ERROR couldnt create command')
 
     def get_files_same_meta(folder1, folder2):
         from collections import defaultdict
