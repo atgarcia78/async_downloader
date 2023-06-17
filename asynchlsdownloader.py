@@ -188,9 +188,9 @@ class AsyncHLSDownloader:
                 _proxy = f"http://127.0.0.1:{_proxy_port}"
                 self._proxy = {"http://": _proxy, "https://": _proxy}
 
-            _proxies = getattr(self, '_proxy', None)
+            _proxies = getattr(self, '_proxy', {})
             self.init_client = httpx.Client(
-                proxies=_proxies,  # type: ignore
+                proxies=_proxies if _proxies else None,
                 follow_redirects=True,
                 headers=self.info_dict['http_headers'],
                 limits=self.limits,
@@ -210,7 +210,7 @@ class AsyncHLSDownloader:
                 try:
                     if 'gvdblog.com' not in (_url := self.info_dict['original_url']):
                         _url = self.info_dict['webpage_url']
-                    info = self.multi_extract_info(_url, proxy=_proxy)
+                    info = self.multi_extract_info(_url, proxy=_proxies.get('http'))
                     if info:
                         if info.get('entries') and (_pl_index := self.info_dict['playlist_index']):
                             info = info['entries'][_pl_index - 1]
@@ -569,7 +569,7 @@ class AsyncHLSDownloader:
 
             if proxy:
                 with ProxyYTDL(opts=self.ytdl.params.copy(), proxy=proxy) as proxy_ytdl:
-                    _info_video = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(url))
+                    _info_video = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(url, download=False))
             else:
                 _info_video = self.ytdl.sanitize_info(self.ytdl.extract_info(url, download=False))
 
@@ -1139,7 +1139,6 @@ class AsyncHLSDownloader:
                                         if _res.get("event") in ("stop", "reset"):
                                             raise AsyncHLSDLErrorFatal(_res.get("event"))
 
-                                    await asyncio.sleep(0)
                                     _started = time.monotonic()
 
                         _size = (await os.stat(filename)).st_size

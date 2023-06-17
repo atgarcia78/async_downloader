@@ -1541,7 +1541,7 @@ if yt_dlp:
         para ser compatible con el logging de yt_dlp: yt_dlp usa debug para enviar los debug y
         los info. Los debug llevan '[debug] ' antes.
         se pasa un logger de logging al crear la instancia
-        mylogger = MyYTLogger(logging.getLogger("name_ejemplo", {}))
+        logger = MyYTLogger(logging.getLogger("name_ejemplo", {}))
         """
         _debug_phr = [
             'Falling back on generic information extractor',
@@ -1645,17 +1645,6 @@ if yt_dlp:
                 except Exception:
                     pass
 
-    def get_extractor(url, ytdl):
-        logger = logging.getLogger('asyncdl')
-        ies = ytdl._ies
-        for ie_key, ie in ies.items():
-            try:
-                if ie.suitable(url) and (ie_key != "Generic"):
-                    return (ie_key, ytdl.get_info_extractor(ie_key))
-            except Exception as e:
-                logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
-        return ("Generic", ytdl.get_info_extractor("Generic"))
-
     def cli_to_api(*opts):
         default = yt_dlp.parse_options([]).ydl_opts
         diff = {k: v for k, v in parse_options(opts).ydl_opts.items() if default[k] != v}
@@ -1684,7 +1673,7 @@ if yt_dlp:
             return await sync_to_async(
                 self.__exit__, thread_sensitive=False, executor=self.executor)(*args)
 
-        def get_extractor(self, url):
+        def get_extractor(self, url: str) -> tuple:
             ies = self._ies
             for ie_key, ie in ies.items():
                 try:
@@ -1695,7 +1684,7 @@ if yt_dlp:
                     logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
             return ("Generic", self.get_info_extractor("Generic"))
 
-        def is_playlist(self, url):
+        def is_playlist(self, url: str) -> tuple:
             ie_key, ie = self.get_extractor(url)
             if ie_key == "Generic":
                 return (True, ie_key)
@@ -1747,91 +1736,23 @@ if yt_dlp:
 
             super().__init__(params=opts, auto_init="no_verbose_header", **_kwargs)  # type: ignore
 
-    class _ProxyYTDL(YoutubeDL):
+    def get_extractor_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL, ProxyYTDL]) -> tuple:
+        logger = logging.getLogger('asyncdl')
+        ies = ytdl._ies
+        for ie_key, ie in ies.items():
+            try:
+                if ie.suitable(url) and (ie_key != "Generic"):
+                    return (ie_key, ytdl.get_info_extractor(ie_key))
+            except Exception as e:
+                logger.exception(f'[get_extractor] fail with {ie_key} - {repr(e)}')
+        return ("Generic", ytdl.get_info_extractor("Generic"))
 
-        def __init__(self, **kwargs):
-            opts = kwargs.get("opts", {}).copy()
-            proxy = kwargs.get("proxy", None)
-            quiet = kwargs.get("quiet", True)
-            verbose = kwargs.get("verbose", False)
-            verboseplus = kwargs.get("verboseplus", False)
-
-            opts["quiet"] = quiet
-            opts["verbose"] = verbose
-            opts["verboseplus"] = verboseplus
-            opts["logger"] = MyYTLogger(
-                logging.getLogger("proxyYTDL"),
-                quiet=opts["quiet"],
-                verbose=opts["verbose"],
-                superverbose=opts["verboseplus"])
-            opts["proxy"] = proxy
-
-            self._close = kwargs.get("close", True)
-            self.executor = kwargs.get(
-                "executor", ThreadPoolExecutor(thread_name_prefix="proxyYTDL"))
-
-            super().__init__(params=opts, auto_init="no_verbose_header")  # type: ignore
-
-        def __exit__(self, *args):
-            super().__exit__(*args)
-            if self._close:
-                self.close()
-
-        async def __aenter__(self):
-            return await sync_to_async(
-                super().__enter__, thread_sensitive=False, executor=self.executor)()
-
-        async def __aexit__(self, *args):
-            return await sync_to_async(
-                self.__exit__, thread_sensitive=False, executor=self.executor)(*args)
-
-        def is_playlist(self, url):
-            ie_key, ie = get_extractor(url, self)
-            if ie_key == "Generic":
-                return (True, ie_key)
-            else:
-                return (ie._RETURN_TYPE == 'playlist', ie_key)
-
-        def close(self):
-            ies_close(self._ies_instances)
-
-        async def stop(self):
-            _stop = self.params.get('stop')
-            if _stop:
-                _stop.set()
-                await asyncio.sleep(0)
-            _stop_dl = self.params.get('stop_dl')
-            if _stop_dl:
-                for _, _stop in _stop_dl.items():
-                    _stop.set()
-                    await asyncio.sleep(0)
-
-        async def async_extract_info(self, *args, **kwargs) -> dict:
-            return cast(dict, await sync_to_async(
-                self.extract_info, thread_sensitive=False, executor=self.executor)(*args, **kwargs))
-
-        async def async_process_ie_result(self, *args, **kwargs) -> dict:
-            return await sync_to_async(
-                self.process_ie_result, thread_sensitive=False, executor=self.executor)(*args, **kwargs)
-
-    def is_playlist_extractor(url, ytdl):
-
-        ie_key, ie = get_extractor(url, ytdl)
-
+    def is_playlist_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL, ProxyYTDL]) -> tuple:
+        ie_key, ie = get_extractor_ytdl(url, ytdl)
         if ie_key == "Generic":
-            return (True, "Generic")
-
-        ie_name = (
-            _iename.lower()
-            if type(_iename := getattr(ie, "IE_NAME", "")) is str
-            else ""
-        )
-
-        ie_tests = str(getattr(ie, "_TESTS", ""))
-
-        _is_pl = any("playlist" in _ for _ in [ie_key.lower(), ie_name, ie_tests])
-
-        return (_is_pl, ie_key)
+            return (True, ie_key)
+        else:
+            return (ie._RETURN_TYPE == 'playlist', ie_key)
 
     def init_ytdl(args):
         '''
@@ -2864,15 +2785,16 @@ if PySimpleGUI:
                 sg.cprint(f'Workers: {self.asyncdl.WorkersRun.max}')
             elif event in ['TimePasRes']:
                 if not values['-IN-']:
-                    sg.cprint('[pause-resume autom] Please enter number')
-                    sg.cprint(f'[pause-resume autom] {list(self.asyncdl.list_pasres)}')
+                    sg.cprint(
+                        '[pause-resume autom] Please enter timers [time to resume:' +
+                        f'{self.pasres_time_from_resume_to_pause}],[time in pause:{self.pasres_time_in_pause}]\nDL in pasres: {list(self.asyncdl.list_pasres)}')
                 else:
                     timers = [timer.strip() for timer in values['-IN-'].split(',')]
                     if len(timers) > 2:
-                        sg.cprint('max 2 timers')
+                        sg.cprint('[pause-resume autom] max 2 timers')
                     else:
                         if any([(not timer.isdecimal() or int(timer) < 0) for timer in timers]):
-                            sg.cprint('not an integer, or negative')
+                            sg.cprint('[pause-resume autom] not an integer, or negative')
                         else:
                             if len(timers) == 2:
                                 self.pasres_time_from_resume_to_pause = int(timers[0])
@@ -2882,7 +2804,7 @@ if PySimpleGUI:
                                 self.pasres_time_in_pause = int(timers[0])
 
                             sg.cprint(
-                                f'[time to resume] {self.pasres_time_from_resume_to_pause} ' +
+                                f'[pause-resume autom] [time to resume] {self.pasres_time_from_resume_to_pause} ' +
                                 f'[time in pause] {self.pasres_time_in_pause}')
 
                     self.window_console['-IN-'].update(value='')
@@ -2959,7 +2881,8 @@ if PySimpleGUI:
                             if event == 'StopCount':
                                 CountDowns._INPUT.put_nowait(str(_index))
                             elif event == '+PasRes':
-                                self.asyncdl.list_pasres.add(_index)
+                                if self.asyncdl.list_dl[_index].info_dl['status'] in ('init', 'downloading'):
+                                    self.asyncdl.list_pasres.add(_index)
                             elif event == '-PasRes':
                                 self.asyncdl.list_pasres.discard(_index)
                             elif event == 'Pause':
