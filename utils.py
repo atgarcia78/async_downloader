@@ -4065,22 +4065,30 @@ try:
         url = 'https://www.gvdblog.com/search?date=' + date
         resleg = ytdl.extract_info(url, download=False)
         resalt = ytdl.extract_info(url + '&alt=yes', download=False)
-        urls_dl = []
+        urls_alt_dl = []
+        urls_leg_dl = []
         if resleg and resleg.get('entries') and resalt and resalt.get('entries'):
             for i, (entleg, entalt) in enumerate(zip(resleg['entries'], resalt['entries'])):
                 if entleg['format_id'].startswith('hls') or not entalt['format_id'].startswith('hls'):
+                    logger.info(entleg['original_url'])
+                    urls_leg_dl.append(entleg['original_url'])
                     continue
-                entfilesize = entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8)
+                entaltfilesize = entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8)
                 entlegfilesize = entleg.get('filesize')
-                if not entlegfilesize or not entfilesize:
-                    logger.warning(f"{i}: {entalt['title']} no filesize in legacy")
+                if not entlegfilesize or not entaltfilesize:
+                    logger.warning(f"{i}: {entleg['title']} no filesize in legacy {entleg['original_url']}")
+                    urls_leg_dl.append(entleg['original_url'])
                     continue
-                if entfilesize >= 1.5 * entlegfilesize:
-                    logger.info(f"{i}: {entalt['format_id']}, {entalt['id']}, {entalt['title']}, {naturalsize(entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8))}, {naturalsize(entleg['filesize'])}")
+                if entaltfilesize >= 1.5 * entlegfilesize:
+                    logger.info(f"{i}: [{entalt['format_id']}, {entalt['id']}, {entalt['title']}]: {naturalsize(entaltfilesize)} >= 1.5 * {naturalsize(entlegfilesize)}")
                     logger.info(entalt['original_url'])
-                    urls_dl.append(entalt['original_url'])
-        if urls_dl:
-            cmd = f'--path SearchGVDBlogPlaylistdate={date}_alt=yes -u ' + ' -u '.join(urls_dl)
+                    urls_alt_dl.append(entalt['original_url'])
+                else:
+                    logger.info(entleg['original_url'])
+                    urls_leg_dl.append(entleg['original_url'])
+
+        if urls_alt_dl or urls_leg_dl:
+            cmd = f'--path SearchGVDBlogPlaylistdate={date} -u ' + ' -u '.join(urls_leg_dl + urls_alt_dl)
             logger.pprint(cmd)
 
         else:
