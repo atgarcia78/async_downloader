@@ -208,14 +208,21 @@ class AsyncHLSDownloader:
 
             if self.enproxy:
                 try:
+                    _gvd_pl = True
                     if 'gvdblog.com' not in (_url := self.info_dict['original_url']):
+                        _gvd_pl = False
                         _url = self.info_dict['webpage_url']
                     info = self.multi_extract_info(_url, proxy=_proxies.get('http'))
                     if info:
-                        if info.get('entries') and (_pl_index := self.info_dict['playlist_index']):
+                        if (_len := len(info.get('entries', []))):
+                            if _len == 1:
+                                _pl_index = 1
+                            else:
+                                _pl_index = self.info_dict.get('__gvd_playlist_index', 1) if _gvd_pl else (self.info_dict.get('playlist_index') or self.info_dict.get('playlist_autonumber') or 1)
                             info = info['entries'][_pl_index - 1]
                         new_info = get_format_id(info, self.info_dict["format_id"])
-                        self.info_dict.update(new_info)
+                        _info = {key: new_info[key] for key in ('url', 'manifest_url') if key in new_info}
+                        self.info_dict.update(_info)
                 except Exception as e:
                     logger.exception(f'[init info proxy] {repr(e)}')
 

@@ -494,6 +494,9 @@ class AsyncDL:
                             else:
                                 await self._prepare_for_dl(_url)
                                 self.list_videos.append(self.info_videos[_url]["video_info"])
+                        else:
+                            logger.warning(
+                                f"{_url}: has not been added to info_videos because it is already")
                     else:
                         await self._prepare_entry_pl_for_dl(_vid)
 
@@ -629,7 +632,7 @@ class AsyncDL:
                     if not _info:
                         raise Exception("no info")
                 except Exception as e:
-                    logger.warning(f"{_pre} {repr(e)}")
+                    logger.exception(f"{_pre} {repr(e)}")
 
                     _info = {
                         "_type": "error",
@@ -805,7 +808,7 @@ class AsyncDL:
     async def async_check_if_same_video(self, url_to_check):
         return await sync_to_async(self._check_if_same_video, thread_sensitive=False, executor=self.ex_winit)(url_to_check)
 
-    async def _prepare_for_dl(self, url: str, put: bool = True) -> None:
+    async def _prepare_for_dl(self, url: str, put: bool = True) -> bool:
         self.info_videos[url].update({"todl": True})
         if _id := self.info_videos[url]["video_info"].get("id"):
             self.info_videos[url]["video_info"]["id"] = (
@@ -853,7 +856,9 @@ class AsyncDL:
                 return
             elif _type == "error":
                 _errorurl = entry.get("url")
-                if _errorurl and not self.info_videos.get(_errorurl):
+                if not _errorurl:
+                    return
+                if not self.info_videos.get(_errorurl):
 
                     self.info_videos[_errorurl] = {
                         "source": self.url_pl_list.get(_errorurl, {}).get("source")
@@ -890,6 +895,10 @@ class AsyncDL:
                     self.list_initnok.append(
                         (_errorurl, entry.get("error", "no video entry"))
                     )
+
+                else:
+                    logger.warning(
+                        f"{_pre} {_errorurl}: has not been added to info_videos because it is already")
                 return
 
             elif _type == "video":
@@ -925,7 +934,7 @@ class AsyncDL:
                     await self._prepare_for_dl(_url)
                     self.list_videos.append(self.info_videos[_url]["video_info"])
             else:
-                logger.debug(
+                logger.warning(
                     f"{_pre} {_url}: has not been added to info_videos because it is already")
 
         except Exception as e:

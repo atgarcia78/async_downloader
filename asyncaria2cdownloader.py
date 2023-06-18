@@ -379,7 +379,7 @@ class AsyncARIA2CDownloader:
                     await asyncio.sleep(0)
 
                 elif self._mode == 'group':
-                    _port = CONF_PROXIES_BASE_PORT + self._index_prox * 100 + 50
+                    _port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100 + 50
                     self._proxy = f'http://127.0.0.1:{_port}'
                     self.opts.set('all-proxy', self._proxy)
 

@@ -305,7 +305,7 @@ class SpeedometerMA:
         self.last_value = None
         self.UPDATE_TIMESPAN_S = float(upt_time)
         self.AVERAGE_TIMESPAN_S = float(ave_time)
-        self.ema_value = EMA(smoothing=0.01)
+        self.ema_value = EMA(smoothing=0.3)
 
     def __call__(self, byte_counter: int):
         time_now = self.TIMER_FUNC()
@@ -801,6 +801,8 @@ def init_argparser():
     args.enproxy = True
     if args.proxy is False:
         args.enproxy = False
+        args.proxy = None
+    elif args.proxy is True:
         args.proxy = None
 
     if args.checkcert:
@@ -1385,19 +1387,18 @@ def get_all_wd_conf(name=None):
         if ips:
             init_logging()
             total = len(ips)
-            lock = threading.Lock()
             _pre = name.split('.')[0].upper()
             proxies = TorGuardProxies()
 
-            with ProgressBar(sys.stderr, preserve_output=False) as pb:
+            with ProgressBar(None, total) as pb:
                 def getconf(_ip):
                     try:
                         proxies.genwgconf(_ip, pre=_pre)
                     except Exception:
                         pass
-                    with lock:
-                        pb.count += 1
-                        pb.print(f'{pb.count}/{total}')
+                    with pb._lock:
+                        pb.update()
+                        pb.print('')
 
                 with ThreadPoolExecutor(thread_name_prefix='tgconf', max_workers=5) as exe:
                     _ = [exe.submit(getconf, ip, ) for ip in ips]
@@ -1451,7 +1452,8 @@ if yt_dlp:
         StatusError503,
         my_dec_on_exception,
         ec,
-        By
+        By,
+        ProgressBar
     )
 
     from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
@@ -1464,11 +1466,11 @@ if yt_dlp:
         traverse_obj,
         try_get,
         unsmuggle_url,
-        find_available_port
+        find_available_port,
+        write_string
     )
 
     from yt_dlp.cookies import extract_cookies_from_browser
-    from yt_dlp.minicurses import MultilinePrinter
 
     from yt_dlp import YoutubeDL
 
@@ -1534,7 +1536,8 @@ if yt_dlp:
                 self.log(logging.ERROR, msg, *args, **kwargs)
 
         def pprint(self, msg):
-            print(msg)
+            self.log(logging.DEBUG, msg)
+            print(msg, end='\n', flush=True)
 
     class MyYTLogger(logging.LoggerAdapter):
         """
@@ -1612,25 +1615,6 @@ if yt_dlp:
                     self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
                 else:
                     self.log(logging.INFO, msg, *args, **kwargs)
-
-    class ProgressBar(MultilinePrinter):
-        _DELAY, _timer = 0.1, 0
-        _logger = logging.getLogger('progressbar')
-
-        # to stop sending events to loggers while progressbar is printing
-        def __enter__(self):
-            try_get(self._logger.parent.handlers, lambda x: x[0].stop())  # type: ignore
-            self.count = 0
-            return self
-
-        def __exit__(self, *args):
-            try_get(self._logger.parent.handlers, lambda x: x[0].start())  # type: ignore
-            super().__exit__(*args)
-
-        def print(self, message):
-            if time.time() - self._timer > self._DELAY:
-                self.print_at_line(f'[progress] {message}', 0)
-                self._timer = time.time()
 
     def change_status_nakedsword(status):
         NakedSwordBaseIE._STATUS = status
@@ -4058,41 +4042,59 @@ try:
                 _args.quiet = True
                 _args.verbose = False
                 _args.vv = False
-            ytdl = init_ytdl(_args)
+            yt = init_ytdl(_args)
+        else:
+            yt = ytdl
 
         logger = mylogger(logging.getLogger('dl_gvd'))
         logger.quiet = quiet
         url = 'https://www.gvdblog.com/search?date=' + date
-        resleg = ytdl.extract_info(url, download=False)
-        resalt = ytdl.extract_info(url + '&alt=yes', download=False)
+        resleg = yt.extract_info(url, download=False)
+        if resleg:
+            write_string(f"entriesleg: {len(resleg['entries'])}")
+            print('', file=sys.stderr, flush=True)
+        resalt = yt.extract_info(url + '&alt=yes', download=False)
+        if resalt:
+            write_string(f"entriesalt: {len(resalt['entries'])}")
+            print('', file=sys.stderr, flush=True)
         urls_alt_dl = []
         urls_leg_dl = []
-        if resleg and resleg.get('entries') and resalt and resalt.get('entries'):
-            for i, (entleg, entalt) in enumerate(zip(resleg['entries'], resalt['entries'])):
+        urls_final = []
+        entriesleg = []
+        entriesalt = []
+        entries_final = []
+        if resleg and (entriesleg := resleg.get('entries', [])) and resalt and (entriesalt := resalt.get('entries', [])) and len(entriesleg) == len(entriesalt):
+            for entleg, entalt in zip(entriesleg, entriesalt):
                 if entleg['format_id'].startswith('hls') or not entalt['format_id'].startswith('hls'):
-                    logger.info(entleg['original_url'])
+                    logger.info(f"cause 1 {entleg['original_url']}")
                     urls_leg_dl.append(entleg['original_url'])
-                    continue
-                entaltfilesize = entalt.get('filesize') or (entalt['tbr'] * entalt['duration'] * 1024 / 8)
-                entlegfilesize = entleg.get('filesize')
-                if not entlegfilesize or not entaltfilesize:
-                    logger.warning(f"{i}: {entleg['title']} no filesize in legacy {entleg['original_url']}")
-                    urls_leg_dl.append(entleg['original_url'])
-                    continue
-                if entaltfilesize >= 1.5 * entlegfilesize:
-                    logger.info(f"{i}: [{entalt['format_id']}, {entalt['id']}, {entalt['title']}]: {naturalsize(entaltfilesize)} >= 1.5 * {naturalsize(entlegfilesize)}")
-                    logger.info(entalt['original_url'])
-                    urls_alt_dl.append(entalt['original_url'])
+                    urls_final.append(entleg['original_url'])
+                    entries_final.append(entleg)
+                elif not entleg['format_id'].startswith('hls') and entalt['format_id'].startswith('hls'):
+                    entaltfilesize = entalt.get('filesize_approx') or (entalt.get('tbr', 0) * entalt.get('duration', 0) * 1024 / 8)
+                    entlegfilesize = entleg.get('filesize')
+                    if entlegfilesize and entaltfilesize and entaltfilesize >= 1.5 * entlegfilesize:
+                        logger.info(f"cause 2.A {entalt['original_url']} - {naturalsize(entaltfilesize)} >= 1.5 * {naturalsize(entlegfilesize)}")
+                        urls_alt_dl.append(entalt['original_url'])
+                        urls_final.append(entalt['original_url'])
+                    else:
+                        logger.info(f"cause 2.B {entleg['original_url']}")
+                        urls_leg_dl.append(entleg['original_url'])
+                        urls_final.append(entleg['original_url'])
                 else:
-                    logger.info(entleg['original_url'])
+                    logger.info(f"cause 3 {entleg['original_url']}")
                     urls_leg_dl.append(entleg['original_url'])
+                    urls_final.append(entleg['original_url'])
 
-        if urls_alt_dl or urls_leg_dl:
-            cmd = f'--path SearchGVDBlogPlaylistdate={date} -u ' + ' -u '.join(urls_leg_dl + urls_alt_dl)
+        if urls_final:
+            cmd = f'--path SearchGVDBlogPlaylistdate={date} -u ' + ' -u '.join(urls_final)
             logger.pprint(cmd)
+            write_string(str(len(urls_final)))
+            print('', file=sys.stderr, flush=True)
+            return 0
 
         else:
-            raise Exception('ERROR couldnt create command')
+            raise Exception(f'ERROR couldnt create command: entriesleg[{len(entriesleg)}] entriesalt[{len(entriesalt)}]')
 
     def get_files_same_meta(folder1, folder2):
         from collections import defaultdict

@@ -231,7 +231,9 @@ class VideoDownloader:
                             self.info_dl.update({'auto_pasres': True})
                     elif self.args.http_downloader == "aria2c" and self.args.aria2c:
                         dl = AsyncARIA2CDownloader(
-                            self.info_dl['rpcport'], self.args.enproxy, info, self)
+                            self.info_dl['rpcport'],
+                            False,  # self.args.enproxy,
+                            info, self)
                         logger.debug(
                             f"[{info['id']}][{info['title']}]" +
                             f"[{info['format_id']}][get_dl] DL type ARIA2C")
