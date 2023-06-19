@@ -4073,25 +4073,29 @@ try:
                 elif not entleg['format_id'].startswith('hls') and entalt['format_id'].startswith('hls'):
                     entaltfilesize = entalt.get('filesize_approx') or (entalt.get('tbr', 0) * entalt.get('duration', 0) * 1024 / 8)
                     entlegfilesize = entleg.get('filesize')
-                    if entlegfilesize and entaltfilesize and entaltfilesize >= 1.5 * entlegfilesize:
+                    if all([entlegfilesize, entaltfilesize, entaltfilesize >= 2 * entlegfilesize,
+                            entaltfilesize > 786432000 or entlegfilesize < 157286400]):
                         logger.info(f"cause 2.A {entalt['original_url']} - {naturalsize(entaltfilesize)} >= 1.5 * {naturalsize(entlegfilesize)}")
                         urls_alt_dl.append(entalt['original_url'])
                         urls_final.append(entalt['original_url'])
+                        entries_final.append(entalt)
                     else:
                         logger.info(f"cause 2.B {entleg['original_url']}")
                         urls_leg_dl.append(entleg['original_url'])
                         urls_final.append(entleg['original_url'])
+                        entries_final.append(entleg)
                 else:
                     logger.info(f"cause 3 {entleg['original_url']}")
                     urls_leg_dl.append(entleg['original_url'])
                     urls_final.append(entleg['original_url'])
+                    entries_final.append(entleg)
 
         if urls_final:
             cmd = f'--path SearchGVDBlogPlaylistdate={date} -u ' + ' -u '.join(urls_final)
             logger.pprint(cmd)
             write_string(str(len(urls_final)))
             print('', file=sys.stderr, flush=True)
-            return 0
+            return entries_final
 
         else:
             raise Exception(f'ERROR couldnt create command: entriesleg[{len(entriesleg)}] entriesalt[{len(entriesalt)}]')

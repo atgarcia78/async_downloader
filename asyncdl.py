@@ -71,14 +71,37 @@ def get_dif_interl(_dict, _interl, workers):
     return dif
 
 
+def mix_lists(_http_list, _hls_list):
+    _final_list = []
+    if _hls_list:
+        iters = len(_hls_list)
+        step = int(len(_http_list) / iters) + 1
+        _final_list = []
+        for idx in range(iters):
+            start = step * idx
+            end = step * (idx + 1)
+            _final_list.extend(_http_list[start:end])
+            _final_list.append(_hls_list[idx])
+    else:
+        _final_list = _http_list
+
+    return _final_list
+
+
 def get_list_interl(res, asyncdl, _pre):
     if not res:
         return []
     if len(res) < 3:
         return res
     _dict = defaultdict(lambda: [])
+    _hls_list = []
+    _res = []
     for ent in res:
-        _dict[get_domain(ent["url"])].append(ent['id'])
+        if 'hls' not in ent['format_id']:
+            _res.append(ent)
+            _dict[get_domain(ent["url"])].append(ent['id'])
+        else:
+            _hls_list.append(ent)
 
     logger.info(
         f"{_pre}[get_list_interl] entries" +
@@ -114,9 +137,13 @@ def get_list_interl(res, asyncdl, _pre):
                 logger.info(f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
                 asyncdl.workers = _workers
                 asyncdl.WorkersRun.max = _workers
-                return sorted(res, key=lambda x: _interl.index(x['id']))
+                _http_list = sorted(_res, key=lambda x: _interl.index(x['id']))
+                return mix_lists(_http_list, _hls_list)
 
-    return sorted(res, key=lambda x: _interl.index(x['id']))
+    asyncdl.workers = _workers
+    asyncdl.WorkersRun.max = _workers
+    _http_list = sorted(_res, key=lambda x: _interl.index(x['id']))
+    return mix_lists(_http_list, _hls_list)
 
 
 class WorkersRun:
