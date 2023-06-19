@@ -2329,7 +2329,7 @@ def patch_https_connection_pool(**constructor_kwargs):
         "https"] = MyHTTPSConnectionPool
 
 
-def init_config(quiet=False):
+def init_config(quiet=False, test=False):
     uvloop.install()
     asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
     patch_http_connection_pool(maxsize=1000)
@@ -2337,7 +2337,7 @@ def init_config(quiet=False):
     os.environ['MOZ_HEADLESS_WIDTH'] = '1920'
     os.environ['MOZ_HEADLESS_HEIGHT'] = '1080'
     if not quiet:
-        init_logging()
+        return init_logging(test=test)
 
 
 ############################################################
