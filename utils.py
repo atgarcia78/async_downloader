@@ -879,7 +879,7 @@ def init_aria2c(args):
 ############################################################
 
 
-_CLIENT_CONFIG = {
+CLIENT_CONFIG = {
     'timeout': httpx.Timeout(timeout=20),
     'limits': httpx.Limits(max_connections=None, max_keepalive_connections=None, keepalive_expiry=5.0),
     'headers': {
@@ -894,12 +894,12 @@ _CLIENT_CONFIG = {
 }
 
 
-def get_httpx_client():
-    return httpx.Client(**_CLIENT_CONFIG)
+def get_httpx_client(config={}):
+    return httpx.Client(**(CLIENT_CONFIG | config))
 
 
-def get_httpx_async_client():
-    return httpx.AsyncClient(**_CLIENT_CONFIG)
+def get_httpx_async_client(config={}):
+    return httpx.AsyncClient(**(CLIENT_CONFIG | config))
 
 
 def is_ipaddr(res):
@@ -916,6 +916,7 @@ class myIP:
         "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
         "ipapi": {"url": "http://ip-api.com/json", "key": "query"}
     }
+    CLIENT = None
 
     @staticmethod
     def _get_rtt(ip):
@@ -928,7 +929,7 @@ class myIP:
         return {"ip": ip, "time": _tavg}
 
     @classmethod
-    def get_ip(cls, key=None, timeout=1, api="ipify"):
+    def get_ip(cls, api="ipify"):
 
         if api not in cls.URLS_API_GETMYIP:
             raise Exception("api not supported")
@@ -938,22 +939,23 @@ class myIP:
 
         try:
 
-            _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
-            assert httpx
-            myip = try_get(httpx.get(
-                _urlapi, timeout=httpx.Timeout(timeout=timeout),
-                proxies=_proxies, follow_redirects=True),  # type: ignore
-                lambda x: x.json().get(_keyapi))
-            return myip
+            # _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
+            # assert httpx
+            # myip = try_get(httpx.get(
+            #     _urlapi, timeout=httpx.Timeout(timeout=timeout),
+            #     proxies=_proxies, follow_redirects=True),  # type: ignore
+            #     lambda x: x.json().get(_keyapi))
+            # return myip
+            return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
         except Exception as e:
             return repr(e)
 
     @classmethod
-    def get_myiptryall(cls, key=None, timeout=1):
+    def get_myiptryall(cls):
 
         exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
         futures = {
-            exe.submit(cls.get_ip, key=key, timeout=timeout, api=api): api
+            exe.submit(cls.get_ip, api=api): api
             for api in cls.URLS_API_GETMYIP}
         for el in as_completed(futures):
             if not el.exception() and is_ipaddr(_res := el.result()):
@@ -964,11 +966,18 @@ class myIP:
 
     @classmethod
     def get_myip(cls, key=None, timeout=1):
-        return cls.get_myiptryall(key=key, timeout=timeout)
+        _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
+        _timeout = httpx.Timeout(timeout=timeout)
+        cls.CLIENT = get_httpx_client(
+            {'proxies': _proxies, 'timeout': _timeout})
+        try:
+            return cls.get_myiptryall()
+        finally:
+            cls.CLIENT.close()
 
 
 def get_myip(key=None, timeout=2):
-    return myIP.get_ip(key=key, timeout=timeout)
+    return myIP.get_myip(key=key, timeout=timeout)
 
 
 class TorGuardProxies:
