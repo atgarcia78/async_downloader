@@ -934,27 +934,18 @@ class myIP:
         if api not in cls.URLS_API_GETMYIP:
             raise Exception("api not supported")
 
-        _urlapi = cls.URLS_API_GETMYIP[api]['url']
-        _keyapi = cls.URLS_API_GETMYIP[api]['key']
-
-        return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
-
-        # try:
-
-        #     # _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
-        #     # assert httpx
-        #     # myip = try_get(httpx.get(
-        #     #     _urlapi, timeout=httpx.Timeout(timeout=timeout),
-        #     #     proxies=_proxies, follow_redirects=True),  # type: ignore
-        #     #     lambda x: x.json().get(_keyapi))
-        #     # return myip
-        #     return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
-        # except Exception as e:
-        #     return repr(e)
+        if cls.CLIENT:
+            _urlapi = cls.URLS_API_GETMYIP[api]['url']
+            _keyapi = cls.URLS_API_GETMYIP[api]['key']
+            return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
+        else:
+            raise Exception("No httpx client")
 
     @classmethod
     def get_myiptryall(cls):
 
+        if not cls.CLIENT:
+            raise Exception("No httpx client")
         exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
         futures = {
             exe.submit(cls.get_ip, api=api): api
@@ -967,18 +958,23 @@ class myIP:
                 continue
 
     @classmethod
-    def get_myip(cls, key=None, timeout=1):
+    def get_myip(cls, key=None, timeout=1, tryall=True, api=None):
         _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
         _timeout = httpx.Timeout(timeout=timeout)
         cls.CLIENT = get_httpx_client(
             {'proxies': _proxies, 'timeout': _timeout})
         try:
-            return cls.get_myiptryall()
+            if tryall:
+                return cls.get_myiptryall()
+            else:
+                if not api:
+                    api = random.choice(list(cls.URLS_API_GETMYIP))
+                return cls.get_ip(api=api)
         finally:
             cls.CLIENT.close()
 
 
-def get_myip(key=None, timeout=5):
+def getmyip(key=None, timeout=3):
     return myIP.get_myip(key=key, timeout=timeout)
 
 
@@ -1006,7 +1002,7 @@ class TorGuardProxies:
         bad_pr = []
         with ThreadPoolExecutor() as exe:
             futures = {
-                exe.submit(get_myip, key=_key, timeout=timeout): _key
+                exe.submit(getmyip, key=_key, timeout=timeout): _key
                 for _key in list(routing_table.keys())}
 
             for fut in as_completed(futures):
