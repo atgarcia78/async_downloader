@@ -937,18 +937,20 @@ class myIP:
         _urlapi = cls.URLS_API_GETMYIP[api]['url']
         _keyapi = cls.URLS_API_GETMYIP[api]['key']
 
-        try:
+        return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
 
-            # _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
-            # assert httpx
-            # myip = try_get(httpx.get(
-            #     _urlapi, timeout=httpx.Timeout(timeout=timeout),
-            #     proxies=_proxies, follow_redirects=True),  # type: ignore
-            #     lambda x: x.json().get(_keyapi))
-            # return myip
-            return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
-        except Exception as e:
-            return repr(e)
+        # try:
+
+        #     # _proxies = {'all://': f'http://127.0.0.1:{key}'} if key else None
+        #     # assert httpx
+        #     # myip = try_get(httpx.get(
+        #     #     _urlapi, timeout=httpx.Timeout(timeout=timeout),
+        #     #     proxies=_proxies, follow_redirects=True),  # type: ignore
+        #     #     lambda x: x.json().get(_keyapi))
+        #     # return myip
+        #     return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
+        # except Exception as e:
+        #     return repr(e)
 
     @classmethod
     def get_myiptryall(cls):
@@ -976,7 +978,7 @@ class myIP:
             cls.CLIENT.close()
 
 
-def get_myip(key=None, timeout=2):
+def get_myip(key=None, timeout=5):
     return myIP.get_myip(key=key, timeout=timeout)
 
 
