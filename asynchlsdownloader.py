@@ -23,7 +23,7 @@ from Cryptodome.Cipher import AES
 
 from utils import (
     CONF_HLS_RESET_403_TIME,
-    CONF_HLS_SPEED_PER_WORKER,
+    # CONF_HLS_SPEED_PER_WORKER,
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
@@ -461,7 +461,7 @@ class AsyncHLSDownloader:
             if not self.filesize:
                 self.filesize = self.calculate_filesize()
 
-            self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 120
+            # self._CONF_HLS_MIN_N_TO_CHECK_SPEED = 120
 
             if not self.filesize:
                 _est_size = "NA"
@@ -500,10 +500,6 @@ class AsyncHLSDownloader:
         _bitrate = self.tbr or self.abr
         if _bitrate is not None:
             return int(self.totalduration * 1000 * _bitrate / 8)
-
-    @property
-    def min_threshold(self):
-        return self.n_workers * CONF_HLS_SPEED_PER_WORKER
 
     def get_info_fragments(self):
 
