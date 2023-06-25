@@ -103,6 +103,8 @@ def get_list_interl(res, asyncdl, _pre):
         else:
             _hls_list.append(ent)
 
+    if not _dict:
+        return _hls_list
     logger.info(
         f"{_pre}[get_list_interl] entries" +
         f"interleave: {len(list(_dict.keys()))} different hosts, " +

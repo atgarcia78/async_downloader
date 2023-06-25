@@ -52,6 +52,7 @@ from utils import (
     CountDowns,
     myYTDL,
     async_waitfortasks,
+    async_wait_for_any,
     Union,
     cast,
     MySyncAsyncEvent,
@@ -318,7 +319,7 @@ class AsyncHLSDownloader:
             # for audio streams tbr is not present
             self.tbr = self.info_dict.get("tbr", 0)
             self.abr = self.info_dict.get("abr", 0)
-            _br = self.tbr or self.abr
+            # _br = self.tbr or self.abr
 
             self.m3u8_doc = try_get(
                 self.init_client.get(self.info_dict['url']),
@@ -379,7 +380,7 @@ class AsyncHLSDownloader:
                 else:
                     byte_range = {}
 
-                est_size = int(_br * fragment.duration * 1000 / 8)
+                # est_size = int(_br * fragment.duration * 1000 / 8)
 
                 _url = fragment.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
@@ -404,7 +405,7 @@ class AsyncHLSDownloader:
                             "file": _file_path,
                             "byterange": byte_range,
                             "downloaded": is_dl,
-                            "estsize": est_size,
+                            # "estsize": est_size,
                             "headersize": hsize,
                             "size": size,
                             "n_retries": 0,
@@ -425,7 +426,7 @@ class AsyncHLSDownloader:
                             "file": _file_path,
                             "byterange": byte_range,
                             "downloaded": False,
-                            "estsize": est_size,
+                            # "estsize": est_size,
                             "headersize": init_data.get(i + 1),
                             "size": None,
                             "n_retries": 0,
@@ -497,7 +498,8 @@ class AsyncHLSDownloader:
 
     def calculate_filesize(self):
         _bitrate = self.tbr or self.abr
-        return int(self.totalduration * 1000 * _bitrate / 8)
+        if _bitrate is not None:
+            return int(self.totalduration * 1000 * _bitrate / 8)
 
     @property
     def min_threshold(self):
@@ -945,21 +947,24 @@ class AsyncHLSDownloader:
 
     async def event_handle(self):
 
-        _res = None
+        _res = {}
         if self.vid_dl.pause_event.is_set():
             self._speed.append((datetime.now(), "pause"))
-            _res = await async_waitfortasks(
-                events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
-                background_tasks=self.background_tasks)
+            _res = await async_wait_for_any([self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event])
+            # _res = await async_waitfortasks(
+            #     events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
+            #     background_tasks=self.background_tasks)
             self.vid_dl.pause_event.clear()
             self.vid_dl.resume_event.clear()
             self._speed.append((datetime.now(), "resume"))
             await asyncio.sleep(0)
+            self.progress_timer.reset()
         else:
             _event = [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]
             if _event:
                 _res = {"event": _event[0]}
                 await asyncio.sleep(0)
+                self.progress_timer.reset()
 
         return _res
 
@@ -984,27 +989,21 @@ class AsyncHLSDownloader:
                     self.frags_queue.get(),
                     events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
                     background_tasks=self.background_tasks)
-                if _res.get("event"):
+                if "event" in _res:
                     return
                 elif (_e := _res.get("exception")):
                     raise AsyncHLSDLError(f'couldnt get frag from queue {repr(_e)}')
-                else:
-                    q = _res.get("result")
-                    if q is None:
-                        continue
-                    elif isinstance(q, str) and q == "KILL":
-                        logger.debug(f"{self.premsg}:[worker-{nco}]: KILL")
-                        return
-
-                assert isinstance(q, int)
+                elif (q := _res.get("result")) is None:
+                    continue
+                elif q == "KILL":
+                    logger.debug(f"{self.premsg}:[worker-{nco}]: KILL")
+                    return
 
                 _premsg = f'{self.premsg}:[worker-{nco}]:[frag-{q}] '
 
-                # logger.debug(f'{_premsg}\n{self.info_frag[q - 1]}')
-
-                if (_res := await self.event_handle()):
-                    if _res.get("event") in ("stop", "reset"):
-                        return
+                # if (_res := await self.event_handle()):
+                #     if _res.get("event") in ("stop", "reset"):
+                #         return
 
                 url = self.info_frag[q - 1]["url"]
                 filename = Path(self.info_frag[q - 1]["file"])
@@ -1014,12 +1013,12 @@ class AsyncHLSDownloader:
                 if key is not None and key.method == "AES-128":
                     iv = binascii.unhexlify(key.iv[2:])
                     cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
-                byte_range = self.info_frag[q - 1].get("byterange")
+                # byte_range = self.info_frag[q - 1].get("byterange")
                 headers = {}
-                if byte_range:
+                if (byte_range := self.info_frag[q - 1].get("byterange")):
                     headers["range"] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
 
-                await asyncio.sleep(0)
+                # await asyncio.sleep(0)
 
                 while self.info_frag[q - 1]["n_retries"] < self._MAX_RETRIES:
 
@@ -1029,9 +1028,9 @@ class AsyncHLSDownloader:
                             # logger.debug(f'{_premsg}: limiter speed')
                             await asyncio.sleep(self._interv)
 
-                        if (_res := await self.event_handle()):
-                            if _res.get("event") in ("stop", "reset"):
-                                return
+                        # if (_res := await self.event_handle()):
+                        #     if _res.get("event") in ("stop", "reset"):
+                        #         return
 
                         async with (
                             aiofiles.open(filename, mode="ab") as f,
@@ -1099,31 +1098,17 @@ class AsyncHLSDownloader:
                                         async with self._LOCK:
                                             self.n_dl_fragments -= 1
 
-                                if (self.info_frag[q - 1]["headersize"] and
-                                   self.info_frag[q - 1]["headersize"] < self._CHUNK_SIZE):
+                                if not (_chunk_size := self.info_frag[q - 1]["headersize"]) or _chunk_size > self._CHUNK_SIZE:
 
-                                    _chunk_size = self.info_frag[q - 1]["headersize"]
-
-                                else:
                                     _chunk_size = self._CHUNK_SIZE
 
                                 num_bytes_downloaded = res.num_bytes_downloaded
 
-                                self.info_frag[q - 1]["time2dlchunks"] = []
-                                self.info_frag[q - 1]["sizechunks"] = []
-                                self.info_frag[q - 1]["nchunks_dl"] = 0
-
-                                _started = time.monotonic()
+                                _timer = ProgressTimer()
 
                                 async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
 
-                                    _timechunk = time.monotonic() - _started
-                                    self.info_frag[q - 1]["time2dlchunks"].append(_timechunk)
-                                    if cipher:
-                                        data = cipher.decrypt(chunk)
-                                    else:
-                                        data = chunk
-
+                                    data = cipher.decrypt(chunk) if cipher else chunk
                                     await f.write(data)
 
                                     _dif = 0
@@ -1139,14 +1124,11 @@ class AsyncHLSDownloader:
                                         self.vid_dl.info_dl["down_size"] += _iter_bytes
 
                                     num_bytes_downloaded = res.num_bytes_downloaded
-                                    self.info_frag[q - 1]["nchunks_dl"] += 1
-                                    self.info_frag[q - 1]["sizechunks"].append(_iter_bytes)
 
-                                    if (_res := await self.event_handle()):
-                                        if _res.get("event") in ("stop", "reset"):
-                                            raise AsyncHLSDLErrorFatal(_res.get("event"))
-
-                                    _started = time.monotonic()
+                                    if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                                        if (_res := await self.event_handle()):
+                                            if _res.get("event") in ("stop", "reset"):
+                                                raise AsyncHLSDLErrorFatal(_res.get("event"))
 
                         _size = (await os.stat(filename)).st_size
                         _hsize = self.info_frag[q - 1]["headersize"]

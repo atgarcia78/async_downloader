@@ -175,6 +175,14 @@ def put_sequence(q: Union[queue.Queue, asyncio.Queue], seq: Iterable) -> Union[q
     return q
 
 
+def subnright(pattern, repl, text, n):
+    pattern = re.compile(rf"{pattern}(?!.*{pattern})", flags=re.DOTALL)
+    _text = text
+    for i in range(n):
+        _text = pattern.sub(repl, _text)
+    return _text
+
+
 class MySyncAsyncEvent:
 
     def __init__(self, name: Union[str, None] = None, initset: bool = False):
