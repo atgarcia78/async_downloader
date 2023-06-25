@@ -71,19 +71,29 @@ def get_dif_interl(_dict, _interl, workers):
     return dif
 
 
-def mix_lists(_http_list, _hls_list):
+def mix_lists(_http_list, _hls_list, asyncdl):
     _final_list = []
     if _hls_list:
-        iters = len(_hls_list)
-        step = int(len(_http_list) / iters) + 1
-        _final_list = []
-        for idx in range(iters):
-            start = step * idx
-            end = step * (idx + 1)
-            _final_list.extend(_http_list[start:end])
-            _final_list.append(_hls_list[idx])
+        if not _http_list:
+            _final_list = _hls_list
+        else:
+            iters = len(_hls_list)
+            step = int(len(_http_list) / iters) + 1
+            _final_list = []
+            for idx in range(iters):
+                start = step * idx
+                end = step * (idx + 1)
+                _final_list.extend(_http_list[start:end])
+                _final_list.append(_hls_list[idx])
     else:
         _final_list = _http_list
+
+    if (_total := len(_final_list)) > 0:
+        for _newidx, _el in enumerate(_final_list):
+            _el['__interl_index'] = asyncdl.max_index_playlist + _newidx + 1
+            _el['__interl_total'] = _total
+
+        asyncdl.max_index_playlist += _total
 
     return _final_list
 
@@ -104,7 +114,7 @@ def get_list_interl(res, asyncdl, _pre):
             _hls_list.append(ent)
 
     if not _dict:
-        return _hls_list
+        return mix_lists([], _hls_list, asyncdl)
     logger.info(
         f"{_pre}[get_list_interl] entries" +
         f"interleave: {len(list(_dict.keys()))} different hosts, " +
@@ -140,12 +150,12 @@ def get_list_interl(res, asyncdl, _pre):
                 asyncdl.workers = _workers
                 asyncdl.WorkersRun.max = _workers
                 _http_list = sorted(_res, key=lambda x: _interl.index(x['id']))
-                return mix_lists(_http_list, _hls_list)
+                return mix_lists(_http_list, _hls_list, asyncdl)
 
     asyncdl.workers = _workers
     asyncdl.WorkersRun.max = _workers
     _http_list = sorted(_res, key=lambda x: _interl.index(x['id']))
-    return mix_lists(_http_list, _hls_list)
+    return mix_lists(_http_list, _hls_list, asyncdl)
 
 
 class WorkersRun:
@@ -193,6 +203,7 @@ class WorkersRun:
                 self.asyncdl.end_dl.set()
 
     async def move_to_waiting_top(self, dl_index):
+
         async with self.alock:
             dl = self.info_dl[dl_index]['dl']
             dl_status = dl.info_dl['status']
@@ -222,6 +233,7 @@ class WorkersRun:
             self.logger.debug(f'{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]')
             if len(self.running) >= self.max:
                 self.waiting.append(dl.index)
+                self.waiting = deque(sorted(self.waiting))
             else:
                 self.running.add(dl.index)
                 self.tasks.update({add_task(self._task(dl.index), self.asyncdl.background_tasks): dl.index})
@@ -388,6 +400,8 @@ class AsyncDL:
         self.num_videos_pending = 0
 
         self.list_pasres = set()
+
+        self.max_index_playlist = 0
 
         # contadores sobre número de workers init, workers run y workers manip
 
@@ -998,18 +1012,23 @@ class AsyncDL:
                 async with self.alock:
                     self.totalbytes2dl += _filesize
 
-            self.info_videos[url_key].update(
-                {
-                    "status": "initok",
-                    "filename": str(dl.info_dl.get("filename")),
-                    "dl": str(dl),
-                }
-            )
-
             async with self.alock:
                 self.getlistvid_first.set()
-                dl.index = len(self.list_dl) + 1
+                if (_index := dl.info_dict.get('__interl_index')):
+                    dl.index = _index
+                else:
+                    _index = max(self.max_index_playlist, max(self.list_dl.keys()))
+                    dl.index = _index + 1
+
                 self.list_dl.update({dl.index: dl})
+                self.info_videos[url_key].update(
+                    {
+                        "status": "initok",
+                        "filename": str(dl.info_dl.get("filename")),
+                        "dl": str(dl),
+                        "dl_index": dl.index
+                    }
+                )
 
                 await self.WorkersRun.add_dl(dl, url_key)
 

@@ -117,7 +117,7 @@ CONF_INTERVAL_GUI = 0.2
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
-    "GVDBlogPost", "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
+    "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
     "MyVidsterSearchPlaylistIE", "MyVidsterRSSPlaylistIE"]
 
 
@@ -2876,7 +2876,10 @@ if PySimpleGUI:
                         info = []
                         for _index in _index_list:
                             if event == 'MoveTopWaitingDL':
-                                await self.asyncdl.WorkersRun.move_to_waiting_top(_index)
+                                if not self.asyncdl.WorkersInit.exit.is_set():
+                                    sg.cprint('[move to top waiting list] cant process until every video has been checked by init')
+                                else:
+                                    await self.asyncdl.WorkersRun.move_to_waiting_top(_index)
                             if event == 'StopCount':
                                 CountDowns._INPUT.put_nowait(str(_index))
                             elif event == '+PasRes':
@@ -3158,6 +3161,7 @@ if PySimpleGUI:
 
             _copy_list_dl = self.asyncdl.list_dl.copy()
             _waiting = list(self.asyncdl.WorkersRun.waiting)
+            _running = list(self.asyncdl.WorkersRun.running)
 
             for st in _status:
                 list_upt[st] = {}
