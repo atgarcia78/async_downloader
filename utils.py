@@ -3161,21 +3161,21 @@ if PySimpleGUI:
 
             _copy_list_dl = self.asyncdl.list_dl.copy()
             _waiting = list(self.asyncdl.WorkersRun.waiting)
-            _running = list(self.asyncdl.WorkersRun.running)
+            _running = sorted(list(self.asyncdl.WorkersRun.running))
 
             for st in _status:
                 list_upt[st] = {}
                 list_res[st] = {}
 
                 if st == 'init':
+
                     _list_items = _waiting
                     for i, index in enumerate(_list_items):
 
                         if self.asyncdl.list_dl[index].info_dl['status'] in trans[st]:
                             list_res[st].update({index: (i, self.asyncdl.list_dl[index].print_hookup())})
-
                 else:
-                    _list_items = _copy_list_dl
+                    _list_items = _copy_list_dl if st != 'downloading' else _running
                     for index in _list_items:
                         if self.asyncdl.list_dl[index].info_dl['status'] in trans[st]:
                             list_res[st].update({index: self.asyncdl.list_dl[index].print_hookup()})
