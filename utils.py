@@ -3161,7 +3161,7 @@ if PySimpleGUI:
 
             _copy_list_dl = self.asyncdl.list_dl.copy()
             _waiting = list(self.asyncdl.WorkersRun.waiting)
-            _running = sorted(list(self.asyncdl.WorkersRun.running))
+            _running = list(self.asyncdl.WorkersRun.running)
 
             for st in _status:
                 list_upt[st] = {}

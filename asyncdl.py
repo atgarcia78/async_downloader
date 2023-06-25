@@ -164,7 +164,7 @@ class WorkersRun:
         self.asyncdl = asyncdl
         self.logger = logging.getLogger('WorkersRun')
         self._max = asyncdl.workers
-        self.running = set()
+        self.running = deque()
         self.waiting = deque()
         self.tasks = {}
         self.info_dl = {}
@@ -186,7 +186,7 @@ class WorkersRun:
             if self.waiting:
                 if len(self.running) < self.max:
                     dl_index = self.waiting.popleft()
-                    self.running.add(dl_index)
+                    self.running.append(dl_index)
                     self.tasks.update({add_task(self._task(dl_index), self.asyncdl.background_tasks): dl_index})
 
     async def del_worker(self):
@@ -217,7 +217,7 @@ class WorkersRun:
                 if len(self.running) >= self.max:
                     self.waiting.append(dl_index)
                 else:
-                    self.running.add(dl_index)
+                    self.running.append(dl_index)
                     self.tasks.update({add_task(self._task(dl_index), self.asyncdl.background_tasks): dl_index})
 
     async def add_dl(self, dl, url_key):
@@ -235,7 +235,7 @@ class WorkersRun:
                 self.waiting.append(dl.index)
                 self.waiting = deque(sorted(self.waiting))
             else:
-                self.running.add(dl.index)
+                self.running.append(dl.index)
                 self.tasks.update({add_task(self._task(dl.index), self.asyncdl.background_tasks): dl.index})
                 self.logger.debug(f'[{url_key}] task ok {print_tasks(self.tasks)}')
 
@@ -263,7 +263,7 @@ class WorkersRun:
                 if self.waiting:
                     if len(self.running) < self.max:
                         dl_index2 = self.waiting.popleft()
-                        self.running.add(dl_index2)
+                        self.running.append(dl_index2)
                         self.tasks.update({add_task(self._task(dl_index2), self.asyncdl.background_tasks): dl_index2})
 
         except Exception as e:
