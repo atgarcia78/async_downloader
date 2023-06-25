@@ -1017,7 +1017,7 @@ class AsyncDL:
                 if (_index := dl.info_dict.get('__interl_index')):
                     dl.index = _index
                 else:
-                    _index = max(self.max_index_playlist, max(self.list_dl.keys()))
+                    _index = max(self.max_index_playlist, max(list(self.list_dl.keys()) or [0]))
                     dl.index = _index + 1
 
                 self.list_dl.update({dl.index: dl})
