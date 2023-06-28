@@ -451,7 +451,7 @@ class AsyncARIA2CDownloader:
                     self.uris = _uris * self._nsplits
 
             logger.debug(
-                f'{self.premsg} proxy {self._proxy} uris:\n{self.uris}')
+                f'{self.premsg} enproxy {self.enproxy} mode {self._mode} proxy {self._proxy} uris:\n{self.uris}')
 
             self.uris = cast(list[str], self.uris)
 

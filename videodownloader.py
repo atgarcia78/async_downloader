@@ -38,7 +38,7 @@ from utils import (
     MySyncAsyncEvent)
 
 FORCE_TO_SAL = {
-    'extractors': ['myvidster'],  # ['doodstream']
+    'extractors': [],  # ['mixdrop'],  # ['doodstream']
     'filesize': 300000000
 }
 
@@ -220,7 +220,7 @@ class VideoDownloader:
 
                 protocol = determine_protocol(info)
                 if protocol in ('http', 'https'):
-                    if any([self.args.http_downloader == "saldl", info.get('extractor_key').lower() in FORCE_TO_SAL["extractors"],
+                    if any([self.args.http_downloader == "saldl", info.get('extractor_key').lower() not in FORCE_TO_SAL["extractors"],
                             (info.get('filesize') or 0) > FORCE_TO_SAL["filesize"],
                             self.args.http_downloader == "aria2c" and not self.args.aria2c]):
                         dl = AsyncSALDownloader(info, self)
@@ -232,7 +232,7 @@ class VideoDownloader:
                     elif self.args.http_downloader == "aria2c" and self.args.aria2c:
                         dl = AsyncARIA2CDownloader(
                             self.info_dl['rpcport'],
-                            False,  # self.args.enproxy,
+                            self.args.enproxy,
                             info, self)
                         logger.debug(
                             f"[{info['id']}][{info['title']}]" +
@@ -249,7 +249,10 @@ class VideoDownloader:
                             self.info_dl.update({'auto_pasres': True})
 
                 elif protocol in ('m3u8', 'm3u8_native'):
-                    dl = AsyncHLSDownloader(self.args.enproxy, info, self)
+                    dl = AsyncHLSDownloader(
+                        False,  # self.args.enproxy,
+                        info,
+                        self)
                     logger.debug(
                         f"[{info['id']}][{info['title']}][{info['format_id']}]" +
                         "[get_dl] DL type HLS")

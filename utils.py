@@ -102,12 +102,12 @@ CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
-CONF_PROXIES_MAX_N_GR_HOST = 10  # 10
-CONF_PROXIES_N_GR_VIDEO = 8  # 8
+CONF_PROXIES_MAX_N_GR_HOST = 4  # 10
+CONF_PROXIES_N_GR_VIDEO = 16  # 8
 CONF_PROXIES_BASE_PORT = 12000
 
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
-CONF_ARIA2C_SPEED_PER_CONNECTION = 102400  # 102400 * 1.5# 102400
+CONF_ARIA2C_SPEED_PER_CONNECTION = 102400 // 8  # 102400 * 1.5# 102400
 CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED = _min = 240  # 120
 
 CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min // 4  # 60
@@ -715,6 +715,8 @@ def init_logging(file_path=None, test=False):
     logger.setLevel(logging.WARNING)
     logger = logging.getLogger("proxy.http.handler")
     logger.setLevel(logging.ERROR)
+    logger = logging.getLogger("plugins.proxy_pool_by_host")
+    logger.setLevel(logging.WARNING)
 
     if test:
         return logging.getLogger('test')
@@ -1122,7 +1124,7 @@ class TorGuardProxies:
         num=CONF_PROXIES_MAX_N_GR_HOST,
         size=CONF_PROXIES_N_GR_VIDEO,
         port=CONF_TORPROXIES_HTTPPORT,
-        timeout=2,
+        timeout=5,
         event=None
     ) -> Tuple[List, Dict]:
 
