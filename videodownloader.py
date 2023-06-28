@@ -67,7 +67,7 @@ class VideoDownloader:
 
         self.background_tasks = set()
         self.hosts_dl = VideoDownloader._HOSTS_DL
-        self.master_hosts_alock = async_lock(VideoDownloader._LOCK)
+        self.master_hosts_alock = partial(async_lock, VideoDownloader._LOCK)
         self.master_hosts_lock = VideoDownloader._LOCK
         self.args = args
 

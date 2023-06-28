@@ -336,7 +336,7 @@ class AsyncARIA2CDownloader:
                     if self._index_proxy is None:
                         raise AsyncARIA2CDLError(f'couldnt get index proxy: {self._index_proxy}')
 
-                    async with self.vid_dl.master_hosts_alock:
+                    async with self.vid_dl.master_hosts_alock():
                         self.vid_dl.hosts_dl[self._host]['count'] += 1
 
                 _init_url = self.info_dict.get('webpage_url')
@@ -759,7 +759,7 @@ class AsyncARIA2CDownloader:
                         if all([self._mode != 'noproxy', getattr(self, '_index_proxy', None),
                                 self._index_proxy >= 0]):  # type: ignore
 
-                            async with self.vid_dl.master_hosts_alock:
+                            async with self.vid_dl.master_hosts_alock():
                                 self.vid_dl.hosts_dl[self._host]['count'] -= 1
                                 self.vid_dl.hosts_dl[self._host]['queue'].put_nowait(self._index_proxy)
                             self._proxy = None
