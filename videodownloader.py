@@ -38,7 +38,7 @@ from utils import (
     MySyncAsyncEvent)
 
 FORCE_TO_SAL = {
-    'extractors': [],  # ['mixdrop'],  # ['doodstream']
+    'extractors': ['mixdrop'],  # ['doodstream']
     'filesize': 300000000
 }
 
