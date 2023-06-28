@@ -405,8 +405,6 @@ class AsyncDL:
 
         # contadores sobre número de workers init, workers run y workers manip
 
-        self.hosts_downloading = {}
-
         self.totalbytes2dl = 0
         self.launch_time = datetime.now()
 
@@ -995,10 +993,7 @@ class AsyncDL:
 
             dl = await async_videodl_init(
                 self.info_videos[url_key]["video_info"],
-                self.ytdl, self.nwsetup, self.args,
-                self.hosts_downloading,
-                self.alock,
-                self.hosts_alock)
+                self.ytdl, self.nwsetup, self.args)
 
             _pre = f"[init_callback][get_dl]:[{dl.info_dict.get('id')}][{dl.info_dict.get('title')}][{url_key}]:"
 
@@ -1241,7 +1236,6 @@ class AsyncDL:
             self.getlistvid_first = MySyncAsyncEvent("first")
             self.end_dl = MySyncAsyncEvent("enddl")
             self.alock = asyncio.Lock()
-            self.hosts_alock = asyncio.Lock()
 
             self.t1.start()
             self.t2.start()

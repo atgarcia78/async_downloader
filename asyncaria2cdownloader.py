@@ -153,8 +153,15 @@ class AsyncARIA2CDownloader:
         self._n_check_speed = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
         self._mode = 'simple'
         _sem, self._decor, self._nsplits = getter(self._extractor)
+
         if not self.enproxy:
             self._mode = 'noproxy'
+        else:
+            with self.vid_dl.master_hosts_lock:
+                if not self.vid_dl.hosts_dl.get(self._host):
+                    _seq = random.sample(range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST)
+                    queue_ = put_sequence(asyncio.Queue(), _seq)
+                    self.vid_dl.hosts_dl.update({self._host: {'count': 0, 'queue': queue_}})
 
         if _sem and self._mode == 'noproxy':
 
@@ -311,35 +318,26 @@ class AsyncARIA2CDownloader:
         dl_cont = None
 
         try:
-            if self._mode == 'noproxy':
-                self._index_proxy = -1
-                self._proxy = None
-            else:
-                self._proxy = None
-                async with self.vid_dl.master_hosts_alock:
-                    if not self.vid_dl.hosts_dl.get(self._host):
-                        _seq = random.sample(range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST)
-                        queue_ = put_sequence(asyncio.Queue(), _seq)
-                        self.vid_dl.hosts_dl.update({self._host: {'count': 0, 'queue': queue_}})
+            self._index_proxy = None
+            self._proxy = None
+            if self._mode != 'noproxy':
 
                 _res = await async_waitfortasks(
                     self.vid_dl.hosts_dl[self._host]['queue'].get(),
                     events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
                     background_tasks=self.background_tasks)
 
-                if _res.get('event'):
+                if 'event' in _res:
                     return
                 elif (_e := _res.get('exception')):
                     raise AsyncARIA2CDLError(f'couldnt get index proxy: {repr(_e)}')
                 else:
-                    self._index_proxy = _res.get('result', -1)
-                    if (self._index_proxy is None or
-                        not isinstance(self._index_proxy, int) or
-                            self._index_proxy == -1):
-
+                    self._index_proxy = _res.get('result')
+                    if self._index_proxy is None:
                         raise AsyncARIA2CDLError(f'couldnt get index proxy: {self._index_proxy}')
 
-                    self.vid_dl.hosts_dl[self._host]['count'] += 1
+                    async with self.vid_dl.master_hosts_alock:
+                        self.vid_dl.hosts_dl[self._host]['count'] += 1
 
                 _init_url = self.info_dict.get('webpage_url')
                 if self.special_extr:
@@ -351,9 +349,7 @@ class AsyncARIA2CDownloader:
                     self.opts.set('all-proxy', self._proxy)
 
                     try:
-                        _ytdl_opts = self.ytdl.params.copy()
-
-                        async with ProxyYTDL(opts=_ytdl_opts, proxy=self._proxy, executor=self.ex_dl) as proxy_ytdl:
+                        async with ProxyYTDL(opts=self.ytdl.params.copy(), proxy=self._proxy, executor=self.ex_dl) as proxy_ytdl:
 
                             proxy_info = get_format_id(
                                 proxy_ytdl.sanitize_info(
@@ -457,7 +453,7 @@ class AsyncARIA2CDownloader:
 
             dl_cont = await self.add_uris(self.uris)
 
-            await asyncio.sleep(0)
+            # await asyncio.sleep(0)
 
             if (resupt := await self.aupdate(dl_cont)):
                 if any([_ in resupt for _ in ('error', 'reset')]):
@@ -529,31 +525,34 @@ class AsyncARIA2CDownloader:
                 _input_speed = await self._qspeed.get()
 
                 if _input_speed is None:
-                    await asyncio.sleep(0)
                     continue
                 elif _input_speed == kill_item:
                     logger.debug(f'{self.premsg}[check_speed] KIKLL from queue')
                     break
                 elif (self.block_init or self.check_any_event_is_set()):
-                    await asyncio.sleep(0)
                     continue
                 elif len_ap_list(_speed, _input_speed) > _min_check:
 
+                    _res_dl0 = False
+                    _res_ncon = False
+                    _res_perc = False
+
                     if any(
                             [
-                                all([el[0] == 0 for el in _speed[-_index:]]),
-                                all([self.n_workers > 1, all([el[1] <= 1 for el in _speed[-_index:]])]),
-                                perc_below(_speed[-_index:]) >= 50
+                                _res_dl0 := all([el[0] == 0 for el in _speed[-_index:]]),
+                                _res_ncon := all([self.n_workers > 1, all([el[1] < self.n_workers - 1 for el in _speed[-_index:]])]),
+                                # _res_perc := perc_below(_speed[-_index:]) >= 50
                             ]):
 
-                        # def _print_el(item: tuple) -> str:
-                        #     _secs = item[2].second + item[2].microsecond / 1000000
-                        #     return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
+                        def _print_el(item: tuple) -> str:
+                            _secs = item[2].second + item[2].microsecond / 1000000
+                            return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
 
-                        # _str_speed = ', '.join([_print_el(el) for el in _speed[-_index:]])
+                        _str_speed = ', '.join([_print_el(el) for el in _speed[-_index:]])
 
                         # logger.debug(f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]')
-                        logger.debug(f'{self.premsg}[check_speed] speed reset')  # \n{_str_speed}')
+                        logger.info(f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}] dl0[{_res_dl0}] ncon[{_res_ncon}] perc[{_res_perc}]')  # \n{_str_speed}')
+                        logger.debug(f'{self.premsg}[check_speed]\n{_str_speed}')
 
                         await self.vid_dl.reset()
 
@@ -626,12 +625,12 @@ class AsyncARIA2CDownloader:
                     if self.status == 'stop':
                         await self.async_remove([self.dl_cont])
                         return {"event": ["exit"]}
-                    self.vid_dl.stop_event.clear()
-                    await asyncio.sleep(0)
-                    await self.async_restart([self.dl_cont])
-                    async with self.vid_dl.alock:
-                        self.vid_dl.info_dl['down_size'] -= self.down_size
-                    self.down_size = 0
+                    # self.vid_dl.stop_event.clear()
+                    # await asyncio.sleep(0)
+                    # await self.async_restart([self.dl_cont])
+                    # async with self.vid_dl.alock:
+                    #     self.vid_dl.info_dl['down_size'] -= self.down_size
+                    # self.down_size = 0
 
             elif status == 'init':
 

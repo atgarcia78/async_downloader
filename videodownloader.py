@@ -9,6 +9,7 @@ from datetime import datetime
 from functools import partial
 from pathlib import Path
 from queue import Queue
+from threading import Lock
 
 import aiofiles.os
 import os
@@ -35,7 +36,8 @@ from utils import (
     traverse_obj,
     Union,
     async_waitfortasks,
-    MySyncAsyncEvent)
+    MySyncAsyncEvent,
+    async_lock)
 
 FORCE_TO_SAL = {
     'extractors': ['mixdrop'],  # ['doodstream']
@@ -58,13 +60,15 @@ class VideoDownloader:
 
     _PLNS = {}
     _QUEUE = Queue()
+    _LOCK = Lock()
+    _HOSTS_DL = {}
 
-    def __init__(self, video_dict, ytdl, nwsetup, args, hosts_dl, alock, hosts_alock):
+    def __init__(self, video_dict, ytdl, nwsetup, args):
 
         self.background_tasks = set()
-        self.hosts_dl = hosts_dl
-        self.master_alock = alock
-        self.master_hosts_alock = hosts_alock
+        self.hosts_dl = VideoDownloader._HOSTS_DL
+        self.master_hosts_alock = async_lock(VideoDownloader._LOCK)
+        self.master_hosts_lock = VideoDownloader._LOCK
         self.args = args
 
         self._index = None  # for printing
