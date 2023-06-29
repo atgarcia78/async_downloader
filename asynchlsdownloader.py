@@ -989,7 +989,7 @@ class AsyncHLSDownloader:
                     return
                 elif (_e := _res.get("exception")):
                     raise AsyncHLSDLError(f'couldnt get frag from queue {repr(_e)}')
-                elif (q := _res.get("result")) is None:
+                elif (q := cast(int, _res.get("result"))) is None:
                     continue
                 elif q == "KILL":
                     logger.debug(f"{self.premsg}:[worker-{nco}]: KILL")

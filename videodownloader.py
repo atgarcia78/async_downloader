@@ -35,13 +35,14 @@ from utils import (
     sync_to_async,
     traverse_obj,
     Union,
+    cast,
     async_waitfortasks,
     MySyncAsyncEvent,
     async_lock)
 
 FORCE_TO_SAL = {
-    'extractors': ['mixdrop'],  # ['doodstream']
-    'filesize': 300000000
+    'extractors': ['mixdrop', 'hungyoungbrit'],  # ['doodstream']
+    'filesize': 300000000000
 }
 
 logger = logging.getLogger("video_DL")
@@ -180,6 +181,10 @@ class VideoDownloader:
             prots, urls = list(
                 map(list, zip(*[
                     (determine_protocol(f), f['url']) for f in _info])))
+            if not prots or not urls:
+                raise Exception('no prots or no urls')
+
+            prots, urls = cast(list[str], prots), cast(list[str], urls)
 
             if all("m3u8" in _ for _ in prots):
                 if any("dash" in _ for _ in urls):

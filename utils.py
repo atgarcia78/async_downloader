@@ -49,10 +49,10 @@ from typing import (
 
 import queue
 
-
 from ipaddress import ip_address
 from operator import getitem
 
+import urllib.parse
 from urllib.parse import urlparse
 
 try:
@@ -114,7 +114,7 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min // 4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
-CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop"]
+CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop", "doodstream"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
     "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
@@ -181,6 +181,49 @@ def subnright(pattern, repl, text, n):
     for i in range(n):
         _text = pattern.sub(repl, _text)
     return _text
+
+
+class Cache:
+    def __init__(self, app='noname'):
+        self.app = app
+        self.logger = logging.getLogger('cache')
+        self.root_dir = os.path.join(os.getenv('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), app)
+        os.makedirs(self.root_dir, exist_ok=True)
+
+    def _get_cache_fn(self, key, dtype='json'):
+        key = urllib.parse.quote(key, safe='').replace('%', ',')  # encode non-ascii characters
+        return os.path.join(self.root_dir, f'{key}.{dtype}')
+
+    def store(self, key, obj, dtype='json'):
+        assert dtype in ('json',)
+
+        def write_json_file(obj, fn):
+            with open(fn, mode='w', encoding='utf-8') as f:
+                json.dump({'date': datetime.now().strftime("%Y.%m.%d"), 'data': obj}, f, ensure_ascii=False)
+
+        fn = self._get_cache_fn(key, dtype)
+        try:
+            write_json_file(obj, fn)
+        except Exception as e:
+            self.logger.exception(f'Writing cache to {fn!r} failed: {e}')
+
+    def load(self, key, dtype='json', default=None):
+        assert dtype in ('json',)
+
+        cache_fn = self._get_cache_fn(key, dtype)
+        with contextlib.suppress(OSError):
+            try:
+                with open(cache_fn, encoding='utf-8') as cachef:
+                    self.logger.debug(f'Loading {key} from cache')
+                    return json.load(cachef).get('data')
+            except (ValueError, KeyError):
+                try:
+                    file_size = os.path.getsize(cache_fn)
+                except OSError as oe:
+                    file_size = str(oe)
+                self.logger.warning(f'Cache retrieval from {cache_fn} failed ({file_size})')
+
+        return default
 
 
 class MySyncAsyncEvent:
@@ -830,7 +873,7 @@ def get_listening_tcp() -> dict:
         command
     '''
     printout = subprocess.run(["listening"], encoding='utf-8', capture_output=True).stdout
-    final_list = defaultdict(list)
+    final_list = defaultdict(lambda: [])
     for el in re.findall(r'^([^\s]+)\s+(\d+)[^\:]+\:(\d+)', printout, re.MULTILINE):
         final_list[el[0]].append({'port': int(el[2]), 'pid': int(el[1])})
         final_list[int(el[2])].append({'pid': int(el[1]), 'command': el[0]})
@@ -4140,8 +4183,7 @@ try:
             raise Exception(f'ERROR couldnt create command: entriesleg[{len(entriesleg)}] entriesalt[{len(entriesalt)}]')
 
     def get_files_same_meta(folder1, folder2):
-        from collections import defaultdict
-        files = defaultdict(list)
+        files = defaultdict(lambda: [])
         for folder in (folder1, folder2):
             for file in Path(folder).rglob('*'):
                 if file.is_file() and not file.is_symlink() and not file.stem.startswith('.') and file.suffix.lower() in ('.mp4', '.mkv', '.zip'):

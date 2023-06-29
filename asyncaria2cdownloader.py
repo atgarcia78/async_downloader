@@ -332,7 +332,7 @@ class AsyncARIA2CDownloader:
                 elif (_e := _res.get('exception')):
                     raise AsyncARIA2CDLError(f'couldnt get index proxy: {repr(_e)}')
                 else:
-                    self._index_proxy = _res.get('result')
+                    self._index_proxy = cast(int, _res.get('result'))
                     if self._index_proxy is None:
                         raise AsyncARIA2CDLError(f'couldnt get index proxy: {self._index_proxy}')
 
@@ -757,7 +757,7 @@ class AsyncARIA2CDownloader:
 
                     finally:
                         if all([self._mode != 'noproxy', getattr(self, '_index_proxy', None),
-                                self._index_proxy >= 0]):  # type: ignore
+                                self._index_proxy is not None]):  # type: ignore
 
                             async with self.vid_dl.master_hosts_alock():
                                 self.vid_dl.hosts_dl[self._host]['count'] -= 1
