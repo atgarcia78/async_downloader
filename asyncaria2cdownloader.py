@@ -49,7 +49,7 @@ from utils import (
     my_dec_on_exception,
     get_host,
     variadic
-    
+
 )
 
 logger = logging.getLogger('async_ARIA2C_DL')
@@ -442,7 +442,7 @@ class AsyncARIA2CDownloader:
 
                     logger.debug(
                         f'{self.premsg} {_res}')
-                    
+
                     if _res.get('event'):
                         return
                     elif (_e := _res.get('exception')):
