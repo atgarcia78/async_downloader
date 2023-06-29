@@ -38,12 +38,8 @@ from utils import (
     cast,
     async_waitfortasks,
     MySyncAsyncEvent,
-    async_lock)
-
-FORCE_TO_SAL = {
-    'extractors': ['mixdrop', 'hungyoungbrit'],  # ['doodstream']
-    'filesize': 300000000000
-}
+    async_lock,
+    CONF_HTTP_DL)
 
 logger = logging.getLogger("video_DL")
 
@@ -220,25 +216,28 @@ class VideoDownloader:
         res_dl = []
 
         for n, info in enumerate(_info):
-
             try:
-
                 if info.get('_has_drm'):
                     res_dl.append(AsyncDLError(info, 'has drm'))
                     continue
 
                 protocol = determine_protocol(info)
                 if protocol in ('http', 'https'):
-                    if any([self.args.http_downloader == "saldl", info.get('extractor_key').lower() not in FORCE_TO_SAL["extractors"],
-                            (info.get('filesize') or 0) > FORCE_TO_SAL["filesize"],
-                            self.args.http_downloader == "aria2c" and not self.args.aria2c]):
+                    if all([
+                        self.args.http_downloader == "saldl",
+                        self.args.http_downloader == "aria2c" and not self.args.aria2c,
+                        info.get('extractor').lower() not in CONF_HTTP_DL['ARIA2C']['extractors'],
+                        (info.get('filesize') or 0) > CONF_HTTP_DL['ARIA2C']['max_filesize']
+                    ]):
                         dl = AsyncSALDownloader(info, self)
                         logger.debug(
                             f"[{info['id']}][{info['title']}]" +
                             f"[{info['format_id']}][get_dl] DL type SAL")
                         if dl.auto_pasres:
                             self.info_dl.update({'auto_pasres': True})
-                    elif self.args.http_downloader == "aria2c" and self.args.aria2c:
+                    elif any([
+                        self.args.aria2c
+                    ]):
                         dl = AsyncARIA2CDownloader(
                             self.info_dl['rpcport'],
                             self.args.enproxy,

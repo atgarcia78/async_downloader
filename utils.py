@@ -114,11 +114,18 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min // 4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
-CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop", "doodstream"]
+CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
     "GVDBlogPlaylist", "MyVidsterChannelPlaylistIE",
     "MyVidsterSearchPlaylistIE", "MyVidsterRSSPlaylistIE"]
+
+CONF_HTTP_DL = {
+    'ARIA2C': {
+        'extractors': ['mixdrop', 'hungyoungbrit', 'doodstream'],  # ['doodstream']
+        'max_filesize': 300000000
+    }
+}
 
 
 def get_host(url: str) -> str:

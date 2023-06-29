@@ -47,7 +47,9 @@ from utils import (
     async_wait_for_any,
     put_sequence,
     my_dec_on_exception,
-    get_host
+    get_host,
+    variadic
+    
 )
 
 logger = logging.getLogger('async_ARIA2C_DL')
@@ -392,6 +394,9 @@ class AsyncARIA2CDownloader:
                     self.n_workers = _gr * self._nsplits
                     self.opts.set('split', self.n_workers)
 
+                    logger.info(
+                        f'{self.premsg} enproxy {self.enproxy} mode {self._mode} proxy {self._proxy} _gr {_gr} n_workers {self.n_workers} ')
+
                     async def get_uri(i):
 
                         assert isinstance(self._index_proxy, int)
@@ -435,16 +440,20 @@ class AsyncARIA2CDownloader:
                         _tasks, events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
                         background_tasks=self.background_tasks)
 
+                    logger.debug(
+                        f'{self.premsg} {_res}')
+                    
                     if _res.get('event'):
                         return
                     elif (_e := _res.get('exception')):
                         raise AsyncARIA2CDLError(f'couldnt get uris: {repr(_e)}')
                     else:
-                        _uris = _res.get('result', [])
+                        _uris = list(variadic(_res.get('result', [])))
 
                     assert _uris and isinstance(_uris, list)
 
-                    self.uris = _uris * self._nsplits
+                    # self.uris = _uris * self._nsplits
+                    self.uris = _uris
 
             logger.debug(
                 f'{self.premsg} enproxy {self.enproxy} mode {self._mode} proxy {self._proxy} uris:\n{self.uris}')
