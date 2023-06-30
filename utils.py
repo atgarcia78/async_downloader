@@ -46,6 +46,8 @@ from typing import (
     Callable
 )
 
+from _thread import LockType
+
 
 import queue
 
@@ -665,7 +667,7 @@ async def async_waitfortasks(
 
 
 @contextlib.asynccontextmanager
-async def async_lock(lock: Union[threading.Lock, contextlib.nullcontext, None] = None):
+async def async_lock(lock: Union[LockType, contextlib.nullcontext, None] = None):
 
     if not lock or (isinstance(lock, contextlib.nullcontext)):
         try:
