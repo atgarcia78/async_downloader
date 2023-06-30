@@ -357,23 +357,25 @@ class AsyncARIA2CDownloader:
         if self.special_extr:
             _init_url = smuggle_url(_init_url, {'indexdl': self.vid_dl.index})
 
-        if self._mode == 'noproxy' and self.n_rounds > 1:
+        if self._mode == 'noproxy':
 
-            async with ProxyYTDL(opts=self.ytdl.params.copy(), executor=self.ex_dl) as proxy_ytdl:
-                proxy_info = get_format_id(
-                    proxy_ytdl.sanitize_info(
-                        await proxy_ytdl.async_extract_info(_init_url)),
-                    self.info_dict['format_id'])
-            if (_url := proxy_info.get("url")):
-                video_url = unquote(_url)
-                self.uris = [video_url]
-                if (_host := get_host(video_url)) != self._host:
-                    self._host = _host
-                    if isinstance(self.sem, LockType):
-                        async with async_lock(self.ytdl.params['lock']):
-                            self.sem = cast(LockType, self.ytdl.params['sem'].setdefault(self._host, Lock()))
-            else:
-                raise AsyncARIA2CDLError('couldnt get video url')
+            if self.n_rounds > 1:
+
+                async with ProxyYTDL(opts=self.ytdl.params.copy(), executor=self.ex_dl) as proxy_ytdl:
+                    proxy_info = get_format_id(
+                        proxy_ytdl.sanitize_info(
+                            await proxy_ytdl.async_extract_info(_init_url)),
+                        self.info_dict['format_id'])
+                if (_url := proxy_info.get("url")):
+                    video_url = unquote(_url)
+                    self.uris = [video_url]
+                    if (_host := get_host(video_url)) != self._host:
+                        self._host = _host
+                        if isinstance(self.sem, LockType):
+                            async with async_lock(self.ytdl.params['lock']):
+                                self.sem = cast(LockType, self.ytdl.params['sem'].setdefault(self._host, Lock()))
+                else:
+                    raise AsyncARIA2CDLError('couldnt get video url')
 
         else:
             _res = await async_waitfortasks(
