@@ -185,11 +185,13 @@ class AsyncARIA2CDownloader:
             if _nsplits < self.n_workers:
                 self.n_workers = _nsplits
 
+        _headers = self.headers.copy()
+
         opts_dict = {
             'split': self.n_workers,
             'header': '\n'.join(
                 [f'{key}: {value}'
-                    for key, value in self.headers.items()]),
+                    for key, value in _headers.items()]),
             'dir': str(self.download_path),
             'out': self.filename.name,
             'uri-selector': 'inorder',
@@ -331,7 +333,7 @@ class AsyncARIA2CDownloader:
         try:
             await self.update_uri()
 
-            logger.debug(f'{self.uptpremsg} uris:\n{self.uris}')
+            logger.debug(f'{self.uptpremsg()} uris:\n{self.uris}')
 
             if (dl_cont := await self.add_uris(self.uris)):
 
@@ -349,7 +351,7 @@ class AsyncARIA2CDownloader:
             else:
                 _msg_error = repr(e)
             self.error_message = _msg_error
-            logger.exception(f"{self.uptpremsg}[init] error: {_msg_error}")
+            logger.exception(f"{self.uptpremsg()}[init] error: {_msg_error}")
             self.status = "error"
 
     async def update_uri(self):
@@ -385,7 +387,7 @@ class AsyncARIA2CDownloader:
 
             if 'event' in _res:
                 return
-            elif (_temp := _res.get('exception')) or not (_temp := _res.get('result')):
+            elif (_temp := _res.get('exception')) or (_temp := _res.get('result')) is None:
                 raise AsyncARIA2CDLError(f'couldnt get index proxy: {repr(_temp)}')
             else:
                 self._index_proxy = cast(int, _temp)
@@ -409,14 +411,14 @@ class AsyncARIA2CDownloader:
 
                     _proxy_info_url = cast(str, try_get(
                         traverse_obj(proxy_info, ('url')), lambda x: unquote(x) if x else None))
-                    logger.debug(f"{self.uptpremsg} [update_uri]{_proxy_info_url}\n{proxy_info}")
+                    logger.debug(f"{self.uptpremsg()} [update_uri]{_proxy_info_url}\n{proxy_info}")
                     if not _proxy_info_url:
                         raise AsyncARIA2CDLError('couldnt get video url')
 
                     _uris.append(_proxy_info_url)
 
                 except Exception as e:
-                    logger.warning(f"{self.uptpremsg} [update_uri] {repr(e)}")
+                    logger.warning(f"{self.uptpremsg()} [update_uri] {repr(e)}")
                     raise AsyncARIA2CDLError(f'couldnt get uris: {repr(e)}')
 
                 self.opts.set("split", self.n_workers)
@@ -540,7 +542,7 @@ class AsyncARIA2CDownloader:
                             [
                                 _res_dl0 := all([el[0] == 0 for el in _speed[-_index:]]),
                                 _res_ncon := all([self.n_workers > 1, all([el[1] < self.n_workers - 1 for el in _speed[-_index:]])]),
-                                # _res_perc := perc_below(_speed[-_index:]) >= 50
+                                _res_perc := perc_below(_speed[-_index:]) >= 50
                             ]):
 
                         def _print_el(item: tuple) -> str:
@@ -704,7 +706,7 @@ class AsyncARIA2CDownloader:
             if self.dl_cont and self.dl_cont.status == 'error':
                 _msg_error += f' - {self.dl_cont.error_message}'
 
-            logger.error(f'{self.uptpremsg}[fetch] error: {_msg_error}')
+            logger.error(f'{self.uptpremsg()}[fetch] error: {_msg_error}')
             self._speed.append((datetime.now(), 'error'))
             self.status = 'error'
             self.error_message = _msg_error
@@ -746,7 +748,7 @@ class AsyncARIA2CDownloader:
                         if self.dl_cont and self.dl_cont.status == 'error':
                             _msg_error += f" - {self.dl_cont.error_message}"
 
-                        logger.error(f"{self.uptpremsg}[fetch_async] error: {_msg_error}")
+                        logger.error(f"{self.uptpremsg()}[fetch_async] error: {_msg_error}")
                         self.status = 'error'
                         self.error_message = _msg_error
                         if isinstance(e, KeyboardInterrupt):

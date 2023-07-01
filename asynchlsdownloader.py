@@ -242,6 +242,12 @@ class AsyncHLSDownloader:
 
     def init(self):
 
+        @dec_retry_error
+        def get_m3u8_doc():
+            return try_get(
+                self.init_client.get(self.info_dict['url']),
+                lambda x: x.content.decode("utf-8", "replace"))
+
         def getter(x: Union[str, None]) -> tuple[Union[int, float], LimitContextDecorator]:
             try:
                 if not x:
@@ -322,9 +328,7 @@ class AsyncHLSDownloader:
             self.abr = self.info_dict.get("abr", 0)
             # _br = self.tbr or self.abr
 
-            self.m3u8_doc = try_get(
-                self.init_client.get(self.info_dict['url']),
-                lambda x: x.content.decode("utf-8", "replace"))
+            self.m3u8_doc = get_m3u8_doc()
 
             self.info_dict["fragments"] = self.get_info_fragments()
             self.info_dict["init_section"] = self.info_dict[

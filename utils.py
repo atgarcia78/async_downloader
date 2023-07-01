@@ -199,31 +199,27 @@ class Cache:
         self.root_dir = os.path.join(os.getenv('XDG_CACHE_HOME') or os.path.expanduser('~/.cache'), app)
         os.makedirs(self.root_dir, exist_ok=True)
 
-    def _get_cache_fn(self, key, dtype='json'):
+    def _get_cache_fn(self, key):
         key = urllib.parse.quote(key, safe='').replace('%', ',')  # encode non-ascii characters
-        return os.path.join(self.root_dir, f'{key}.{dtype}')
+        return os.path.join(self.root_dir, f'{key}.json')
 
-    def store(self, key, obj, dtype='json'):
-        assert dtype in ('json',)
-
+    def store(self, key, obj):
         def write_json_file(obj, fn):
             with open(fn, mode='w', encoding='utf-8') as f:
                 json.dump({'date': datetime.now().strftime("%Y.%m.%d"), 'data': obj}, f, ensure_ascii=False)
 
-        fn = self._get_cache_fn(key, dtype)
+        fn = self._get_cache_fn(key)
         try:
             write_json_file(obj, fn)
         except Exception as e:
             self.logger.exception(f'Writing cache to {fn!r} failed: {e}')
 
-    def load(self, key, dtype='json', default=None):
-        assert dtype in ('json',)
-
-        cache_fn = self._get_cache_fn(key, dtype)
+    def load(self, key, default=None):
+        cache_fn = self._get_cache_fn(key)
         with contextlib.suppress(OSError):
             try:
                 with open(cache_fn, encoding='utf-8') as cachef:
-                    self.logger.debug(f'Loading {key} from cache')
+                    self.logger.info(f'Loading {key} from cache')
                     return json.load(cachef).get('data')
             except (ValueError, KeyError):
                 try:

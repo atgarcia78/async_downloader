@@ -84,10 +84,10 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
 
             _host = bytes_(re.sub(r'(__routing=([^_]+)__.)', '', text_(request.host)))
             request.host = _host
-            # logger.info(f"request.host {request.host}")
             if request.has_header(b'host'):
                 request.del_header(b'host')
                 request.add_header(b'host', _host)
+
         else:
             return request
         # If chosen proxy is the local instance, bypass upstream proxies
@@ -142,14 +142,13 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         url = Url.from_bytes(request.host)
         assert url.hostname
         host, port = url.hostname.decode('utf-8'), url.port
-        # logger.info(f"{host}:{port}")
-        if '__routing=' in host:
-            host = re.sub(r'(__routing=([^_]+)__.)', '', host)
-            _host = bytes_(f'{host}:{port}') if port else bytes_(f'{host}')
-            request.host = _host
-            if request.has_header(b'host'):
-                request.del_header(b'host')
-                request.add_header(b'host', _host)
+        # if '__routing=' in host:
+        #     host = re.sub(r'(__routing=([^_]+)__.)', '', host)
+        #     _host = bytes_(f'{host}:{port}') if port else bytes_(f'{host}')
+        #     request.host = _host
+        #     if request.has_header(b'host'):
+        #         request.del_header(b'host')
+        #         request.add_header(b'host', _host)
 
         port = port if port else (
             443 if request.is_https_tunnel else 80
@@ -159,8 +158,7 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         self._metadata = [
             host, port, path, request.method,
         ]
-        # logger.info(request.header(b'host'))
-        # logger.info(request.host)
+
         # Queue original request optionally with auth headers to upstream proxy
         if self._endpoint.has_credentials:
             assert self._endpoint.username and self._endpoint.password

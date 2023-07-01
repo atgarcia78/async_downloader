@@ -673,7 +673,7 @@ class AsyncDL:
                     if not _info:
                         raise Exception("no info")
                 except Exception as e:
-                    logger.exception(f"{_pre} {repr(e)}")
+                    logger.warning(f"{_pre} {repr(e)}")
 
                     _info = {
                         "_type": "error",
