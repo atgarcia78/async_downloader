@@ -740,7 +740,6 @@ class AsyncARIA2CDownloader:
                                     return
                         finally:
                             self._qspeed.put_nowait(kill_item)
-                            # await asyncio.sleep(0)
                             await asyncio.wait([check_task])
 
                     except BaseException as e:
@@ -765,16 +764,16 @@ class AsyncARIA2CDownloader:
             logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
 
-            # def _print_el(el: tuple):
+            def _print_el(el: tuple):
 
-            #     _secs = el[0].second + el[0].microsecond / 1000000
-            #     _str0 = f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
-            #     if isinstance(el[1], str):
-            #         _str1 = el[1]
-            #     else:
-            #         _str1 = f"['status': {el[1].status}, 'speed': {el[1].download_speed}]"
+                _secs = el[0].second + el[0].microsecond / 1000000
+                _str0 = f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
+                if isinstance(el[1], str):
+                    _str1 = el[1]
+                else:
+                    _str1 = f"['status': {el[1].status}, 'speed': {el[1].download_speed}]"
 
-            #     return f'({_str0}, {_str1})'
+                return f'({_str0}, {_str1})'
 
             # _str_speed = ', '.join([_print_el(el) for el in self._speed])
 
