@@ -662,12 +662,15 @@ class AsyncARIA2CDownloader:
             if not self.dl_cont:
                 raise AsyncARIA2CDLErrorFatal('could get dl_cont')
 
+            _timer = ProgressTimer()
+
             while self.dl_cont.status in ['active', 'paused', 'waiting']:
 
-                if (events := traverse_obj(await self.event_handle(), 'event')):
-                    events = cast(list[str], events)
-                    if any([_ in events for _ in ("stop", "reset")]):
-                        return
+                if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                    if (events := traverse_obj(await self.event_handle(), 'event')):
+                        events = cast(list[str], events)
+                        if any([_ in events for _ in ("stop", "reset")]):
+                            return
 
                 elif self.progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
 
@@ -686,7 +689,8 @@ class AsyncARIA2CDownloader:
                     async with self.vid_dl.alock:
                         self.vid_dl.info_dl['down_size'] += _incsize
 
-                # await asyncio.sleep(0)
+                else:
+                    await asyncio.sleep(0)
 
             if self.dl_cont.status == 'complete':
                 self._speed.append((datetime.now(), "complete"))
@@ -696,8 +700,6 @@ class AsyncARIA2CDownloader:
                 raise AsyncARIA2CDLError('fetch error')
 
         except BaseException as e:
-            if isinstance(e, KeyboardInterrupt):
-                raise
             _msg_error = repr(e)
             if self.dl_cont and self.dl_cont.status == 'error':
                 _msg_error += f' - {self.dl_cont.error_message}'
@@ -706,6 +708,8 @@ class AsyncARIA2CDownloader:
             self._speed.append((datetime.now(), 'error'))
             self.status = 'error'
             self.error_message = _msg_error
+            if isinstance(e, KeyboardInterrupt):
+                raise
 
     async def fetch_async(self):
 
@@ -738,25 +742,18 @@ class AsyncARIA2CDownloader:
                             await asyncio.wait([check_task])
 
                     except BaseException as e:
+                        _msg_error = repr(e)
+                        if self.dl_cont and self.dl_cont.status == 'error':
+                            _msg_error += f" - {self.dl_cont.error_message}"
+
+                        logger.error(f"{self.uptpremsg}[fetch_async] error: {_msg_error}")
+                        self.status = 'error'
+                        self.error_message = _msg_error
                         if isinstance(e, KeyboardInterrupt):
                             raise
 
-                        _msg = ''
-                        if self._mode != 'noproxy':
-                            _msg = f'host: {self._host} proxy: {self._proxy} ' +\
-                                   f'count: {self.vid_dl.hosts_dl[self._host]["count"]}'
-                        _msg_error = repr(e)
-                        if self.dl_cont and self.dl_cont.status == 'error':
-                            _msg_error = f'{repr(e)} - {self.dl_cont.error_message}'
-
-                        logger.error(f'{self.premsg}[fetch_async] {_msg} error: {_msg_error}')
-                        self.status = 'error'
-                        self.error_message = _msg_error
-                        return
-
                     finally:
-                        if all([self._mode != 'noproxy', getattr(self, '_index_proxy', None),
-                                self._index_proxy is not None]):  # type: ignore
+                        if all([self._mode != 'noproxy', getattr(self, '_index_proxy', None) is not None]):
 
                             async with self.vid_dl.master_hosts_alock():
                                 self.vid_dl.hosts_dl[self._host]['count'] -= 1

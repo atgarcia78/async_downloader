@@ -170,6 +170,15 @@ class AsyncHLSDownloader:
             self.upt = {}
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
             self.special_extr: bool = False
+
+            self.filesize = self.info_dict.get("filesize") or self.info_dict.get("filesize_approx")
+
+            self.premsg = ''.join([
+                f'[{self.info_dict["id"]}]',
+                f'[{self.info_dict["title"]}]',
+                f'[{self.info_dict["format_id"]}]'])
+
+            self.count_msg = ''
             if self.enproxy:
                 with AsyncHLSDownloader._CLASSLOCK:
                     if not AsyncHLSDownloader._qproxies:
@@ -190,22 +199,14 @@ class AsyncHLSDownloader:
                 self._proxy = {"http://": _proxy, "https://": _proxy}
 
             _proxies = getattr(self, '_proxy', {})
+
             self.init_client = httpx.Client(
-                proxies=_proxies if _proxies else None,
+                proxies=_proxies,
                 follow_redirects=True,
                 headers=self.info_dict['http_headers'],
                 limits=self.limits,
                 timeout=self.timeout,
                 verify=False)
-
-            self.filesize = self.info_dict.get("filesize") or self.info_dict.get("filesize_approx")
-
-            self.premsg = ''.join([
-                f'[{self.info_dict["id"]}]',
-                f'[{self.info_dict["title"]}]',
-                f'[{self.info_dict["format_id"]}]'])
-
-            self.count_msg = ''
 
             if self.enproxy:
                 try:
@@ -405,7 +406,6 @@ class AsyncHLSDownloader:
                             "file": _file_path,
                             "byterange": byte_range,
                             "downloaded": is_dl,
-                            # "estsize": est_size,
                             "headersize": hsize,
                             "size": size,
                             "n_retries": 0,
@@ -426,7 +426,6 @@ class AsyncHLSDownloader:
                             "file": _file_path,
                             "byterange": byte_range,
                             "downloaded": False,
-                            # "estsize": est_size,
                             "headersize": init_data.get(i + 1),
                             "size": None,
                             "n_retries": 0,
@@ -947,9 +946,6 @@ class AsyncHLSDownloader:
         if self.vid_dl.pause_event.is_set():
             self._speed.append((datetime.now(), "pause"))
             _res = await async_wait_for_any([self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event])
-            # _res = await async_waitfortasks(
-            #     events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
-            #     background_tasks=self.background_tasks)
             self.vid_dl.pause_event.clear()
             self.vid_dl.resume_event.clear()
             self._speed.append((datetime.now(), "resume"))
@@ -968,14 +964,19 @@ class AsyncHLSDownloader:
 
         logger.debug(f"{self.premsg}:[worker-{nco}]: init worker")
 
-        _proxies = self._proxy if hasattr(self, '_proxy') else None
         client = httpx.AsyncClient(
-            proxies=_proxies,  # type: ignore
+            proxies=getattr(self, '_proxy', None),
             limits=self.limits,
             follow_redirects=True,
             timeout=self.timeout,
             verify=self.verifycert,
             headers=self.info_dict['http_headers'])
+
+        async def decrypt(x, y):
+            if y:
+                return await sync_to_async(y.decrypt)(x)
+            else:
+                return x
 
         try:
 
@@ -997,10 +998,6 @@ class AsyncHLSDownloader:
 
                 _premsg = f'{self.premsg}:[worker-{nco}]:[frag-{q}] '
 
-                # if (_res := await self.event_handle()):
-                #     if _res.get("event") in ("stop", "reset"):
-                #         return
-
                 url = self.info_frag[q - 1]["url"]
                 filename = Path(self.info_frag[q - 1]["file"])
                 filename_exists = await os.path.exists(filename)
@@ -1009,33 +1006,21 @@ class AsyncHLSDownloader:
                 if key is not None and key.method == "AES-128":
                     iv = binascii.unhexlify(key.iv[2:])
                     cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
-                # byte_range = self.info_frag[q - 1].get("byterange")
                 headers = {}
                 if (byte_range := self.info_frag[q - 1].get("byterange")):
                     headers["range"] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
-
-                # await asyncio.sleep(0)
 
                 while self.info_frag[q - 1]["n_retries"] < self._MAX_RETRIES:
 
                     try:
 
                         async with self._limit:
-                            # logger.debug(f'{_premsg}: limiter speed')
                             await asyncio.sleep(self._interv)
-
-                        # if (_res := await self.event_handle()):
-                        #     if _res.get("event") in ("stop", "reset"):
-                        #         return
 
                         async with (
                             aiofiles.open(filename, mode="ab") as f,
                             client.stream("GET", url, headers=headers) as res
                         ):
-
-                            # logger.debug(
-                            #     f'{_premsg}:{res.request}, {res.status_code}, ' +
-                            #     f'{res.reason_phrase}, {res.headers}')
 
                             if res.status_code == 403:
 
@@ -1043,8 +1028,7 @@ class AsyncHLSDownloader:
                                     _wait_tasks = await self.vid_dl.reset_plns("403", plns=None)
                                 else:
                                     _wait_tasks = await self.vid_dl.reset("403")
-                                # logger.debug(
-                                #     f'{_premsg}: wait_tasks\n{print_tasks(_wait_tasks)}')
+
                                 if _wait_tasks:
                                     done, pending = await asyncio.wait(_wait_tasks)
                                     logger.debug(
@@ -1057,25 +1041,20 @@ class AsyncHLSDownloader:
 
                             else:
 
-                                if not self.info_frag[q - 1]["headersize"]:
-                                    self.info_frag[q - 1]["headersize"] = int_or_none(res.headers.get("content-length"))
-
-                                _hsize = self.info_frag[q - 1]["headersize"]
+                                if not (_hsize := self.info_frag[q - 1]["headersize"]):
+                                    self.info_frag[q - 1]["headersize"] = _hsize = int_or_none(res.headers.get("content-length"))
 
                                 if not self.filesize and _hsize:
                                     async with self._LOCK:
                                         self.filesize = _hsize * len(self.info_dict["fragments"])
                                     async with self.vid_dl.alock:
-                                        self.vid_dl.info_dl[
-                                            "filesize"] += self.filesize
+                                        self.vid_dl.info_dl["filesize"] += self.filesize
 
                                 if self.info_frag[q - 1]["downloaded"]:
 
                                     if filename_exists:
                                         _size = self.info_frag[q - 1]["size"] = (await os.stat(filename)).st_size
-                                        if _hsize and (_hsize - 100 <= _size <= _hsize + 100) or not _hsize:
-
-                                            # logger.debug(f'{_premsg}:DL-hsize[{_hsize}] size [{_size}]')
+                                        if (_hsize and (_hsize - 100 <= _size <= _hsize + 100)) or not _hsize:
                                             break
                                         else:
                                             await f.truncate(0)
@@ -1095,17 +1074,14 @@ class AsyncHLSDownloader:
                                             self.n_dl_fragments -= 1
 
                                 if not (_chunk_size := self.info_frag[q - 1]["headersize"]) or _chunk_size > self._CHUNK_SIZE:
-
                                     _chunk_size = self._CHUNK_SIZE
 
                                 num_bytes_downloaded = res.num_bytes_downloaded
-
                                 _timer = ProgressTimer()
 
                                 async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
 
-                                    data = cipher.decrypt(chunk) if cipher else chunk
-                                    await f.write(data)
+                                    await f.write(await decrypt(chunk, cipher))
 
                                     _dif = 0
                                     async with self._LOCK:
@@ -1134,10 +1110,6 @@ class AsyncHLSDownloader:
                             self.info_frag[q - 1]["size"] = _size
                             async with self._LOCK:
                                 self.n_dl_fragments += 1
-                            # logger.debug(
-                            #     f'{_premsg}: OK DL: total' +
-                            #     f'[{self.n_dl_fragments}]\n' +
-                            #     f'{self.info_frag[q - 1]}')
                             break
                         else:
                             logger.warning(
@@ -1186,8 +1158,8 @@ class AsyncHLSDownloader:
                             logger.warning(f"{_premsg}: MaxLimitRetries:skip")
                             self.info_frag[q - 1]["skipped"] = True
                             break
-                    finally:
-                        await asyncio.sleep(0)
+                    # finally:
+                    #     await asyncio.sleep(0)
 
         finally:
             async with self._LOCK:
@@ -1248,9 +1220,7 @@ class AsyncHLSDownloader:
                     self.status = "downloading"
                     self.count_msg = ''
 
-                    upt_task = [asyncio.create_task(self.upt_status())]
-                    self.background_tasks.add(upt_task[0])
-                    upt_task[0].add_done_callback(self.background_tasks.discard)
+                    upt_task = [self.add_task(self.upt_status(), name="upt_task")]
 
                     check_task = []  # for the check_speed task if needed
 
