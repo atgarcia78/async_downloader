@@ -35,7 +35,8 @@
                 "oauth2client.client",
                 "parso.python.diff",
                 "seleniumwire",
-                "httpcore"
+                "httpcore",
+                "mitmproxy"
             ]
         },
         "filtermsg": {

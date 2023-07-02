@@ -55,12 +55,12 @@ def configure(updated):
     )
 
 
-def flow_entry(flow: mitmproxy.http.HTTPFlow) -> dict:
+def flow_entry(flow) -> dict:
     # -1 indicates that these values do not apply to current request
     ssl_time = -1
     connect_time = -1
 
-    if flow.server_conn and flow.server_conn not in SERVERS_SEEN:
+    if flow.server_conn and flow.server_conn not in SERVERS_SEEN and flow.server_conn.timestamp_tcp_setup and flow.server_conn.timestamp_start:
         connect_time = (
             flow.server_conn.timestamp_tcp_setup - flow.server_conn.timestamp_start
         )
@@ -79,24 +79,30 @@ def flow_entry(flow: mitmproxy.http.HTTPFlow) -> dict:
     # and port from the client connection. So, the time spent waiting is actually
     # spent waiting between request.timestamp_end and response.timestamp_start
     # thus it correlates to HAR wait instead.
-    timings_raw = {
-        "send": flow.request.timestamp_end - flow.request.timestamp_start,
-        "receive": flow.response.timestamp_end - flow.response.timestamp_start,
-        "wait": flow.response.timestamp_start - flow.request.timestamp_end,
-        "connect": connect_time,
-        "ssl": ssl_time,
-    }
+    full_time = -1
+    timings = {}
+    if flow.request.timestamp_end and flow.request.timestamp_start and flow.response.timestamp_end and flow.response.timestamp_start:
 
-    # HAR timings are integers in ms, so we re-encode the raw timings to that format.
-    timings = {k: int(1000 * v) if v != -1 else -1 for k, v in timings_raw.items()}
+        timings_raw = {
+            "send": flow.request.timestamp_end - flow.request.timestamp_start,
+            "receive": flow.response.timestamp_end - flow.response.timestamp_start,
+            "wait": flow.response.timestamp_start - flow.request.timestamp_end,
+            "connect": connect_time,
+            "ssl": ssl_time,
+        }
 
-    # full_time is the sum of all timings.
-    # Timings set to -1 will be ignored as per spec.
-    full_time = sum(v for v in timings.values() if v > -1)
+        # HAR timings are integers in ms, so we re-encode the raw timings to that format.
+        timings = {k: int(1000 * v) if v != -1 else -1 for k, v in timings_raw.items()}
 
-    started_date_time = datetime.fromtimestamp(
-        flow.request.timestamp_start, timezone.utc
-    ).isoformat()
+        # full_time is the sum of all timings.
+        # Timings set to -1 will be ignored as per spec.
+        full_time = sum(v for v in timings.values() if v > -1)
+
+    started_date_time = -1
+    if flow.request.timestamp_start:
+        started_date_time = datetime.fromtimestamp(
+            flow.request.timestamp_start, timezone.utc
+        ).isoformat()
 
     # Response body size and encoding
     response_body_size = (
@@ -164,10 +170,16 @@ def flow_entry(flow: mitmproxy.http.HTTPFlow) -> dict:
 
     HAR["log"]["entries"].append(entry)
 
+    try:
+        with open(os.path.expanduser(ctx.options.hardump).replace('.har', '_urls.txt'), "a") as f:
+            f.write(entry["request"]["url"] + '\n')
+    except Exception:
+        pass
+
     return entry
 
 
-def response(flow: mitmproxy.http.HTTPFlow):
+def response(flow):
     """
     Called when a server response has been received.
     """
@@ -175,7 +187,7 @@ def response(flow: mitmproxy.http.HTTPFlow):
         flow_entry(flow)
 
 
-def websocket_end(flow: mitmproxy.http.HTTPFlow):
+def websocket_end(flow):
     entry = flow_entry(flow)
 
     websocket_messages = []
