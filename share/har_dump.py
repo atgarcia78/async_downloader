@@ -55,8 +55,8 @@ def configure(updated):
     )
 
 
-def request(flow):
-    flow.request.headers["user-agent"] = "value"
+# def request(flow):
+#     flow.request.headers["user-agent"] = "value"
 
 def flow_entry(flow) -> dict:
     # -1 indicates that these values do not apply to current request
