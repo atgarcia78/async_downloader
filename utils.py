@@ -420,7 +420,7 @@ class long_operation_in_thread:
     '''
         decorator to run a sync function from sync context in
         a non blocking thread. The func with this decorator returns without blocking
-        a mysynasyncevent to stop the exeuction of the func in the
+        a mysynasyncevent to stop the execution of the func in the
         thread
     '''
 
@@ -506,11 +506,9 @@ def add_task(coro, bktasks, name=None):
     return _task
 
 
-def wait_for_either(events, timeout=None):
+def wait_for_either(ev, timeout=None):
 
-    if not isinstance(events, Iterable):
-        events = [events]
-
+    events = variadic(ev)
     if (_res := [getattr(ev, 'name', 'noname') for ev in events if ev.is_set()]):
         return _res[0]
     else:
@@ -530,10 +528,8 @@ def wait_for_either(events, timeout=None):
 
 
 async def async_wait_for_any(events, timeout=None) -> dict:
-    if not isinstance(events, Iterable):
-        _events = [events]
-    else:
-        _events = events
+
+    _events = variadic(events)
 
     if (_res := [getattr(_ev, 'name', 'noname') for _ev in _events if _ev.is_set()]):
         return {"event": _res}
@@ -566,9 +562,10 @@ async def async_waitfortasks(
     _background_tasks = kwargs.get('background_tasks', set())
 
     if fs:
-        if not isinstance(fs, Iterable):
-            fs = [fs]
-        for _fs in fs:
+        listfs = cast(Iterable, variadic(fs))
+
+        for _fs in listfs:
+
             if not isinstance(_fs, asyncio.Task):
                 _el = add_task(_fs, _background_tasks, name=f'[waitfortasks]{_fs.__name__}')
                 _tasks.update({_el: "task"})
@@ -581,8 +578,8 @@ async def async_waitfortasks(
         _final_wait.update({_one_task_to_wait_tasks: "tasks"})
 
     if events:
-        if not isinstance(events, Iterable):
-            events = [events]
+
+        _events = cast(Iterable, variadic(events))
 
         def getter(ev):
             if hasattr(ev, 'name'):
@@ -591,7 +588,8 @@ async def async_waitfortasks(
 
         _tasks_events = {}
 
-        for event in events:
+        for event in _events:
+
             if isinstance(event, asyncio.Event):
                 _tasks_events.update(
                     {add_task(event.wait(), _background_tasks):
