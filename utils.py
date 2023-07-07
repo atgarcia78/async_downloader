@@ -958,6 +958,12 @@ def get_httpx_async_client(config={}):
     return httpx.AsyncClient(**(CLIENT_CONFIG | config))
 
 
+def get_driver(**kwargs):
+    if kwargs.get('noheadless') is None:
+        kwargs['noheadless'] = True
+    return SeleniumInfoExtractor._get_driver(**kwargs)[0]
+
+
 def is_ipaddr(res):
     try:
         ip_address(res)
