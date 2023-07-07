@@ -228,6 +228,8 @@ class AsyncHLSDownloader:
                 except Exception as e:
                     logger.exception(f'[init info proxy] {repr(e)}')
 
+            if self.filename.exists() and self.filename.stat().st_size > 0:
+                self.status = "done"
             self.init()
 
         except Exception as e:
@@ -316,7 +318,7 @@ class AsyncHLSDownloader:
             self.fromplns = False
             # self._CONF_HLS_MAX_SPEED_PER_DL = None
 
-            self._extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
+            self._extractor = cast(str, try_get(self.info_dict.get('extractor_key'), lambda x: x.lower()))
 
             self._interv, self._limit = getter(self._extractor)
             self.info_frag = []
@@ -391,7 +393,7 @@ class AsyncHLSDownloader:
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
 
-                _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i}")
+                _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
 
                 if _file_path.exists():
                     size = _file_path.stat().st_size
@@ -415,9 +417,9 @@ class AsyncHLSDownloader:
                             "n_retries": 0,
                             "error": ["AlreadyDL"],
                         })
-                    self.n_dl_fragments += 1
                     if is_dl:
                         self.down_size += size
+                        self.n_dl_fragments += 1
                     if not is_dl or not hsize:
                         self.frags_to_dl.append(i + 1)
 
@@ -470,11 +472,12 @@ class AsyncHLSDownloader:
                 _est_size = "NA"
 
             else:
-                if (_todl := (self.filesize - self.down_size)) < 250000000:
-                    self.n_workers = max(self.n_workers, 16)
-                elif _todl >= 250000000:
-                    self.n_workers = max(self.n_workers, 32)
                 _est_size = naturalsize(self.filesize)
+                if "nakedsword" not in self._extractor:
+                    if (_todl := (self.filesize - self.down_size)) < 250000000:
+                        self.n_workers = max(self.n_workers, 16)
+                    elif _todl >= 250000000:
+                        self.n_workers = max(self.n_workers, 32)
 
             logger.debug(
                 f"{self.premsg}: total duration " +
@@ -484,10 +487,7 @@ class AsyncHLSDownloader:
                 f"{self.n_total_fragments} -- fragments already dl " +
                 f"{self.n_dl_fragments}")
 
-            if self.filename.exists() and self.filename.stat().st_size > 0:
-                self.status = "done"
-
-            elif not self.frags_to_dl:
+            if not self.frags_to_dl:
                 self.status = "init_manipulating"
         except Exception as e:
             logger.exception(f"{self.premsg}[init] {repr(e)}")
@@ -614,6 +614,13 @@ class AsyncHLSDownloader:
 
         byte_range = {}
 
+        if self.init_file.exists():
+            with open(self.init_file, "r") as f:
+                init_data = json.loads(f.read())
+            init_data = {int(k): v for k, v in init_data.items()}
+        else:
+            init_data = {}
+
         self.info_dict["fragments"] = self.get_info_fragments()
 
         for i, fragment in enumerate(self.info_dict["fragments"]):
@@ -621,7 +628,7 @@ class AsyncHLSDownloader:
             if not fragment.uri and fragment.parts:
                 fragment.uri = fragment.parts[0].uri
 
-            _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i}")
+            # _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
 
             if fragment.byterange:
                 splitted_byte_range = fragment.byterange.split("@")
@@ -643,14 +650,16 @@ class AsyncHLSDownloader:
                 _url = fragment.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
-
+                if not self.info_frag[i]["headersize"]:
+                    if (_hsize := init_data.get(i + 1)):
+                        self.info_frag[i]["headersize"] = _hsize
                 if not self.info_frag[i]["downloaded"] or (
                     self.info_frag[i]["downloaded"]
                     and not self.info_frag[i]["headersize"]
                 ):
                     self.frags_to_dl.append(i + 1)
                     self.info_frag[i]["url"] = _url
-                    self.info_frag[i]["file"] = _file_path
+                    # self.info_frag[i]["file"] = _file_path
                     if (
                         not self.info_frag[i]["downloaded"]
                         and self.info_frag[i]["file"].exists()
@@ -952,6 +961,8 @@ class AsyncHLSDownloader:
             _res = await async_wait_for_any([self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event])
             self.vid_dl.pause_event.clear()
             self.vid_dl.resume_event.clear()
+            if "resume" in _res["event"]:
+                _res["event"].remove("resume")
             self._speed.append((datetime.now(), "resume"))
             await asyncio.sleep(0)
             self.progress_timer.reset()
@@ -1017,6 +1028,10 @@ class AsyncHLSDownloader:
                 while self.info_frag[q - 1]["n_retries"] < self._MAX_RETRIES:
 
                     try:
+
+                        if (_res := await self.event_handle()):
+                            if _res.get("event"):
+                                return
 
                         async with self._limit:
                             await asyncio.sleep(self._interv)
@@ -1103,7 +1118,7 @@ class AsyncHLSDownloader:
 
                                     if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
                                         if (_res := await self.event_handle()):
-                                            if _res.get("event") in ("stop", "reset"):
+                                            if _res.get("event"):
                                                 raise AsyncHLSDLErrorFatal(_res.get("event"))
 
                         _size = (await os.stat(filename)).st_size
