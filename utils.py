@@ -100,7 +100,7 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
-CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/116.0"
+CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/117.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -445,7 +445,7 @@ class run_operation_in_executor:
     '''
         decorator to run a sync function from sync context
         The func with this decorator returns without blocking
-        a mysynasyncevent to stop the exeuction of the func, and a future
+        a mysynasyncevent to stop the execution of the func, and a future
         that wrappes the function submitted with a thread executor
     '''
     def __init__(self, name: str) -> None:
@@ -470,7 +470,7 @@ class run_operation_in_executor_from_loop:
     decorator to run a sync function from asyncio loop
     with the use loop.run_in_executor method.
     The func with this decorator returns without blocking
-    a mysynasyncevent to stop the exeuction of the func, and a future/task
+    a mysynasyncevent to stop the execution of the func, and a future/task
     that wrappes the function
     '''
 
