@@ -250,11 +250,11 @@ class AsyncHLSDownloader:
                 self.init_client.get(self.info_dict['url']),
                 lambda x: x.content.decode("utf-8", "replace"))
 
-        def getter(x: Union[str, None]) -> tuple[Union[int, float], LimitContextDecorator]:
+        def getter(x: Union[str, None]) -> tuple[int, Union[int, float], LimitContextDecorator]:
             try:
                 if not x:
                     self.special_extr = False
-                    return (0, limiter_non.ratelimit("transp", delay=True))
+                    return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
                 if "nakedsword" in x:
                     # self._CONF_HLS_MAX_SPEED_PER_DL = 10 * 1048576
                     self.auto_pasres = True
@@ -308,10 +308,10 @@ class AsyncHLSDownloader:
                 self.special_extr = True
                 if 'nakedsword' in key_text:
                     key_text = 'nakedsword'
-                return (value["interval"], value["ratelimit"].ratelimit(key_text, delay=True))
+                return (value["maxsplits"], value["interval"], value["ratelimit"].ratelimit(key_text, delay=True))
             else:
                 self.special_extr = False
-                return (0, limiter_non.ratelimit("transp", delay=True))
+                return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
 
         try:
             self.auto_pasres = False
@@ -320,7 +320,7 @@ class AsyncHLSDownloader:
 
             self._extractor = cast(str, try_get(self.info_dict.get('extractor_key'), lambda x: x.lower()))
 
-            self._interv, self._limit = getter(self._extractor)
+            self.n_workers, self._interv, self._limit = getter(self._extractor)
             self.info_frag = []
             self.info_init_section = {}
             self.frags_to_dl = []
@@ -473,11 +473,11 @@ class AsyncHLSDownloader:
 
             else:
                 _est_size = naturalsize(self.filesize)
-                if "nakedsword" not in self._extractor:
-                    if (_todl := (self.filesize - self.down_size)) < 250000000:
-                        self.n_workers = max(self.n_workers, 16)
-                    elif _todl >= 250000000:
-                        self.n_workers = max(self.n_workers, 32)
+                # if "nakedsword" not in self._extractor:
+                #     if (_todl := (self.filesize - self.down_size)) < 250000000:
+                #         self.n_workers = max(self.n_workers, 16)
+                #     elif _todl >= 250000000:
+                #         self.n_workers = max(self.n_workers, 32)
 
             logger.debug(
                 f"{self.premsg}: total duration " +
