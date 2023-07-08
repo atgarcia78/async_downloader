@@ -4239,8 +4239,9 @@ def send_http_request(url, **kwargs) -> Union[None, httpx.Response]:
     '''
     raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
     '''
+    _kwargs = kwargs.copy()
+    new_e = _kwargs.pop('new_e', Exception)
     try:
-        return SeleniumInfoExtractor._send_http_request(url, **kwargs)
-    except ExtractorError as e:
-        new_e = kwargs.get('new_e', Exception)
+        return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
+    except ExtractorError as e:        
         raise new_e(str(e))
