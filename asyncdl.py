@@ -1037,7 +1037,7 @@ class AsyncDL:
         vid = self.info_videos[url_key]["video_info"]
         _pre = f"[init_callback]:[{url_key}][{_pending}/{_to_check}]:"
 
-        logger.debug(f"{_pre} extracting info")
+        logger.debug(f"{_pre} extracting info\n{vid}")
 
         try:
             if vid.get("_type", "video") != "video":

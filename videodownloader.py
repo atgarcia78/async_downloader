@@ -80,6 +80,8 @@ class VideoDownloader:
         else:
             _download_path = Path(self.args.path, self.info_dict['id'])
 
+        self.premsg = f"[{self.info_dict ['id']}][{self.info_dict ['title']}]"
+
         self.pause_event = MySyncAsyncEvent("pause")
         self.resume_event = MySyncAsyncEvent("resume")
         self.stop_event = MySyncAsyncEvent("stop")
@@ -250,9 +252,7 @@ class VideoDownloader:
                     else:
 
                         dl = AsyncHTTPDownloader(info, self)
-                        logger.debug(
-                            f"[{info['id']}][{info['title']}]" +
-                            f"[{info['format_id']}][get_dl] DL type HTTP")
+                        logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HTTP")
                         if dl.auto_pasres:
                             self.info_dl.update({'auto_pasres': True})
 
@@ -261,9 +261,7 @@ class VideoDownloader:
                         False,  # self.args.enproxy,
                         info,
                         self)
-                    logger.debug(
-                        f"[{info['id']}][{info['title']}][{info['format_id']}]" +
-                        "[get_dl] DL type HLS")
+                    logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
                     if dl.auto_pasres:
                         self.info_dl.update({'auto_pasres': True})
 
@@ -274,17 +272,17 @@ class VideoDownloader:
                         _str = None
                     dl = AsyncDASHDownloader(info, self, stream=_str)
                     logger.debug(
-                        f"[{info['id']}][{info['title']}][{info['format_id']}]" +
+                        f"{self.premsg}[{info['format_id']}]" +
                         "[get_dl] DL type DASH")
                 else:
                     logger.error(
-                        f"[{info['id']}][{info['title']}][{info['format_id']}]" +
+                        f"{self.premsg}[{info['format_id']}]" +
                         ":protocol not supported")
                     raise NotImplementedError("protocol not supported")
 
                 res_dl.append(dl)
             except Exception as e:
-                logger.exception(repr(e))
+                logger.exception(f"{self.premsg}[{info['format_id']}] {repr(e)}")
                 res_dl.append(AsyncDLError(info, repr(e)))
 
         return res_dl
