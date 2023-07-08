@@ -1539,7 +1539,8 @@ if yt_dlp:
         my_dec_on_exception,
         ec,
         By,
-        ProgressBar
+        ProgressBar,
+        HTTPStatusError
     )
 
     from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
@@ -1554,7 +1555,8 @@ if yt_dlp:
         variadic,
         unsmuggle_url,
         find_available_port,
-        write_string
+        write_string,
+        ExtractorError
     )
 
     from yt_dlp.cookies import extract_cookies_from_browser
@@ -1563,6 +1565,7 @@ if yt_dlp:
 
     from yt_dlp import parse_options
 
+    assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
     assert unsmuggle_url
@@ -4230,3 +4233,14 @@ args = argparse.Namespace(
 
 def get_ytdl(_args):
     return init_ytdl(_args)
+
+
+def send_http_request(url, **kwargs) -> Union[None, httpx.Response]:
+    '''
+    raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
+    '''
+    try:
+        return SeleniumInfoExtractor._send_http_request(url, **kwargs)
+    except ExtractorError as e:
+        new_e = kwargs.get('new_e', Exception)
+        raise new_e(str(e))
