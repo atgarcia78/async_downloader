@@ -855,8 +855,7 @@ class AsyncDL:
             self.info_videos[url]["video_info"]["id"] = (
                 sanitize_filename(_id, restricted=True)
                 .replace("_", "")
-                .replace("-", "")
-            )
+                .replace("-", ""))
 
         if _title := self.info_videos[url]["video_info"].get("title"):
             self.info_videos[url]["video_info"]["title"] = sanitize_filename(
