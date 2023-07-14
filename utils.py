@@ -14,7 +14,6 @@ import subprocess
 import threading
 import time
 import uvloop
-
 import sys
 import os
 from statistics import median
@@ -47,13 +46,9 @@ from typing import (
 )
 
 from _thread import LockType
-
-
 import queue
-
 from ipaddress import ip_address
 from operator import getitem
-
 import urllib.parse
 from urllib.parse import urlparse
 
@@ -65,9 +60,7 @@ except Exception:
 
 import httpx
 
-from asgiref.sync import (
-    sync_to_async,
-)
+from asgiref.sync import sync_to_async
 
 try:
     import yt_dlp
@@ -243,14 +236,6 @@ class MySyncAsyncEvent:
         if initset:
             self.set()
 
-    def __repr__(self):
-        cls = self.__class__
-        status = f'set, cause: {self._cause}' if self._flag else 'unset'
-        _res = f"<{cls.__module__}.{cls.__qualname__} at {id(self):#x}: {status}"
-        _res += f"\n\tname: {self.name if hasattr(self, 'name') else 'noname'}"
-        _res += f"\n\tsync event: {repr(self.event)}\n\tasync event: {repr(self.aevent)}\n>"
-        return _res
-
     def set(self, cause: Union[str, None] = None):
 
         self.aevent.set()
@@ -259,7 +244,8 @@ class MySyncAsyncEvent:
         self._cause = cause
 
     def is_set(self) -> Union[str, bool]:
-        """Return cause(true if cause is none) if and only if the internal flag is true."""
+        """Return cause(true if cause is none) if
+        and only if the internal flag is true."""
 
         if self._flag:
             if self._cause:
@@ -281,6 +267,14 @@ class MySyncAsyncEvent:
 
     async def async_wait(self):
         return await self.aevent.wait()
+
+    def __repr__(self):
+        cls = self.__class__
+        status = f'set, cause: {self._cause}' if self._flag else 'unset'
+        _res = f"<{cls.__module__}.{cls.__qualname__} at {id(self):#x}: {status}"
+        _res += f"\n\tname: {self.name if hasattr(self, 'name') else 'noname'}"
+        _res += f"\n\tsync event: {repr(self.event)}\n\tasync event: {repr(self.aevent)}\n>"
+        return _res
 
 
 class ProgressTimer:
@@ -486,7 +480,8 @@ class run_operation_in_executor_from_loop:
             kwargs['stop_event'] = stop_event
             _task = asyncio.create_task(
                 sync_to_async(
-                    func, thread_sensitive=False, executor=ThreadPoolExecutor(thread_name_prefix=name))(*args, **kwargs),
+                    func, thread_sensitive=False,
+                    executor=ThreadPoolExecutor(thread_name_prefix=name))(*args, **kwargs),
                 name=name)
             return (stop_event, _task)
         return wrapper
@@ -4243,5 +4238,5 @@ def send_http_request(url, **kwargs) -> Union[None, httpx.Response]:
     new_e = _kwargs.pop('new_e', Exception)
     try:
         return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
-    except ExtractorError as e:        
+    except ExtractorError as e:
         raise new_e(str(e))

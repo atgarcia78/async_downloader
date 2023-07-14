@@ -53,52 +53,51 @@ from videodownloader import VideoDownloader
 logger = mylogger(logging.getLogger('asyncDL'))
 
 
-def get_dif_interl(_dict, _interl, workers):
-    '''
-    get dif in the interl list if distance of elements
-    with same host is less than num runners dl workers of asyncdl
-    '''
-    dif = defaultdict(lambda: [])
-    for host, group in _dict.items():
-        index_old = None
-        _group = sorted(group, key=lambda x: _interl.index(x))
-        for el in _group:
-            index = _interl.index(el)
-            if index_old:
-                if index - index_old < workers:
-                    dif[host].append(el)
-            index_old = index
-    return dif
-
-
-def mix_lists(_http_list, _hls_list, asyncdl):
-    _final_list = []
-    if _hls_list:
-        if not _http_list:
-            _final_list = _hls_list
-        else:
-            iters = len(_hls_list)
-            step = int(len(_http_list) / iters) + 1
-            _final_list = []
-            for idx in range(iters):
-                start = step * idx
-                end = step * (idx + 1)
-                _final_list.extend(_http_list[start:end])
-                _final_list.append(_hls_list[idx])
-    else:
-        _final_list = _http_list
-
-    if (_total := len(_final_list)) > 0:
-        for _newidx, _el in enumerate(_final_list):
-            _el['__interl_index'] = asyncdl.max_index_playlist + _newidx + 1
-            _el['__interl_total'] = _total
-
-        asyncdl.max_index_playlist += _total
-
-    return _final_list
-
-
 def get_list_interl(res, asyncdl, _pre):
+
+    def mix_lists(_http_list, _hls_list, _asyncdl):
+        _final_list = []
+        if _hls_list:
+            if not _http_list:
+                _final_list = _hls_list
+            else:
+                iters = len(_hls_list)
+                step = int(len(_http_list) / iters) + 1
+                _final_list = []
+                for idx in range(iters):
+                    start = step * idx
+                    end = step * (idx + 1)
+                    _final_list.extend(_http_list[start:end])
+                    _final_list.append(_hls_list[idx])
+        else:
+            _final_list = _http_list
+
+        if (_total := len(_final_list)) > 0:
+            for _newidx, _el in enumerate(_final_list):
+                _el['__interl_index'] = _asyncdl.max_index_playlist + _newidx + 1
+                _el['__interl_total'] = _total
+
+            _asyncdl.max_index_playlist += _total
+
+        return _final_list
+
+    def get_dif_interl(_dict, _interl, workers):
+        '''
+        get dif in the interl list if distance of elements
+        with same host is less than num runners dl workers of asyncdl
+        '''
+        dif = defaultdict(lambda: [])
+        for host, group in _dict.items():
+            index_old = None
+            _group = sorted(group, key=lambda x: _interl.index(x))
+            for el in _group:
+                index = _interl.index(el)
+                if index_old:
+                    if index - index_old < workers:
+                        dif[host].append(el)
+                index_old = index
+        return dif
+
     if not res:
         return []
     if len(res) < 3:
@@ -1281,7 +1280,6 @@ class AsyncDL:
     async def shutdown(self, signal=None):
 
         try:
-
             logger.info(f'[shutdown] signal {signal}')
 
             self.print_pending_tasks()
