@@ -1551,7 +1551,8 @@ if yt_dlp:
         unsmuggle_url,
         find_available_port,
         write_string,
-        ExtractorError
+        ExtractorError,
+        render_table
     )
 
     from yt_dlp.cookies import extract_cookies_from_browser
@@ -2424,6 +2425,22 @@ def init_config(quiet=False, test=False):
     if not quiet:
         return init_logging(test=test)
 
+
+def render_res_table(data, headers=[], showindex=True, tablefmt="simple"):
+    from itertools import zip_longest
+    rows = [tuple(map(str, row)) for row in data]
+    sizes = [max(map(len, col)) for col in zip_longest(*rows, fillvalue="")]
+    if showindex:
+        rows = [(str(i),) + row for i, row in enumerate(rows)]
+        _headers = ['']
+        _headers.extend(headers)
+    else:
+        _headers = headers
+    if tablefmt == "simple":
+        _delim = ['']
+        _delim.extend(['-' * _size for _size in sizes])
+        rows.insert(0, tuple(_delim))
+    return render_table(_headers, rows)
 
 ############################################################
 # """                     PYSIMPLEGUI                    """

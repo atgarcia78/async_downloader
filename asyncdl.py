@@ -18,7 +18,6 @@ from textwrap import fill
 from threading import Lock
 
 from codetiming import Timer
-from tabulate import tabulate
 
 from utils import (
     PATH_LOGS,
@@ -45,7 +44,8 @@ from utils import (
     try_get,
     Union,
     cast,
-    add_task
+    add_task,
+    render_res_table
 )
 
 from videodownloader import VideoDownloader
@@ -1473,7 +1473,7 @@ class AsyncDL:
 
                 _columns = ["URL"]
                 tab_tv = (
-                    tabulate(
+                    render_res_table(
                         list_videos_str,
                         showindex=True,
                         headers=_columns,
@@ -1485,7 +1485,7 @@ class AsyncDL:
 
                 _columns = ["ID", "Title", "Size", "URL", "Status"]
                 tab_v2dl = (
-                    tabulate(
+                    render_res_table(
                         list_videos2dl_str,
                         showindex=True,
                         headers=_columns,
@@ -1579,7 +1579,7 @@ class AsyncDL:
 
         _columnsaldl = ["ID", "Title", "URL", "Path"]
         tab_valdl = (
-            tabulate(
+            render_res_table(
                 info_dict["videosaldl"]["str"],
                 showindex=True,
                 headers=_columnsaldl,
@@ -1590,7 +1590,7 @@ class AsyncDL:
         )
         _columnssamevideo = ["ID", "Title", "URL", "Same URL"]
         tab_vsamevideo = (
-            tabulate(
+            render_res_table(
                 info_dict["videossamevideo"]["str"],
                 showindex=True,
                 headers=_columnssamevideo,
