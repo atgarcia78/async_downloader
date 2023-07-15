@@ -2431,7 +2431,8 @@ def init_config(quiet=False, test=False):
 
 def render_res_table(data, headers=[], showindex=True, tablefmt="simple"):
     from itertools import zip_longest
-    rows = [tuple(map(str, row)) for row in data]
+    getter = lambda x: str(x).replace('\n', '')
+    rows = [tuple(map(getter, row)) for row in data]
     sizes = [max(map(len, col)) for col in zip_longest(*rows, fillvalue="")]
     if showindex:
         rows = [(str(i),) + row for i, row in enumerate(rows)]
