@@ -123,9 +123,12 @@ CONF_HTTP_DL = {
 }
 
 
-def get_host(url: str) -> str:
-    _host = urlparse(url).netloc
-    return re.sub(r'^www\.', '', _host)
+def get_host(url: str, shorten=False) -> str:
+    _host = re.sub(r'^www\.', '', urlparse(url).netloc)
+    if shorten:
+        if _host.count('.') >= 3:
+            _host = '.'.join(_host.split('.')[-3:])
+    return _host
 
 
 def nested_obj(d, *selectors, get_all=True, default=None, v=False):

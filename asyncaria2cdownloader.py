@@ -98,7 +98,8 @@ class AsyncARIA2CDownloader:
 
         video_url = unquote(self.info_dict.get('url'))
         self.uris = cast(list[str], [video_url])
-        self._host = get_host(video_url)
+        self._extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
+        self._host = get_host(video_url, shorten=(self._extractor == 'vgembed'))
 
         self.headers = self.info_dict.get('http_headers', {})
 
@@ -149,7 +150,6 @@ class AsyncARIA2CDownloader:
 
             return (_sem, limit, maxplits)
 
-        self._extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
         self.auto_pasres = False
         self.special_extr = False
         self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED
@@ -371,7 +371,7 @@ class AsyncARIA2CDownloader:
                 if (_url := proxy_info.get("url")):
                     video_url = unquote(_url)
                     self.uris = [video_url]
-                    if (_host := get_host(video_url)) != self._host:
+                    if (_host := get_host(video_url, shorten=(self._extractor == 'vgembed'))) != self._host:
                         self._host = _host
                         if isinstance(self.sem, LockType):
                             async with async_lock(self.ytdl.params['lock']):
