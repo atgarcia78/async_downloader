@@ -559,7 +559,8 @@ class AsyncARIA2CDownloader:
 
                         await self.vid_dl.reset()
 
-                        break
+                        _speed = []
+                        await asyncio.sleep(0)
 
                     else:
                         _speed[0:_min_check - _index // 2 + 1] = ()
@@ -602,6 +603,8 @@ class AsyncARIA2CDownloader:
             self.vid_dl.resume_event.clear()
             if "resume" in _res["event"]:
                 _res["event"].remove("resume")
+                if not _res["event"]:
+                    _res = {}
             self._speed.append((datetime.now(), "resume"))
             await asyncio.sleep(0)
             self.progress_timer.reset()
@@ -615,13 +618,12 @@ class AsyncARIA2CDownloader:
         if _event := _res.get("event"):
             if "stop" in _event:
                 self.status = "stop"
-            elif "reset" in _event:
+            if "reset" in _event:
                 self.vid_dl.reset_event.clear()
-                await asyncio.sleep(0)
 
+            await asyncio.sleep(0)
             await self.async_remove([self.dl_cont])
             await asyncio.sleep(0)
-            self.dl_cont = None
 
         return _res
 
@@ -691,45 +693,47 @@ class AsyncARIA2CDownloader:
         self._speed = []
         self.n_rounds = 0
 
+        self._qspeed = asyncio.Queue()
+        check_task = self.add_task(self.check_speed())
+
         try:
             while True:
                 self.n_rounds += 1
-                async with async_lock(self.sem):
-                    try:
-                        self._qspeed = asyncio.Queue()
-                        check_task = self.add_task(self.check_speed())
-                        self._speed.append((datetime.now(), 'fetch'))
-                        try:
-                            await self.fetch()
-                            if self.status in ('done', 'error', 'stop'):
-                                return
+                self.dl_cont = None
+                try:
+                    # self._qspeed = asyncio.Queue()
+                    # check_task = self.add_task(self.check_speed())
+                    self._speed.append((datetime.now(), 'fetch'))
 
-                        finally:
-                            self._qspeed.put_nowait(kill_item)
-                            await asyncio.wait([check_task])
-
-                    except BaseException as e:
-                        _msg_error = repr(e)
-                        if self.dl_cont and self.dl_cont.status == 'error':
-                            _msg_error += f" - {self.dl_cont.error_message}"
-
-                        logger.error(f"{self.uptpremsg()}[fetch_async] error: {_msg_error}")
-                        self.status = 'error'
-                        self.error_message = _msg_error
-                        if isinstance(e, KeyboardInterrupt):
-                            raise
+                    async with async_lock(self.sem):
+                        await self.fetch()
+                    if self.status in ('done', 'error', 'stop'):
                         return
 
-                    finally:
-                        if all([self._mode != 'noproxy', getattr(self, '_index_proxy', None) is not None]):
+                except BaseException as e:
+                    _msg_error = repr(e)
+                    if self.dl_cont and self.dl_cont.status == 'error':
+                        _msg_error += f" - {self.dl_cont.error_message}"
 
-                            async with self.vid_dl.master_hosts_alock():
-                                self.vid_dl.hosts_dl[self._host]['count'] -= 1
-                                self.vid_dl.hosts_dl[self._host]['queue'].put_nowait(self._index_proxy)
+                    logger.error(f"{self.uptpremsg()}[fetch_async] error: {_msg_error}")
+                    self.status = 'error'
+                    self.error_message = _msg_error
+                    if isinstance(e, KeyboardInterrupt):
+                        raise
+                    return
+
+                finally:
+                    if all([self._mode != 'noproxy', getattr(self, '_index_proxy', None) is not None]):
+
+                        async with self.vid_dl.master_hosts_alock():
+                            self.vid_dl.hosts_dl[self._host]['count'] -= 1
+                            self.vid_dl.hosts_dl[self._host]['queue'].put_nowait(self._index_proxy)
 
         except BaseException as e:
             logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
         finally:
+            self._qspeed.put_nowait(kill_item)
+            await asyncio.wait([check_task])
 
             def _print_el(el: tuple):
 

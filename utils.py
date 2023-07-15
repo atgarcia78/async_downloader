@@ -544,7 +544,7 @@ async def async_wait_for_any(events, timeout=None) -> dict:
                 return {"event": _res}
             elif check_timeout(start, timeout):
                 return {"timeout": timeout}
-            await asyncio.sleep(CONF_INTERVAL_GUI)
+            await asyncio.sleep(CONF_INTERVAL_GUI / 2)
 
 
 async def async_waitfortasks(
@@ -1564,6 +1564,7 @@ if yt_dlp:
 
     from yt_dlp import parse_options
 
+    assert render_table
     assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
@@ -2429,22 +2430,25 @@ def init_config(quiet=False, test=False):
         return init_logging(test=test)
 
 
-def render_res_table(data, headers=[], showindex=True, tablefmt="simple"):
-    from itertools import zip_longest
-    getter = lambda x: str(x).replace('\n', '')
-    rows = [tuple(map(getter, row)) for row in data]
-    sizes = [max(map(len, col)) for col in zip_longest(*rows, fillvalue="")]
-    if showindex:
-        rows = [(str(i),) + row for i, row in enumerate(rows)]
-        _headers = ['']
-        _headers.extend(headers)
-    else:
-        _headers = headers
-    if tablefmt == "simple":
-        _delim = ['']
-        _delim.extend(['-' * _size for _size in sizes])
-        rows.insert(0, tuple(_delim))
-    return render_table(_headers, rows)
+def render_res_table(data, headers=[], maxcolwidths=None, showindex=True, tablefmt="simple"):
+    # from itertools import zip_longest
+    # getter = lambda x: str(x)  # .replace('\n', '')
+    # rows = [tuple(map(getter, row)) for row in data]
+    # sizes = [max(map(len, col)) for col in zip_longest(*rows, fillvalue="")]
+    # if showindex:
+    #     rows = [(str(i),) + row for i, row in enumerate(rows)]
+    #     _headers = ['']
+    #     _headers.extend(headers)
+    # else:
+    #     _headers = headers
+    # if tablefmt == "simple":
+    #     _delim = ['']
+    #     _delim.extend(['-' * _size for _size in sizes])
+    #     rows.insert(0, tuple(_delim))
+    # return render_table(_headers, rows)
+    from tabulate import tabulate
+    print(data)
+    return tabulate(data, headers=headers, maxcolwidths=maxcolwidths, showindex=showindex, tablefmt=tablefmt)
 
 ############################################################
 # """                     PYSIMPLEGUI                    """

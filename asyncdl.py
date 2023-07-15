@@ -1359,6 +1359,7 @@ class AsyncDL:
 
     def get_results_info(self):
         _DOMAINS_CONF_PRINT = ['nakedsword.com', 'onlyfans.com']
+        col = shutil.get_terminal_size().columns
 
         def _getter(url: str, vid: dict) -> str:
             webpageurl = traverse_obj(
@@ -1378,19 +1379,23 @@ class AsyncDL:
         def _print_list_videos():
             try:
 
-                col = shutil.get_terminal_size().columns
-
                 list_videos = [
                     _getter(url, vid)
                     for url, vid in self.info_videos.items()
                     if vid.get("todl")
                 ]
 
-                if list_videos:
-                    list_videos_str = [[fill(text=url, width=col // 2)]
-                                       for url in list_videos]
-                else:
-                    list_videos_str = []
+                list_videos_str = (
+                    [
+                        [
+                            # fill(text=url, width=col // 2)
+                            url
+                        ]
+                        for url in list_videos
+                    ]
+                    if list_videos
+                    else []
+                )
 
                 list_videos2dl = [
                     _getter(url, vid)
@@ -1404,13 +1409,16 @@ class AsyncDL:
                 list_videos2dl_str = (
                     [
                         [
-                            fill(vid["video_info"].get("id", ""), col // 6),
-                            fill(vid["video_info"].get("title", ""), col // 6),
+                            # fill(vid["video_info"].get("id", ""), col // 6),
+                            vid["video_info"].get("id", ""),
+                            # fill(vid["video_info"].get("title", ""), col // 6),
+                            vid["video_info"].get("title", ""),
                             naturalsize(
                                 none_to_zero(vid["video_info"].get(
                                     "filesize", 0))
                             ),
-                            fill(_getter(url, vid), col // 2),
+                            # fill(_getter(url, vid), col // 2),
+                            _getter(url, vid),
                             vid.get("status")
                         ]
                         for url, vid in self.info_videos.items()
@@ -1431,9 +1439,12 @@ class AsyncDL:
                 list_videosaldl_str = (
                     [
                         [
-                            fill(vid["video_info"].get("id", ""), col // 6),
-                            fill(vid["video_info"].get("title", ""), col // 6),
-                            fill(_getter(url, vid), col // 3),
+                            # fill(vid["video_info"].get("id", ""), col // 6),
+                            vid["video_info"].get("id", ""),
+                            # fill(vid["video_info"].get("title", ""), col // 6),
+                            vid["video_info"].get("title", ""),
+                            # fill(_getter(url, vid), col // 3),
+                            _getter(url, vid),
                             # fill(vid["aldl"], col // 3),
                             vid["aldl"]
                         ]
@@ -1490,6 +1501,7 @@ class AsyncDL:
                         showindex=True,
                         headers=_columns,
                         tablefmt="simple",
+                        maxcolwidths=[None, col // 6, col // 6, None, col // 2, None]
                     )
                     if list_videos2dl_str
                     else None
@@ -1584,6 +1596,7 @@ class AsyncDL:
                 showindex=True,
                 headers=_columnsaldl,
                 tablefmt="simple",
+                maxcolwidths=[None, col // 6, col // 6, col // 3, col // 3]
             )
             if info_dict["videosaldl"]["str"]
             else None
