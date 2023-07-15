@@ -1501,7 +1501,7 @@ class AsyncDL:
                         showindex=True,
                         headers=_columns,
                         tablefmt="simple",
-                        maxcolwidths=[None, col // 6, col // 6, None, col // 2, None]
+                        maxcolwidths=[None, col // 6, col // 4, None, col // 2, None]
                     )
                     if list_videos2dl_str
                     else None

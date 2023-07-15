@@ -327,13 +327,8 @@ class AsyncARIA2CDownloader:
     async def init(self):
 
         dl_cont = None
-        self._index_proxy = None
-        self._proxy = None
-
+        self._speed.append((datetime.now(), 'init'))
         try:
-            await self.update_uri()
-
-            logger.debug(f'{self.uptpremsg()} uris:\n{self.uris}')
 
             if (dl_cont := await self.add_uris(self.uris)):
 
@@ -525,14 +520,22 @@ class AsyncARIA2CDownloader:
 
         try:
             while True:
-                _input_speed = await self._qspeed.get()
+                _res = await async_waitfortasks(
+                    self._qspeed.get(),
+                    events=self.vid_dl.stop_event,
+                    background_tasks=self.background_tasks)
+                if 'event' in _res:
+                    logger.debug(f'{self.premsg}[check_speed] stop event')
+                    return
+                elif (_temp := _res.get('exception')):
+                    raise AsyncARIA2CDLError(f'error when get from qspeed: {repr(_temp)}')
+                else:
+                    _input_speed = _res.get('result')
 
-                if _input_speed is None:
-                    continue
-                elif _input_speed == kill_item:
-                    logger.debug(f'{self.premsg}[check_speed] KIKLL from queue')
-                    break
-                elif (self.block_init or self.check_any_event_is_set()):
+                if _input_speed == kill_item:
+                    logger.debug(f'{self.premsg}[check_speed] KILL from queue')
+                    return
+                elif any([_input_speed is None, self.block_init, self.check_any_event_is_set()]):
                     continue
                 elif len_ap_list(_speed, _input_speed) > _min_check:
 
@@ -558,7 +561,6 @@ class AsyncARIA2CDownloader:
                         logger.debug(f'{self.premsg}[check_speed]\n{_str_speed}')
 
                         await self.vid_dl.reset()
-
                         _speed = []
                         await asyncio.sleep(0)
 
@@ -568,8 +570,6 @@ class AsyncARIA2CDownloader:
 
                 else:
                     await asyncio.sleep(0)
-
-            await asyncio.sleep(0)
 
         except Exception as e:
             logger.exception(
@@ -629,10 +629,8 @@ class AsyncARIA2CDownloader:
 
     async def fetch(self):
 
+        self._speed.append((datetime.now(), 'fetch'))
         try:
-
-            self._speed.append((datetime.now(), 'init'))
-            self.block_init = True
             self.dl_cont = await self.init()
             self.block_init = False
             if self.status in ('done', 'error', 'stop'):
@@ -700,11 +698,12 @@ class AsyncARIA2CDownloader:
             while True:
                 self.n_rounds += 1
                 self.dl_cont = None
+                self.block_init = True
+                self._index_proxy = None
+                self._proxy = None
                 try:
-                    # self._qspeed = asyncio.Queue()
-                    # check_task = self.add_task(self.check_speed())
-                    self._speed.append((datetime.now(), 'fetch'))
-
+                    await self.update_uri()
+                    logger.debug(f'{self.uptpremsg()} uris:\n{self.uris}')
                     async with async_lock(self.sem):
                         await self.fetch()
                     if self.status in ('done', 'error', 'stop'):
@@ -728,9 +727,12 @@ class AsyncARIA2CDownloader:
                         async with self.vid_dl.master_hosts_alock():
                             self.vid_dl.hosts_dl[self._host]['count'] -= 1
                             self.vid_dl.hosts_dl[self._host]['queue'].put_nowait(self._index_proxy)
+                    await asyncio.sleep(0)
 
         except BaseException as e:
             logger.exception(f'{self.premsg}[fetch_async] {repr(e)}')
+            if isinstance(e, KeyboardInterrupt):
+                raise
         finally:
             self._qspeed.put_nowait(kill_item)
             await asyncio.wait([check_task])
