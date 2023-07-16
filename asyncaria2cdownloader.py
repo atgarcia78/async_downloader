@@ -627,6 +627,12 @@ class AsyncARIA2CDownloader:
 
         return _res
 
+    async def error_handle(self, error):
+        if error == '471':
+            await asyncio.sleep(30)
+        await self.async_remove([self.dl_cont])
+        await asyncio.sleep(0)
+
     async def fetch(self):
 
         self._speed.append((datetime.now(), 'fetch'))
@@ -670,7 +676,11 @@ class AsyncARIA2CDownloader:
                 self.status = 'done'
 
             elif self.dl_cont.status == 'error':
-                raise AsyncARIA2CDLError('fetch error')
+                if 'status=471' in cast(str, self.dl_cont.error_message):
+                    await self.error_handle('471')
+
+                else:
+                    raise AsyncARIA2CDLError('fetch error')
 
         except BaseException as e:
             _msg_error = repr(e)

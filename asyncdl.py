@@ -1358,7 +1358,7 @@ class AsyncDL:
             kill_processes(logger=logger, rpcport=self.args.rpcport)
 
     def get_results_info(self):
-        _DOMAINS_CONF_PRINT = ['nakedsword.com', 'onlyfans.com']
+        _DOMAINS_CONF_PRINT = ['nakedsword.com', 'onlyfans.com', 'pornhub']
         col = shutil.get_terminal_size().columns
 
         def _getter(url: str, vid: dict) -> str:

@@ -2447,7 +2447,6 @@ def render_res_table(data, headers=[], maxcolwidths=None, showindex=True, tablef
     #     rows.insert(0, tuple(_delim))
     # return render_table(_headers, rows)
     from tabulate import tabulate
-    print(data)
     return tabulate(data, headers=headers, maxcolwidths=maxcolwidths, showindex=showindex, tablefmt=tablefmt)
 
 ############################################################
