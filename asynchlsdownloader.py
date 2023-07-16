@@ -97,10 +97,10 @@ class AsyncHLSDLReset(Exception):
 
 
 retry = my_dec_on_exception(
-    AsyncHLSDLErrorFatal, max_tries=3, raise_on_giveup=True, interval=1)
+    AsyncHLSDLErrorFatal, max_tries=5, raise_on_giveup=True, interval=5)
 
 on_exception = my_dec_on_exception(
-    (TimeoutError, AsyncHLSDLError, ReExtractInfo), max_tries=5, raise_on_giveup=False, interval=2)
+    (TimeoutError, AsyncHLSDLError, ReExtractInfo), max_tries=5, raise_on_giveup=False, interval=5)
 
 on_503 = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=False, interval=20)
