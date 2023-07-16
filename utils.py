@@ -4259,3 +4259,36 @@ def send_http_request(url, **kwargs) -> Union[None, httpx.Response]:
         return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
     except ExtractorError as e:
         raise new_e(str(e))
+
+
+def find_in_tree(key, tree, parent, res=None):
+    if not res:
+        res = Queue()
+    for el in tree:
+        if el['key'] == key:
+            res.put((parent, el))
+            continue
+        elif el['dependencies'] == []:
+            continue
+        else:
+            find_in_tree(key, el['dependencies'], el['key'], res)
+    return list(res.queue)
+
+
+# import pipdeptree
+
+# args = ..parse_args(args=['--reverse', '--python', '/Users/antoniotorres/Projects/async_downloader/venv/bin/python]', '--json-tree'])
+# pkgs = pipdeptree.get_installed_distributions()
+# piptree = lambda x: pipdeptree._render(args, treepkgs.filter_nodes(set(variadic(x)), exclude))
+# find_in = lambda x, tree: find_in_tree(x, tree, 'root')
+
+
+# def check_pack_env(name):
+#     piptree(name)
+#     print(find_in(name))
+#     out1 = subprocess.run(['pip', 'show', name], capture_output=True, encoding='utf-8').stdout
+#     print('_________________________________________________________________________________')
+#     print(out1, '\n')
+#     out2 = subprocess.run(['grepenv', name], capture_output=True, encoding='utf-8').stdout
+#     print(out2)
+#     print('_________________________________________________________________________________')
