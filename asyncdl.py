@@ -14,7 +14,6 @@ from pathlib import Path
 
 import os as syncos
 
-from textwrap import fill
 from threading import Lock
 
 from codetiming import Timer
@@ -1388,7 +1387,6 @@ class AsyncDL:
                 list_videos_str = (
                     [
                         [
-                            # fill(text=url, width=col // 2)
                             url
                         ]
                         for url in list_videos
@@ -1409,15 +1407,12 @@ class AsyncDL:
                 list_videos2dl_str = (
                     [
                         [
-                            # fill(vid["video_info"].get("id", ""), col // 6),
                             vid["video_info"].get("id", ""),
-                            # fill(vid["video_info"].get("title", ""), col // 6),
                             vid["video_info"].get("title", ""),
                             naturalsize(
                                 none_to_zero(vid["video_info"].get(
                                     "filesize", 0))
                             ),
-                            # fill(_getter(url, vid), col // 2),
                             _getter(url, vid),
                             vid.get("status")
                         ]
@@ -1439,13 +1434,9 @@ class AsyncDL:
                 list_videosaldl_str = (
                     [
                         [
-                            # fill(vid["video_info"].get("id", ""), col // 6),
                             vid["video_info"].get("id", ""),
-                            # fill(vid["video_info"].get("title", ""), col // 6),
                             vid["video_info"].get("title", ""),
-                            # fill(_getter(url, vid), col // 3),
                             _getter(url, vid),
-                            # fill(vid["aldl"], col // 3),
                             vid["aldl"]
                         ]
                         for url, vid in self.info_videos.items()
@@ -1463,10 +1454,10 @@ class AsyncDL:
                 list_videossamevideo_str = (
                     [
                         [
-                            fill(vid["video_info"].get("id", ""), col // 6),
-                            fill(vid["video_info"].get("title", ""), col // 6),
-                            fill(_getter(url, vid), col // 3),
-                            fill(vid["samevideo"], col // 3),
+                            vid["video_info"].get("id", ""),
+                            vid["video_info"].get("title", ""),
+                            _getter(url, vid),
+                            vid["samevideo"]
                         ]
                         for url, vid in self.info_videos.items()
                         if vid.get("samevideo")
@@ -1608,6 +1599,8 @@ class AsyncDL:
                 showindex=True,
                 headers=_columnssamevideo,
                 tablefmt="simple",
+                maxcolwidths=[None, col // 6, col // 6, col // 3, col // 3]
+
             )
             if info_dict["videossamevideo"]["str"]
             else None
