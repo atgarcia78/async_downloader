@@ -671,7 +671,7 @@ class AsyncHLSDownloader:
                 f"{self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
     @retry
-    def get_reset_info(self, _reset_url, first=False):
+    def get_reset_info(self, _reset_url, plns=True, first=False):
 
         _proxy = cast(str, traverse_obj(getattr(self, '_proxy', None), ("http://")))
         _print_proxy = f':proxy[{_proxy.split(":")[-1]}]' if _proxy else ''
@@ -687,7 +687,7 @@ class AsyncHLSDownloader:
         try:
 
             self.check_stop()
-            if self.fromplns:
+            if plns and self.fromplns:
 
                 if first:
                     with contextlib.suppress(OSError):
@@ -805,7 +805,7 @@ class AsyncHLSDownloader:
 
                         _plns_url = smuggle_url(self.info_dict["original_url"], _aux)
 
-                        _resinfo = self.get_reset_info(_plns_url, first=_first)
+                        _resinfo = self.get_reset_info(_plns_url, plns=True, first=_first)
 
                         if "error" in _resinfo:
                             raise _resinfo["error"]
@@ -827,7 +827,7 @@ class AsyncHLSDownloader:
                 else:
                     _webpage_url = self.info_dict['webpage_url']
 
-                self.get_reset_info(_webpage_url)
+                self.get_reset_info(_webpage_url, plns=False)
 
         except StatusStop:
             logger.error(f"{_pre} stop_event")
