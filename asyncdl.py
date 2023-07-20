@@ -210,7 +210,7 @@ class WorkersRun:
                     self.waiting.remove(dl_index)
                     self.waiting.appendleft(dl_index)
                     self.logger.debug(f'[move_to_waiting_top] {list(self.waiting)}')
-            elif dl_index not in self.running and dl_status == "stop":
+            elif dl_index not in self.running and dl_status in ("stop", "error"):
                 await dl.reinit()
                 if len(self.running) >= self.max:
                     self.waiting.append(dl_index)

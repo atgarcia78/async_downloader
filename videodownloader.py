@@ -435,17 +435,21 @@ class VideoDownloader:
 
     async def pause(self):
         if self.info_dl['status'] == "downloading":
-            if self.pause_event.is_set():
-                self.pause_event.clear()
-                await asyncio.sleep(0)
-            else:
-                self.resume_event.clear()
+            # if self.pause_event.is_set():
+            #     self.pause_event.clear()
+            #     await asyncio.sleep(0)
+            # else:
+            #     self.resume_event.clear()
+            #     self.pause_event.set()
+            #     await asyncio.sleep(0)
+            if not self.pause_event.is_set():
                 self.pause_event.set()
+                self.resume_event.clear()
                 await asyncio.sleep(0)
 
     async def resume(self):
         if self.info_dl['status'] == "downloading":
-            if self.pause_event.is_set():
+            if not self.resume_event.is_set():
                 self.resume_event.set()
                 #  self.pause_event.clear()
                 await asyncio.sleep(0)
@@ -465,6 +469,8 @@ class VideoDownloader:
             dl.status = "init"
             if hasattr(dl, 'update_uri'):
                 await dl.update_uri()
+            if 'hls' in str(type(dl)).lower():
+                await sync_to_async(dl.init, thread_sensitive=False, executor=self.ex_videodl)()
 
     async def run_dl(self):
 

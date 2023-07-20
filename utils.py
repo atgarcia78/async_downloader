@@ -2698,7 +2698,6 @@ class SimpleCountDown:
 
         _input = 'error'
         try:
-            t = 0
             start = time.monotonic()
             while (time.monotonic() - start < self.timeout):
                 try:
@@ -2707,8 +2706,8 @@ class SimpleCountDown:
                     if _input in ['exit', '', str(self.indexdl)]:
                         break
                     self.check()
-                    t += 1
-                    self.pb.print(f' Waiting {t}/{self.timeout}')
+                    self.pb.update()
+                    self.pb.print('Waiting')
 
                 except Exception as e:
                     self.logger.exception(repr(e))
@@ -2985,8 +2984,6 @@ if PySimpleGUI:
                             elif event == 'Stop':
                                 await self.asyncdl.list_dl[_index].stop("exit")
                             elif event in ['Info', 'ToFile']:
-                                _thr = getattr(self.asyncdl.list_dl[_index].info_dl['downloaders'][0], 'throttle', None)
-                                sg.cprint(f'[{_index}] throttle [{_thr}]')
                                 _info = json.dumps(self.asyncdl.list_dl[_index].info_dict)
                                 sg.cprint(f'[{_index}] info\n{_info}')
                                 sg.cprint(
