@@ -952,7 +952,6 @@ CLIENT_CONFIG = {
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en,es-ES;q=0.5',
         'Sec-Fetch-Mode': 'navigate',
-        'Connection': 'keep-alive',
     },
     'follow_redirects': True,
     'verify': False
