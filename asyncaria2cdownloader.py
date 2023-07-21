@@ -631,11 +631,18 @@ class AsyncARIA2CDownloader:
         return _res
 
     async def error_handle(self, error):
-        if error == '471':
-            await asyncio.sleep(30)
-        elif error == '403':
-            await asyncio.sleep(60)
+        tout = None
         await self.async_remove([self.dl_cont])
+        if error == '471':
+            tout = 30
+        elif error == '403':
+            tout = 60
+        _res = await async_wait_for_any([self.vid_dl.stop_event, self.vid_dl.reset_event], timeout=tout)
+        if _event := _res.get("event"):
+            if "stop" in _event:
+                self.status = "stop"
+            if "reset" in _event:
+                self.vid_dl.reset_event.clear()
         await asyncio.sleep(0)
 
     async def fetch(self):
