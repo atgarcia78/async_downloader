@@ -4,6 +4,7 @@ import copy
 import logging
 import random
 import time
+import re
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
@@ -631,6 +632,8 @@ class AsyncARIA2CDownloader:
     async def error_handle(self, error):
         if error == '471':
             await asyncio.sleep(30)
+        elif error == '403':
+            await asyncio.sleep(15)
         await self.async_remove([self.dl_cont])
         await asyncio.sleep(0)
 
@@ -677,9 +680,9 @@ class AsyncARIA2CDownloader:
                 self.status = 'done'
 
             elif self.dl_cont.status == 'error':
-                if 'status=471' in cast(str, self.dl_cont.error_message):
-                    await self.error_handle('471')
-
+                error_code = try_get(re.findall(r'(?:status|estado)=(\d\d\d)', cast(str, self.dl_cont.error_message)), lambda x: x[0] if x else None)
+                if error_code and error_code in ('471', '403'):
+                    await self.error_handle(error_code)
                 else:
                     raise AsyncARIA2CDLError('fetch error')
 
