@@ -216,6 +216,7 @@ class AsyncARIA2CDownloader:
                     logger.warning(f'{self.premsg} couldnt set [{key}] to [{value}]')
 
     def _get_filesize(self, uris) -> Union[tuple, None]:
+        logger.info(f'{self.premsg}[get_filesize] start aria2dl dry-run')
         try:
             opts_dict = {
                 'header': '\n'.join(
