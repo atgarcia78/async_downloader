@@ -751,7 +751,7 @@ class AsyncARIA2CDownloader:
 
                 _secs = el[0].second + el[0].microsecond / 1000000
                 _str0 = f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
-                if isinstance(el[1], str):
+                if isinstance(el[1], (str, list, tuple)):
                     _str1 = el[1]
                 else:
                     _str1 = f"['status': {el[1].status}, 'speed': {el[1].download_speed}]"

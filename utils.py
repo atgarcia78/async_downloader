@@ -2621,17 +2621,18 @@ class CountDowns:
         return _res
 
 
+class Token:
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __repr__(self):
+        return f"token:{self.msg}"
+
+
 class SimpleCountDown:
 
-    class token:
-        def __init__(self, msg):
-            self.msg = msg
-
-        def __repr__(self):
-            return f"{self.__class__.__name__}:{self.msg}"
-
-    restimeout = token('restimeout')
-    resexit = token('resexit')
+    restimeout = Token('restimeout')
+    resexit = Token('resexit')
 
     def __init__(self, pb, inputqueue, check: Union[Callable, None] = None, logger=None, indexdl=None, timeout=60):
 
