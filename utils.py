@@ -834,7 +834,7 @@ def init_argparser():
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"], default="aria2c")
     parser.add_argument("--use-path-pl", action="store_true", default=False)
-    parser.add_argument("--use-cookies", action="store_true", default=False)
+    parser.add_argument("--use-cookies", action="store_true", default=True)
     parser.add_argument("--no-embed", action="store_true", default=False)
     parser.add_argument("--rep-pause", action="store_true", default=False)
 
@@ -4243,7 +4243,7 @@ args = argparse.Namespace(
     collection=[],
     dlcaching=False, path=None, caplinks=False, verbose=True, vv=False,
     quiet=False, aria2c=True, subt=True, nosymlinks=False,
-    http_downloader='aria2c', use_path_pl=False, use_cookies=False, no_embed=False,
+    http_downloader='aria2c', use_path_pl=False, use_cookies=True, no_embed=False,
     rep_pause=False, rpcport=6800, enproxy=False, nocheckcert=True)
 
 
