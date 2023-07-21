@@ -682,6 +682,7 @@ class AsyncARIA2CDownloader:
             elif self.dl_cont.status == 'error':
                 error_code = try_get(re.findall(r'(?:status|estado)=(\d\d\d)', cast(str, self.dl_cont.error_message)), lambda x: x[0] if x else None)
                 if error_code and error_code in ('471', '403'):
+                    logger.warning(f'{self.uptpremsg()}[fetch] error handle: {error_code}')
                     await self.error_handle(error_code)
                 else:
                     raise AsyncARIA2CDLError('fetch error')
