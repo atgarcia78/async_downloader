@@ -49,7 +49,8 @@ from utils import (
     my_dec_on_exception,
     get_host,
     variadic,
-    LockType
+    LockType,
+    Token
 
 )
 
@@ -71,7 +72,7 @@ class AsyncARIA2CDLError(Exception):
 retry = my_dec_on_exception(
     AsyncARIA2CDLErrorFatal, max_time=60, raise_on_giveup=False, interval=5)
 
-kill_item = object()
+kill_token = Token("kill")
 
 
 class AsyncARIA2CDownloader:
@@ -532,8 +533,8 @@ class AsyncARIA2CDownloader:
                 else:
                     _input_speed = _res.get('result')
 
-                if _input_speed == kill_item:
-                    logger.debug(f'{self.premsg}[check_speed] KILL from queue')
+                if _input_speed == kill_token:
+                    logger.debug(f'{self.premsg}[check_speed] {kill_token} from queue')
                     return
                 elif any([_input_speed is None, self.block_init, self.check_any_event_is_set()]):
                     continue
@@ -744,7 +745,7 @@ class AsyncARIA2CDownloader:
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
-            self._qspeed.put_nowait(kill_item)
+            self._qspeed.put_nowait(kill_token)
             await asyncio.wait([check_task])
 
             def _print_el(el: tuple):

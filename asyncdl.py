@@ -314,9 +314,12 @@ class WorkersInit:
     async def add_init(self, url_key):
 
         _pre = f"[add_init]:[{url_key}]"
-
         async with self.alock:
-            self.logger.debug(f'{_pre}[init] running[{len(self.running)}] waiting[{len(self.waiting)}]')
+            self.logger.debug(f'{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]')
+            if url_key in self.waiting or url_key in list(self.tasks.values()):
+                self.logger.warning(f'{_pre} already processed')
+                return
+
             if len(self.running) > self.max:
                 self.waiting.append(url_key)
             else:
@@ -334,16 +337,10 @@ class WorkersInit:
                     self.running.remove(url_key)
 
                 while True:
-                    async with self.alock:
-                        if not self.waiting:
-                            break
                     await asyncio.sleep(0)
-
-                while True:
                     async with self.alock:
-                        if not self.running:
+                        if not self.waiting and not self.running:
                             break
-                    await asyncio.sleep(0)
 
                 self.logger.debug(f'{_pre} end tasks worker init: exit')
                 self.asyncdl.t3.stop()
@@ -351,13 +348,12 @@ class WorkersInit:
                 await self.asyncdl.WorkersRun.check_to_stop()
 
             else:
-
-                await self.asyncdl.init_callback(url_key)
-
-                async with self.alock:
-                    self.running.remove(url_key)
-                    if self.waiting:
-                        if len(self.running) < self.max:
+                try:
+                    await self.asyncdl.init_callback(url_key)
+                finally:
+                    async with self.alock:
+                        self.running.remove(url_key)
+                        if self.waiting and (len(self.running) < self.max):
                             url_key2 = self.waiting.popleft()
                             self.running.add(url_key2)
                             self.tasks.update({add_task(self._task(url_key2), self.asyncdl.background_tasks): url_key2})

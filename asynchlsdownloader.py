@@ -22,7 +22,6 @@ from Cryptodome.Cipher import AES
 
 from utils import (
     CONF_HLS_RESET_403_TIME,
-    # CONF_HLS_SPEED_PER_WORKER,
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
@@ -34,7 +33,6 @@ from utils import (
     SmoothETA,
     SpeedometerMA,
     _for_print,
-    # _for_print_entry,
     get_format_id,
     int_or_none,
     limiter_non,
@@ -42,7 +40,6 @@ from utils import (
     my_dec_on_exception,
     naturalsize,
     print_norm_time,
-    # print_tasks,
     smuggle_url,
     sync_to_async,
     traverse_obj,
@@ -315,8 +312,6 @@ class AsyncHLSDownloader:
         self.fromplns = False
 
         try:
-
-            # self._CONF_HLS_MAX_SPEED_PER_DL = None
 
             self._extractor = cast(str, try_get(self.info_dict.get('extractor_key'), lambda x: x.lower()))
 
