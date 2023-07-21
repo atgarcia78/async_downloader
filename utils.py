@@ -129,11 +129,16 @@ CONF_HTTP_DL = {
 }
 
 
-def get_host(url: str, shorten=False) -> str:
+def get_host(url: str, shorten=None) -> str:
     _host = re.sub(r'^www\.', '', urlparse(url).netloc)
-    if shorten:
+    if shorten == 'vgembed':
+        _nhost = _host.split('.')
         if _host.count('.') >= 3:
-            _host = '.'.join(_host.split('.')[-3:])
+            _host = '.'.join(_nhost[-3:])
+    # elif shorten == 'boyfriendtv':
+    #     _nhost = _host.split('.')
+    #     _nhost[0] = _nhost[0][:5]
+    #     _host = '.'.join(_nhost)
     return _host
 
 

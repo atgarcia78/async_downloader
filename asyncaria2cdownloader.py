@@ -101,7 +101,7 @@ class AsyncARIA2CDownloader:
         video_url = unquote(self.info_dict.get('url'))
         self.uris = cast(list[str], [video_url])
         self._extractor = try_get(self.info_dict.get('extractor_key'), lambda x: x.lower())
-        self._host = get_host(video_url, shorten=(self._extractor == 'vgembed'))
+        self._host = get_host(video_url, shorten=self._extractor)
 
         self.headers = self.info_dict.get('http_headers', {})
 
@@ -368,7 +368,7 @@ class AsyncARIA2CDownloader:
                 if (_url := proxy_info.get("url")):
                     video_url = unquote(_url)
                     self.uris = [video_url]
-                    if (_host := get_host(video_url, shorten=(self._extractor == 'vgembed'))) != self._host:
+                    if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
                         self._host = _host
                         if isinstance(self.sem, LockType):
                             async with async_lock(self.ytdl.params['lock']):
@@ -702,7 +702,6 @@ class AsyncARIA2CDownloader:
     async def fetch_async(self):
 
         self.progress_timer = ProgressTimer()
-        self.status = 'downloading'
         self._speed = []
         self.n_rounds = 0
 
@@ -716,6 +715,7 @@ class AsyncARIA2CDownloader:
                 self.block_init = True
                 self._index_proxy = None
                 self._proxy = None
+                self.status = 'downloading'
                 try:
                     await self.update_uri()
                     logger.debug(f'{self.uptpremsg()} uris:\n{self.uris}')
