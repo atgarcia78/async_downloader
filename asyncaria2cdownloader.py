@@ -633,7 +633,7 @@ class AsyncARIA2CDownloader:
         if error == '471':
             await asyncio.sleep(30)
         elif error == '403':
-            await asyncio.sleep(15)
+            await asyncio.sleep(60)
         await self.async_remove([self.dl_cont])
         await asyncio.sleep(0)
 
