@@ -34,7 +34,6 @@ from utils import (
     load_config_extractors,
     getter_basic_config_extr,
     ProgressTimer,
-    ProxyYTDL,
     async_lock,
     get_format_id,
     limiter_non,
@@ -52,7 +51,6 @@ from utils import (
     variadic,
     LockType,
     Token
-
 )
 
 logger = logging.getLogger('async_ARIA2C_DL')
@@ -140,41 +138,39 @@ class AsyncARIA2CDownloader:
                 limit = limiter_non.ratelimit('transp', delay=True)
                 maxplits = self.n_workers
 
-            _sem = False
-            if maxplits < 16:  # or x in ['']:
-                _sem = True
+            _mode = 'simple'
+            _sph = False
+            if maxplits < 16:
+                _sph = True
                 if x in CONF_ARIA2C_EXTR_GROUP:
-                    self._mode = 'group'
+                    _mode = 'group'
 
             if x in CONF_AUTO_PASRES:
                 self.auto_pasres = True
                 self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED // 2
 
-            return (_sem, limit, maxplits)
+            return (_sph, _mode, limit, maxplits)
 
         self.auto_pasres = False
         self.special_extr = False
         self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED
         self._n_check_speed = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED
-        self._mode = 'simple'
-        _sem, self._decor, self._nsplits = getter(self._extractor)
 
-        if not self.enproxy:
-            self._mode = 'noproxy'
-        else:
+        _sem, self._mode, self._decor, self._nsplits = getter(self._extractor)
+        self.sem = contextlib.nullcontext()
+
+        if self.enproxy:
             with self.vid_dl.master_hosts_lock:
                 if not self.vid_dl.hosts_dl.get(self._host):
                     _seq = random.sample(range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST)
                     queue_ = put_sequence(asyncio.Queue(), _seq)
                     self.vid_dl.hosts_dl.update({self._host: {'count': 0, 'queue': queue_}})
-
-        if _sem and self._mode == 'noproxy':
-
-            with self.ytdl.params.setdefault('lock', Lock()):
-                self.ytdl.params.setdefault('sem', {})
-                self.sem = cast(LockType, self.ytdl.params['sem'].setdefault(self._host, Lock()))
         else:
-            self.sem = contextlib.nullcontext()
+            self._mode = 'noproxy'
+            if _sem:
+                with self.ytdl.params.setdefault('lock', Lock()):
+                    self.ytdl.params.setdefault('sem', {})
+                    self.sem = cast(LockType, self.ytdl.params['sem'].setdefault(self._host, Lock()))
 
         self.n_workers = self._nsplits
         self.down_size = 0
@@ -361,12 +357,13 @@ class AsyncARIA2CDownloader:
 
             if self.n_rounds > 1:
 
-                async with ProxyYTDL(opts=self.ytdl.params.copy(), executor=self.ex_dl) as proxy_ytdl:
-                    proxy_info = get_format_id(
-                        proxy_ytdl.sanitize_info(
-                            await proxy_ytdl.async_extract_info(_init_url)),
+                async with myYTDL(params=self.ytdl.params, silent=True, executor=self.ex_dl) as ytdl:
+                    _info = get_format_id(
+                        ytdl.sanitize_info(
+                            await ytdl.async_extract_info(_init_url)),
                         self.info_dict['format_id'])
-                if (_url := proxy_info.get("url")):
+
+                if (_url := _info.get("url")):
                     video_url = unquote(_url)
                     self.uris = [video_url]
                     if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
@@ -400,7 +397,7 @@ class AsyncARIA2CDownloader:
                 self.opts.set('all-proxy', self._proxy)
 
                 try:
-                    async with ProxyYTDL(opts=self.ytdl.params.copy(), proxy=self._proxy, executor=self.ex_dl) as proxy_ytdl:
+                    async with myYTDL(params=self.ytdl.params, silent=True, proxy=self._proxy, executor=self.ex_dl) as proxy_ytdl:
 
                         proxy_info = get_format_id(
                             proxy_ytdl.sanitize_info(
@@ -445,14 +442,13 @@ class AsyncARIA2CDownloader:
 
                     assert isinstance(self._index_proxy, int)
 
-                    _ytdl_opts = self.ytdl.params.copy()
                     _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100 + i
                     _proxy = f'http://127.0.0.1:{_proxy_port}'
                     logger.debug(f'{self.premsg} proxy ip{i} {_proxy}')
 
                     try:
 
-                        async with ProxyYTDL(opts=_ytdl_opts, proxy=_proxy, executor=self.ex_dl) as proxy_ytdl:
+                        async with myYTDL(params=self.ytdl.params, silent=True, proxy=_proxy, executor=self.ex_dl) as proxy_ytdl:
 
                             proxy_info = get_format_id(
                                 proxy_ytdl.sanitize_info(await proxy_ytdl.async_extract_info(_init_url)),

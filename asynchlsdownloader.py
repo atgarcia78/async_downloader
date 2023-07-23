@@ -29,7 +29,6 @@ from utils import (
     getter_basic_config_extr,
     FrontEndGUI,
     ProgressTimer,
-    ProxyYTDL,
     SmoothETA,
     SpeedometerMA,
     _for_print,
@@ -552,7 +551,7 @@ class AsyncHLSDownloader:
             self.check_stop()
 
             if proxy:
-                with ProxyYTDL(opts=self.ytdl.params.copy(), proxy=proxy) as proxy_ytdl:
+                with myYTDL(params=self.ytdl.params, proxy=proxy) as proxy_ytdl:
                     _info_video = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(url, download=False))
             else:
                 _info_video = self.ytdl.sanitize_info(self.ytdl.extract_info(url, download=False))

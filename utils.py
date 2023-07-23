@@ -1742,7 +1742,22 @@ if yt_dlp:
             self._close: bool = kwargs.get("close", True)
             self.executor: ThreadPoolExecutor = kwargs.get(
                 "executor", ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower()))
-            super().__init__(params=params, auto_init=auto_init)  # type: ignore
+            _silent = kwargs.get("silent", False)
+            _proxy = kwargs.pop("proxy", None)
+            opts = {}
+            if _proxy:
+                opts["proxy"] = _proxy
+            if _silent:
+                opts["quiet"] = True
+                opts["verbose"] = False
+                opts["verboseplus"] = False
+                opts["logger"] = MyYTLogger(
+                    logging.getLogger('yt_dlp_s'),
+                    quiet=True,
+                    verbose=False,
+                    superverbose=False)
+
+            super().__init__(params=params | opts, auto_init=auto_init)  # type: ignore
 
         def __exit__(self, *args):
             super().__exit__(*args)
