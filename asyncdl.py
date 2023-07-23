@@ -827,7 +827,7 @@ class AsyncDL:
         if (
             not info.get("_type", "video") == "video"
             or not (_id := info.get("id"))
-            or not (_title := info.get("title"))
+            # or not (_title := info.get("title"))
         ):
             return
 
@@ -836,7 +836,7 @@ class AsyncDL:
                 if (
                     _vid["video_info"].get("_type", "video") == "video"
                     and (_vid["video_info"].get("id", "") == _id)
-                    and (_vid["video_info"].get("title", "")) == _title
+                    # and (_vid["video_info"].get("title", "")) == _title
                 ):
                     return urlkey
 
