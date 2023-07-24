@@ -789,31 +789,36 @@ class AsyncDL:
             vid_name = f"{_id}_{_title}"
 
             if not (vid_path_str := self.videos_cached.get(vid_name)):
-                return False
-            else:  # video en local
-                if test:
-                    return True
-                vid_path = Path(vid_path_str)
-                logger.debug(f"{_pre} already DL")  #: {vid_path}")
+                if not (vid_path_str := self.videos_cached.get(_id)):
+                    return False
+                else:
+                    logger.warning(f"{_pre} found with ID already DL")
+            else:
+                logger.debug(f"{_pre} already DL")   # video en local
 
-                if not self.args.nosymlinks:
-                    if self.args.path:
-                        _folderpath = Path(self.args.path)
-                    else:
-                        _folderpath = Path(Path.home(), "testing", self.launch_time.strftime("%Y%m%d"))
-                    _folderpath.mkdir(parents=True, exist_ok=True)
-                    file_aldl = Path(_folderpath, vid_path.name)
-                    if file_aldl not in _folderpath.iterdir():
-                        file_aldl.symlink_to(vid_path)
-                        try:
-                            mtime = int(vid_path.stat().st_mtime)
-                            syncos.utime(file_aldl, (int(time.time()), mtime), follow_symlinks=False)
-                        except Exception as e:
-                            logger.debug(
-                                f"[check_if_aldl] [{str(file_aldl)}] -> " +
-                                f"[{str(vid_path)}] error when copying times {repr(e)}")
+            if test:
+                return True
 
-                return vid_path_str
+            vid_path = Path(vid_path_str)
+
+            if not self.args.nosymlinks:
+                if self.args.path:
+                    _folderpath = Path(self.args.path)
+                else:
+                    _folderpath = Path(Path.home(), "testing", self.launch_time.strftime("%Y%m%d"))
+                _folderpath.mkdir(parents=True, exist_ok=True)
+                file_aldl = Path(_folderpath, vid_path.name)
+                if file_aldl not in _folderpath.iterdir():
+                    file_aldl.symlink_to(vid_path)
+                    try:
+                        mtime = int(vid_path.stat().st_mtime)
+                        syncos.utime(file_aldl, (int(time.time()), mtime), follow_symlinks=False)
+                    except Exception as e:
+                        logger.debug(
+                            f"[check_if_aldl] [{str(file_aldl)}] -> " +
+                            f"[{str(vid_path)}] error when copying times {repr(e)}")
+
+            return vid_path_str
 
         except Exception as e:
             logger.warning(f'{_pre} error {repr(e)}')
