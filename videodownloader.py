@@ -736,6 +736,7 @@ class VideoDownloader:
                             f"{repr(e)}")
 
             res = True
+
             for dl in self.info_dl['downloaders']:
                 _exists = all([await aiofiles.os.path.exists(_file) for _file in variadic(dl.filename)])
                 res = res and _exists and dl.status == "done"
@@ -749,6 +750,7 @@ class VideoDownloader:
                     str(self.info_dl['filename']), 'temp')
 
                 if self._types == "NATIVE":
+
                     _video_file_temp = prepend_extension((_video_file := str(self.info_dl['downloaders'][0].filename[0])), 'temp')
                     _audio_file_temp = prepend_extension((_audio_file := str(self.info_dl['downloaders'][0].filename[1])), 'temp')
                     _pssh = try_get(traverse_obj(self.info_dict, ("_drm", "pssh")), lambda x: list(sorted(x, key=lambda y: len(y)))[0])

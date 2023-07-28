@@ -125,7 +125,8 @@ class AsyncNativeDownloader():
         return _task
 
     def _make_cmd(self) -> str:
-        cmd = ['yt-dlp', '-P', str(self.download_path), '-o', '%(id)s_%(title)s.%(ext)s', self.info_dict['webpage_url'], '-v', '--allow-unplayable-formats', '-N', '50', '--downloader', 'native']
+        cmd = ['yt-dlp', '-P', str(self.download_path), '-o', '%(id)s_%(title)s.%(ext)s',
+               self.info_dict['webpage_url'], '-v', '--allow-unplayable-formats', '-N', '50', '--downloader', 'native']
         return shell_quote(cmd)
 
     async def async_terminate(self, pid, msg=None):
