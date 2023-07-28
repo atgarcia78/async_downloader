@@ -7,6 +7,7 @@ from urllib.parse import unquote
 from typing import cast
 from threading import Lock
 from pathlib import Path
+from datetime import datetime
 
 from yt_dlp.utils import (
     shell_quote
@@ -27,7 +28,7 @@ from utils import (
     CONF_AUTO_PASRES
 )
 
-logger = logging.getLogger("async_Native")
+logger = logging.getLogger("async_native")
 
 
 class AsyncNativeDLErrorFatal(Exception):
@@ -68,10 +69,10 @@ class AsyncNativeDownloader():
             #  1 video, 2 audio
             self.filename = [Path(
                 self.download_path,
-                f'{_filename.stem}.{fdict["format_id"]}.{fdict["ext"]}')
+                f'{_filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
                 for fdict in _formats]
 
-            self._host = get_host(unquote(self.info_dict.get('url')))
+            self._host = get_host(unquote(_formats[0]['url']))
             self.down_size = 0
             self.downsize_ant = 0
             self.dl_cont = [{'download_str': '--', 'speed_str': '--', 'eta_str': '--', 'progress_str': '--'}]
@@ -124,7 +125,7 @@ class AsyncNativeDownloader():
         return _task
 
     def _make_cmd(self) -> str:
-        cmd = ['yldl', self.info_dict['url'], '-v', '--allow-unplayable-formats', '-N', '50']
+        cmd = ['yt-dlp', '-P', str(self.download_path), '-o', '%(id)s_%(title)s.%(ext)s', self.info_dict['webpage_url'], '-v', '--allow-unplayable-formats', '-N', '50', '--downloader', 'native']
         return shell_quote(cmd)
 
     async def async_terminate(self, pid, msg=None):
@@ -157,19 +158,18 @@ class AsyncNativeDownloader():
 
             _res = {"event": _event}
             if 'readycheck' in _event:
-                done, _ = await asyncio.wait(self._tasks[pid])
+                await asyncio.wait(self._tasks[pid])
                 if self.status == "done":
                     await asyncio.sleep(0)
                     return {"status": "done"}
-                results = [result.result() for result in done]
-                if results[1] == 0:
+                if (_rc := self._proc[pid].returncode) == 0:
                     self.status = "done"
                     await asyncio.sleep(0)
                     return {"status": "done"}
                 else:
                     self.status = "error"
                     await asyncio.sleep(0)
-                    return {"status": f"error returncode[{results[1]}]"}
+                    return {"status": f"error returncode[{_rc}]"}
             else:
                 await self.async_terminate(pid, str(_event))
                 await asyncio.sleep(0)
@@ -253,18 +253,19 @@ class AsyncNativeDownloader():
     def print_hookup(self):
 
         msg = ""
+        _now_str = datetime.now().strftime('%H:%M:%S')
         try:
             if self.status == "done":
-                msg = f'[Native] HOST[{self._host.split(".")[0]}] Completed\n'
+                msg = f'[Native] HOST[{self._host.split(".")[0]}] Completed {_now_str}\n'
             elif self.status == "init":
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] Waiting '
-                msg += f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
+                msg += f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}] {_now_str}\n'
             elif self.status == "error":
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] ERROR ' +\
                     f'{naturalsize(self.down_size, format_=".2f")} ' +\
-                    f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'
+                    f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}] {_now_str}\n'
             elif self.status == "downloading":
-                msg = f'[Native] HOST[{self._host.split(".")[0]}] Downloading\n'
+                msg = f'[Native] HOST[{self._host.split(".")[0]}] Downloading {_now_str}\n'
 
         except Exception as e:
             logger.exception(f"{self.premsg}[print hookup] error {repr(e)}")

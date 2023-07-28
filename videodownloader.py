@@ -217,7 +217,7 @@ class VideoDownloader:
             self._types = "NATIVE"
             with VideoDownloader._LOCK:
                 if not VideoDownloader._CDM:
-                    self.start_cdm()
+                    VideoDownloader._CDM = self.create_drm_cdm()
             logger.debug(f"{self.premsg}[get_dl] DL type DASH with DRM")
             return dl
         else:
@@ -768,7 +768,7 @@ class VideoDownloader:
                     if sum(rcs) == 0:
                         cmd = (
                             f"ffmpeg -y -loglevel repeat+info -i file:\"{_video_file_temp}\"" +
-                            f"-i file:\"{_audio_file_temp}\" -vcodec copy -acodec copy file:\"{temp_filename}\"")
+                            f" -i file:\"{_audio_file_temp}\" -vcodec copy -acodec copy file:\"{temp_filename}\"")
                         proc = await apostffmpeg(cmd)
 
                         rc = proc.returncode
