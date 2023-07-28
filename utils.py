@@ -505,6 +505,19 @@ class run_operation_in_executor_from_loop:
 # """                     SYNC ASYNC                     """
 ############################################################
 
+class async_suppress(contextlib.AbstractAsyncContextManager):
+
+    def __init__(self, *exceptions):
+        self._exceptions = exceptions
+
+    async def __aenter__(self):
+        pass
+
+    async def __aexit__(self, exctype, excinst, exctb):
+
+        return exctype is not None and issubclass(exctype, self._exceptions)
+
+
 def add_task(coro, bktasks, name=None):
     if not isinstance(coro, asyncio.Task):
         _task = asyncio.create_task(coro, name=name)
@@ -2071,6 +2084,7 @@ if yt_dlp:
         }
 
         ytdl_opts = {
+            "allow_unplayable_formats": True,
             "retries": 1,
             "extractor_retries": 1,
             "force_generic_extractor": False,
