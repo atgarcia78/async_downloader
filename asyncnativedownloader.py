@@ -276,11 +276,11 @@ class AsyncNativeDownloader():
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] Completed {_now_str}\n'
             elif self.status == "init":
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] Waiting '
-                msg += f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}] {_now_str}\n'
+                msg += f'[{naturalsize(self.filesize, format_=".2f") if hasattr(self, "filesize") else "NA"}] {_now_str}\n'
             elif self.status == "error":
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] ERROR ' +\
                     f'{naturalsize(self.down_size, format_=".2f")} ' +\
-                    f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}] {_now_str}\n'
+                    f'[{naturalsize(self.filesize, format_=".2f") if hasattr(self, "filesize") else "NA"}] {_now_str}\n'
             elif self.status == "downloading":
                 _speed_str = '--'
                 _progress_str = '--'
@@ -289,7 +289,7 @@ class AsyncNativeDownloader():
                         _speed_str = f"{naturalsize(float(_speed_meter), binary=True)}ps"
                     if (_progress_str := _temp.get('progress', '--')) and _progress_str != '--':
                         _progress_str += '%'
-                msg = f'[Native] HOST[{self._host.split(".")[0]}] DL [{_speed_str}] PR [{_progress_str}]\n'
+                msg = f'[Native] HOST[{self._host.split(".")[0]}] DL [{_speed_str}] PR [{_progress_str}] {_now_str}\n'
 
         except Exception as e:
             logger.exception(f"{self.premsg}[print hookup] error {repr(e)}")

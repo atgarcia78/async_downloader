@@ -185,6 +185,9 @@ class AsyncARIA2CDownloader:
 
         _headers = self.headers.copy()
 
+        if (_cookie := self.info_dict("cookies")):
+            _headers.update({"Cookie": _cookie})
+
         opts_dict = {
             'split': self.n_workers,
             'header': '\n'.join(
