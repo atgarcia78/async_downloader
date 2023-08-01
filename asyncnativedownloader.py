@@ -10,13 +10,12 @@ from pathlib import Path
 from datetime import datetime
 
 from yt_dlp.utils import (
-    shell_quote
+    shell_quote,
+    int_or_none
 )
 
 from utils import (
     naturalsize,
-    SmoothETA,
-    SpeedometerMA,
     try_get,
     traverse_obj,
     load_config_extractors,
@@ -53,6 +52,8 @@ class AsyncNativeDownloader():
 
     _CLASSLOCK = asyncio.Lock()
     _CONFIG = load_config_extractors()
+    _pattern = r'Total:(?P<total>\d+) - Progress:\s*(?P<progress>\d+\.\d+)% - Downloaded:(?P<downloaded>\d+) - Speed:(?P<speed>\d+\.\d+)'
+    progress_pattern = re.compile(_pattern)
 
     def __init__(self, video_dict, vid_dl):
 
@@ -77,7 +78,7 @@ class AsyncNativeDownloader():
             self._host = get_host(unquote(_formats[0]['url']))
             self.down_size = 0
             self.downsize_ant = 0
-            self.dl_cont = [{'download_str': '--', 'speed_str': '--', 'eta_str': '--', 'progress_str': '--'}]
+            self.dl_cont = []
 
             self.error_message = ""
 
@@ -116,6 +117,8 @@ class AsyncNativeDownloader():
 
             self.status = 'init'
 
+            self.dl_cont = [{'total': '--', 'progress': '--', 'downloaded': '--', 'speed': '--'}]
+
         except Exception as e:
             logger.exception(repr(e))
             raise
@@ -128,7 +131,7 @@ class AsyncNativeDownloader():
 
     def _make_cmd(self) -> str:
         cmd = ['yt-dlp', '-P', str(self.download_path), '-o', '%(id)s_%(title)s.%(ext)s',
-               self.info_dict['webpage_url'], '-v', '--allow-unplayable-formats', '-N', '50', '--downloader', 'native']
+               self.info_dict['webpage_url'], '-v', '--allow-unplayable-formats', '-N', '50', '--downloader', 'native', '--newline', '--progress-template', 'download:Total:%(progress.total_bytes)s - Progress:%(progress._percent_str)s - Downloaded:%(progress.downloaded_bytes)s - Speed:%(progress.speed)s']
         return shell_quote(cmd)
 
     async def async_terminate(self, pid, msg=None):
@@ -184,25 +187,38 @@ class AsyncNativeDownloader():
 
     async def read_stream(self, proc: asyncio.subprocess.Process):
 
-        _buffer = ""
+        _buffer = []
 
         try:
-            assert proc and proc.stderr
 
             if proc.returncode is not None:
-                if (buffer := await proc.stderr.read()):  # type: ignore
-                    _buffer = buffer.decode('utf-8')
+                if proc.stderr and (buffer := await proc.stderr.read()):  # type: ignore
+                    _buffer.append(buffer.decode('utf-8'))
                 return _buffer
-
+            _upt = True
             while proc.returncode is None:
                 try:
-                    line = await proc.stderr.readline()
-                except (asyncio.LimitOverrunError, ValueError):
+                    line = await proc.stdout.readline()
+                except (asyncio.LimitOverrunError, ValueError) as e:
+                    logger.exception(f"{self.premsg}[read stream] {repr(e)}")
                     await asyncio.sleep(0)
                 else:
                     if line:
-                        _line = re.sub(r'\n', ' ', line.decode())
-                        _buffer += _line
+                        _line = line.decode('utf-8').strip(' \n')
+                        _buffer.append(_line)
+                        if re.search(r'\[download\] Destination:.+\.m4a', _line):
+                            _upt = False
+                        elif (_upt and (upt_info := re.search(self.progress_pattern, _line))):
+                            _status = upt_info.groupdict()
+                            self.dl_cont.append(_status)
+                            if not hasattr(self, 'filesize') and ((_total := int_or_none(_status.get('total'))) is not None):
+                                self.filesize = _total
+                                self.vid_dl.info_dl['filesize'] = self.filesize
+                            if (_dl_size := int_or_none(_status.get('downloaded'))) is not None:
+                                self.down_size = _dl_size
+                                self.vid_dl.info_dl['down_size'] += (self.down_size - self.downsize_ant)
+                                self.downsize_ant = _dl_size
+
                         await asyncio.sleep(0)
                     else:
                         break
@@ -220,8 +236,6 @@ class AsyncNativeDownloader():
         self.status = "downloading"
         self._proc = {}
         self._tasks = {}
-        self.speedometer = SpeedometerMA(initial_bytes=self.down_size)
-        self.smooth_eta = SmoothETA()
 
         try:
             while True:
@@ -268,7 +282,14 @@ class AsyncNativeDownloader():
                     f'{naturalsize(self.down_size, format_=".2f")} ' +\
                     f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}] {_now_str}\n'
             elif self.status == "downloading":
-                msg = f'[Native] HOST[{self._host.split(".")[0]}] Downloading {_now_str}\n'
+                _speed_str = '--'
+                _progress_str = '--'
+                if self.dl_cont and (_temp := self.dl_cont[-1].copy()):
+                    if (_speed_meter := _temp.get('speed', '--')) and _speed_meter != '--':
+                        _speed_str = f"{naturalsize(float(_speed_meter), binary=True)}ps"
+                    if (_progress_str := _temp.get('progress', '--')) and _progress_str != '--':
+                        _progress_str += '%'
+                msg = f'[Native] HOST[{self._host.split(".")[0]}] DL [{_speed_str}] PR [{_progress_str}]\n'
 
         except Exception as e:
             logger.exception(f"{self.premsg}[print hookup] error {repr(e)}")
