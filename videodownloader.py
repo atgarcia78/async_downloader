@@ -212,7 +212,7 @@ class VideoDownloader:
         if not (_info := info_dict.get('requested_formats')):
             _info = [info_dict]
             _streams = False
-        elif 'DASH' in info_dict.get('format_note', '') or info_dict.get('_has_drm'):
+        elif info_dict.get('_has_drm') or info_dict.get('has_drm'):  # or 'dash' in info_dict.get('format_note', '').lower():
             dl = AsyncNativeDownloader(info_dict, self)
             self._types = "NATIVE"
             with VideoDownloader._LOCK:
