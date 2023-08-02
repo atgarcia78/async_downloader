@@ -943,19 +943,17 @@ class AsyncHLSDownloader:
 
         _res = {}
         if self.vid_dl.pause_event.is_set():
-            self._speed.append((datetime.now(), "pause"))
+            # self._speed.append((datetime.now(), "pause"))
             logger.info(f"{msg}[handle] pause detected")
             _res["pause"] = True
             async with self._EVENT_LOCK:
                 if self.vid_dl.pause_event.is_set():
-                    _res = await async_wait_for_any([self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event])
+                    _res = _res | await async_wait_for_any([self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event])
                     logger.info(f"{msg}[handle] after wait pause: {_res}")
-                    self._speed.append((datetime.now(), "resume"))
+                    # self._speed.append((datetime.now(), "resume"))
                     if "resume" in _res["event"]:
                         _res["event"].remove("resume")
-                    if _res["event"]:
-                        self._speed.append((datetime.now(), _res["event"]))
-                    else:
+                    if not _res["event"]:
                         _res.pop("event", None)
                     self.vid_dl.resume_event.clear()
                     self.vid_dl.pause_event.clear()
@@ -965,7 +963,7 @@ class AsyncHLSDownloader:
                     logger.info(f"{msg}[handle] after wait pause: {_res}")
         if (_event := [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]):
             _res["event"] = _event
-            self._speed.append((datetime.now(), _event))
+            # self._speed.append((datetime.now(), _event))
 
         return _res
 
@@ -1047,7 +1045,7 @@ class AsyncHLSDownloader:
                                     if res.status_code == 403:
 
                                         if self.fromplns:
-                                            _wait_tasks = await self.vid_dl.reset_plns("403", plns=None)
+                                            _wait_tasks = await self.vid_dl.reset_plns("403", plns=self.fromplns)
                                         else:
                                             _wait_tasks = await self.vid_dl.reset("403")
 
@@ -1112,37 +1110,55 @@ class AsyncHLSDownloader:
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                         _timer = ProgressTimer()
                                         _timer2 = ProgressTimer()
-                                        _buffer = []
+                                        _buffer = b''
                                         _tasks_chunks = []
 
-                                        async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
-                                            _buffer.append(await _decrypt(chunk, cipher))
-                                            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
-                                                _dif = -1
-                                                _bytes_dl = res.num_bytes_downloaded
-                                                _iter_bytes = _bytes_dl - num_bytes_downloaded
-                                                num_bytes_downloaded = _bytes_dl
+                                        async def update_counters(_bytes_dl, _old):
+                                            _dif = -1
+                                            _iter_bytes = _bytes_dl - _old
+                                            if _iter_bytes > 0:
                                                 async with self._LOCK:
                                                     self.down_size += _iter_bytes
                                                     if self.filesize and (_dif := self.down_size - self.filesize) > 0:
                                                         self.filesize += _dif
-                                                async with self.vid_dl.alock:
-                                                    self.vid_dl.info_dl["down_size"] += _iter_bytes
-                                                    if _dif > 0:
-                                                        self.vid_dl.info_dl["filesize"] += _dif
+                                                    async with self.vid_dl.alock:
+                                                        self.vid_dl.info_dl["down_size"] += _iter_bytes
+                                                        if _dif > 0:
+                                                            self.vid_dl.info_dl["filesize"] += _dif
+                                            return _bytes_dl
 
-                                            if _timer2.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                                        async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
+                                            if (_data := await _decrypt(chunk, cipher)):
+                                                _buffer += _data
+                                            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 3):
+                                                num_bytes_downloaded = await update_counters(res.num_bytes_downloaded, num_bytes_downloaded)
+                                            if _timer2.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
+                                                # if _tasks_chunks and (_tasks_chunks_pending := list(filter(lambda x: not x.cancelled() and not x.done(), _tasks_chunks))):
+                                                #     await asyncio.wait(_tasks_chunks_pending)
                                                 if _tasks_chunks:
-                                                    asyncio.wait(_tasks_chunks[-1:])
-                                                _tasks_chunks.append(self.add_task(f.write(b''.join(_buffer)), name=f'write_chunks[{len(_tasks_chunks)}]'))
-                                                _buffer = []
+                                                    await asyncio.wait(_tasks_chunks[-1:])
+                                                if _buffer:
+                                                    _tasks_chunks.append(self.add_task(f.write(_buffer), name=f'write_chunks[{len(_tasks_chunks)}]'))
+                                                    _buffer = b''
+
                                                 _check = await self.event_handle(_premsg)
                                                 if (_ev := traverse_obj(_check, "event")):
-                                                    asyncio.wait(_tasks_chunks[-1:])
+                                                    if _tasks_chunks:
+                                                        await asyncio.wait(_tasks_chunks[-1:])
                                                     raise AsyncHLSDLErrorFatal(_ev)
                                                 elif traverse_obj(_check, "pause"):
                                                     _timer.reset()
                                                     _timer2.reset()
+
+                                        # if _tasks_chunks and (_tasks_chunks_pending := list(filter(lambda x: not x.cancelled() and not x.done(), _tasks_chunks))):
+                                        #     await asyncio.wait(_tasks_chunks_pending)
+                                        num_bytes_downloaded = await update_counters(res.num_bytes_downloaded, num_bytes_downloaded)
+                                        if _tasks_chunks:
+                                            await asyncio.wait(_tasks_chunks[-1:])
+                                        if _buffer:
+                                            _tasks_chunks.append(self.add_task(f.write(_buffer), name=f'write_chunks[{len(_tasks_chunks)}]'))
+                                            _buffer = b''
+                                            await asyncio.wait(_tasks_chunks[-1:])
 
                                 _nsize = (await os.stat(filename)).st_size
                                 _nhsize = self.info_frag[q - 1]["headersize"]
@@ -1294,7 +1310,7 @@ class AsyncHLSDownloader:
 
                                     if _cause in ("403", "hard"):
                                         if self.fromplns:
-                                            await self.vid_dl.back_from_reset_plns(self.premsg, plns=None)
+                                            await self.vid_dl.back_from_reset_plns(self.premsg, plns=self.fromplns)
                                             if self.vid_dl.stop_event.is_set():
                                                 #  await self.clean_from_reset()
                                                 return
