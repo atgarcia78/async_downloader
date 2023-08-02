@@ -512,9 +512,12 @@ class AsyncHLSDownloader:
             logger.error(f"{self.premsg}[get_info_fragments] - {repr(e)}")
             raise AsyncHLSDLErrorFatal(repr(e))
 
-    def check_any_event_is_set(self):
-        return any([self.vid_dl.pause_event.is_set(), self.vid_dl.reset_event.is_set(),
-                    self.vid_dl.stop_event.is_set()])
+    def check_any_event_is_set(self, incpause=True):
+        if incpause:
+            return any([self.vid_dl.pause_event.is_set(), self.vid_dl.reset_event.is_set(),
+                        self.vid_dl.stop_event.is_set()])
+        else:
+            return any([self.vid_dl.reset_event.is_set(), self.vid_dl.stop_event.is_set()])
 
     def check_stop(self):
         if self.vid_dl.stop_event.is_set():
@@ -913,10 +916,10 @@ class AsyncHLSDownloader:
                 logger.debug(f"{_pre} exit reset")
 
     async def upt_status(self):
-
+        _timer = ProgressTimer()
         while not self.vid_dl.end_tasks.is_set():
 
-            if self.progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
+            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
 
                 if self.down_size and not self.check_any_event_is_set():
 
@@ -936,24 +939,32 @@ class AsyncHLSDownloader:
 
             await asyncio.sleep(0)
 
-    async def event_handle(self):
+    async def event_handle(self, msg):
 
         _res = {}
         if self.vid_dl.pause_event.is_set():
             self._speed.append((datetime.now(), "pause"))
-            _res = await async_wait_for_any([self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event])
-            self._speed.append((datetime.now(), "resume"))
-            self.vid_dl.resume_event.clear()
-            if "resume" in _res["event"]:
-                _res["event"].remove("resume")
-            if _res["event"]:
-                self._speed.append((datetime.now(), _res["event"]))
-            else:
-                _res = {}
-            self.vid_dl.pause_event.clear()
-            await asyncio.sleep(0)
-        elif (_event := [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]):
-            _res = {"event": _event}
+            logger.info(f"{msg}[handle] pause detected")
+            _res["pause"] = True
+            async with self._EVENT_LOCK:
+                if self.vid_dl.pause_event.is_set():
+                    _res = await async_wait_for_any([self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event])
+                    logger.info(f"{msg}[handle] after wait pause: {_res}")
+                    self._speed.append((datetime.now(), "resume"))
+                    if "resume" in _res["event"]:
+                        _res["event"].remove("resume")
+                    if _res["event"]:
+                        self._speed.append((datetime.now(), _res["event"]))
+                    else:
+                        _res.pop("event", None)
+                    self.vid_dl.resume_event.clear()
+                    self.vid_dl.pause_event.clear()
+                    await asyncio.sleep(0)
+                    return _res
+                else:
+                    logger.info(f"{msg}[handle] after wait pause: {_res}")
+        if (_event := [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]):
+            _res["event"] = _event
             self._speed.append((datetime.now(), _event))
 
         return _res
@@ -1021,7 +1032,7 @@ class AsyncHLSDownloader:
 
                             try:
 
-                                if traverse_obj(await self.event_handle(), 'event'):
+                                if self.check_any_event_is_set(incpause=False):
                                     return
 
                                 if self._interv:
@@ -1100,26 +1111,38 @@ class AsyncHLSDownloader:
 
                                         num_bytes_downloaded = res.num_bytes_downloaded
                                         _timer = ProgressTimer()
+                                        _timer2 = ProgressTimer()
+                                        _buffer = []
+                                        _tasks_chunks = []
 
                                         async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
-
-                                            await f.write(await _decrypt(chunk, cipher))
-
-                                            async with self._LOCK:
-                                                self.down_size += (_iter_bytes := (
-                                                    res.num_bytes_downloaded - num_bytes_downloaded))
+                                            _buffer.append(await _decrypt(chunk, cipher))
+                                            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
+                                                _dif = -1
+                                                _bytes_dl = res.num_bytes_downloaded
+                                                _iter_bytes = _bytes_dl - num_bytes_downloaded
+                                                num_bytes_downloaded = _bytes_dl
+                                                async with self._LOCK:
+                                                    self.down_size += _iter_bytes
+                                                    if self.filesize and (_dif := self.down_size - self.filesize) > 0:
+                                                        self.filesize += _dif
                                                 async with self.vid_dl.alock:
                                                     self.vid_dl.info_dl["down_size"] += _iter_bytes
-                                                if self.filesize and (_dif := self.down_size - self.filesize) > 0:
-                                                    self.filesize += _dif
-                                                    async with self.vid_dl.alock:
+                                                    if _dif > 0:
                                                         self.vid_dl.info_dl["filesize"] += _dif
 
-                                            num_bytes_downloaded = res.num_bytes_downloaded
-
-                                            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
-                                                if (_ev := traverse_obj(await self.event_handle(), "event")):
+                                            if _timer2.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                                                if _tasks_chunks:
+                                                    asyncio.wait(_tasks_chunks[-1:])
+                                                _tasks_chunks.append(self.add_task(f.write(b''.join(_buffer)), name=f'write_chunks[{len(_tasks_chunks)}]'))
+                                                _buffer = []
+                                                _check = await self.event_handle(_premsg)
+                                                if (_ev := traverse_obj(_check, "event")):
+                                                    asyncio.wait(_tasks_chunks[-1:])
                                                     raise AsyncHLSDLErrorFatal(_ev)
+                                                elif traverse_obj(_check, "pause"):
+                                                    _timer.reset()
+                                                    _timer2.reset()
 
                                 _nsize = (await os.stat(filename)).st_size
                                 _nhsize = self.info_frag[q - 1]["headersize"]
@@ -1175,6 +1198,7 @@ class AsyncHLSDownloader:
     async def fetch_async(self):
 
         self._LOCK = asyncio.Lock()
+        self._EVENT_LOCK = asyncio.Lock()
         self.frags_queue = asyncio.Queue()
         self.areset = sync_to_async(self.resetdl, thread_sensitive=False, executor=self.ex_dl)
 

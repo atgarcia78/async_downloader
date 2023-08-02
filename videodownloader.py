@@ -469,11 +469,11 @@ class VideoDownloader:
         if self.info_dl['status'] == "downloading":
             if not self.resume_event.is_set():
                 self.resume_event.set()
-                #  self.pause_event.clear()
+                # self.pause_event.clear()
                 await asyncio.sleep(0)
-            else:
-                self.resume_event.clear()
-                await asyncio.sleep(0)
+            # else:
+            #     self.resume_event.clear()
+            #     await asyncio.sleep(0)
 
     async def reinit(self):
         self.pause_event.clear()
