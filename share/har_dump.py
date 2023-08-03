@@ -15,7 +15,6 @@ import zlib
 from datetime import datetime
 from datetime import timezone
 
-import mitmproxy
 from mitmproxy import connection
 from mitmproxy import ctx
 from mitmproxy import version
