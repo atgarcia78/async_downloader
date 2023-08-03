@@ -1,24 +1,29 @@
 import asyncio
 import binascii
-import contextlib
-from datetime import timedelta
-from datetime import datetime
 import json
 import logging
-import os as syncos
 import random
 import threading
 import time
+import copy
+import math
+
+from datetime import timedelta, datetime
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 from shutil import rmtree
-import copy
+from functools import partial
+from argparse import Namespace
+
 import aiofiles
-import aiofiles.os as os
+from aiofiles import os
 import httpx
 import m3u8
+
 from Cryptodome.Cipher import AES
+
+from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 from utils import (
     CONF_HLS_RESET_403_TIME,
@@ -61,10 +66,8 @@ from utils import (
     ReExtractInfo,
     StatusError503,
     Token,
+    empty_queue
 )
-
-from functools import partial
-from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 logger = logging.getLogger("async_HLS_DL")
 
@@ -105,13 +108,13 @@ class InReset403:
     def __init__(self):
         self.inreset = set()
 
-    def add(self, el):
-        self.inreset.add(el)
+    def add(self, member):
+        self.inreset.add(member)
         change_status_nakedsword("403")
 
-    def remove(self, el):
-        if el in self.inreset:
-            self.inreset.remove(el)
+    def remove(self, member):
+        if member in self.inreset:
+            self.inreset.remove(member)
         if not self.inreset:
             change_status_nakedsword("NORMAL")
 
@@ -129,12 +132,13 @@ class AsyncHLSDownloader:
     _INRESET_403 = InReset403()
     _qproxies = None
 
-    def __init__(self, enproxy: bool, video_dict: dict, vid_dl):
+    def __init__(self, args: Namespace, video_dict: dict, vid_dl):
         try:
             self.background_tasks = set()
-            self.info_dict: dict = video_dict.copy()
+            self.tasks = []
+            self.info_dict = video_dict
             self.vid_dl = vid_dl
-            self.enproxy: bool = enproxy
+            self.args = args
             self.n_workers: int = self.vid_dl.info_dl["n_workers"]
             self.count: int = 0
             self.m3u8_doc = None
@@ -156,7 +160,7 @@ class AsyncHLSDownloader:
                 self.base_download_path, f'{_filename.stem}.{self.info_dict["format_id"]}.ts'
             )
 
-            self.key_cache = dict()
+            self.key_cache = {}
             self.n_reset = 0
             self._limit_reset = limiter_0_1.ratelimit("resetdl", delay=True)
             self.down_size = 0
@@ -177,7 +181,12 @@ class AsyncHLSDownloader:
             )
 
             self.count_msg = ""
-            if self.enproxy:
+
+            self._proxy = {}
+
+            if _proxy := self.args.proxy:
+                self._proxy = {"http://": _proxy, "https://": _proxy}
+            elif self.args.enproxy:
                 with AsyncHLSDownloader._CLASSLOCK:
                     if not AsyncHLSDownloader._qproxies:
                         _seq = zip(
@@ -217,10 +226,38 @@ class AsyncHLSDownloader:
                         _info = {key: new_info[key] for key in ("url", "manifest_url") if key in new_info}
                         self.info_dict.update(_info)
                 except Exception as e:
-                    logger.exception(f"[init info proxy] {repr(e)}")
+                    logger.exception("[init info proxy] %s", repr(e))
 
             if self.filename.exists() and self.filename.stat().st_size > 0:
                 self.status = "done"
+
+            self.smooth_eta = SmoothETA()
+            self.progress_timer = ProgressTimer()
+            self.speedometer = SpeedometerMA()
+            self.frags_queue = asyncio.Queue()
+            self._asynclock = asyncio.Lock()
+            self._event_lock = asyncio.Lock()
+            self.areset = sync_to_async(self.resetdl, thread_sensitive=False, executor=self.ex_dl)
+            self._test = []
+            self._speed = []
+
+            self.init_client = httpx.Client(
+                proxies=self._proxy,
+                follow_redirects=True,
+                headers=self.info_dict["http_headers"],
+                limits=self.limits,
+                timeout=self.timeout,
+                verify=False,
+            )
+            self.auto_pasres = False
+            self.fromplns = False
+            self._extractor = cast(str, try_get(self.info_dict.get("extractor_key"), lambda x: x.lower()))
+            self.m3u8_doc = ""
+            self._host = get_host(self.info_dict["url"])
+            self.frags_to_dl = []
+            self.info_frag = []
+            self.info_init_section = {}
+            self.n_dl_fragments = 0
 
             self.init()
 
@@ -234,15 +271,6 @@ class AsyncHLSDownloader:
         return _task
 
     def init(self):
-        _proxies = getattr(self, "_proxy", {})
-        self.init_client = httpx.Client(
-            proxies=_proxies,
-            follow_redirects=True,
-            headers=self.info_dict["http_headers"],
-            limits=self.limits,
-            timeout=self.timeout,
-            verify=False,
-        )
 
         @on_503
         @on_exception
@@ -260,19 +288,17 @@ class AsyncHLSDownloader:
                 lambda x: x.content if x else None,
             )
 
-        def getter(x: Union[str, None]) -> tuple[int, Union[int, float], LimitContextDecorator]:
+        def getter(name: Union[str, None]) -> tuple[int, Union[int, float], LimitContextDecorator]:
             try:
-                if not x:
+                if not name:
                     self.special_extr = False
                     return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
 
-                if "nakedsword" in x:
+                if "nakedsword" in name:
                     self.auto_pasres = True
                     if not any(
-                        [
-                            _ in self.info_dict.get("playlist_title", "")
-                            for _ in ("MostWatchedScenes", "Search")
-                        ]
+                        _ in self.info_dict.get("playlist_title", "")
+                        for _ in ("MostWatchedScenes", "Search")
                     ):
                         self.fromplns = self.info_dict.get("_id_movie", None)
 
@@ -308,8 +334,9 @@ class AsyncHLSDownloader:
             except Exception as e:
                 logger.exception(f"{self.premsg}: {str(e)}")
 
-            value, key_text = getter_basic_config_extr(x, AsyncHLSDownloader._CONFIG) or (None, None)
+            value, key_text = getter_basic_config_extr(name, AsyncHLSDownloader._CONFIG) or (None, None)
 
+            self.special_extr = False
             if value and key_text:
                 self.special_extr = True
                 if "nakedsword" in key_text:
@@ -319,23 +346,11 @@ class AsyncHLSDownloader:
                     value["interval"],
                     value["ratelimit"].ratelimit(key_text, delay=True),
                 )
-            else:
-                self.special_extr = False
-                return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
-
-        self.auto_pasres = False
-        self.fromplns = False
+            return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
 
         try:
-            self._extractor = cast(str, try_get(self.info_dict.get("extractor_key"), lambda x: x.lower()))
-
             _nworkers, self._interv, self._limit = getter(self._extractor)
-            if self.n_workers >= _nworkers:
-                self.n_workers = _nworkers
-            self.info_frag = []
-            self.info_init_section = {}
-            self.frags_to_dl = []
-            self.n_dl_fragments = 0
+            self.n_workers = min(self.n_workers, _nworkers)
 
             self.m3u8_doc = get_m3u8_doc()
 
@@ -358,8 +373,8 @@ class AsyncHLSDownloader:
                 self.get_init_section(_url, _file_path, _frag.key)
 
             if self.init_file.exists():
-                with open(self.init_file, "r") as f:
-                    init_data = json.loads(f.read())
+                with open(self.init_file, "rt", encoding='utf-8') as finit:
+                    init_data = json.loads(finit.read())
                 init_data = {int(k): v for k, v in init_data.items()}
 
             else:
@@ -394,7 +409,7 @@ class AsyncHLSDownloader:
                     size = _file_path.stat().st_size
                     hsize = init_data.get(i + 1)
                     is_dl = True
-                    if not size or (hsize and not (hsize - 100 <= size <= hsize + 100)):
+                    if not size or (hsize and not hsize - 100 <= size <= hsize + 100):
                         is_dl = False
                         _file_path.unlink()
                         size = None
@@ -439,15 +454,20 @@ class AsyncHLSDownloader:
 
                 if fragment.key and fragment.key.method == "AES-128":
                     if fragment.key.absolute_uri not in self.key_cache:
-                        self.key_cache.update({fragment.key.absolute_uri: get_key(fragment.key.absolute_uri)})
+                        _key = get_key(fragment.key.absolute_uri)
+                        _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(fragment.key.iv[2:]))
+                        self.key_cache.update({fragment.key.absolute_uri: {"key": _key, "cipher": _cipher}})
 
             logger.debug(
-                f"{self.premsg}: Frags already DL: {len(self.fragsdl())}, "
-                + f"Frags not DL: {len(self.fragsnotdl())}, "
-                + f"Frags to request: {len(self.frags_to_dl)}"
+                "".join([
+                    f"{self.premsg}: Frags already DL: {len(self.fragsdl())}, ",
+                    f"Frags not DL: {len(self.fragsnotdl())}, ",
+                    f"Frags to request: {len(self.frags_to_dl)}"
+                ])
             )
 
             self.n_total_fragments = len(self.info_dict["fragments"])
+            self.format_frags = f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
 
             self.totalduration = cast(int, self.info_dict.get("duration", self.calculate_duration()))
 
@@ -461,12 +481,14 @@ class AsyncHLSDownloader:
                 _est_size = naturalsize(self.filesize)
 
             logger.debug(
-                f"{self.premsg}: total duration "
-                + f"{print_norm_time(self.totalduration)} -- "
-                + f"estimated filesize {_est_size} -- already downloaded "
-                + f"{naturalsize(self.down_size)} -- total fragments "
-                + f"{self.n_total_fragments} -- fragments already dl "
-                + f"{self.n_dl_fragments}"
+                "".join([
+                    f"{self.premsg}: total duration ",
+                    f"{print_norm_time(self.totalduration)} -- ",
+                    f"estimated filesize {_est_size} -- already downloaded ",
+                    f"{naturalsize(self.down_size)} -- total fragments ",
+                    f"{self.n_total_fragments} -- fragments already dl ",
+                    f"{self.n_dl_fragments}"
+                ])
             )
 
             if not self.frags_to_dl:
@@ -483,45 +505,46 @@ class AsyncHLSDownloader:
         return totalduration
 
     def calculate_filesize(self):
-        # for audio streams tbr is not present
+        _filesize = None
         if _bitrate := cast(float, traverse_obj(self.info_dict, "tbr", "abr")):
-            return int(self.totalduration * 1000 * _bitrate / 8)
+            _filesize = int(self.totalduration * 1000 * _bitrate / 8)
+        return _filesize
 
     def get_info_fragments(self):
         try:
             self._host = get_host(self.info_dict["url"])
-            self.m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict["url"])
+            m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict["url"])
 
-            if not self.m3u8_obj or not self.m3u8_obj.segments:
+            if not m3u8_obj or not m3u8_obj.segments:
                 raise AsyncHLSDLError("couldnt get m3u8 file")
 
-            if self.m3u8_obj.keys:
-                for _key in self.m3u8_obj.keys:
+            if m3u8_obj.keys:
+                for _key in m3u8_obj.keys:
                     if _key and _key.method != "AES-128":
                         logger.warning(f"key AES method: {_key.method}")
 
             if _start_time := self.info_dict.get("_start_time"):
                 logger.info(f"{self.premsg}[get_info_fragments] start time {_start_time}")
                 _duration = try_get(
-                    getattr(self.m3u8_obj, "target_duration", None), lambda x: float(x) if x else None
+                    getattr(m3u8_obj, "target_duration", None), lambda x: float(x) if x else None
                 )
                 logger.info(f"{self.premsg}[get_info_fragments] duration {_duration}")
                 if _duration:
                     _start_segment = int(_start_time // _duration) - 1
                     logger.info(f"{self.premsg}[get_info_fragments] start seg {_start_segment}")
                     if _end_time := self.info_dict.get("_end_time"):
-                        _last_segment = min(int(_end_time // _duration), len(self.m3u8_obj.segments))
+                        _last_segment = min(int(_end_time // _duration), len(m3u8_obj.segments))
                     else:
-                        _last_segment = len(self.m3u8_obj.segments)
+                        _last_segment = len(m3u8_obj.segments)
                     logger.info(f"{self.premsg}[get_info_fragments] last seg {_last_segment}")
 
-                    return self.m3u8_obj.segments[_start_segment:_last_segment]
+                    return m3u8_obj.segments[_start_segment:_last_segment]
 
-            return self.m3u8_obj.segments
+            return m3u8_obj.segments
 
         except Exception as e:
             logger.error(f"{self.premsg}[get_info_fragments] - {repr(e)}")
-            raise AsyncHLSDLErrorFatal(repr(e))
+            raise AsyncHLSDLErrorFatal("error get info fragments") from e
 
     def check_any_event_is_set(self, incpause=True):
         if incpause:
@@ -532,8 +555,7 @@ class AsyncHLSDownloader:
                     self.vid_dl.stop_event.is_set(),
                 ]
             )
-        else:
-            return any([self.vid_dl.reset_event.is_set(), self.vid_dl.stop_event.is_set()])
+        return any([self.vid_dl.reset_event.is_set(), self.vid_dl.stop_event.is_set()])
 
     def check_stop(self):
         if self.vid_dl.stop_event.is_set():
@@ -543,14 +565,11 @@ class AsyncHLSDownloader:
     @on_exception
     def get_init_section(self, uri, file, key):
         try:
-            cipher = None
-            if key is not None and key.method == "AES-128":
-                iv = binascii.unhexlify(key.iv[2:])
-                cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
+            cipher = traverse_obj(self.key_cache, (key.absolute_uri, "cipher")) if key else None
             if res := send_http_request(uri, client=self.init_client, new_e=AsyncHLSDLError):
                 _frag = res.content if not cipher else cipher.decrypt(res.content)
-                with open(file, "wb") as f:
-                    f.write(_frag)
+                with open(file, "wb") as fsect:
+                    fsect.write(_frag)
 
                 self.info_init_section.update({"downloaded": True})
             else:
@@ -568,18 +587,18 @@ class AsyncHLSDownloader:
         try:
             self.check_stop()
 
-            if proxy:
+            if not self.args.proxy and proxy:
                 with myYTDL(params=self.ytdl.params, proxy=proxy) as proxy_ytdl:
                     _info_video = proxy_ytdl.sanitize_info(proxy_ytdl.extract_info(url, download=False))
             else:
+                # if proxy was included in args main program, ytdl will have this proxy in its params
                 _info_video = self.ytdl.sanitize_info(self.ytdl.extract_info(url, download=False))
 
             self.check_stop()
 
             if not _info_video:
                 raise AsyncHLSDLErrorFatal("no info video")
-            else:
-                return _info_video
+            return _info_video
 
         except StatusStop:
             raise
@@ -587,15 +606,15 @@ class AsyncHLSDownloader:
             raise
         except Exception as e:
             logger.error(f"{premsg} fails when extracting info {repr(e)}")
-            raise AsyncHLSDLErrorFatal(repr(e))
+            raise AsyncHLSDLErrorFatal("error extracting info video") from e
 
     def prep_reset(self, info_reset):
         self.info_dict.update(info_reset)
 
         self.init_client.close()
-        _proxies = self._proxy if hasattr(self, "_proxy") else None
+
         self.init_client = httpx.Client(
-            proxies=_proxies,  # type: ignore
+            proxies=self._proxy,  # type: ignore
             follow_redirects=True,
             headers=self.info_dict["http_headers"],
             limits=self.limits,
@@ -616,9 +635,9 @@ class AsyncHLSDownloader:
         byte_range = {}
 
         if self.init_file.exists():
-            with open(self.init_file, "r") as f:
-                init_data = json.loads(f.read())
-            init_data = {int(k): v for k, v in init_data.items()}
+            with open(self.init_file, "rt", encoding='utf-8') as finit:
+                init_data = json.loads(finit.read())
+            init_data = {int(_key): _value for _key, _value in init_data.items()}
         else:
             init_data = {}
 
@@ -655,7 +674,6 @@ class AsyncHLSDownloader:
                 ):
                     self.frags_to_dl.append(i + 1)
                     self.info_frag[i]["url"] = _url
-                    # self.info_frag[i]["file"] = _file_path
                     if not self.info_frag[i]["downloaded"] and self.info_frag[i]["file"].exists():
                         self.info_frag[i]["file"].unlink()
 
@@ -664,15 +682,20 @@ class AsyncHLSDownloader:
                     self.info_frag[i]["key"] = fragment.key
                     if fragment.key and fragment.key.method == "AES-128":
                         if fragment.key.absolute_uri not in self.key_cache:
-                            self.key_cache[fragment.key.absolute_uri] = get_key(fragment.key.absolute_uri)
+                            _key = get_key(fragment.key.absolute_uri)
+                            _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(fragment.key.iv[2:]))
+                            self.key_cache.update({
+                                fragment.key.absolute_uri: {"key": _key, "cipher": _cipher}})
 
             except Exception:
                 logger.debug(
-                    f"{self.premsg}:RESET[{self.n_reset}]:prep_reset error "
-                    + f"with i = [{i}] \n\ninfo_dict['fragments'] "
-                    + f"{len(self.info_dict['fragments'])}\n\n"
-                    + f"{[str(f) for f in self.info_dict['fragments']]}\n\n"
-                    f"info_frag {len(self.info_frag)}"
+                    "".join([
+                        f"{self.premsg}:RESET[{self.n_reset}]:prep_reset error ",
+                        f"with i = [{i}] \n\ninfo_dict['fragments'] ",
+                        f"{len(self.info_dict['fragments'])}\n\n",
+                        f"{[str(frag) for frag in self.info_dict['fragments']]}\n\n",
+                        f"info_frag {len(self.info_frag)}"
+                    ])
                 )
 
                 raise
@@ -681,13 +704,15 @@ class AsyncHLSDownloader:
             self.status = "init_manipulating"
         else:
             logger.debug(
-                f"{self.premsg}:RESET[{self.n_reset}]:prep_reset:OK "
-                + f"{self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}"
+                "".join([
+                    f"{self.premsg}:RESET[{self.n_reset}]:prep_reset:OK ",
+                    f"{self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}"
+                ])
             )
 
     @retry
     def get_reset_info(self, _reset_url, plns=True, first=False):
-        _proxy = cast(str, traverse_obj(getattr(self, "_proxy", None), ("http://")))
+        _proxy = traverse_obj(self._proxy, "http://")
         _print_proxy = f':proxy[{_proxy.split(":")[-1]}]' if _proxy else ""
         _print_plns = f":PLNS[{self.fromplns}]:first[{first}]" if self.fromplns else ""
 
@@ -702,10 +727,6 @@ class AsyncHLSDownloader:
             self.check_stop()
             if plns and self.fromplns:
                 if first:
-                    with contextlib.suppress(OSError):
-                        syncos.remove(
-                            self.ytdl.cache._get_cache_fn("nakedswordmovie", str(self.fromplns), "json")
-                        )
                     _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
                     self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
@@ -740,7 +761,7 @@ class AsyncHLSDownloader:
                 return {"res": "ok"}
             except Exception as e:
                 logger.exception(f"{_pre} Exception occurred when reset {repr(e)}")
-                raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed")
+                raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed") from e
 
         except StatusStop as e:
             logger.debug(f"{_pre} check stop {repr(e)}")
@@ -784,14 +805,6 @@ class AsyncHLSDownloader:
 
                 logger.info(f"{_pre} fin wait in reset cause 403")
 
-            # if self.enproxy:
-            #     el1, el2 = cast(tuple, AsyncHLSDownloader._qproxies.get())
-            #     _proxy_port = CONF_PROXIES_BASE_PORT + el1 * 100 + el2
-            #     _proxy = f"http://127.0.0.1:{_proxy_port}"
-            #     self._proxy = {"http://": _proxy, "https://": _proxy}
-
-            # _wurl = self.info_dict["webpage_url"]
-
             if self.fromplns and str(cause) in ("403"):
                 with (_sem := self.vid_dl.info_dl["fromplns"]["ALL"]["sem"]):
                     logger.debug(f"{self.premsg}:RESET[{self.n_reset}] in sem")
@@ -828,7 +841,7 @@ class AsyncHLSDownloader:
 
                         if "error" in _resinfo:
                             raise _resinfo["error"]
-                        elif "res" in _resinfo:
+                        if "res" in _resinfo:
                             if _first:
                                 _sem2._initial_value = 100
                                 _sem2.release(50)
@@ -861,7 +874,10 @@ class AsyncHLSDownloader:
                     AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"])
                 except Exception:
                     logger.warning(
-                        f'{_pre} error when removing[{self.info_dict["id"]}] from [{AsyncHLSDownloader._INRESET_403}]'
+                        "".join([
+                            f'{_pre} error when removing[{self.info_dict["id"]}] ',
+                            f'from [{AsyncHLSDownloader._INRESET_403}]'
+                        ])
                     )
 
             if self.fromplns and cause == "403":
@@ -873,8 +889,10 @@ class AsyncHLSDownloader:
                         _inreset.remove(self.vid_dl.info_dict["_index_scene"])
                     except Exception:
                         logger.warning(
-                            f'{_pre} error when removing[{self.vid_dl.info_dict["_index_scene"]}] '
-                            + f"from inreset[{self.fromplns}] {_inreset}"
+                            "".join([
+                                f'{_pre} error when removing[{self.vid_dl.info_dict["_index_scene"]}] ',
+                                f"from inreset[{self.fromplns}] {_inreset}"
+                            ])
                         )
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
@@ -914,8 +932,10 @@ class AsyncHLSDownloader:
 
                 if self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
                     logger.info(
-                        f"{_pre} all scenes in [{self.fromplns}], waiting for scenes in other plns "
-                        + f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]"
+                        "".join([
+                            f"{_pre} all scenes in [{self.fromplns}], waiting for scenes in other plns ",
+                            f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]"
+                        ])
                     )
 
                     wait_for_either([self.vid_dl.info_dl["fromplns"]["ALL"]["reset"], self.vid_dl.stop_event])
@@ -954,7 +974,7 @@ class AsyncHLSDownloader:
         if self.vid_dl.pause_event.is_set():
             logger.debug(f"{msg}[handle] pause detected")
             _res["pause"] = True
-            async with self._EVENT_LOCK:
+            async with self._event_lock:
                 if self.vid_dl.pause_event.is_set():
                     _res = _res | await async_wait_for_any(
                         [self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event]
@@ -968,23 +988,22 @@ class AsyncHLSDownloader:
                     self.vid_dl.pause_event.clear()
                     await asyncio.sleep(0)
                     return _res
-                else:
-                    logger.debug(f"{msg}[handle] after wait pause: {_res}")
+                logger.debug(f"{msg}[handle] after wait pause: {_res}")
         if _event := [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]:
             _res["event"] = _event
         return _res
 
     async def fetch(self, nco):
-        async def _decrypt(x, y):
-            if y:
-                return await sync_to_async(y.decrypt)(x)
-            else:
-                return x
 
-        async def update_counters(_bytes_dl, _old):
+        async def _decrypt(data, cipher):
+            if cipher:
+                return await sync_to_async(cipher.decrypt)(data)
+            return data
+
+        async def _update_counters(_bytes_dl, _old):
             _dif = -1
             if (_iter_bytes := _bytes_dl - _old) > 0:
-                async with self._LOCK:
+                async with self._asynclock:
                     self.down_size += _iter_bytes
                     if self.filesize and (_dif := self.down_size - self.filesize) > 0:
                         self.filesize += _dif
@@ -994,17 +1013,180 @@ class AsyncHLSDownloader:
                         self.vid_dl.info_dl["filesize"] += _dif
             return _bytes_dl
 
-        async def _clean_frag(x: int, y: BaseException):
-            self.info_frag[x - 1]["error"].append(repr(y))
-            self.info_frag[x - 1]["downloaded"] = False
-            _fpath = Path(self.info_frag[x - 1]["file"])
+        async def _clean_frag(index: int, _exc: BaseException):
+            self.info_frag[index - 1]["error"].append(repr(_exc))
+            self.info_frag[index - 1]["downloaded"] = False
+            _fpath = Path(self.info_frag[index - 1]["file"])
             if await os.path.exists(_fpath):
                 _sizefile = (await os.stat(_fpath)).st_size
                 await os.remove(_fpath)
-                async with self._LOCK:
+                async with self._asynclock:
                     self.down_size -= _sizefile
                 async with self.vid_dl.alock:
                     self.vid_dl.info_dl["down_size"] -= _sizefile
+
+        @on_503
+        async def _download_frag(index: int):
+            _premsg = f"{self.premsg}:[worker-{nco}]:[frag-{index}]"
+            url = self.info_frag[index - 1]["url"]
+            filename = Path(self.info_frag[index - 1]["file"])
+            cipher = None
+            if (_key := self.info_frag[index - 1]["key"]):
+                cipher = traverse_obj(self.key_cache, (_key.absolut_uri, "cipher"))
+            headers = {}
+            if byte_range := self.info_frag[index - 1].get("byterange"):
+                headers["range"] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
+
+            while self.info_frag[index - 1]["n_retries"] < self._MAX_RETRIES:
+                try:
+                    if self.check_any_event_is_set(incpause=False):
+                        return
+
+                    if self._interv:
+                        async with self._limit:
+                            await asyncio.sleep(self._interv)
+
+                    async with (
+                        aiofiles.open(filename, mode="ab") as fileobj,
+                        client.stream("GET", url, headers=headers) as res,
+                    ):
+                        if res.status_code == 403:
+                            if self.fromplns:
+                                _wait_tasks = await self.vid_dl.reset_plns(
+                                    "403", plns=self.fromplns
+                                )
+                            else:
+                                _wait_tasks = await self.vid_dl.reset("403")
+
+                            if _wait_tasks:
+                                done, pending = await asyncio.wait(_wait_tasks)
+                                logger.debug(
+                                    f"{_premsg}[wait_tasks] DONE\n{done}\nPENDING\n{pending}"
+                                )
+                            return
+
+                        if res.status_code == 503:
+                            self.info_frag[index - 1]["n_retries"] = 0
+
+                            raise StatusError503(f"{_premsg}")
+
+                        if res.status_code >= 400:
+                            raise AsyncHLSDLError(f"Frag:{str(index)} resp code:{str(res)}")
+
+                        if not (_hsize := self.info_frag[index - 1]["headersize"]):
+                            _hsize = self.info_frag[index - 1]["headersize"] = int_or_none(
+                                res.headers.get("content-length")
+                            )
+
+                        if self.info_frag[index - 1]["downloaded"]:
+                            _size = self.info_frag[index - 1]["size"] = (
+                                await os.stat(filename)
+                            ).st_size
+                            if (
+                                _hsize and (_hsize - 100 <= _size <= _hsize + 100)
+                            ) or not _hsize:
+                                break
+
+                            await fileobj.truncate(0)
+                            self.info_frag[index - 1]["downloaded"] = False
+                            self.info_frag[index - 1]["size"] = None
+                            async with self._asynclock:
+                                self.n_dl_fragments -= 1
+                                self.down_size -= _size
+                            async with self.vid_dl.alock:
+                                self.vid_dl.info_dl["down_size"] -= _size
+
+                        num_bytes_downloaded = res.num_bytes_downloaded
+                        _timer = ProgressTimer()
+                        _timer2 = ProgressTimer()
+                        _buffer = b""
+                        _tasks_chunks = []
+
+                        if (
+                            not (_chunk_size := self.info_frag[index - 1]["headersize"])
+                            or _chunk_size > self._CHUNK_SIZE
+                        ):
+                            _chunk_size = self._CHUNK_SIZE
+
+                        async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
+                            _check = await self.event_handle(_premsg)
+                            if _ev := traverse_obj(_check, "event"):
+                                if _tasks_chunks:
+                                    _tasks_chunks[-1].cancel()
+                                raise AsyncHLSDLErrorFatal(_ev)
+                            if traverse_obj(_check, "pause"):
+                                _timer.reset()
+                                _timer2.reset()
+
+                            if _data := await _decrypt(chunk, cipher):
+                                _buffer += _data
+
+                            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
+                                num_bytes_downloaded = await _update_counters(
+                                    res.num_bytes_downloaded, num_bytes_downloaded
+                                )
+                            if _timer2.has_elapsed(seconds=5 * CONF_INTERVAL_GUI):
+                                if _tasks_chunks:
+                                    await asyncio.wait(_tasks_chunks[-1:])
+                                if _buffer:
+                                    _tasks_chunks.append(
+                                        self.add_task(
+                                            fileobj.write(_buffer),
+                                            name=f"write_chunks[{len(_tasks_chunks)}]",
+                                        )
+                                    )
+                                    _buffer = b""
+
+                        num_bytes_downloaded = await _update_counters(
+                            res.num_bytes_downloaded, num_bytes_downloaded
+                        )
+                        if _tasks_chunks:
+                            await asyncio.wait(_tasks_chunks[-1:])
+                        if _buffer:
+                            _tasks_chunks.append(
+                                self.add_task(
+                                    fileobj.write(_buffer),
+                                    name=f"write_chunks[{len(_tasks_chunks)}]",
+                                )
+                            )
+                            _buffer = b""
+                            await asyncio.wait(_tasks_chunks[-1:])
+
+                    _nsize = (await os.stat(filename)).st_size
+                    _nhsize = self.info_frag[index - 1]["headersize"]
+
+                    if (_nhsize and _nhsize - 100 <= _nsize <= _nhsize + 100) or not _nhsize:
+                        self.info_frag[index - 1]["downloaded"] = True
+                        self.info_frag[index - 1]["size"] = _nsize
+                        async with self._asynclock:
+                            self.n_dl_fragments += 1
+                        break
+
+                    logger.warning(
+                        "".join([
+                            f"{_premsg}: end of streaming. Fragment not completed\n",
+                            f"{self.info_frag[index - 1]}"
+                        ])
+                    )
+                    raise AsyncHLSDLError(f"fragment not completed frag[{index}]")
+
+                except StatusError503 as e:
+                    logger.debug(f"{_premsg}: Error: {repr(e)}")
+                    await _clean_frag(index, e)
+                    raise
+                except (asyncio.CancelledError, RuntimeError, AsyncHLSDLErrorFatal) as e:
+                    logger.debug(f"{_premsg}: Error: {repr(e)}")
+                    await _clean_frag(index, e)
+                    raise
+                except Exception as e:
+                    logger.debug(f"{_premsg}: Error: {repr(e)}")
+                    await _clean_frag(index, e)
+                    self.info_frag[index - 1]["n_retries"] += 1
+                    if self.info_frag[index - 1]["n_retries"] >= self._MAX_RETRIES:
+                        self.info_frag[index - 1]["error"].append("MaxLimitRetries")
+                        logger.warning(f"{_premsg}: MaxLimitRetries:skip")
+                        self.info_frag[index - 1]["skipped"] = True
+                        break
 
         logger.debug(f"{self.premsg}:[worker-{nco}]: init worker")
 
@@ -1019,204 +1201,32 @@ class AsyncHLSDownloader:
 
         try:
             while True:
-                _premsg = f"{self.premsg}:[worker-{nco}]"
                 try:
-                    if (q := cast(int, self.frags_queue.get_nowait())) is None:
+                    if (qindex := self.frags_queue.get_nowait()) is None:
                         await asyncio.sleep(0)
                         continue
-                    elif q == kill_token:
-                        logger.debug(f"{_premsg}: {kill_token}")
+                    if qindex == kill_token:
+                        logger.debug(f"{self.premsg}:[worker-{nco}] {kill_token}")
                         return
 
-                    _premsg += f":[frag-{q}]"
-
-                    url = self.info_frag[q - 1]["url"]
-                    filename = Path(self.info_frag[q - 1]["file"])
-                    cipher = None
-                    if (key := self.info_frag[q - 1]["key"]) and key.method == "AES-128":
-                        iv = binascii.unhexlify(key.iv[2:])
-                        cipher = AES.new(self.key_cache[key.absolute_uri], AES.MODE_CBC, iv)
-                    headers = {}
-                    if byte_range := self.info_frag[q - 1].get("byterange"):
-                        headers["range"] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
-
-                    @on_503
-                    async def _download_frag(q):
-                        while self.info_frag[q - 1]["n_retries"] < self._MAX_RETRIES:
-                            try:
-                                if self.check_any_event_is_set(incpause=False):
-                                    return
-
-                                if self._interv:
-                                    async with self._limit:
-                                        await asyncio.sleep(self._interv)
-
-                                async with (
-                                    aiofiles.open(filename, mode="ab") as f,
-                                    client.stream("GET", url, headers=headers) as res,
-                                ):
-                                    if res.status_code == 403:
-                                        if self.fromplns:
-                                            _wait_tasks = await self.vid_dl.reset_plns(
-                                                "403", plns=self.fromplns
-                                            )
-                                        else:
-                                            _wait_tasks = await self.vid_dl.reset("403")
-
-                                        if _wait_tasks:
-                                            done, pending = await asyncio.wait(_wait_tasks)
-                                            logger.debug(
-                                                f"{_premsg}: wait_tasks result\nDONE\n{done}\nPENDING\n{pending}"
-                                            )
-                                        return
-
-                                    elif res.status_code == 503:
-                                        self.info_frag[q - 1]["n_retries"] = 0
-
-                                        raise StatusError503(f"{_premsg}")
-
-                                    elif res.status_code >= 400:
-                                        raise AsyncHLSDLError(f"Frag:{str(q)} resp code:{str(res)}")
-
-                                    else:
-                                        if not (_hsize := self.info_frag[q - 1]["headersize"]):
-                                            _hsize = self.info_frag[q - 1]["headersize"] = int_or_none(
-                                                res.headers.get("content-length")
-                                            )
-
-                                        if self.info_frag[q - 1]["downloaded"]:
-                                            _size = self.info_frag[q - 1]["size"] = (
-                                                await os.stat(filename)
-                                            ).st_size
-                                            if (
-                                                _hsize and (_hsize - 100 <= _size <= _hsize + 100)
-                                            ) or not _hsize:
-                                                break
-                                            else:
-                                                await f.truncate(0)
-                                                self.info_frag[q - 1]["downloaded"] = False
-                                                self.info_frag[q - 1]["size"] = None
-                                                async with self._LOCK:
-                                                    self.n_dl_fragments -= 1
-                                                    self.down_size -= _size
-                                                async with self.vid_dl.alock:
-                                                    self.vid_dl.info_dl["down_size"] -= _size
-
-                                        num_bytes_downloaded = res.num_bytes_downloaded
-                                        _timer = ProgressTimer()
-                                        _timer2 = ProgressTimer()
-                                        _buffer = b""
-                                        _tasks_chunks = []
-
-                                        if (
-                                            not (_chunk_size := self.info_frag[q - 1]["headersize"])
-                                            or _chunk_size > self._CHUNK_SIZE
-                                        ):
-                                            _chunk_size = self._CHUNK_SIZE
-
-                                        async for chunk in res.aiter_bytes(chunk_size=_chunk_size):
-                                            _check = await self.event_handle(_premsg)
-                                            if _ev := traverse_obj(_check, "event"):
-                                                if _tasks_chunks:
-                                                    _tasks_chunks[-1].cancel()
-                                                raise AsyncHLSDLErrorFatal(_ev)
-                                            elif traverse_obj(_check, "pause"):
-                                                _timer.reset()
-                                                _timer2.reset()
-
-                                            if _data := await _decrypt(chunk, cipher):
-                                                _buffer += _data
-
-                                            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
-                                                num_bytes_downloaded = await update_counters(
-                                                    res.num_bytes_downloaded, num_bytes_downloaded
-                                                )
-                                            if _timer2.has_elapsed(seconds=5 * CONF_INTERVAL_GUI):
-                                                if _tasks_chunks:
-                                                    await asyncio.wait(_tasks_chunks[-1:])
-                                                if _buffer:
-                                                    _tasks_chunks.append(
-                                                        self.add_task(
-                                                            f.write(_buffer),
-                                                            name=f"write_chunks[{len(_tasks_chunks)}]",
-                                                        )
-                                                    )
-                                                    _buffer = b""
-
-                                        num_bytes_downloaded = await update_counters(
-                                            res.num_bytes_downloaded, num_bytes_downloaded
-                                        )
-                                        if _tasks_chunks:
-                                            await asyncio.wait(_tasks_chunks[-1:])
-                                        if _buffer:
-                                            _tasks_chunks.append(
-                                                self.add_task(
-                                                    f.write(_buffer),
-                                                    name=f"write_chunks[{len(_tasks_chunks)}]",
-                                                )
-                                            )
-                                            _buffer = b""
-                                            await asyncio.wait(_tasks_chunks[-1:])
-
-                                _nsize = (await os.stat(filename)).st_size
-                                _nhsize = self.info_frag[q - 1]["headersize"]
-
-                                if (_nhsize and _nhsize - 100 <= _nsize <= _nhsize + 100) or not _nhsize:
-                                    self.info_frag[q - 1]["downloaded"] = True
-                                    self.info_frag[q - 1]["size"] = _nsize
-                                    async with self._LOCK:
-                                        self.n_dl_fragments += 1
-                                    break
-                                else:
-                                    logger.warning(
-                                        f"{_premsg}: end of streaming. Fragment not completed\n"
-                                        + f"{self.info_frag[q - 1]}"
-                                    )
-                                    raise AsyncHLSDLError(f"fragment not completed frag[{q}]")
-
-                            except StatusError503 as e:
-                                logger.debug(f"{_premsg}: Error: {repr(e)}")
-                                await _clean_frag(q, e)
-                                raise
-                            except (asyncio.CancelledError, RuntimeError, AsyncHLSDLErrorFatal) as e:
-                                logger.debug(f"{_premsg}: Error: {repr(e)}")
-                                await _clean_frag(q, e)
-                                raise
-                            except Exception as e:
-                                logger.debug(f"{_premsg}: Error: {repr(e)}")
-                                await _clean_frag(q, e)
-                                self.info_frag[q - 1]["n_retries"] += 1
-                                if self.info_frag[q - 1]["n_retries"] >= self._MAX_RETRIES:
-                                    self.info_frag[q - 1]["error"].append("MaxLimitRetries")
-                                    logger.warning(f"{_premsg}: MaxLimitRetries:skip")
-                                    self.info_frag[q - 1]["skipped"] = True
-                                    break
-                            # finally:
-                            #     await asyncio.sleep(0)
-
-                    await _download_frag(q)
+                    await _download_frag(cast(int, qindex))
 
                 except (asyncio.CancelledError, RuntimeError, AsyncHLSDLErrorFatal, asyncio.QueueEmpty) as e:
-                    logger.debug(f"{_premsg}: Error: {repr(e)}")
+                    logger.debug(f"{self.premsg}:[worker-{nco}] Error: {repr(e)}")
                     break
                 except BaseException as e:
-                    logger.exception(f"{_premsg}: inner exception {repr(e)}")
+                    logger.exception(f"{self.premsg}:[worker-{nco}] inner exception {repr(e)}")
 
         except BaseException as e:
             logger.exception(f"{self.premsg}:[worker-{nco}] outer exception {repr(e)}")
         finally:
-            async with self._LOCK:
+            async with self._asynclock:
                 self.count -= 1
             logger.debug(f"{self.premsg}:[worker-{nco}] bye worker")
             await client.aclose()
 
     async def fetch_async(self):
-        self._LOCK = asyncio.Lock()
-        self._EVENT_LOCK = asyncio.Lock()
-        self.areset = sync_to_async(self.resetdl, thread_sensitive=False, executor=self.ex_dl)
 
-        self._test = []
-        self._speed = []
         n_frags_dl = 0
         self.premsg = f"[{self.vid_dl.index}]{self.premsg}"
         AsyncHLSDownloader._QUEUE[str(self.vid_dl.index)] = Queue()
@@ -1240,9 +1250,8 @@ class AsyncHLSDownloader:
         try:
             while True:
                 logger.debug(f"{self.premsg} TASKS INIT")
-
                 try:
-                    self.frags_queue = asyncio.Queue()
+                    empty_queue(self.frags_queue)
                     for frag in self.frags_to_dl:
                         self.frags_queue.put_nowait(frag)
                     for _ in range(self.n_workers):
@@ -1252,9 +1261,9 @@ class AsyncHLSDownloader:
                     self.vid_dl.pause_event.clear()
                     self.vid_dl.resume_event.clear()
                     self.vid_dl.end_tasks.clear()
-                    self.speedometer = SpeedometerMA(initial_bytes=self.down_size)
-                    self.progress_timer = ProgressTimer()
-                    self.smooth_eta = SmoothETA()
+                    self.speedometer.reset(initial_bytes=self.down_size)
+                    self.progress_timer.reset()
+                    self.smooth_eta.reset()
                     self._test.append((time.monotonic(), "starting tasks to dl"))
                     self.status = "downloading"
                     self.count_msg = ""
@@ -1280,117 +1289,126 @@ class AsyncHLSDownloader:
 
                     if n_frags_dl == len(self.info_dict["fragments"]):
                         await asyncio.wait(upt_task)
-                        break
+                        return
 
-                    else:
-                        if self.vid_dl.stop_event.is_set():
-                            self.status = "stop"
-                            await asyncio.wait(upt_task)
-                            return
+                    if self.vid_dl.stop_event.is_set():
+                        self.status = "stop"
+                        await asyncio.wait(upt_task)
+                        return
+
+                    if _cause := self.vid_dl.reset_event.is_set():
+                        dump_init_task = [self.add_task(self.dump_init_file())]
+                        self.background_tasks.add(dump_init_task[0])
+
+                        await asyncio.wait(dump_init_task + upt_task)
+
+                        if self.n_reset < self._MAX_RESETS:
+                            if _cause in ("403", "hard"):
+                                if self.fromplns:
+                                    await self.vid_dl.back_from_reset_plns(
+                                        self.premsg, plns=self.fromplns
+                                    )
+                                    if self.vid_dl.stop_event.is_set():
+                                        return
+                                _cause = self.vid_dl.reset_event.is_set()
+                                self._speed.append((datetime.now(), _cause))
+                                logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
+
+                            elif _cause == "manual":
+                                self._speed.append((datetime.now(), _cause))
+                                logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
+                                continue
+
+                            try:
+                                async with self._limit_reset:
+                                    await self.areset(_cause)
+                                if self.vid_dl.stop_event.is_set():
+                                    return
+                                if ((_t := time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
+                                    _minus = self.n_workers // 4
+                                    self.n_workers -= _minus
+                                _tstart = _t
+                                logger.debug(
+                                    "".join([
+                                        f"{self.premsg}:RESET[{self.n_reset}]:OK:Pending frags\n",
+                                        f"{len(self.fragsnotdl())}"
+                                    ])
+                                )
+                                await asyncio.sleep(0)
+                                continue
+
+                            except Exception as e:
+                                logger.exception(
+                                    "".join([
+                                        f"{self.premsg}:RESET[{self.n_reset}]:",
+                                        f"ERROR reset couldnt progress:[{repr(e)}]"
+                                    ])
+                                )
+                                self.status = "error"
+                                await self.clean_when_error()
+                                raise AsyncHLSDLErrorFatal(
+                                    f"{self.premsg}: ERROR reset couldnt progress"
+                                ) from e
 
                         else:
-                            if _cause := self.vid_dl.reset_event.is_set():
-                                dump_init_task = [self.add_task(self.dump_init_file())]
-                                self.background_tasks.add(dump_init_task[0])
+                            logger.warning(
+                                f"{self.premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets"
+                            )
+                            self.status = "error"
+                            await self.clean_when_error()
+                            await asyncio.sleep(0)
+                            raise AsyncHLSDLErrorFatal(f"{self.premsg}: ERROR max resets")
 
-                                await asyncio.wait(dump_init_task + upt_task)
+                    else:
+                        if inc_frags_dl > 0:
+                            logger.debug(
+                                "".join([
+                                    f"{self.premsg}: [{n_frags_dl} -> ",
+                                    f"{inc_frags_dl}] new cycle with no fatal error"
+                                ])
+                            )
+                            try:
+                                async with self._limit_reset:
+                                    await self.areset("hard")
+                                if self.vid_dl.stop_event.is_set():
+                                    return
+                                logger.debug(
+                                    "".join([
+                                        f"{self.premsg}:RESET new cycle",
+                                        f"[{self.n_reset}]:OK:Pending frags ",
+                                        f"{len(self.fragsnotdl())}"
+                                    ])
+                                )
+                                self.n_reset -= 1
+                                continue
 
-                                if self.n_reset < self._MAX_RESETS:
-                                    if _cause in ("403", "hard"):
-                                        if self.fromplns:
-                                            await self.vid_dl.back_from_reset_plns(
-                                                self.premsg, plns=self.fromplns
-                                            )
-                                            if self.vid_dl.stop_event.is_set():
-                                                #  await self.clean_from_reset()
-                                                return
-                                        _cause = self.vid_dl.reset_event.is_set()
-                                        self._speed.append((datetime.now(), _cause))
-                                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
+                            except Exception as e:
+                                logger.exception(
+                                    "".join([
+                                        f"{self.premsg}:RESET",
+                                        f"[{self.n_reset}]:ERROR reset ",
+                                        f"couldnt progress:[{repr(e)}]"
+                                    ])
+                                )
+                                self.status = "error"
+                                await self.clean_when_error()
+                                await asyncio.sleep(0)
+                                raise AsyncHLSDLErrorFatal(
+                                    f"{self.premsg}: ERROR reset couldnt progress"
+                                ) from e
 
-                                    elif _cause == "manual":
-                                        self._speed.append((datetime.now(), _cause))
-                                        logger.debug(f"{self.premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
-                                        continue
-
-                                    try:
-                                        async with self._limit_reset:
-                                            await self.areset(_cause)
-                                        if self.vid_dl.stop_event.is_set():
-                                            return
-                                        if ((_t := time.monotonic()) - _tstart) < self._MIN_TIME_RESETS:
-                                            _minus = self.n_workers // 4
-                                            self.n_workers -= _minus
-                                        _tstart = _t
-                                        logger.debug(
-                                            f"{self.premsg}:RESET[{self.n_reset}]:OK:Pending frags\n"
-                                            + f"{len(self.fragsnotdl())}"
-                                        )
-                                        await asyncio.sleep(0)
-                                        continue
-
-                                    except Exception as e:
-                                        logger.exception(
-                                            f"{self.premsg}:RESET[{self.n_reset}]:"
-                                            + f"ERROR reset couldnt progress:[{repr(e)}]"
-                                        )
-                                        self.status = "error"
-                                        await self.clean_when_error()
-                                        raise AsyncHLSDLErrorFatal(
-                                            f"{self.premsg}: ERROR reset couldnt progress"
-                                        )
-
-                                else:
-                                    logger.warning(
-                                        f"{self.premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets"
-                                    )
-                                    self.status = "error"
-                                    await self.clean_when_error()
-                                    await asyncio.sleep(0)
-                                    raise AsyncHLSDLErrorFatal(f"{self.premsg}: ERROR max resets")
-
-                            else:
-                                if inc_frags_dl > 0:
-                                    logger.debug(
-                                        f"{self.premsg}: [{n_frags_dl} -> "
-                                        + f"{inc_frags_dl}] new cycle with no fatal error"
-                                    )
-                                    try:
-                                        async with self._limit_reset:
-                                            await self.areset("hard")
-                                        if self.vid_dl.stop_event.is_set():
-                                            return
-                                        logger.debug(
-                                            f"{self.premsg}:RESET new cycle"
-                                            + f"[{self.n_reset}]:OK:Pending frags "
-                                            + f"{len(self.fragsnotdl())}"
-                                        )
-                                        self.n_reset -= 1
-                                        continue
-
-                                    except Exception as e:
-                                        logger.exception(
-                                            f"{self.premsg}:RESET"
-                                            + f"[{self.n_reset}]:ERROR reset "
-                                            + f"couldnt progress:[{repr(e)}]"
-                                        )
-                                        self.status = "error"
-                                        await self.clean_when_error()
-                                        await asyncio.sleep(0)
-                                        raise AsyncHLSDLErrorFatal(
-                                            f"{self.premsg}: ERROR reset couldnt progress"
-                                        )
-
-                                else:
-                                    logger.debug(
-                                        f"{self.premsg}: [{n_frags_dl} <-> "
-                                        + f"{inc_frags_dl}] no improvement, "
-                                        + 'lets raise an error"'
-                                    )
-                                    self.status = "error"
-                                    raise AsyncHLSDLErrorFatal(
-                                        f"{self.premsg}: no changes in number of dl frags in one cycle"
-                                    )
+                        else:
+                            logger.debug(
+                                "".join([
+                                    f"{self.premsg}: [{n_frags_dl} <-> ",
+                                    f"{inc_frags_dl}] no improvement, ",
+                                    "lets raise an error"
+                                ])
+                            )
+                            self.status = "error"
+                            raise AsyncHLSDLErrorFatal(
+                                f"{self.premsg}: no changes in number of dl frags in one cycle"
+                            )
 
                 except AsyncHLSDLErrorFatal:
                     raise
@@ -1412,9 +1430,11 @@ class AsyncHLSDownloader:
                         )
                     except Exception:
                         logger.warning(
-                            f"{self.premsg}[fetch_async] error when removing "
-                            + f'[{self.vid_dl.info_dict["_index_scene"]}] '
-                            + f'from downloading [{self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]}]'
+                            "".join([
+                                f"{self.premsg}[fetch_async] error when removing ",
+                                f"[{self.vid_dl.info_dict['_index_scene']}] from downloading",
+                                f" [{self.vid_dl.info_dl['fromplns'][self.fromplns]['downloading']}]"
+                            ])
                         )
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["downloading"]:
@@ -1468,20 +1488,18 @@ class AsyncHLSDownloader:
     async def dump_init_file(self):
         init_data = {el["frag"]: el["headersize"] for el in self.info_frag if el["headersize"]}
 
-        async with aiofiles.open(self.init_file, mode="w") as f:
-            await f.write(json.dumps(init_data))
-
-        # logger.debug(f'{self.premsg} init data\n{init_data}')
+        async with aiofiles.open(self.init_file, mode="w") as finit:
+            await finit.write(json.dumps(init_data))
 
     async def clean_when_error(self):
-        for f in self.info_frag:
-            if f["downloaded"] is False and await os.path.exists(f["file"]):
-                await os.remove(f["file"])
+        for frag in self.info_frag:
+            if frag["downloaded"] is False and await os.path.exists(frag["file"]):
+                await os.remove(frag["file"])
 
     def sync_clean_when_error(self):
-        for f in self.info_frag:
-            if f["downloaded"] is False and f["file"].exists():
-                f["file"].unlink()
+        for frag in self.info_frag:
+            if frag["downloaded"] is False and frag["file"].exists():
+                frag["file"].unlink()
 
     async def ensamble_file(self):
         self.status = "manipulating"
@@ -1490,21 +1508,22 @@ class AsyncHLSDownloader:
 
         try:
             async with aiofiles.open(self.filename, mode="wb") as dest:
-                for f in self.info_frag:
-                    if f.get("skipped", False):
+                for frag in self.info_frag:
+                    if frag.get("skipped", False):
                         _skipped += 1
                         continue
-                    if not f["size"] and await os.path.exists(f["file"]):
-                        f["size"] = (await os.stat(f["file"])).st_size
+                    if not frag["size"] and await os.path.exists(frag["file"]):
+                        frag["size"] = (await os.stat(frag["file"])).st_size
 
-                    if f["size"] and (
-                        (f["headersize"] and (f["headersize"] - 100 <= f["size"] <= f["headersize"] + 100))
-                        or not f["headersize"]
+                    if frag["size"] and (
+                        (frag["headersize"] and
+                         (frag["headersize"] - 100 <= frag["size"] <= frag["headersize"] + 100))
+                        or not frag["headersize"]
                     ):
-                        async with aiofiles.open(f["file"], mode="rb") as source:
+                        async with aiofiles.open(frag["file"], mode="rb") as source:
                             await dest.write(await source.read())
                     else:
-                        raise AsyncHLSDLError(f"{self.premsg}: error when ensambling: {f}")
+                        raise AsyncHLSDLError(f"{self.premsg}: error when ensambling: {frag}")
 
         except Exception as e:
             if await os.path.exists(self.filename):
@@ -1543,56 +1562,44 @@ class AsyncHLSDownloader:
         return res
 
     def print_hookup(self):
-        def format_frags():
-            import math
-
-            return f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
 
         _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
-        if getattr(self, "_proxy", None):
-            _proxy = self._proxy.get("http://", "").split(":")[-1]
-            if _proxy == "":
-                _proxy = None
-        else:
-            _proxy = None
+        _pre = f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}]"
 
         if self.status == "done":
-            return f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] Completed\n"
+            return f"{_pre} Completed\n"
 
-        elif self.status == "init":
+        if self.status == "init":
             return "".join(
                 [
-                    f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] ",
-                    f"Waiting to DL [{_filesize_str}] ",
-                    f"[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n",
+                    f"{_pre}: Waiting to DL [{_filesize_str}] ",
+                    f"[{self.n_dl_fragments:{self.format_frags}}/{self.n_total_fragments}]\n",
                 ]
             )
 
-        elif self.status == "error":
+        if self.status == "error":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}" if self.filesize else "--"
             )
             return "".join(
                 [
-                    f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] ",
-                    f"ERROR [{_rel_size_str}] ",
-                    f"[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n",
+                    f"{_pre}: ERROR [{_rel_size_str}] ",
+                    f"[{self.n_dl_fragments:{self.format_frags}}/{self.n_total_fragments}]\n",
                 ]
             )
 
-        elif self.status == "stop":
+        if self.status == "stop":
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}" if self.filesize else "--"
             )
             return "".join(
                 [
-                    f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] ",
-                    f"STOPPED [{_rel_size_str}] ",
-                    f"[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]\n",
+                    f"{_pre}: STOPPED [{_rel_size_str}] ",
+                    f"[{self.n_dl_fragments:{self.format_frags}}/{self.n_total_fragments}]\n",
                 ]
             )
 
-        elif self.status == "downloading":
+        if self.status == "downloading":
             _temp = copy.deepcopy(self.upt)
             _dsize = _temp.get("down_size", self.down_size)
             if self.filesize:
@@ -1628,18 +1635,17 @@ class AsyncHLSDownloader:
 
             return "".join(
                 [
-                    f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}] ",
-                    f"WK[{self.count:2d}/{self.n_workers:2d}] ",
-                    f"FR[{self.n_dl_fragments:{format_frags()}}/{self.n_total_fragments}]",
+                    f"{_pre}: WK[{self.count:2d}/{self.n_workers:2d}] ",
+                    f"FR[{self.n_dl_fragments:{self.format_frags}}/{self.n_total_fragments}]",
                     f"PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]",
                     f"\n{self.count_msg}",
                 ]
             )
 
-        elif self.status == "init_manipulating":
-            return "".join([f"[HLS][{self.info_dict['format_id']}]: ", "Waiting for Ensambling \n"])
+        if self.status == "init_manipulating":
+            return f"{_pre}: Waiting for Ensambling \n"
 
-        elif self.status == "manipulating":
+        if self.status == "manipulating":
             if self.filename.exists():
                 _size = self.filename.stat().st_size
             else:
@@ -1649,4 +1655,4 @@ class AsyncHLSDownloader:
                 if self.filesize
                 else f"[{naturalsize(_size)}]"
             )
-            return f"[HLS][{self.info_dict['format_id']}]: Ensambling {_str}\n"
+            return f"{_pre}: Ensambling {_str}\n"

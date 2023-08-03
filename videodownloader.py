@@ -119,15 +119,10 @@ class VideoDownloader:
             "nwsetup": nwsetup,
         }
 
-        # self.info_dl['download_path'].mkdir(parents=True, exist_ok=True)
-
         self._types = ""
         downloaders = []
 
-        _new_info_dict = self.info_dict.copy()
-        _new_info_dict.update(
-            {"filename": self.info_dl["filename"], "download_path": self.info_dl["download_path"]}
-        )
+        _new_info_dict = self.info_dict | {"filename": self.info_dl["filename"], "download_path": self.info_dl["download_path"]}
 
         dl = self._get_dl(_new_info_dict)
         downloaders.extend(variadic(dl))
@@ -213,7 +208,7 @@ class VideoDownloader:
         if not (_info := info_dict.get("requested_formats")):
             _info = [info_dict]
             _streams = False
-        elif info_dict.get("_has_drm") or info_dict.get(
+        elif info_dict.get("_has_drm") or self.info_dict.get(
             "has_drm"
         ):  # or 'dash' in info_dict.get('format_note', '').lower():
             dl = AsyncNativeDownloader(info_dict, self)
@@ -227,13 +222,14 @@ class VideoDownloader:
             for f in _info:
                 f.update(
                     {
-                        "id": self.info_dl["id"],
-                        "title": self.info_dl["title"],
-                        "_filename": self.info_dl["filename"],
-                        "download_path": self.info_dl["download_path"],
-                        "webpage_url": self.info_dl["webpage_url"],
-                        "extractor_key": self.info_dict.get("extractor_key"),
-                        "extractor": self.info_dict.get("extractor"),
+                        "id": info_dict["id"],
+                        "title": info_dict["title"],
+                        "_filename": info_dict["filename"],
+                        "download_path": info_dict["download_path"],
+                        "original_url": info_dict.get("original_url"),
+                        "webpage_url": info_dict.get("webpage_url"),
+                        "extractor_key": info_dict.get("extractor_key"),
+                        "extractor": info_dict.get("extractor"),
                     }
                 )
 
@@ -259,7 +255,7 @@ class VideoDownloader:
                         if dl.auto_pasres:
                             self.info_dl.update({"auto_pasres": True})
                     elif any([self.args.aria2c]):
-                        dl = AsyncARIA2CDownloader(self.info_dl["rpcport"], self.args.enproxy, info, self)
+                        dl = AsyncARIA2CDownloader(self.info_dl["rpcport"], self.args, info, self)
                         _types.append("ARIA2")
                         logger.debug(
                             f"[{info['id']}][{info['title']}]"
@@ -275,7 +271,7 @@ class VideoDownloader:
                             self.info_dl.update({"auto_pasres": True})
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
-                    dl = AsyncHLSDownloader(False, info, self)  # self.args.enproxy,
+                    dl = AsyncHLSDownloader(self.args, info, self)  # self.args.enproxy,
                     _types.append("HLS")
                     logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
                     if dl.auto_pasres:

@@ -12,7 +12,7 @@ from threading import Lock
 from urllib.parse import unquote, urlparse, urlunparse
 from typing import cast, Union
 import aria2p
-import requests
+from requests import RequestException
 from utils import (
     CONF_AUTO_PASRES,
     CONF_ARIA2C_EXTR_GROUP,
@@ -46,6 +46,8 @@ from utils import (
     Token,
 )
 
+assert CONF_ARIA2C_SPEED_PER_CONNECTION
+
 logger = logging.getLogger("async_ARIA2C_DL")
 
 
@@ -73,11 +75,11 @@ class AsyncARIA2CDownloader:
     _INIT = False
     aria2_API: aria2p.API
 
-    def __init__(self, port, enproxy, video_dict, vid_dl):
+    def __init__(self, port, args, video_dict, vid_dl):
         self.background_tasks = set()
         self.info_dict = video_dict.copy()
         self.vid_dl = vid_dl
-        self.enproxy = enproxy
+        self.args = args
 
         with AsyncARIA2CDownloader._LOCK:
             if not AsyncARIA2CDownloader._INIT:
@@ -117,8 +119,8 @@ class AsyncARIA2CDownloader:
 
         self.premsg = f'[{self.info_dict["id"]}][{self.info_dict["title"]}][{self.info_dict["format_id"]}]'
 
-        def getter(x):
-            value, key_text = getter_basic_config_extr(x, AsyncARIA2CDownloader._CONFIG) or (None, None)
+        def getter(name):
+            value, key_text = getter_basic_config_extr(name, AsyncARIA2CDownloader._CONFIG) or (None, None)
             if value and key_text:
                 self.special_extr = True
                 limit = value["ratelimit"].ratelimit(key_text, delay=True)
@@ -132,10 +134,10 @@ class AsyncARIA2CDownloader:
             _sph = False
             if maxplits < 16:
                 _sph = True
-                if x in CONF_ARIA2C_EXTR_GROUP:
+                if name in CONF_ARIA2C_EXTR_GROUP:
                     _mode = "group"
 
-            if x in CONF_AUTO_PASRES:
+            if name in CONF_AUTO_PASRES:
                 self.auto_pasres = True
                 self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED // 2
 
@@ -149,7 +151,7 @@ class AsyncARIA2CDownloader:
         _sem, self._mode, self._decor, self._nsplits = getter(self._extractor)
         self.sem = contextlib.nullcontext()
 
-        if self.enproxy:
+        if not (_proxy := self.args.proxy) and self.args.enproxy:
             with self.vid_dl.master_hosts_lock:
                 if not self.vid_dl.hosts_dl.get(self._host):
                     _seq = random.sample(range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST)
@@ -161,12 +163,13 @@ class AsyncARIA2CDownloader:
                 with self.ytdl.params.setdefault("lock", Lock()):
                     self.ytdl.params.setdefault("sem", {})
                     self.sem = cast(LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
+            self._proxy = _proxy
 
         self.n_workers = self._nsplits
         self.down_size = 0
         self.filesize = self.info_dict.get("filesize")
         if not self.filesize:
-            if _res := self._get_filesize(self.uris):
+            if _res := self._get_filesize(self.uris, proxy=_proxy):
                 self.filesize, self.down_size = _res[0], _res[1]
         if self.filesize:
             _nsplits = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
@@ -188,43 +191,47 @@ class AsyncARIA2CDownloader:
             "dry-run": "false",
         }
 
+        if _proxy:
+            opts_dict["all-proxy"] = _proxy
+
         self.config_client(opts_dict)
+
+        self.progress_timer = ProgressTimer()
+        self._qspeed = asyncio.Queue()
+        self._speed = []
+        self.n_rounds = 0
+        self._index_proxy = None
 
     def config_client(self, opts_dict):
         self.opts = AsyncARIA2CDownloader.aria2_API.get_global_options()
         for key, value in opts_dict.items():
-            if not isinstance(value, list):
-                values = [value]
-            else:
-                values = value
-            for el in values:
-                rc = self.opts.set(key, el)
-                if not rc:
+            values = variadic(value)
+            for _value in values:
+                returncode = self.opts.set(key, _value)
+                if not returncode:
                     logger.warning(f"{self.premsg} couldnt set [{key}] to [{value}]")
 
-    def _get_filesize(self, uris) -> Union[tuple, None]:
+    def _get_filesize(self, uris, proxy=None) -> Union[tuple, None]:
         logger.debug(f"{self.premsg}[get_filesize] start aria2dl dry-run")
+        _res = None
+        opts_dict = {
+            "header": "\n".join([f"{key}: {value}" for key, value in self.headers.items()]),
+            "dry-run": "true",
+            "dir": str(self.download_path),
+            "out": self.filename.name,
+        }
+        if proxy:
+            opts_dict["all-proxy"] = proxy
+        opts = AsyncARIA2CDownloader.aria2_API.get_global_options()
+        for key, value in opts_dict.items():
+            values = variadic(value)
+            for _value in values:
+                opts.set(key, _value)
         try:
-            opts_dict = {
-                "header": "\n".join([f"{key}: {value}" for key, value in self.headers.items()]),
-                "dry-run": "true",
-                "dir": str(self.download_path),
-                "out": self.filename.name,
-            }
-            opts = AsyncARIA2CDownloader.aria2_API.get_global_options()
-            for key, value in opts_dict.items():
-                if not isinstance(value, list):
-                    values = [value]
-                else:
-                    values = value
-                for el in values:
-                    opts.set(key, el)
-
             with self.sem:
                 with self._decor:
                     _res = AsyncARIA2CDownloader.aria2_API.add_uris(uris, options=opts)
-                filesize = None
-                downsize = None
+
                 start = time.monotonic()
                 while time.monotonic() - start < 5:
                     time.sleep(1)
@@ -234,10 +241,13 @@ class AsyncARIA2CDownloader:
                         break
                 AsyncARIA2CDownloader.aria2_API.remove([_res])
                 logger.debug(f"{self.premsg}[get_filesize] {filesize} {downsize}")
-                if filesize:
-                    return (filesize, downsize)
+
         except Exception as e:
             logger.exception(f"{self.premsg}[get_filesize] error: {repr(e)}")
+
+        if filesize:
+            _res = (filesize, downsize)
+        return _res
 
     async def _acall(self, func, /, *args, **kwargs):
         """
@@ -245,18 +255,17 @@ class AsyncARIA2CDownloader:
         """
         try:
             return await sync_to_async(func, thread_sensitive=False, executor=self.ex_dl)(*args, **kwargs)
-        except requests.exceptions.RequestException as e:
+        except RequestException as e:
             logger.warning(f"{self.premsg}[acall][{func}] error: {type(e)}")
             if "add_uris" in func.__name__:
-                raise AsyncARIA2CDLErrorFatal("add uris fails")
+                raise AsyncARIA2CDLErrorFatal("add uris fails") from e
             if await self.reset_aria2c():
                 return {"reset": "ok"}
-            else:
-                return {"error": AsyncARIA2CDLErrorFatal("reset failed")}
+            return {"error": AsyncARIA2CDLErrorFatal("reset failed")}
         except aria2p.ClientException as e:
             logger.warning(f"{self.premsg}[acall][{func}] error: {type(e)}")
             if "add_uris" in func.__name__:
-                raise AsyncARIA2CDLErrorFatal("add uris fails")
+                raise AsyncARIA2CDLErrorFatal("add uris fails") from e
             return {"reset": "ok"}
         except Exception as e:
             logger.exception(f"{self.premsg}[acall][{func}] error: {repr(e)}")
@@ -299,7 +308,7 @@ class AsyncARIA2CDownloader:
 
     async def add_uris(self, uris: list[str]) -> Union[aria2p.Download, None]:
         async with self._decor:
-            return await self._acall(AsyncARIA2CDownloader.aria2_API.add_uris, uris, options=self.opts)  # type: ignore
+            return await self._acall(AsyncARIA2CDownloader.aria2_API.add_uris, uris, options=self.opts)
 
     async def aupdate(self, dl_cont):
         if dl_cont:
@@ -317,7 +326,7 @@ class AsyncARIA2CDownloader:
         try:
             if dl_cont := await self.add_uris(self.uris):
                 if resupt := await self.aupdate(dl_cont):
-                    if any([_ in resupt for _ in ("error", "reset")]):
+                    if any(_ in resupt for _ in ("error", "reset")):
                         raise AsyncARIA2CDLError("init: error update dl_cont")
 
             return dl_cont
@@ -343,8 +352,7 @@ class AsyncARIA2CDownloader:
                 async with myYTDL(params=self.ytdl.params, silent=True, executor=self.ex_dl) as ytdl:
                     _info = get_format_id(
                         ytdl.sanitize_info(await ytdl.async_extract_info(_init_url)),
-                        self.info_dict["format_id"],
-                    )
+                        self.info_dict["format_id"])
 
                 if _url := _info.get("url"):
                     video_url = unquote(_url)
@@ -354,8 +362,7 @@ class AsyncARIA2CDownloader:
                         if isinstance(self.sem, LockType):
                             async with async_lock(self.ytdl.params["lock"]):
                                 self.sem = cast(
-                                    LockType, self.ytdl.params["sem"].setdefault(self._host, Lock())
-                                )
+                                    LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
                 else:
                     raise AsyncARIA2CDLError("couldnt get video url")
 
@@ -363,17 +370,16 @@ class AsyncARIA2CDownloader:
             _res = await async_waitfortasks(
                 self.vid_dl.hosts_dl[self._host]["queue"].get(),
                 events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
-                background_tasks=self.background_tasks,
-            )
+                background_tasks=self.background_tasks)
 
             if "event" in _res:
                 return
-            elif (_temp := _res.get("exception")) or (_temp := _res.get("result")) is None:
+            if (_temp := _res.get("exception")) or (_temp := _res.get("result")) is None:
                 raise AsyncARIA2CDLError(f"couldnt get index proxy: {repr(_temp)}")
-            else:
-                self._index_proxy = cast(int, _temp)
-                async with self.vid_dl.master_hosts_alock():
-                    self.vid_dl.hosts_dl[self._host]["count"] += 1
+
+            self._index_proxy = cast(int, _temp)
+            async with self.vid_dl.master_hosts_alock():
+                self.vid_dl.hosts_dl[self._host]["count"] += 1
 
             _uris: list[str] = []
 
@@ -402,7 +408,7 @@ class AsyncARIA2CDownloader:
 
                 except Exception as e:
                     logger.warning(f"{self.uptpremsg()} [update_uri] {repr(e)}")
-                    raise AsyncARIA2CDLError(f"couldnt get uris: {repr(e)}")
+                    raise AsyncARIA2CDLError("couldnt get uris") from e
 
                 self.opts.set("split", self.n_workers)
                 # await asyncio.sleep(0)
@@ -415,8 +421,7 @@ class AsyncARIA2CDownloader:
                 if self.filesize:
                     _n = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
                     _gr = _n // self._nsplits or 1
-                    if _gr > CONF_PROXIES_N_GR_VIDEO:
-                        _gr = CONF_PROXIES_N_GR_VIDEO
+                    _gr = min(_gr, CONF_PROXIES_N_GR_VIDEO)
                 else:
                     _gr = CONF_PROXIES_N_GR_VIDEO
 
@@ -424,7 +429,10 @@ class AsyncARIA2CDownloader:
                 self.opts.set("split", self.n_workers)
 
                 logger.info(
-                    f"{self.premsg} enproxy {self.enproxy} mode {self._mode} proxy {self._proxy} _gr {_gr} n_workers {self.n_workers} "
+                    "".join(
+                        f"{self.premsg}enproxy[{self.args.enproxy}]mode[{self._mode}]",
+                        f"proxy[{self._proxy}]_gr[{_gr}]n_workers[{self.n_workers}]"
+                    )
                 )
 
                 async def get_uri(i):
@@ -476,33 +484,36 @@ class AsyncARIA2CDownloader:
 
                 if _res.get("event"):
                     return
-                elif (_temp := _res.get("exception")) or not (_temp := _res.get("result")):
+                if (_temp := _res.get("exception")) or not (_temp := _res.get("result")):
                     raise AsyncARIA2CDLError(f"couldnt get uris: {repr(_temp)}")
-                else:
-                    _uris.extend(cast(list[str], variadic(_temp)))
+                _uris.extend(cast(list[str], variadic(_temp)))
 
                 #  self.uris = _uris * self._nsplits
             self.uris = _uris
 
     async def check_speed(self):
-        def getter(x):
-            if x <= 2:
-                return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 0.25
-            elif x <= (self.n_workers // 2):
-                return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 1.25
-            else:
-                return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 5
 
-        def len_ap_list(_list, el):
-            _list.append(el)
+        def len_ap_list(_list, _eltoap):
+            _list.append(_eltoap)
             return len(_list)
 
-        def perc_below(_list, _max):
-            total = len(_list)
-            _below = sum([1 for el in _list if el[0] < getter(el[1])])
-            _perc = int((_below / total) * 100)
-            if _perc > _max:
-                return _perc
+        # def getter(x):
+        #     if x <= 2:
+        #         return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 0.25
+        #     if x <= (self.n_workers // 2):
+        #         return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 1.25
+        #     return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 5
+
+        # def perc_below(_list, _max):
+        #     total = len(_list)
+        #     _below = sum(1 for el in _list if el[0] < getter(el[1]))
+        #     _perc = int((_below / total) * 100)
+        #     if _perc > _max:
+        #         return _perc
+
+        def _print_el(item: tuple) -> str:
+            _secs = item[2].second + item[2].microsecond / 1000000
+            return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
 
         _speed = []
 
@@ -517,43 +528,42 @@ class AsyncARIA2CDownloader:
                 if "event" in _res:
                     logger.debug(f"{self.premsg}[check_speed] stop event")
                     return
-                elif _temp := _res.get("exception"):
+                if _temp := _res.get("exception"):
                     raise AsyncARIA2CDLError(f"error when get from qspeed: {repr(_temp)}")
-                else:
-                    _input_speed = _res.get("result")
+
+                _input_speed = _res.get("result")
 
                 if _input_speed == kill_token:
                     logger.debug(f"{self.premsg}[check_speed] {kill_token} from queue")
                     return
-                elif any([_input_speed is None, self.block_init, self.check_any_event_is_set()]):
+                if any([_input_speed is None, self.block_init, self.check_any_event_is_set()]):
                     continue
-                elif len_ap_list(_speed, _input_speed) > _min_check:
+                if len_ap_list(_speed, _input_speed) > _min_check:
                     _res_dl0 = False
                     _res_ncon = False
                     _res_perc = False
 
                     if any(
                         [
-                            _res_dl0 := all([el[0] == 0 for el in _speed[-_index:]]),
+                            _res_dl0 := all(el[0] == 0 for el in _speed[-_index:]),
                             _res_ncon := all(
                                 [
                                     self.n_workers > 1,
-                                    all([el[1] < self.n_workers - 1 for el in _speed[-_index:]]),
+                                    all(el[1] < self.n_workers - 1 for el in _speed[-_index:]),
                                 ]
                             ),
                             #  _res_perc := perc_below(_speed[-_index:], 80)
                         ]
                     ):
 
-                        def _print_el(item: tuple) -> str:
-                            _secs = item[2].second + item[2].microsecond / 1000000
-                            return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
-
                         _str_speed = ", ".join([_print_el(el) for el in _speed[-_index:]])
 
                         # logger.debug(f'{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}]')
                         logger.info(
-                            f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}] dl0[{_res_dl0}] ncon[{_res_ncon}] perc[{_res_perc}]"
+                            "".join(
+                                f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}] ",
+                                f"dl0[{_res_dl0}] ncon[{_res_ncon}] perc[{_res_perc}]"
+                            )
                         )  # \n{_str_speed}')
                         logger.debug(f"{self.premsg}[check_speed]\n{_str_speed}")
 
@@ -663,7 +673,7 @@ class AsyncARIA2CDownloader:
                     _result = await self.aupdate(self.dl_cont) or {}
                     if "error" in _result:
                         raise AsyncARIA2CDLError("fetch error: error update dl_cont")
-                    elif "reset" in _result:
+                    if "reset" in _result:
                         await self.vid_dl.reset()
                     else:
                         self._qspeed.put_nowait(
@@ -706,11 +716,18 @@ class AsyncARIA2CDownloader:
                 raise
 
     async def fetch_async(self):
-        self.progress_timer = ProgressTimer()
-        self._speed = []
-        self.n_rounds = 0
 
-        self._qspeed = asyncio.Queue()
+        # def _print_el(element: tuple):
+        #     _secs = element[0].second + element[0].microsecond / 1000000
+        #     _str0 = f'{element[0].strftime("%H:%M:")}{_secs:06.3f}'
+        #     if isinstance(element[1], (str, list, tuple)):
+        #         _str1 = element[1]
+        #     else:
+        #         _str1 = f"['status': {element[1].status}, 'speed': {element[1].download_speed}]"
+
+        #     return f"({_str0}, {_str1})"
+
+        self.progress_timer.reset()
         check_task = self.add_task(self.check_speed())
 
         try:
@@ -755,16 +772,6 @@ class AsyncARIA2CDownloader:
         finally:
             self._qspeed.put_nowait(kill_token)
             await asyncio.wait([check_task])
-
-            def _print_el(el: tuple):
-                _secs = el[0].second + el[0].microsecond / 1000000
-                _str0 = f'{el[0].strftime("%H:%M:")}{_secs:06.3f}'
-                if isinstance(el[1], (str, list, tuple)):
-                    _str1 = el[1]
-                else:
-                    _str1 = f"['status': {el[1].status}, 'speed': {el[1].download_speed}]"
-
-                return f"({_str0}, {_str1})"
 
             # _str_speed = ', '.join([_print_el(el) for el in self._speed])
 

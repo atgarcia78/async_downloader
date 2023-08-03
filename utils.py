@@ -67,6 +67,15 @@ from importlib.util import module_from_spec
 _loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
 
 
+def empty_queue(q: Union[asyncio.Queue, Queue]):
+    while True:
+        try:
+            q.get_nowait()
+            q.task_done()
+        except (asyncio.QueueEmpty, Empty):
+            break
+
+
 def load_module(name, path: str):
     finder = FileFinder(path, *_loader_details)
     spec = finder.find_spec(name)
@@ -373,6 +382,12 @@ class SpeedometerMA:
 
         return self.ema_value(self.last_value or speed)
 
+    def reset(self, initial_bytes: int = 0):
+        self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
+        self.timer = ProgressTimer()
+        self.last_value = None
+        self.ema_value = EMA(smoothing=0.3)
+
 
 class SmoothETA:
     def __init__(self):
@@ -395,6 +410,9 @@ class SmoothETA:
 
         self.last_value = time_now + value
         return value
+
+    def reset(self):
+        self.last_value = None
 
 
 class SignalHandler:
