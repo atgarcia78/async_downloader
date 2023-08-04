@@ -3611,6 +3611,7 @@ try:
             "wd5": Path("/Volumes/WD5/videos"),
             "wd8_1": Path("/Volumes/WD8_1/videos"),
             "wd8_2": Path("/Volumes/WD8_2/videos"),
+            "t7": Path("/Volumes/T7/videos")
         }
 
         def __init__(self):
@@ -3655,6 +3656,8 @@ try:
                     return "wd8_1"
                 elif "WD8_2/videos" in x:
                     return "wd8_2"
+                elif "T7/videos" in x:
+                    return "t7"
 
             if videos_cached:
                 self._data_for_scan = videos_cached.copy()
@@ -3670,6 +3673,7 @@ try:
                 "datostoni": {},
                 "wd8_1": {},
                 "wd8_2": {},
+                "t7": {}
             }
 
             _upt_temp.update({"last_time_sync": last_time_sync})
@@ -4035,6 +4039,8 @@ try:
             "wd1b": Path("/Volumes/WD1B/videos"),
             "wd5": Path("/Volumes/WD5/videos"),
             "wd8_1": Path("/Volumes/WD8_1/videos"),
+            "wd8_2": Path("/Volumes/WD8_2/videos"),
+            "t7": Path("/Volumes/T7/videos")
         }
 
         logger = logging.getLogger("get_files")
