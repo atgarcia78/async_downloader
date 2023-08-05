@@ -919,14 +919,6 @@ class VideoDownloader:
                     )
 
                 try:
-                    if mtime := self.info_dict.get("release_timestamp"):
-                        await autime(self.info_dl["filename"], (int(datetime.now().timestamp()), mtime))
-                except Exception as e:
-                    logger.exception(
-                        f"[{self.info_dict['id']}][{self.info_dict['title']}]:" + f"error mtime {repr(e)}"
-                    )
-
-                try:
                     if _meta := self.info_dict.get("meta_comment"):
                         temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
 
@@ -953,6 +945,14 @@ class VideoDownloader:
                 except Exception as e:
                     logger.exception(
                         f"[{self.info_dict['id']}][{self.info_dict['title']}]: error setxattr {repr(e)}"
+                    )
+
+                try:
+                    if mtime := self.info_dict.get("release_timestamp"):
+                        await autime(self.info_dl["filename"], (int(datetime.now().timestamp()), mtime))
+                except Exception as e:
+                    logger.exception(
+                        f"[{self.info_dict['id']}][{self.info_dict['title']}]:" + f"error mtime {repr(e)}"
                     )
 
             else:

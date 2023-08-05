@@ -19,6 +19,7 @@ from argparse import Namespace
 import aiofiles
 from aiofiles import os
 import httpx
+from httpx._types import ProxiesTypes
 import m3u8
 
 from Cryptodome.Cipher import AES
@@ -184,7 +185,7 @@ class AsyncHLSDownloader:
 
             self._proxy = {}
 
-            if _proxy := self.args.proxy:
+            if _proxy := cast(str, self.args.proxy):
                 self._proxy = {"http://": _proxy, "https://": _proxy}
             elif self.args.enproxy:
                 with AsyncHLSDownloader._CLASSLOCK:
@@ -242,7 +243,7 @@ class AsyncHLSDownloader:
             self._speed = []
 
             self.init_client = httpx.Client(
-                proxies=self._proxy,
+                proxies=cast(ProxiesTypes, self._proxy),
                 follow_redirects=True,
                 headers=self.info_dict["http_headers"],
                 limits=self.limits,
@@ -258,7 +259,7 @@ class AsyncHLSDownloader:
             self.info_frag = []
             self.info_init_section = {}
             self.n_dl_fragments = 0
-
+            self.info_decrypt = {}
             self.init()
 
         except Exception as e:
@@ -353,24 +354,20 @@ class AsyncHLSDownloader:
             self.n_workers = min(self.n_workers, _nworkers)
 
             self.m3u8_doc = get_m3u8_doc()
-
             self.info_dict["fragments"] = self.get_info_fragments()
-            self.info_dict["init_section"] = self.info_dict["fragments"][0].init_section
 
-            if _frag := self.info_dict["init_section"]:
+            if (_initfrag := self.info_dict["fragments"][0].init_section):
                 _file_path = Path(str(self.fragments_base_path) + ".Frag0")
-                _url = _frag.absolute_uri
+                _url = _initfrag.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
-                if _frag.key is not None and _frag.key.method == "AES-128":
-                    if _frag.key.absolute_uri not in self.key_cache:
-                        self.key_cache.update({_frag.key.absolute_uri: get_key(_frag.key.absolute_uri)})
-
+                _cipher = None
+                if _initfrag.key and _initfrag.key.method == "AES-128" and _initfrag.key.iv:
+                    if (_key := get_key(_initfrag.key.absolute_uri)):
+                        _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(_initfrag.key.iv[2:]))
                 self.info_init_section.update(
-                    {"frag": 0, "url": _url, "file": _file_path, "downloaded": False}
-                )
-
-                self.get_init_section(_url, _file_path, _frag.key)
+                    {"frag": 0, "url": _url, "file": _file_path, "downloaded": False})
+                self.get_init_section(_url, _file_path, _cipher)
 
             if self.init_file.exists():
                 with open(self.init_file, "rt", encoding='utf-8') as finit:
@@ -389,11 +386,10 @@ class AsyncHLSDownloader:
                 if fragment.byterange:
                     splitted_byte_range = fragment.byterange.split("@")
                     sub_range_start = (
-                        int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range["end"]
-                    )
+                        int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range["end"])
                     byte_range = {
                         "start": sub_range_start,
-                        "end": sub_range_start + int(splitted_byte_range[0]),
+                        "end": sub_range_start + int(splitted_byte_range[0])
                     }
 
                 else:
@@ -402,61 +398,44 @@ class AsyncHLSDownloader:
                 _url = fragment.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
+                is_dl = False
+                size = None
+                hsize = init_data.get(i + 1)
+
+                cipher = None
+                if fragment.key.uri:
+                    cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
 
                 _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
-
                 if _file_path.exists():
                     size = _file_path.stat().st_size
-                    hsize = init_data.get(i + 1)
                     is_dl = True
                     if not size or (hsize and not hsize - 100 <= size <= hsize + 100):
                         is_dl = False
                         _file_path.unlink()
                         size = None
 
-                    self.info_frag.append(
-                        {
-                            "frag": i + 1,
-                            "url": _url,
-                            "key": fragment.key,
-                            "file": _file_path,
-                            "byterange": byte_range,
-                            "downloaded": is_dl,
-                            "headersize": hsize,
-                            "size": size,
-                            "n_retries": 0,
-                            "error": ["AlreadyDL"],
-                        }
-                    )
-                    if is_dl and size:
-                        self.down_size += size
-                        self.n_dl_fragments += 1
-                    if not is_dl or not hsize:
-                        self.frags_to_dl.append(i + 1)
+                _frag = {
+                    "frag": i + 1,
+                    "url": _url,
+                    "key": fragment.key,
+                    "cipher": cipher,
+                    "file": _file_path,
+                    "byterange": byte_range,
+                    "downloaded": is_dl,
+                    "headersize": hsize,
+                    "size": size,
+                    "n_retries": 0,
+                    "error": [],
+                }
 
-                else:
-                    self.info_frag.append(
-                        {
-                            "frag": i + 1,
-                            "url": _url,
-                            "key": fragment.key,
-                            "file": _file_path,
-                            "byterange": byte_range,
-                            "downloaded": False,
-                            "headersize": init_data.get(i + 1),
-                            "size": None,
-                            "n_retries": 0,
-                            "error": [],
-                        }
-                    )
-
+                if is_dl and size:
+                    self.down_size += size
+                    self.n_dl_fragments += 1
+                if not is_dl or not hsize:
                     self.frags_to_dl.append(i + 1)
 
-                if fragment.key and fragment.key.method == "AES-128":
-                    if fragment.key.absolute_uri not in self.key_cache:
-                        _key = get_key(fragment.key.absolute_uri)
-                        _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(fragment.key.iv[2:]))
-                        self.key_cache.update({fragment.key.absolute_uri: {"key": _key, "cipher": _cipher}})
+                self.info_frag.append(_frag)
 
             logger.debug(
                 "".join([
@@ -511,6 +490,15 @@ class AsyncHLSDownloader:
         return _filesize
 
     def get_info_fragments(self):
+
+        @on_503
+        @on_exception
+        def get_key(key_uri):
+            return try_get(
+                send_http_request(key_uri, client=self.init_client, new_e=AsyncHLSDLError),
+                lambda x: x.content if x else None,
+            )
+
         try:
             self._host = get_host(self.info_dict["url"])
             m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict["url"])
@@ -520,8 +508,11 @@ class AsyncHLSDownloader:
 
             if m3u8_obj.keys:
                 for _key in m3u8_obj.keys:
-                    if _key and _key.method != "AES-128":
-                        logger.warning(f"key AES method: {_key.method}")
+                    if _key and _key.method == "AES-128" and _key.iv:
+                        if not (_cipher := traverse_obj(self.key_cache, (_key.uri, "cipher"))):
+                            if (_valkey := get_key(_key.absolute_uri)):
+                                _cipher = AES.new(_valkey, AES.MODE_CBC, binascii.unhexlify(_key.iv[2:]))
+                                self.key_cache[_key.uri] = {"key": _valkey, "cipher": _cipher}
 
             if _start_time := self.info_dict.get("_start_time"):
                 logger.info(f"{self.premsg}[get_info_fragments] start time {_start_time}")
@@ -563,18 +554,16 @@ class AsyncHLSDownloader:
 
     @on_503
     @on_exception
-    def get_init_section(self, uri, file, key):
+    def get_init_section(self, uri, file, cipher):
         try:
-            cipher = traverse_obj(self.key_cache, (key.absolute_uri, "cipher")) if key else None
             if res := send_http_request(uri, client=self.init_client, new_e=AsyncHLSDLError):
-                _frag = res.content if not cipher else cipher.decrypt(res.content)
+                _data = res.content if not cipher else cipher.decrypt(res.content)
                 with open(file, "wb") as fsect:
-                    fsect.write(_frag)
-
+                    fsect.write(_data)
                 self.info_init_section.update({"downloaded": True})
             else:
-                raise AsyncHLSDLError(f"{self.premsg}:[get_init_section] couldnt get init section")
-
+                raise AsyncHLSDLError(
+                    f"{self.premsg}:[get_init_section] couldnt get init section")
         except Exception as e:
             logger.exception(f"{self.premsg}:[get_init_section] {repr(e)}")
             raise
@@ -614,7 +603,7 @@ class AsyncHLSDownloader:
         self.init_client.close()
 
         self.init_client = httpx.Client(
-            proxies=self._proxy,  # type: ignore
+            proxies=cast(ProxiesTypes, self._proxy),
             follow_redirects=True,
             headers=self.info_dict["http_headers"],
             limits=self.limits,
@@ -632,7 +621,7 @@ class AsyncHLSDownloader:
 
         self.frags_to_dl = []
 
-        byte_range = {}
+        self.info_dict["fragments"] = self.get_info_fragments()
 
         if self.init_file.exists():
             with open(self.init_file, "rt", encoding='utf-8') as finit:
@@ -641,23 +630,19 @@ class AsyncHLSDownloader:
         else:
             init_data = {}
 
-        self.info_dict["fragments"] = self.get_info_fragments()
+        byte_range = {}
 
         for i, fragment in enumerate(self.info_dict["fragments"]):
             if not fragment.uri and fragment.parts:
                 fragment.uri = fragment.parts[0].uri
 
-            # _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
-
             if fragment.byterange:
                 splitted_byte_range = fragment.byterange.split("@")
                 sub_range_start = (
-                    int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range["end"]
-                )
+                    int(splitted_byte_range[1]) if len(splitted_byte_range) == 2 else byte_range["end"])
                 byte_range = {
                     "start": sub_range_start,
-                    "end": sub_range_start + int(splitted_byte_range[0]),
-                }
+                    "end": sub_range_start + int(splitted_byte_range[0])}
 
             else:
                 byte_range = {}
@@ -680,12 +665,12 @@ class AsyncHLSDownloader:
                     self.info_frag[i]["n_retries"] = 0
                     self.info_frag[i]["byterange"] = byte_range
                     self.info_frag[i]["key"] = fragment.key
-                    if fragment.key and fragment.key.method == "AES-128":
-                        if fragment.key.absolute_uri not in self.key_cache:
-                            _key = get_key(fragment.key.absolute_uri)
-                            _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(fragment.key.iv[2:]))
-                            self.key_cache.update({
-                                fragment.key.absolute_uri: {"key": _key, "cipher": _cipher}})
+
+                    cipher = None
+                    if fragment.key.uri:
+                        cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
+
+                    self.info_frag[i]["cipher"] = cipher
 
             except Exception:
                 logger.debug(
@@ -712,7 +697,7 @@ class AsyncHLSDownloader:
 
     @retry
     def get_reset_info(self, _reset_url, plns=True, first=False):
-        _proxy = traverse_obj(self._proxy, "http://")
+        _proxy = cast(str, traverse_obj(self._proxy, "http://"))
         _print_proxy = f':proxy[{_proxy.split(":")[-1]}]' if _proxy else ""
         _print_plns = f":PLNS[{self.fromplns}]:first[{first}]" if self.fromplns else ""
 
@@ -1030,9 +1015,7 @@ class AsyncHLSDownloader:
             _premsg = f"{self.premsg}:[worker-{nco}]:[frag-{index}]"
             url = self.info_frag[index - 1]["url"]
             filename = Path(self.info_frag[index - 1]["file"])
-            cipher = None
-            if (_key := self.info_frag[index - 1]["key"]):
-                cipher = traverse_obj(self.key_cache, (_key.absolut_uri, "cipher"))
+            cipher = self.info_frag[index - 1].get("cipher")
             headers = {}
             if byte_range := self.info_frag[index - 1].get("byterange"):
                 headers["range"] = f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
@@ -1053,21 +1036,18 @@ class AsyncHLSDownloader:
                         if res.status_code == 403:
                             if self.fromplns:
                                 _wait_tasks = await self.vid_dl.reset_plns(
-                                    "403", plns=self.fromplns
-                                )
+                                    "403", plns=self.fromplns)
                             else:
                                 _wait_tasks = await self.vid_dl.reset("403")
 
                             if _wait_tasks:
                                 done, pending = await asyncio.wait(_wait_tasks)
                                 logger.debug(
-                                    f"{_premsg}[wait_tasks] DONE\n{done}\nPENDING\n{pending}"
-                                )
+                                    f"{_premsg}[wait_tasks] DONE\n{done}\nPENDING\n{pending}")
                             return
 
                         if res.status_code == 503:
                             self.info_frag[index - 1]["n_retries"] = 0
-
                             raise StatusError503(f"{_premsg}")
 
                         if res.status_code >= 400:
@@ -1075,16 +1055,12 @@ class AsyncHLSDownloader:
 
                         if not (_hsize := self.info_frag[index - 1]["headersize"]):
                             _hsize = self.info_frag[index - 1]["headersize"] = int_or_none(
-                                res.headers.get("content-length")
-                            )
+                                res.headers.get("content-length"))
 
                         if self.info_frag[index - 1]["downloaded"]:
                             _size = self.info_frag[index - 1]["size"] = (
-                                await os.stat(filename)
-                            ).st_size
-                            if (
-                                _hsize and (_hsize - 100 <= _size <= _hsize + 100)
-                            ) or not _hsize:
+                                await os.stat(filename)).st_size
+                            if (_hsize and (_hsize - 100 <= _size <= _hsize + 100)) or not _hsize:
                                 break
 
                             await fileobj.truncate(0)
@@ -1191,7 +1167,7 @@ class AsyncHLSDownloader:
         logger.debug(f"{self.premsg}:[worker-{nco}]: init worker")
 
         client = httpx.AsyncClient(
-            proxies=getattr(self, "_proxy", None),
+            proxies=cast(ProxiesTypes, self._proxy),
             limits=self.limits,
             follow_redirects=True,
             timeout=self.timeout,

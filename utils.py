@@ -21,13 +21,31 @@ from queue import Empty, Queue
 from collections import defaultdict
 import termios
 import selectors
+from importlib.machinery import SOURCE_SUFFIXES, FileFinder, SourceFileLoader
+from importlib.util import module_from_spec
 
-from concurrent.futures import ThreadPoolExecutor, wait as wait_thr, as_completed, Future
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    wait as wait_thr,
+    as_completed,
+    Future
+)
 from datetime import datetime
 
 from pathlib import Path
 from bisect import bisect
-from typing import List, Tuple, Union, Dict, Coroutine, Any, Iterable, cast, Awaitable, Callable
+from typing import (
+    List,
+    Tuple,
+    Union,
+    Dict,
+    Coroutine,
+    Any,
+    Iterable,
+    cast,
+    Awaitable,
+    Callable
+)
 
 from _thread import LockType
 import queue
@@ -61,8 +79,6 @@ except Exception:
 # ***********************************+
 # ************************************
 
-from importlib.machinery import SOURCE_SUFFIXES, FileFinder, SourceFileLoader
-from importlib.util import module_from_spec
 
 _loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
 
@@ -132,10 +148,6 @@ def get_host(url: str, shorten=None) -> str:
         _nhost = _host.split(".")
         if _host.count(".") >= 3:
             _host = ".".join(_nhost[-3:])
-    # elif shorten == 'boyfriendtv':
-    #     _nhost = _host.split('.')
-    #     _nhost[0] = _nhost[0][:5]
-    #     _host = '.'.join(_nhost)
     return _host
 
 
@@ -355,7 +367,8 @@ class SpeedometerMA:
     TIMER_FUNC = time.monotonic
 
     def __init__(
-        self, initial_bytes: int = 0, upt_time: Union[int, float] = 1.0, ave_time: Union[int, float] = 5.0
+        self, initial_bytes: int = 0,
+        upt_time: Union[int, float] = 1.0, ave_time: Union[int, float] = 5.0
     ):
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
@@ -444,7 +457,9 @@ class long_operation_in_thread:
         def wrapper(*args, **kwargs) -> MySyncAsyncEvent:
             stop_event = MySyncAsyncEvent(name)
             thread = threading.Thread(
-                target=func, name=name, args=args, kwargs={"stop_event": stop_event, **kwargs}, daemon=True
+                target=func, name=name, args=args,
+                kwargs={"stop_event": stop_event, **kwargs},
+                daemon=True
             )
             thread.start()
             return stop_event
@@ -499,7 +514,8 @@ class run_operation_in_executor_from_loop:
             kwargs["stop_event"] = stop_event
             _task = asyncio.create_task(
                 sync_to_async(
-                    func, thread_sensitive=False, executor=ThreadPoolExecutor(thread_name_prefix=name)
+                    func, thread_sensitive=False,
+                    executor=ThreadPoolExecutor(thread_name_prefix=name)
                 )(*args, **kwargs),
                 name=name,
             )
@@ -617,7 +633,8 @@ async def async_waitfortasks(
 
         for event in _events:
             if isinstance(event, asyncio.Event):
-                _tasks_events.update({add_task(event.wait(), _background_tasks): f"event{getter(event)}"})
+                _tasks_events.update(
+                    {add_task(event.wait(), _background_tasks): f"event{getter(event)}"})
             elif isinstance(event, MySyncAsyncEvent):
                 _tasks_events.update(
                     {add_task(event.async_wait(), _background_tasks): f"event{getter(event)}"}
@@ -633,7 +650,8 @@ async def async_waitfortasks(
         else:
             return {"timeout": "nothing to await"}
 
-    done, pending = await asyncio.wait(_final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    done, pending = await asyncio.wait(
+        _final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
 
     res: dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]] = {}
 
@@ -769,9 +787,8 @@ def init_logging(file_path=None, test=False):
     with open(config_file) as f:
         config = json.loads(f.read())
 
-    config["handlers"]["info_file_handler"]["filename"] = config["handlers"]["info_file_handler"][
-        "filename"
-    ].format(path_logs=str(PATH_LOGS))
+    config["handlers"]["info_file_handler"]["filename"] = config[
+        "handlers"]["info_file_handler"]["filename"].format(path_logs=str(PATH_LOGS))
 
     logging.config.dictConfig(config)
 
@@ -820,7 +837,8 @@ class ActionNoYes(argparse.Action):
 
 
 def init_argparser():
-    parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
+    parser = argparse.ArgumentParser(
+        description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
     parser.add_argument(
         "--winit",
@@ -828,9 +846,11 @@ def init_argparser():
         default="10",
         type=int,
     )
-    parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
     parser.add_argument(
-        "--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str
+        "-p", "--parts", help="Number of workers for each DL", default="16", type=int)
+    parser.add_argument(
+        "--format", help="Format preferred of the video in youtube-dl format",
+        default="bv*+ba/b", type=str
     )
     parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
@@ -975,7 +995,8 @@ def init_aria2c(args):
 
 CLIENT_CONFIG = {
     "timeout": httpx.Timeout(timeout=20),
-    "limits": httpx.Limits(max_connections=None, max_keepalive_connections=None, keepalive_expiry=5.0),
+    "limits": httpx.Limits(
+        max_connections=None, max_keepalive_connections=None, keepalive_expiry=5.0),
     "headers": {
         "User-Agent": CONF_FIREFOX_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -1157,7 +1178,7 @@ class TorGuardProxies:
             _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
             _proc.poll()
             if _proc.returncode:
-                TorGuardProxies.logger.error(f"[init_proxies] returncode[{_proc.returncode}] to cmd[{cmd}]")
+                TorGuardProxies.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{cmd}]")
                 raise Exception("init proxies error")
             else:
                 proc_gost.append(_proc)
