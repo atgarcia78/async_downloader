@@ -403,7 +403,7 @@ class AsyncHLSDownloader:
                 hsize = init_data.get(i + 1)
 
                 cipher = None
-                if fragment.key.uri:
+                if fragment.key:
                     cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
 
                 _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
@@ -667,7 +667,7 @@ class AsyncHLSDownloader:
                     self.info_frag[i]["key"] = fragment.key
 
                     cipher = None
-                    if fragment.key.uri:
+                    if fragment.key:
                         cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
 
                     self.info_frag[i]["cipher"] = cipher
