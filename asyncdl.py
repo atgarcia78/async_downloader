@@ -119,6 +119,7 @@ def get_list_interl(res, asyncdl, _pre):
     )
 
     _workers = asyncdl.workers
+    _interl = []
     while _workers > asyncdl.workers // 2:
         _interl = []
         for el in list(zip_longest(*list(_dict.values()))):
@@ -150,7 +151,10 @@ def get_list_interl(res, asyncdl, _pre):
 
     asyncdl.workers = _workers
     asyncdl.WorkersRun.max = _workers
-    _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
+    if _interl:
+        _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
+    else:
+        _http_list = _res
     return mix_lists(_http_list, _hls_list, asyncdl)
 
 
