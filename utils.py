@@ -54,6 +54,24 @@ from operator import getitem
 import urllib.parse
 from urllib.parse import urlparse
 
+FileLock = None
+try:
+    from filelock import FileLock
+except Exception:
+    print("PLEASE INSTALL filelock")
+
+try:
+    import proxy
+except Exception:
+    print("PLEASE INSTALL proxy")
+    proxy = None
+
+try:
+    import xattr
+except Exception:
+    print("PLEASE INSTALL xattr")
+    xattr = None
+
 try:
     from tabulate import tabulate
 except Exception:
@@ -128,7 +146,7 @@ CONF_INTERVAL_GUI = 0.2
 CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
-    "GVDBlogPlaylist",
+    # "GVDBlogPlaylist",
     "MyVidsterChannelPlaylistIE",
     "MyVidsterSearchPlaylistIE",
     "MyVidsterRSSPlaylistIE",
@@ -140,6 +158,15 @@ CONF_HTTP_DL = {
         "max_filesize": 300000000,
     }
 }
+
+
+def upartial(f, *args, **kwargs):
+    """
+    An upgraded version of partial which accepts not named parameters
+    """
+    params = f.__code__.co_varnames[1:]
+    kwargs = {**{param: arg for param, arg in zip(params, args)}, **kwargs}
+    return functools.partial(f, **kwargs)
 
 
 def get_host(url: str, shorten=None) -> str:
@@ -406,13 +433,13 @@ class SmoothETA:
     def __init__(self):
         self.last_value = None
 
-    def __call__(self, value):
+    def __call__(self, value: float):
         if value <= 0:
             return 0
 
         time_now = time.monotonic()
         if self.last_value:
-            predicted = self.last_value - time_now
+            predicted = cast(float, self.last_value - time_now)
             if predicted <= 0:
                 deviation = float("inf")
             else:
@@ -1725,6 +1752,7 @@ if yt_dlp:
             "Formats sorted by:",
             "No video formats found!",
             "Requested format is not available",
+            "You have asked for UNPLAYABLE formats to be listed/downloaded"
         ]
 
         _skip_phr = ["Downloading", "Extracting information", "Checking", "Logging"]
@@ -2195,72 +2223,300 @@ if yt_dlp:
                 return info_dict
         return {}
 
+    def _for_print_entry(entry):
+        if not entry:
+            return ""
+        _entry = copy.deepcopy(entry)
 
-############################################################
-# """                     YTDLP                           """
-############################################################
+        if _formats := _entry.get("formats"):
+            _new_formats = []
+            for _format in _formats:
+                if len(_formats) > 5:
+                    _id, _prot = _format["format_id"], _format["protocol"]
+                    _format = {"format_id": _id, ...: ..., "protocol": _prot}
 
+                else:
+                    if _frag := _format.get("fragments"):
+                        _format["fragments"] = [_frag[0], ..., _frag[-1]]
+                _new_formats.append(_format)
 
-def _for_print_entry(entry):
-    if not entry:
-        return ""
-    _entry = copy.deepcopy(entry)
+            _entry["formats"] = _new_formats
 
-    if _formats := _entry.get("formats"):
-        _new_formats = []
-        for _format in _formats:
-            if len(_formats) > 5:
-                _id, _prot = _format["format_id"], _format["protocol"]
-                _format = {"format_id": _id, ...: ..., "protocol": _prot}
-
-            else:
+        if _formats := _entry.get("requested_formats"):
+            _new_formats = []
+            for _format in _formats:
                 if _frag := _format.get("fragments"):
                     _format["fragments"] = [_frag[0], ..., _frag[-1]]
-            _new_formats.append(_format)
+                _new_formats.append(_format)
 
-        _entry["formats"] = _new_formats
+            _entry["requested_formats"] = _new_formats
 
-    if _formats := _entry.get("requested_formats"):
-        _new_formats = []
-        for _format in _formats:
-            if _frag := _format.get("fragments"):
-                _format["fragments"] = [_frag[0], ..., _frag[-1]]
-            _new_formats.append(_format)
+        if _frag := _entry.get("fragments"):
+            _entry["fragments"] = [_frag[0], ..., _frag[-1]]
 
-        _entry["requested_formats"] = _new_formats
+        return _entry
 
-    if _frag := _entry.get("fragments"):
-        _entry["fragments"] = [_frag[0], ..., _frag[-1]]
+    def _for_print(info):
+        if not info:
+            return ""
+        _info = copy.deepcopy(info)
+        if _entries := _info.get("entries"):
+            _info["entries"] = [_for_print_entry(_el) for _el in _entries]
+            return _info
+        else:
+            return _for_print_entry(_info)
 
-    return _entry
+    def _for_print_videos(videos):
+        if not videos:
+            return ""
+        _videos = copy.deepcopy(videos)
 
+        if isinstance(_videos, dict):
+            for _urlkey, _value in _videos.items():
+                if _info := traverse_obj(_value, "video_info"):
+                    _value["video_info"] = _for_print(_info)
 
-def _for_print(info):
-    if not info:
-        return ""
-    _info = copy.deepcopy(info)
-    if _entries := _info.get("entries"):
-        _info["entries"] = [_for_print_entry(_el) for _el in _entries]
-        return _info
-    else:
-        return _for_print_entry(_info)
+            return "{" + ",\n".join([f"'{key}': {value}" for key, value in _videos.items()]) + "}"
 
+        elif isinstance(_videos, list):
+            _videos = [str(_for_print(_vid)) for _vid in _videos]
+            return "[" + ",\n".join(_videos) + "]"
 
-def _for_print_videos(videos):
-    if not videos:
-        return ""
-    _videos = copy.deepcopy(videos)
+    def render_res_table(data, headers=[], maxcolwidths=None, showindex=True, tablefmt="simple"):
+        if tabulate:
+            return tabulate(
+                data, headers=headers, maxcolwidths=maxcolwidths, showindex=showindex, tablefmt=tablefmt
+            )
+        else:
+            logger = logging.getLogger("asyncdl")
+            logger.warning("Tabulate is not installed, tables will not be presented optimized")
+            return render_table(headers, data, delim=True)
 
-    if isinstance(_videos, dict):
-        for _urlkey, _value in _videos.items():
-            if _info := traverse_obj(_value, "video_info"):
-                _value["video_info"] = _for_print(_info)
+    def send_http_request(url, **kwargs) -> Union[None, httpx.Response]:
+        """
+        raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
+        """
+        _kwargs = kwargs.copy()
+        new_e = _kwargs.pop("new_e", Exception)
+        try:
+            return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
+        except ExtractorError as e:
+            raise new_e(str(e))
 
-        return "{" + ",\n".join([f"'{key}': {value}" for key, value in _videos.items()]) + "}"
+    def get_files_same_id():
+        config_folders = {
+            "local": Path(Path.home(), "testing"),
+            "pandaext4": Path("/Volumes/Pandaext4/videos"),
+            "datostoni": Path("/Volumes/DatosToni/videos"),
+            "wd1b": Path("/Volumes/WD1B/videos"),
+            "wd5": Path("/Volumes/WD5/videos"),
+            "wd8_1": Path("/Volumes/WD8_1/videos"),
+            "wd8_2": Path("/Volumes/WD8_2/videos"),
+            "t7": Path("/Volumes/T7/videos")
+        }
 
-    elif isinstance(_videos, list):
-        _videos = [str(_for_print(_vid)) for _vid in _videos]
-        return "[" + ",\n".join(_videos) + "]"
+        logger = logging.getLogger("get_files")
+
+        list_folders = []
+
+        for _vol, _folder in config_folders.items():
+            if not _folder.exists():
+                logger.error(f"failed {_vol}:{_folder}, let get previous info saved in previous files")
+
+            else:
+                list_folders.append(_folder)
+
+        files_cached = []
+        for folder in list_folders:
+            logger.info(">>>>>>>>>>>STARTS " + str(folder))
+
+            files = []
+            try:
+                files = [
+                    file
+                    for file in folder.rglob("*")
+                    if file.is_file()
+                    and not file.is_symlink()
+                    and "videos/_videos/" not in str(file)
+                    and not file.stem.startswith(".")
+                    and (file.suffix.lower() in (".mp4", ".mkv", ".ts", ".zip"))
+                ]
+
+            except Exception as e:
+                logger.error(f"[get_files_cached][{folder}] {repr(e)}")
+
+            for file in files:
+                _res = file.stem.split("_", 1)
+                if len(_res) == 2:
+                    _id = _res[0]
+
+                else:
+                    _id = sanitize_filename(file.stem, restricted=True).upper()
+
+                files_cached.append((_id, str(file)))
+
+        _res_dict = {}
+        for el in files_cached:
+            for item in files_cached:
+                if (el != item) and (item[0] == el[0]):
+                    if not _res_dict.get(el[0]):
+                        _res_dict[el[0]] = set([el[1], item[1]])
+                    else:
+                        _res_dict[el[0]].update([el[1], item[1]])
+        _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
+        return _ord_res_dict
+
+    def check_if_dl(info_dict, videos=None):
+        if not videos:
+            ls = LocalStorage()
+            ls.load_info()
+            videos = ls._data_for_scan
+        if isinstance(info_dict, dict):
+            info = [info_dict]
+            if info_dict.get("entries"):
+                info = info_dict["entries"]
+
+            res = {}
+            for vid in info:
+                if not (_id := vid.get("id")) or not (_title := vid.get("title")):
+                    continue
+
+                _title = sanitize_filename(_title, restricted=True).upper()
+                vid_name = f"{_id}_{_title}"
+                res.update({vid_name: videos.get(vid_name)})
+        else:
+            if isinstance(info_dict, str):
+                info = [info_dict]
+            else:
+                info = info_dict
+            res = {}
+            for vid in info:
+                vidname = sanitize_filename(vid, restricted=True).upper()
+                res[vidname] = {}
+                for key in videos.keys():
+                    if vidname in key:
+                        res[vidname].update({key: videos[key]})
+        return res
+
+    def change_title(info_dict, videos=None):
+        if not videos:
+            ls = LocalStorage()
+            ls.load_info()
+            videos = ls._data_for_scan
+        if isinstance(info_dict, dict):
+            info = [info_dict]
+            if info_dict.get("entries"):
+                info = info_dict["entries"]
+
+            res = {}
+            for vid in info:
+                if not (_id := vid.get("id")) or not (_title := vid.get("title")):
+                    continue
+
+                _title = sanitize_filename(_title, restricted=True)
+                vid_name = _id
+                res[vid_name] = {"title": _title}
+                for key in videos.keys():
+                    if key.startswith(_id + "_"):
+                        file = Path(videos[key])
+                        res[vid_name]["file"] = file
+                        res[vid_name]["file_name"] = file.stem
+                        res[vid_name]["file_name_def"] = f"{vid_name}_{_title}"
+                        if res[vid_name]["file_name"] != res[vid_name]["file_name_def"]:
+                            res[vid_name]["file_change"] = Path(
+                                file.parent, res[vid_name]["file_name_def"] + file.suffix
+                            )
+                        break
+            return res
+
+    # tools for gvd files, xattr, move files etc
+    def dl_gvd_best_videos(date, ytdl=None, quiet=False):
+        if not ytdl:
+            kwargs = {el[0]: el[1] for el in args._get_kwargs()}
+            _args = argparse.Namespace(**kwargs)
+            if quiet:
+                _args.quiet = True
+                _args.verbose = False
+                _args.vv = False
+            yt = init_ytdl(_args)
+        else:
+            yt = ytdl
+
+        logger = mylogger(logging.getLogger("dl_gvd"))
+        logger.quiet = quiet
+        url = "https://www.gvdblog.com/search?date=" + date
+        resleg = yt.extract_info(url, download=False)
+        if resleg:
+            write_string(f"entriesleg: {len(resleg['entries'])}")
+            print("", file=sys.stderr, flush=True)
+        resalt = yt.extract_info(url + "&alt=yes", download=False)
+        if resalt:
+            write_string(f"entriesalt: {len(resalt['entries'])}")
+            print("", file=sys.stderr, flush=True)
+        urls_alt_dl = []
+        urls_leg_dl = []
+        urls_final = []
+        entriesleg = []
+        entriesalt = []
+        entries_final = []
+        if (
+            resleg
+            and (entriesleg := resleg.get("entries", []))
+            and resalt
+            and (entriesalt := resalt.get("entries", []))
+            and len(entriesleg) == len(entriesalt)
+        ):
+            for entleg, entalt in zip(entriesleg, entriesalt):
+                if entleg["format_id"].startswith("hls") or not entalt["format_id"].startswith("hls"):
+                    logger.info(f"cause 1 {entleg['original_url']}")
+                    urls_leg_dl.append(entleg["original_url"])
+                    urls_final.append(entleg["original_url"])
+                    entries_final.append(entleg)
+                elif not entleg["format_id"].startswith("hls") and entalt["format_id"].startswith("hls"):
+                    entaltfilesize = entalt.get("filesize_approx") or (
+                        entalt.get("tbr", 0) * entalt.get("duration", 0) * 1024 / 8
+                    )
+                    entlegfilesize = entleg.get("filesize")
+                    if all(
+                        [
+                            entlegfilesize,
+                            entaltfilesize,
+                            entaltfilesize >= 2 * entlegfilesize,
+                            entaltfilesize > 786432000 or entlegfilesize < 157286400,
+                        ]
+                    ):
+                        logger.info(
+                            f"cause 2.A {entalt['original_url']} - {naturalsize(entaltfilesize)} >= 1.5 * {naturalsize(entlegfilesize)}"
+                        )
+                        urls_alt_dl.append(entalt["original_url"])
+                        urls_final.append(entalt["original_url"])
+                        entries_final.append(entalt)
+                    else:
+                        logger.info(f"cause 2.B {entleg['original_url']}")
+                        urls_leg_dl.append(entleg["original_url"])
+                        urls_final.append(entleg["original_url"])
+                        entries_final.append(entleg)
+                else:
+                    logger.info(f"cause 3 {entleg['original_url']}")
+                    urls_leg_dl.append(entleg["original_url"])
+                    urls_final.append(entleg["original_url"])
+                    entries_final.append(entleg)
+
+        if urls_final:
+            cmd = f"--path SearchGVDBlogPlaylistdate={date} -u " + " -u ".join(urls_final)
+            logger.pprint(cmd)
+            write_string(str(len(urls_final)))
+            print("", file=sys.stderr, flush=True)
+            return entries_final
+
+        else:
+            raise Exception(
+                f"ERROR couldnt create command: entriesleg[{len(entriesleg)}] entriesalt[{len(entriesalt)}]"
+            )
+
+############################################################
+# """                     various                           """
+############################################################
 
 
 def print_tasks(tasks):
@@ -2484,22 +2740,6 @@ def init_config(quiet=False, test=False):
     os.environ["MOZ_HEADLESS_HEIGHT"] = "1080"
     if not quiet:
         return init_logging(test=test)
-
-
-############################################################
-# """                     PYSIMPLEGUI                    """
-############################################################
-
-
-def render_res_table(data, headers=[], maxcolwidths=None, showindex=True, tablefmt="simple"):
-    if tabulate:
-        return tabulate(
-            data, headers=headers, maxcolwidths=maxcolwidths, showindex=showindex, tablefmt=tablefmt
-        )
-    else:
-        logger = logging.getLogger("asyncdl")
-        logger.warning("Tabulate is not installed, tables will not be presented optimized")
-        return render_table(headers, data, delim=True)
 
 
 class CountDowns:
@@ -3472,10 +3712,9 @@ if PySimpleGUI:
                 del self.window_root
 
 
-try:
+if proxy:
 
     class NWSetUp:
-        import proxy
 
         Proxy = proxy.Proxy
 
@@ -3531,7 +3770,7 @@ try:
             stop_event: MySyncAsyncEvent = kwargs["stop_event"]
             log_level = kwargs.get("log_level", "INFO")
             try:
-                with self.Proxy(
+                with NWSetUp.Proxy(
                     [
                         "--log-level",
                         log_level,
@@ -3612,13 +3851,9 @@ try:
                     self.proc_aria2c = task.result()
                     return (self.proc_aria2c, self.asyncdl.args.rpcport)
 
-except ModuleNotFoundError:
-    pass
-
-try:
+if FileLock and xattr:
 
     class LocalStorage:
-        from filelock import FileLock
 
         lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
         local_storage = Path(PATH_LOGS, "files_cached.json")
@@ -3725,16 +3960,6 @@ try:
             self._data_from_file = {}  # data struct per vol
             self._data_for_scan = {}  # data ready for scan
             self._last_time_sync = {}
-
-    def upartial(f, *args, **kwargs):
-        """
-        An upgraded version of partial which accepts not named parameters
-        """
-        params = f.__code__.co_varnames[1:]
-        kwargs = {**{param: arg for param, arg in zip(params, args)}, **kwargs}
-        return functools.partial(f, **kwargs)
-
-    import xattr
 
     getxattr = lambda x: upartial(xattr.getxattr, attr="user.dublincore.description")(x).decode()
     # getxattr = lambda x: try_get(upartial(xattr.getxattr, attr='user.dublincore.description')(x), lambda y: y.decode())
@@ -4052,247 +4277,35 @@ try:
                         + f'{" -> ".join([str(_l) for _l in _links_video_path])}'
                     )
 
-    def get_files_same_id():
-        config_folders = {
-            "local": Path(Path.home(), "testing"),
-            "pandaext4": Path("/Volumes/Pandaext4/videos"),
-            "datostoni": Path("/Volumes/DatosToni/videos"),
-            "wd1b": Path("/Volumes/WD1B/videos"),
-            "wd5": Path("/Volumes/WD5/videos"),
-            "wd8_1": Path("/Volumes/WD8_1/videos"),
-            "wd8_2": Path("/Volumes/WD8_2/videos"),
-            "t7": Path("/Volumes/T7/videos")
-        }
 
-        logger = logging.getLogger("get_files")
+def get_files_same_meta(folder1, folder2):
+    files = defaultdict(lambda: [])
+    for folder in (folder1, folder2):
+        for file in Path(folder).rglob("*"):
+            if (
+                file.is_file()
+                and not file.is_symlink()
+                and not file.stem.startswith(".")
+                and file.suffix.lower() in (".mp4", ".mkv", ".zip")
+            ):
+                files[_getxattr(str(file)) or "nometa"].append(str(file))
 
-        list_folders = []
+    return files
 
-        for _vol, _folder in config_folders.items():
-            if not _folder.exists():
-                logger.error(f"failed {_vol}:{_folder}, let get previous info saved in previous files")
 
-            else:
-                list_folders.append(_folder)
+def move_gvd_files_same_meta(date):
+    info = get_files_same_meta(
+        f"/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}",
+        f"/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}_alt=yes",
+    )
+    _share = f"/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}/share"
+    os.mkdir(_share)
 
-        files_cached = []
-        for folder in list_folders:
-            logger.info(">>>>>>>>>>>STARTS " + str(folder))
-
-            files = []
-            try:
-                files = [
-                    file
-                    for file in folder.rglob("*")
-                    if file.is_file()
-                    and not file.is_symlink()
-                    and "videos/_videos/" not in str(file)
-                    and not file.stem.startswith(".")
-                    and (file.suffix.lower() in (".mp4", ".mkv", ".ts", ".zip"))
-                ]
-
-            except Exception as e:
-                logger.error(f"[get_files_cached][{folder}] {repr(e)}")
-
-            for file in files:
-                _res = file.stem.split("_", 1)
-                if len(_res) == 2:
-                    _id = _res[0]
-
-                else:
-                    _id = sanitize_filename(file.stem, restricted=True).upper()
-
-                files_cached.append((_id, str(file)))
-
-        _res_dict = {}
-        for el in files_cached:
-            for item in files_cached:
-                if (el != item) and (item[0] == el[0]):
-                    if not _res_dict.get(el[0]):
-                        _res_dict[el[0]] = set([el[1], item[1]])
-                    else:
-                        _res_dict[el[0]].update([el[1], item[1]])
-        _ord_res_dict = sorted(_res_dict.items(), key=lambda x: len(x[1]))
-        return _ord_res_dict
-
-    def check_if_dl(info_dict, videos=None):
-        if not videos:
-            ls = LocalStorage()
-            ls.load_info()
-            videos = ls._data_for_scan
-        if isinstance(info_dict, dict):
-            info = [info_dict]
-            if info_dict.get("entries"):
-                info = info_dict["entries"]
-
-            res = {}
-            for vid in info:
-                if not (_id := vid.get("id")) or not (_title := vid.get("title")):
-                    continue
-
-                _title = sanitize_filename(_title, restricted=True).upper()
-                vid_name = f"{_id}_{_title}"
-                res.update({vid_name: videos.get(vid_name)})
-        else:
-            if isinstance(info_dict, str):
-                info = [info_dict]
-            else:
-                info = info_dict
-            res = {}
-            for vid in info:
-                vidname = sanitize_filename(vid, restricted=True).upper()
-                res[vidname] = {}
-                for key in videos.keys():
-                    if vidname in key:
-                        res[vidname].update({key: videos[key]})
-        return res
-
-    def change_title(info_dict, videos=None):
-        if not videos:
-            ls = LocalStorage()
-            ls.load_info()
-            videos = ls._data_for_scan
-        if isinstance(info_dict, dict):
-            info = [info_dict]
-            if info_dict.get("entries"):
-                info = info_dict["entries"]
-
-            res = {}
-            for vid in info:
-                if not (_id := vid.get("id")) or not (_title := vid.get("title")):
-                    continue
-
-                _title = sanitize_filename(_title, restricted=True)
-                vid_name = _id
-                res[vid_name] = {"title": _title}
-                for key in videos.keys():
-                    if key.startswith(_id + "_"):
-                        file = Path(videos[key])
-                        res[vid_name]["file"] = file
-                        res[vid_name]["file_name"] = file.stem
-                        res[vid_name]["file_name_def"] = f"{vid_name}_{_title}"
-                        if res[vid_name]["file_name"] != res[vid_name]["file_name_def"]:
-                            res[vid_name]["file_change"] = Path(
-                                file.parent, res[vid_name]["file_name_def"] + file.suffix
-                            )
-                        break
-            return res
-
-    # tools for gvd files, xattr, move files etc
-    def dl_gvd_best_videos(date, ytdl=None, quiet=False):
-        if not ytdl:
-            kwargs = {el[0]: el[1] for el in args._get_kwargs()}
-            _args = argparse.Namespace(**kwargs)
-            if quiet:
-                _args.quiet = True
-                _args.verbose = False
-                _args.vv = False
-            yt = init_ytdl(_args)
-        else:
-            yt = ytdl
-
-        logger = mylogger(logging.getLogger("dl_gvd"))
-        logger.quiet = quiet
-        url = "https://www.gvdblog.com/search?date=" + date
-        resleg = yt.extract_info(url, download=False)
-        if resleg:
-            write_string(f"entriesleg: {len(resleg['entries'])}")
-            print("", file=sys.stderr, flush=True)
-        resalt = yt.extract_info(url + "&alt=yes", download=False)
-        if resalt:
-            write_string(f"entriesalt: {len(resalt['entries'])}")
-            print("", file=sys.stderr, flush=True)
-        urls_alt_dl = []
-        urls_leg_dl = []
-        urls_final = []
-        entriesleg = []
-        entriesalt = []
-        entries_final = []
-        if (
-            resleg
-            and (entriesleg := resleg.get("entries", []))
-            and resalt
-            and (entriesalt := resalt.get("entries", []))
-            and len(entriesleg) == len(entriesalt)
-        ):
-            for entleg, entalt in zip(entriesleg, entriesalt):
-                if entleg["format_id"].startswith("hls") or not entalt["format_id"].startswith("hls"):
-                    logger.info(f"cause 1 {entleg['original_url']}")
-                    urls_leg_dl.append(entleg["original_url"])
-                    urls_final.append(entleg["original_url"])
-                    entries_final.append(entleg)
-                elif not entleg["format_id"].startswith("hls") and entalt["format_id"].startswith("hls"):
-                    entaltfilesize = entalt.get("filesize_approx") or (
-                        entalt.get("tbr", 0) * entalt.get("duration", 0) * 1024 / 8
-                    )
-                    entlegfilesize = entleg.get("filesize")
-                    if all(
-                        [
-                            entlegfilesize,
-                            entaltfilesize,
-                            entaltfilesize >= 2 * entlegfilesize,
-                            entaltfilesize > 786432000 or entlegfilesize < 157286400,
-                        ]
-                    ):
-                        logger.info(
-                            f"cause 2.A {entalt['original_url']} - {naturalsize(entaltfilesize)} >= 1.5 * {naturalsize(entlegfilesize)}"
-                        )
-                        urls_alt_dl.append(entalt["original_url"])
-                        urls_final.append(entalt["original_url"])
-                        entries_final.append(entalt)
-                    else:
-                        logger.info(f"cause 2.B {entleg['original_url']}")
-                        urls_leg_dl.append(entleg["original_url"])
-                        urls_final.append(entleg["original_url"])
-                        entries_final.append(entleg)
-                else:
-                    logger.info(f"cause 3 {entleg['original_url']}")
-                    urls_leg_dl.append(entleg["original_url"])
-                    urls_final.append(entleg["original_url"])
-                    entries_final.append(entleg)
-
-        if urls_final:
-            cmd = f"--path SearchGVDBlogPlaylistdate={date} -u " + " -u ".join(urls_final)
-            logger.pprint(cmd)
-            write_string(str(len(urls_final)))
-            print("", file=sys.stderr, flush=True)
-            return entries_final
-
-        else:
-            raise Exception(
-                f"ERROR couldnt create command: entriesleg[{len(entriesleg)}] entriesalt[{len(entriesalt)}]"
-            )
-
-    def get_files_same_meta(folder1, folder2):
-        files = defaultdict(lambda: [])
-        for folder in (folder1, folder2):
-            for file in Path(folder).rglob("*"):
-                if (
-                    file.is_file()
-                    and not file.is_symlink()
-                    and not file.stem.startswith(".")
-                    and file.suffix.lower() in (".mp4", ".mkv", ".zip")
-                ):
-                    files[_getxattr(str(file)) or "nometa"].append(str(file))
-
-        return files
-
-    def move_gvd_files_same_meta(date):
-        info = get_files_same_meta(
-            f"/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}",
-            f"/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}_alt=yes",
-        )
-        _share = f"/Users/antoniotorres/testing/SearchGVDBlogPlaylistdate={date}/share"
-        os.mkdir(_share)
-
-        for key, val in info.items():
-            if len(val) > 1:
-                print(key, "\n\t", val[0], "\n\t", val[1], "\n")
-                shutil.move(val[0], _share)
-                shutil.move(val[1], _share)
-
-except ModuleNotFoundError:
-    pass
+    for key, val in info.items():
+        if len(val) > 1:
+            print(key, "\n\t", val[0], "\n\t", val[1], "\n")
+            shutil.move(val[0], _share)
+            shutil.move(val[1], _share)
 
 
 args = argparse.Namespace(
@@ -4334,18 +4347,6 @@ args = argparse.Namespace(
 
 def get_ytdl(_args):
     return init_ytdl(_args)
-
-
-def send_http_request(url, **kwargs) -> Union[None, httpx.Response]:
-    """
-    raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
-    """
-    _kwargs = kwargs.copy()
-    new_e = _kwargs.pop("new_e", Exception)
-    try:
-        return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
-    except ExtractorError as e:
-        raise new_e(str(e))
 
 
 def find_in_tree(key, tree, parent, res=None):
