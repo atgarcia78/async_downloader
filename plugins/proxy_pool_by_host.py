@@ -75,14 +75,14 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         except ValueError:
             pass
 
-        key = re.findall(r'__routing=([^_]+)__', str(request.host))
+        key = re.findall(r'asyncdlrouting(\d+).', str(request.host))
 
         if key:
             # logger.info(f"Key is {key[0]}")
             _proxy = f'http://127.0.0.1:{key[0]}'
             self._endpoint = Url.from_bytes(bytes_(_proxy))
 
-            _host = bytes_(re.sub(r'(__routing=([^_]+)__.)', '', text_(request.host)))
+            _host = bytes_(re.sub(r'(asyncdlrouting(\d+).)', '', text_(request.host)))
             request.host = _host
             if request.has_header(b'host'):
                 request.del_header(b'host')

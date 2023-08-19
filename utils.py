@@ -97,29 +97,6 @@ except Exception:
 # ***********************************+
 # ************************************
 
-
-_loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
-
-
-def empty_queue(q: Union[asyncio.Queue, Queue]):
-    while True:
-        try:
-            q.get_nowait()
-            q.task_done()
-        except (asyncio.QueueEmpty, Empty):
-            break
-
-
-def load_module(name, path: str):
-    finder = FileFinder(path, *_loader_details)
-    spec = finder.find_spec(name)
-    if not spec or not spec.loader:
-        raise ImportError(f"no module named {name}")
-    mod = module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
 MAXLEN_TITLE = 150
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
@@ -143,7 +120,7 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min // 4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
-CONF_ARIA2C_EXTR_GROUP = ["tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop"]
+CONF_ARIA2C_EXTR_GROUP = ["doodstream", "tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
     # "GVDBlogPlaylist",
@@ -158,6 +135,40 @@ CONF_HTTP_DL = {
         "max_filesize": 300000000,
     }
 }
+
+CLIENT_CONFIG = {
+    "timeout": httpx.Timeout(timeout=20),
+    "limits": httpx.Limits(
+        max_connections=None, max_keepalive_connections=None, keepalive_expiry=5.0),
+    "headers": {
+        "User-Agent": CONF_FIREFOX_UA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en,es-ES;q=0.5",
+        "Sec-Fetch-Mode": "navigate",
+    },
+    "follow_redirects": True,
+    "verify": False,
+}
+
+
+def empty_queue(q: Union[asyncio.Queue, Queue]):
+    while True:
+        try:
+            q.get_nowait()
+            q.task_done()
+        except (asyncio.QueueEmpty, Empty):
+            break
+
+
+def load_module(name, path: str):
+    _loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
+    finder = FileFinder(path, *_loader_details)
+    spec = finder.find_spec(name)
+    if not spec or not spec.loader:
+        raise ImportError(f"no module named {name}")
+    mod = module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def upartial(f, *args, **kwargs):
@@ -796,10 +807,6 @@ def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INT
 
 
 ############################################################
-# """                     SYNC ASYNC                     """
-############################################################
-
-############################################################
 # """                     INIT                     """
 ############################################################
 
@@ -825,13 +832,13 @@ def init_logging(file_path=None, test=False):
             logger.setLevel(logging.INFO)
 
     logger = logging.getLogger("proxy.http.proxy.server")
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.ERROR)
     logger = logging.getLogger("proxy.core.base.tcp_server")
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.ERROR)
     logger = logging.getLogger("proxy.http.handler")
     logger.setLevel(logging.ERROR)
     logger = logging.getLogger("plugins.proxy_pool_by_host")
-    logger.setLevel(logging.WARNING)
+    logger.setLevel(logging.ERROR)
 
     if test:
         return logging.getLogger("test")
@@ -1011,30 +1018,6 @@ def init_aria2c(args):
     return _proc
 
 
-############################################################
-# """                     INIT                     """
-############################################################
-
-############################################################
-# """                     IP PROXY                     """
-############################################################
-
-
-CLIENT_CONFIG = {
-    "timeout": httpx.Timeout(timeout=20),
-    "limits": httpx.Limits(
-        max_connections=None, max_keepalive_connections=None, keepalive_expiry=5.0),
-    "headers": {
-        "User-Agent": CONF_FIREFOX_UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en,es-ES;q=0.5",
-        "Sec-Fetch-Mode": "navigate",
-    },
-    "follow_redirects": True,
-    "verify": False,
-}
-
-
 def get_httpx_client(config={}):
     return httpx.Client(**(CLIENT_CONFIG | config))
 
@@ -1047,6 +1030,11 @@ def get_driver(**kwargs):
     if kwargs.get("noheadless") is None:
         kwargs["noheadless"] = True
     return SeleniumInfoExtractor._get_driver(**kwargs)[0]
+
+
+############################################################
+# """                     IP/TORGUARD                    """
+############################################################
 
 
 def is_ipaddr(res):
@@ -1346,9 +1334,11 @@ class TorGuardProxies:
             ]
             routing_table.update({CONF_PROXIES_BASE_PORT + 100 * num + 99: _ip_main})
 
-            cmd_gost_group = [f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)]
+            # cmd_gost_group = [f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + 50} -F=:8899" for i in range(num)]
 
-            cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
+            # cmd_gost = cmd_gost_s + cmd_gost_group + cmd_gost_main
+
+            cmd_gost = cmd_gost_s + cmd_gost_main
 
             if TorGuardProxies.EVENT.is_set():
                 return [], {}
@@ -1605,10 +1595,6 @@ def get_wd_conf(name=None, pre=None):
 
 
 ############################################################
-# """                     IP PROXY                     """
-############################################################
-
-############################################################
 # """                     YTDLP                           """
 ############################################################
 
@@ -1660,7 +1646,6 @@ if yt_dlp:
 
     from yt_dlp import parse_options
 
-    assert render_table
     assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
@@ -4349,18 +4334,18 @@ def get_ytdl(_args):
     return init_ytdl(_args)
 
 
-def find_in_tree(key, tree, parent, res=None):
-    if not res:
-        res = Queue()
-    for el in tree:
-        if el["key"] == key:
-            res.put((parent, el))
-            continue
-        elif el["dependencies"] == []:
-            continue
-        else:
-            find_in_tree(key, el["dependencies"], el["key"], res)
-    return list(res.queue)
+# def find_in_tree(key, tree, parent, res=None):
+#     if not res:
+#         res = Queue()
+#     for el in tree:
+#         if el["key"] == key:
+#             res.put((parent, el))
+#             continue
+#         elif el["dependencies"] == []:
+#             continue
+#         else:
+#             find_in_tree(key, el["dependencies"], el["key"], res)
+#     return list(res.queue)
 
 
 # import pipdeptree
