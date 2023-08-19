@@ -349,7 +349,6 @@ class AsyncARIA2CDownloader:
             self.status = "error"
 
     async def get_uri(self, _init_url, _index_proxy: int, i: int):
-        # assert isinstance(self._index_proxy, int)
         _proxy_port = CONF_PROXIES_BASE_PORT + _index_proxy * 100 + i
         _proxy = f"http://127.0.0.1:{_proxy_port}"
         logger.debug(f"{self.premsg} proxy ip{i} {_proxy}")
