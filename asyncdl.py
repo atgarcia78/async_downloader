@@ -594,8 +594,7 @@ class AsyncDL:
                 url_list = list(self.info_videos.keys())
 
                 logger.debug(
-                    f"{_pre}[url_list] urls not pl [{len(url_list)}]\n{url_list}"
-                )
+                    f"{_pre}[url_list] urls not pl [{len(url_list)}]\n{url_list}")
 
                 if self.url_pl_list:
                     logger.debug(
@@ -625,8 +624,7 @@ class AsyncDL:
                     for _ in range(min(self.init_nworkers, len(self.url_pl_list))):
                         self.url_pl_queue.put_nowait("KILL")
                         tasks_pl_list.append(
-                            self.add_task(self.process_playlist(_get_path_name))
-                        )
+                            self.add_task(self.process_playlist(_get_path_name)))
 
                     logger.debug(
                         f"{_pre}[url_playlist_list] initial playlists: {len(self.url_pl_list)}")
@@ -647,8 +645,7 @@ class AsyncDL:
                         for _ in range(min(self.init_nworkers, len(self.url_pl_list2))):
                             self.url_pl_queue.put_nowait("KILL")
                             tasks_pl_list2.append(
-                                self.add_task(self.process_playlist(_get_path_name))
-                            )
+                                self.add_task(self.process_playlist(_get_path_name)))
 
                         await asyncio.wait(tasks_pl_list2)
 

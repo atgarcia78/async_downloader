@@ -646,6 +646,13 @@ class AsyncARIA2CDownloader:
         await asyncio.sleep(0)
 
     async def fetch(self):
+
+        async def _update_counters(_bytes_dl: int):
+            if (_iter_bytes := _bytes_dl - self.down_size) > 0:
+                self.down_size += _iter_bytes
+                async with self.vid_dl.alock:
+                    self.vid_dl.info_dl["down_size"] += _iter_bytes
+
         try:
             self.dl_cont = await self.init()
             self.block_init = False
@@ -668,14 +675,12 @@ class AsyncARIA2CDownloader:
                             raise AsyncARIA2CDLError("fetch error: error update dl_cont")
                         if "reset" in _result:
                             await self.vid_dl.reset()
-                        else:
-                            self._qspeed.put_nowait(
-                                (self.dl_cont.download_speed, self.dl_cont.connections, datetime.now()))
-                            _incsize = self.dl_cont.completed_length - self.down_size
-                            self.down_size = self.dl_cont.completed_length
-                            async with self.vid_dl.alock:
-                                self.vid_dl.info_dl["down_size"] += _incsize
-                await asyncio.sleep(0)
+                    else:
+                        await _update_counters(self.dl_cont.completed_length)
+                        self._qspeed.put_nowait(
+                            (self.dl_cont.download_speed, self.dl_cont.connections, datetime.now()))
+                else:
+                    await asyncio.sleep(0)
 
             if self.dl_cont.status == "complete":
                 self.status = "done"

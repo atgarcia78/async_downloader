@@ -37,6 +37,7 @@ from utils import (
     try_get,
     variadic,
     Union,
+    cast,
     async_waitfortasks,
     MySyncAsyncEvent,
     async_lock,
@@ -179,22 +180,24 @@ class VideoDownloader:
             security_level=3,
             flags={},
             client_id=_client_id,
-            private_key=_private_key,
+            private_key=_private_key  # type: ignore
         )
 
         return Cdm.from_device(device)
 
     def get_key_drm(self, pssh: str, licurl: str):
-        session_id = VideoDownloader._CDM.open()
-        pssh = PSSH(pssh)
-        challenge = VideoDownloader._CDM.get_license_challenge(session_id, pssh)
 
-        ie = self.info_dl["ytdl"].get_info_extractor(self.info_dict["extractor_key"])
-        if "onlyfans" in self.info_dict["extractor_key"].lower():
-            licence = ie.getlicense(licurl, challenge)
-            VideoDownloader._CDM.parse_license(session_id, licence)
-            keys = VideoDownloader._CDM.get_keys(session_id)
-            return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
+        if VideoDownloader._CDM:
+            session_id = VideoDownloader._CDM.open()
+            _pssh = PSSH(pssh)
+            challenge = VideoDownloader._CDM.get_license_challenge(session_id, _pssh)
+
+            ie = self.info_dl["ytdl"].get_info_extractor(self.info_dict["extractor_key"])
+            if "onlyfans" in self.info_dict["extractor_key"].lower():
+                licence = ie.getlicense(licurl, challenge)
+                VideoDownloader._CDM.parse_license(session_id, licence)
+                keys = VideoDownloader._CDM.get_keys(session_id)
+                return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
 
     def _get_dl(self, info_dict):
         def _determine_type(info):
@@ -733,11 +736,11 @@ class VideoDownloader:
                     _audio_file_temp = prepend_extension(
                         (_audio_file := str(self.info_dl["downloaders"][0].filename[1])), "temp"
                     )
-                    _pssh = try_get(
+                    _pssh = cast(str, try_get(
                         traverse_obj(self.info_dict, ("_drm", "pssh")),
                         lambda x: list(sorted(x, key=lambda y: len(y)))[0],
-                    )
-                    _licurl = traverse_obj(self.info_dict, ("_drm", "licurl"))
+                    ))
+                    _licurl = cast(str, traverse_obj(self.info_dict, ("_drm", "licurl")))
                     _key = self.get_key_drm(_pssh, _licurl)
 
                     cmds = [
@@ -996,9 +999,8 @@ class VideoDownloader:
 
         _pre = f"[{self.index}][{self.info_dict['id']}][{_title[:_maxlen]}]:"
 
-        _progress_dl = (
-            lambda: f"{naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]"
-        )
+        def _progress_dl():
+            return f"{naturalsize(self.info_dl['down_size'], format_='.2f')} [{naturalsize(self.info_dl['filesize'], format_='.2f')}]"
 
         if self.info_dl["status"] == "done":
             return f"{_pre} Completed [{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}]\n {msg}\n"
