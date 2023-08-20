@@ -578,13 +578,14 @@ class async_suppress(contextlib.AbstractAsyncContextManager):
         return exctype is not None and issubclass(exctype, self._exceptions)
 
 
-def add_task(coro, bktasks, name=None):
+def add_task(coro, bktasks=None, name=None):
     if not isinstance(coro, asyncio.Task):
         _task = asyncio.create_task(coro, name=name)
     else:
         _task = coro
-    bktasks.add(_task)
-    _task.add_done_callback(bktasks.discard)
+    if bktasks:
+        bktasks.add(_task)
+        _task.add_done_callback(bktasks.discard)
     return _task
 
 
@@ -648,14 +649,15 @@ async def async_waitfortasks(
 
         for _fs in listfs:
             if not isinstance(_fs, asyncio.Task):
-                _el = add_task(_fs, _background_tasks, name=f"[waitfortasks]{_fs.__name__}")
-                _tasks.update({_el: "task"})
+                _tasks.update({add_task(
+                    _fs, bktasks=_background_tasks,
+                    name=f"[waitfortasks]{_fs.__name__}"): "task"})
             else:
                 _tasks.update({_fs: "task"})
 
         _one_task_to_wait_tasks = add_task(
-            asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED), _background_tasks
-        )
+            asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED),
+            bktasks=_background_tasks)
 
         _final_wait.update({_one_task_to_wait_tasks: "tasks"})
 
@@ -672,17 +674,17 @@ async def async_waitfortasks(
         for event in _events:
             if isinstance(event, asyncio.Event):
                 _tasks_events.update(
-                    {add_task(event.wait(), _background_tasks): f"event{getter(event)}"})
+                    {add_task(event.wait(), bktasks=_background_tasks): f"event{getter(event)}"})
             elif isinstance(event, MySyncAsyncEvent):
                 _tasks_events.update(
-                    {add_task(event.async_wait(), _background_tasks): f"event{getter(event)}"}
+                    {add_task(event.async_wait(), bktasks=_background_tasks): f"event{getter(event)}"}
                 )
 
         _final_wait.update(_tasks_events)
 
     if not _final_wait:
         if timeout:
-            _task_sleep = add_task(asyncio.sleep(timeout * 2), _background_tasks)
+            _task_sleep = add_task(asyncio.sleep(timeout * 2), bktasks=_background_tasks)
             _tasks.update({_task_sleep: "task"})
             _final_wait.update(_tasks)
         else:
@@ -3018,13 +3020,13 @@ if PySimpleGUI:
             self.stop = MySyncAsyncEvent("stopfegui")
             self.exit_gui = MySyncAsyncEvent("exitgui")
             self.stop_upt_window, self.fut_upt_window = self.upt_window_periodic()
-            add_task(self.fut_upt_window, self.asyncdl.background_tasks)
+            self.asyncdl.add_task(self.fut_upt_window)
             self.exit_upt = MySyncAsyncEvent("exitupt")
             self.stop_pasres, self.fut_pasres = self.pasres_periodic()
-            add_task(self.fut_pasres, self.asyncdl.background_tasks)
+            self.asyncdl.add_task(self.fut_pasres)
             self.exit_pasres = MySyncAsyncEvent("exitpasres")
 
-            self.task_gui = add_task(self.gui(), self.asyncdl.background_tasks)
+            self.task_gui = self.asyncdl.add_task(self.gui())
 
         @classmethod
         def pasres_break(cls):
@@ -3717,22 +3719,21 @@ if proxy:
             if not self.asyncdl.args.nodl:
                 if self.asyncdl.args.aria2c:
                     ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
-                    _task_aria2c = add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)
+                    _task_aria2c = self.asyncdl.add_task(
+                        ainit_aria2c(self.asyncdl.args))
                     _tasks_init_aria2c = {_task_aria2c: "aria2"}
                     self._tasks_init.update(_tasks_init_aria2c)
                 if self.asyncdl.args.enproxy:
                     self.stop_proxy, self.fut_proxy = self.run_proxy_http()
-                    add_task(self.fut_proxy, self.asyncdl.background_tasks)
+                    self.asyncdl.add_task(self.fut_proxy)
                     ainit_proxies = sync_to_async(
-                        TorGuardProxies.init_proxies, thread_sensitive=False, executor=self.exe
-                    )
-                    _task_proxies = add_task(
-                        ainit_proxies(event=self.asyncdl.end_dl), self.asyncdl.background_tasks
-                    )
+                        TorGuardProxies.init_proxies, thread_sensitive=False, executor=self.exe)
+                    _task_proxies = self.asyncdl.add_task(
+                        ainit_proxies(event=self.asyncdl.end_dl))
                     _task_init_proxies = {_task_proxies: "proxies"}
                     self._tasks_init.update(_task_init_proxies)
             if self._tasks_init:
-                self.task_init = add_task(self.init(), self.asyncdl.background_tasks)
+                self.task_init = self.asyncdl.add_task(self.init())
             else:
                 self.init_ready.set()
 
@@ -3827,10 +3828,12 @@ if proxy:
                 except Exception:
                     pass
                 finally:
-                    await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+                    await sync_to_async(
+                        self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
 
-                ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
-                _task_aria2c = [add_task(ainit_aria2c(self.asyncdl.args), self.asyncdl.background_tasks)]
+                ainit_aria2c = sync_to_async(
+                    init_aria2c, thread_sensitive=False, executor=self.exe)
+                _task_aria2c = [self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))]
                 done, _ = await asyncio.wait(_task_aria2c)
                 for task in done:
                     self.proc_aria2c = task.result()
