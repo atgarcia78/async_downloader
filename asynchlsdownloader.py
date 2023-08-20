@@ -262,8 +262,12 @@ class AsyncHLSDownloader:
         except Exception as e:
             logger.exception(repr(e))
 
-    def add_task(self, coro: Coroutine, *, name: Union[None, str] = None) -> asyncio.Task:
-        _task = asyncio.create_task(coro, name=name)
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Union[None, str] = None) -> asyncio.Task:
+        if not isinstance(coro, asyncio.Task):
+            _task = asyncio.create_task(coro, name=name)
+        else:
+            _task = coro
+
         self.background_tasks.add(_task)
         _task.add_done_callback(self.background_tasks.discard)
         return _task
@@ -1099,7 +1103,7 @@ class AsyncHLSDownloader:
                                     _tasks_chunks.append(
                                         self.add_task(
                                             fileobj.write(_buffer),
-                                            name=f"write_chunks[{len(_tasks_chunks)}]",
+                                            name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]",
                                         )
                                     )
                                     _buffer = b""
@@ -1113,7 +1117,7 @@ class AsyncHLSDownloader:
                             _tasks_chunks.append(
                                 self.add_task(
                                     fileobj.write(_buffer),
-                                    name=f"write_chunks[{len(_tasks_chunks)}]",
+                                    name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]",
                                 )
                             )
                             _buffer = b""
@@ -1235,7 +1239,7 @@ class AsyncHLSDownloader:
                     self.status = "downloading"
                     self.count_msg = ""
 
-                    upt_task = [self.add_task(self.upt_status(), name="upt_task")]
+                    upt_task = [self.add_task(self.upt_status(), name=f"{self.premsg}[upt_task]")]
 
                     self.tasks = [
                         self.add_task(self.fetch(i), name=f"{self.premsg}[{i}]")
@@ -1263,7 +1267,7 @@ class AsyncHLSDownloader:
                         return
 
                     if _cause := self.vid_dl.reset_event.is_set():
-                        dump_init_task = [self.add_task(self.dump_init_file())]
+                        dump_init_task = [self.add_task(self.dump_init_file(), name=f"{self.premsg}[dump_init_file]")]
                         self.background_tasks.add(dump_init_task[0])
 
                         await asyncio.wait(dump_init_task + upt_task)

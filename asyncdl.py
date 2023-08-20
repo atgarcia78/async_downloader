@@ -445,8 +445,12 @@ class AsyncDL:
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {str(e)}")
 
-    def add_task(self, coro: Coroutine, *, name: Union[None, str] = None) -> asyncio.Task:
-        _task = asyncio.create_task(coro, name=name)
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Union[None, str] = None) -> asyncio.Task:
+        if not isinstance(coro, asyncio.Task):
+            _task = asyncio.create_task(coro, name=name)
+        else:
+            _task = coro
+
         self.background_tasks.add(_task)
         _task.add_done_callback(self.background_tasks.discard)
         return _task

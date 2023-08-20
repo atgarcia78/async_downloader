@@ -198,8 +198,12 @@ class AsyncARIA2CDownloader:
         self.n_rounds = 0
         self._index_proxy = -1
 
-    def add_task(self, coro: Coroutine):
-        _task = asyncio.create_task(coro)
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Union[None, str] = None) -> asyncio.Task:
+        if not isinstance(coro, asyncio.Task):
+            _task = asyncio.create_task(coro, name=name)
+        else:
+            _task = coro
+
         self.background_tasks.add(_task)
         _task.add_done_callback(self.background_tasks.discard)
         return _task
@@ -471,7 +475,7 @@ class AsyncARIA2CDownloader:
                     ])
                 )
 
-                _tasks = [self.add_task(self.get_uri(_init_url, self._index_proxy, j)) for j in range(1, _gr + 1)]
+                _tasks = [self.add_task(self.get_uri(_init_url, self._index_proxy, j), name=f"{self.premsg}[update_uri][{j}]") for j in range(1, _gr + 1)]
 
                 _res = await async_waitfortasks(
                     _tasks,
@@ -700,7 +704,7 @@ class AsyncARIA2CDownloader:
     async def fetch_async(self):
 
         self.progress_timer.reset()
-        check_task = self.add_task(self.check_speed())
+        check_task = self.add_task(self.check_speed(), name=f"{self.premsg}[check_task]")
 
         try:
             while True:
