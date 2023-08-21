@@ -557,8 +557,7 @@ class AsyncDL:
                 "".join([
                     f"{_pre} Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\t",
                     f"CAP[{len(_url_list_caplinks)}]"
-                ])
-            )
+                ]))
 
             if _url_list:
                 for _source, _ulist in _url_list.items():

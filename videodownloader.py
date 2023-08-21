@@ -42,6 +42,7 @@ from utils import (
     MySyncAsyncEvent,
     async_lock,
     CONF_HTTP_DL,
+    CONF_DRM
 )
 
 from pywidevine.cdm import Cdm
@@ -165,14 +166,9 @@ class VideoDownloader:
                 dl.ex_dl.shutdown(wait=False, cancel_futures=True)
 
     def create_drm_cdm(self):
-        with open(
-            "/Users/antoniotorres/Projects/dumper/key_dumps/Android Emulator 5554/private_keys/7283/2049378471/private_key.pem"
-        ) as fp:
+        with open(CONF_DRM['private_key']) as fp:
             _private_key = fp.read()
-        with open(
-            "/Users/antoniotorres/Projects/dumper/key_dumps/Android Emulator 5554/private_keys/7283/2049378471/client_id.bin",
-            "rb",
-        ) as fp:
+        with open(CONF_DRM['client_id'], "rb") as fp:
             _client_id = fp.read()
 
         device = Device(
@@ -180,8 +176,7 @@ class VideoDownloader:
             security_level=3,
             flags={},
             client_id=_client_id,
-            private_key=_private_key  # type: ignore
-        )
+            private_key=_private_key)
 
         return Cdm.from_device(device)
 

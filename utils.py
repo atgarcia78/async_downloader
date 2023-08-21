@@ -101,6 +101,13 @@ MAXLEN_TITLE = 150
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
+CONF_DRM = {
+    "private_key":
+        "/Users/antoniotorres/Projects/async_downloader/share/private_key.pem",
+    "client_id":
+        "/Users/antoniotorres/Projects/async_downloader/share/client_id.bin"
+}
+
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
