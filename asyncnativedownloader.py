@@ -22,6 +22,7 @@ from utils import (
     async_lock,
     MySyncAsyncEvent,
     CONF_AUTO_PASRES,
+    LockType
 )
 
 logger = logging.getLogger("async_native")
@@ -102,7 +103,7 @@ class AsyncNativeDownloader:
             if self._conn < 16:
                 with self.ytdl.params.setdefault("lock", Lock()):
                     self.ytdl.params.setdefault("sem", {})
-                    self.sem = cast(type(Lock()), self.ytdl.params["sem"].setdefault(self._host, Lock()))
+                    self.sem = cast(LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
             else:
                 self.sem = contextlib.nullcontext()
 
@@ -200,7 +201,7 @@ class AsyncNativeDownloader:
         _buffer = []
 
         try:
-            if proc.returncode is not None:
+            if proc.returncode is not None or not proc.stdout:
                 if proc.stderr and (buffer := await proc.stderr.read()):  # type: ignore
                     _buffer.append(buffer.decode("utf-8"))
                 return _buffer

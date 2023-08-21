@@ -104,11 +104,13 @@ MAXLEN_TITLE = 150
 
 PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
+drm_base_path = Path(
+    Path.home(),
+    'Projects/dumper/key_dumps/Android Emulator 5554/private_keys/7283/2049378471')
+
 CONF_DRM = {
-    "private_key":
-        "/Users/antoniotorres/Projects/async_downloader/share/private_key.pem",
-    "client_id":
-        "/Users/antoniotorres/Projects/async_downloader/share/client_id.bin"
+    "private_key": Path(drm_base_path, 'private_key.pem'),
+    "client_id": Path(drm_base_path, 'client_id.bin')
 }
 
 CONF_DASH_SPEED_PER_WORKER = 102400
