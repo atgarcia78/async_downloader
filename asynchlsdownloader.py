@@ -145,11 +145,7 @@ class AsyncHLSDownloader:
             self.n_workers: int = self.vid_dl.info_dl["n_workers"]
             self.count: int = 0
             self.m3u8_doc = None
-            self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
-            self.verifycert: bool = not self.ytdl.params.get("nocheckcertificate")
-            self.timeout: httpx.Timeout = httpx.Timeout(15, connect=15)
-            self.limits: httpx.Limits = httpx.Limits(
-                max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
+            self.ytdl = cast(myYTDL, self.vid_dl.info_dl["ytdl"])
             self.base_download_path = Path(self.info_dict["download_path"])
             _filename = Path(self.info_dict.get("_filename", self.info_dict.get("filename")))
             self.download_path = Path(self.base_download_path, self.info_dict["format_id"])
@@ -203,8 +199,7 @@ class AsyncHLSDownloader:
                     if "gvdblog.com" not in (_url := self.info_dict["original_url"]):
                         _gvd_pl = False
                         _url = self.info_dict["webpage_url"]
-                    info = self.multi_extract_info(_url, proxy=_proxy)
-                    if info:
+                    if info := self.multi_extract_info(_url, proxy=_proxy):
                         if _len := len(info.get("entries", [])):
                             if _len == 1:
                                 _pl_index = 1
@@ -219,9 +214,9 @@ class AsyncHLSDownloader:
                                     )
                                 )
                             info = info["entries"][_pl_index - 1]
-                        new_info = get_format_id(info, self.info_dict["format_id"])
-                        _info = {key: new_info[key] for key in ("url", "manifest_url") if key in new_info}
-                        self.info_dict.update(_info)
+                        if new_info := get_format_id(info, self.info_dict["format_id"]):
+                            _info = {key: new_info[key] for key in ("url", "manifest_url") if key in new_info}
+                            self.info_dict.update(_info)
                 except Exception as e:
                     logger.exception("[init info proxy] %s", str(e))
 
@@ -237,6 +232,10 @@ class AsyncHLSDownloader:
             self.areset = self.sync_to_async(self.resetdl)
             self._test = []
             self._speed = []
+
+            self.timeout: httpx.Timeout = httpx.Timeout(15, connect=15)
+            self.limits: httpx.Limits = httpx.Limits(
+                max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
 
             self.init_client = httpx.Client(
                 proxies=cast(ProxiesTypes, self._proxy),
@@ -533,15 +532,10 @@ class AsyncHLSDownloader:
             raise AsyncHLSDLErrorFatal("error get info fragments") from e
 
     def check_any_event_is_set(self, incpause=True):
+        _events = [self.vid_dl.reset_event, self.vid_dl.stop_event]
         if incpause:
-            return any(
-                [
-                    self.vid_dl.pause_event.is_set(),
-                    self.vid_dl.reset_event.is_set(),
-                    self.vid_dl.stop_event.is_set(),
-                ]
-            )
-        return any([self.vid_dl.reset_event.is_set(), self.vid_dl.stop_event.is_set()])
+            _events.append(self.vid_dl.pause_event)
+        return [_ev.name for _ev in _events if _ev.is_set()]
 
     def check_stop(self):
         if self.vid_dl.stop_event.is_set():
@@ -956,9 +950,10 @@ class AsyncHLSDownloader:
             _res["pause"] = True
             async with self._event_lock:
                 if self.vid_dl.pause_event.is_set():
-                    _res = _res | await async_wait_for_any(
-                        [self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event]
-                    )
+                    _res = _res | await async_wait_for_any([
+                        self.vid_dl.resume_event, self.vid_dl.reset_event,
+                        self.vid_dl.stop_event
+                    ])
                     logger.debug(f"{msg}[handle] after wait pause: {_res}")
                     if "resume" in _res["event"]:
                         _res["event"].remove("resume")
@@ -969,7 +964,7 @@ class AsyncHLSDownloader:
                     await asyncio.sleep(0)
                     return _res
                 logger.debug(f"{msg}[handle] after wait pause: {_res}")
-        if _event := [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]:
+        if _event := self.check_any_event_is_set(incpause=False):
             _res["event"] = _event
         return _res
 
@@ -1094,8 +1089,7 @@ class AsyncHLSDownloader:
 
                             if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
                                 num_bytes_downloaded = await _update_counters(
-                                    res.num_bytes_downloaded, num_bytes_downloaded
-                                )
+                                    res.num_bytes_downloaded, num_bytes_downloaded)
                             if _timer2.has_elapsed(seconds=5 * CONF_INTERVAL_GUI):
                                 if _tasks_chunks:
                                     await asyncio.wait(_tasks_chunks[-1:])
@@ -1109,8 +1103,7 @@ class AsyncHLSDownloader:
                                     _buffer = b""
 
                         num_bytes_downloaded = await _update_counters(
-                            res.num_bytes_downloaded, num_bytes_downloaded
-                        )
+                            res.num_bytes_downloaded, num_bytes_downloaded)
                         if _tasks_chunks:
                             await asyncio.wait(_tasks_chunks[-1:])
                         if _buffer:
@@ -1167,7 +1160,7 @@ class AsyncHLSDownloader:
             limits=self.limits,
             follow_redirects=True,
             timeout=self.timeout,
-            verify=self.verifycert,
+            verify=False,
             headers=self.info_dict["http_headers"])
 
         try:
