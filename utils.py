@@ -44,7 +44,8 @@ from typing import (
     Iterable,
     cast,
     Awaitable,
-    Callable
+    Callable,
+    Optional
 )
 
 from _thread import LockType
@@ -85,6 +86,8 @@ except Exception:
     PySimpleGUI = None
 
 import httpx
+
+from selenium.webdriver import Firefox
 
 from asgiref.sync import sync_to_async
 
@@ -291,7 +294,7 @@ class Cache:
 
 
 class MySyncAsyncEvent:
-    def __init__(self, name: Union[str, None] = None, initset: bool = False):
+    def __init__(self, name: Optional[str] = None, initset: bool = False):
         if name:
             self.name = name
         self._cause = None
@@ -301,7 +304,7 @@ class MySyncAsyncEvent:
         if initset:
             self.set()
 
-    def set(self, cause: Union[str, None] = None):
+    def set(self, cause: Optional[str] = None):
         self.aevent.set()
         self.event.set()
         self._flag = True
@@ -325,7 +328,7 @@ class MySyncAsyncEvent:
         self._flag = False
         self._cause = None
 
-    def wait(self, timeout: Union[float, None] = None) -> bool:
+    def wait(self, timeout: Optional[float] = None) -> bool:
         return self.event.wait(timeout=timeout)
 
     async def async_wait(self):
@@ -640,9 +643,9 @@ async def async_wait_for_any(events, timeout=None) -> dict:
 
 
 async def async_waitfortasks(
-    fs: Union[Iterable, Coroutine, asyncio.Task, None] = None,
-    timeout: Union[float, None] = None,
-    events: Union[Iterable, asyncio.Event, MySyncAsyncEvent, None] = None,
+    fs: Optional[Iterable | Coroutine | asyncio.Task] = None,
+    timeout: Optional[float] = None,
+    events: Optional[Iterable | asyncio.Event | MySyncAsyncEvent] = None,
     cancel_tasks: bool = True,
     **kwargs,
 ) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
@@ -768,7 +771,7 @@ async def async_wait_time(n: Union[int, float]):
     return await async_waitfortasks(timeout=n)
 
 
-def wait_time(n: Union[int, float], event: Union[threading.Event, MySyncAsyncEvent, None] = None):
+def wait_time(n: Union[int, float], event: Optional[threading.Event | MySyncAsyncEvent] = None):
     _started = time.monotonic()
     if not event:
         time.sleep(n)  # dummy
@@ -821,7 +824,6 @@ def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INT
 
 
 def init_logging(file_path=None, test=False):
-    # PATH_LOGS = Path(Path.home(), "Projects/common/logs")
     if not file_path:
         config_file = Path(Path.home(), "Projects/common/logging.json")
     else:
@@ -860,12 +862,11 @@ class ActionNoYes(argparse.Action):
         opt = option_strings[0]
         if not opt.startswith("--"):
             raise ValueError("Yes/No arguments must be prefixed with --")
-
         opt = opt[2:]
         opts = ["--" + opt, "--no-" + opt]
         super(ActionNoYes, self).__init__(
-            opts, dest, nargs="?", const=None, default=default, required=required, help=help
-        )
+            opts, dest, nargs="?", const=None, default=default,
+            required=required, help=help)
 
     def __call__(self, parser, namespace, values, option_strings=None):
         if option_strings:
@@ -1027,18 +1028,19 @@ def init_aria2c(args):
     return _proc
 
 
-def get_httpx_client(config={}):
+def get_httpx_client(config: dict = {}) -> httpx.Client:
     return httpx.Client(**(CLIENT_CONFIG | config))
 
 
-def get_httpx_async_client(config={}):
+def get_httpx_async_client(config: dict = {}) -> httpx.AsyncClient:
     return httpx.AsyncClient(**(CLIENT_CONFIG | config))
 
 
-def get_driver(**kwargs):
+def get_driver(**kwargs) -> Firefox:
     if kwargs.get("noheadless") is None:
         kwargs["noheadless"] = True
-    return SeleniumInfoExtractor._get_driver(**kwargs)[0]
+    _driver, _ = SeleniumInfoExtractor._get_driver(**kwargs)
+    return _driver
 
 
 ############################################################
@@ -1816,7 +1818,7 @@ if yt_dlp:
         return diff
 
     class myYTDL(YoutubeDL):
-        def __init__(self, params: Union[None, dict] = None, auto_init: Union[bool, str] = True, **kwargs):
+        def __init__(self, params: Optional[dict] = None, auto_init: Union[bool, str] = True, **kwargs):
             self._close: bool = kwargs.get("close", True)
             self.executor: ThreadPoolExecutor = kwargs.get(
                 "executor", ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower())
@@ -2286,7 +2288,7 @@ if yt_dlp:
             logger.warning("Tabulate is not installed, tables will not be presented optimized")
             return render_table(headers, data, delim=True)
 
-    def send_http_request(url, **kwargs) -> Union[None, httpx.Response]:
+    def send_http_request(url, **kwargs) -> Optional[httpx.Response]:
         """
         raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
         """
@@ -2913,7 +2915,7 @@ class SimpleCountDown:
     resexit = Token("resexit")
 
     def __init__(
-        self, pb, inputqueue, check: Union[Callable, None] = None, logger=None, indexdl=None, timeout=60
+        self, pb, inputqueue, check: Optional[Callable] = None, logger=None, indexdl=None, timeout=60
     ):
         self._pre = "[countdown][WAIT403]"
         if not check:
@@ -2944,7 +2946,7 @@ class SimpleCountDown:
 
         termios.tcsetattr(fd, termios.TCSANOW, new)
 
-    def _wait_for_enter(self, sel: selectors.DefaultSelector, interval: Union[int, None] = None):
+    def _wait_for_enter(self, sel: selectors.DefaultSelector, interval: Optional[int] = None):
         events = sel.select(interval)
         if events:
             for key, _ in events:
@@ -2953,7 +2955,7 @@ class SimpleCountDown:
         else:
             return self.restimeout
 
-    def _wait_for_queue(self, interval: Union[int, None] = None):
+    def _wait_for_queue(self, interval: Optional[int] = None):
         try:
             assert self.inputq
             return self.inputq.get(block=True, timeout=interval)

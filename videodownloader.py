@@ -38,6 +38,7 @@ from utils import (
     variadic,
     Union,
     cast,
+    Optional,
     async_waitfortasks,
     MySyncAsyncEvent,
     async_lock,
@@ -180,19 +181,20 @@ class VideoDownloader:
 
         return Cdm.from_device(device)
 
-    def get_key_drm(self, pssh: str, licurl: str):
+    def get_key_drm(self, pssh: str, licurl: str) -> Optional[str]:
 
         if VideoDownloader._CDM:
             session_id = VideoDownloader._CDM.open()
             _pssh = PSSH(pssh)
             challenge = VideoDownloader._CDM.get_license_challenge(session_id, _pssh)
 
-            ie = self.info_dl["ytdl"].get_info_extractor(self.info_dict["extractor_key"])
             if "onlyfans" in self.info_dict["extractor_key"].lower():
-                licence = ie.getlicense(licurl, challenge)
+                ie = self.info_dl["ytdl"].get_info_extractor(self.info_dict["extractor_key"])
+                licence = cast(bytes, ie.getlicense(licurl, challenge))
                 VideoDownloader._CDM.parse_license(session_id, licence)
-                keys = VideoDownloader._CDM.get_keys(session_id)
-                return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
+                if keys := VideoDownloader._CDM.get_keys(session_id):
+                    if _key := keys[-1].kid.hex:
+                        return f"{_key}:{_key}"
 
     def _get_dl(self, info_dict):
         def _determine_type(info):

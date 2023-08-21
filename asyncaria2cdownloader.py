@@ -44,6 +44,7 @@ from utils import (
     variadic,
     LockType,
     Token,
+    Optional
 )
 
 assert CONF_ARIA2C_SPEED_PER_CONNECTION
@@ -198,7 +199,7 @@ class AsyncARIA2CDownloader:
         self.n_rounds = 0
         self._index_proxy = -1
 
-    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Union[None, str] = None) -> asyncio.Task:
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
         else:
@@ -217,7 +218,7 @@ class AsyncARIA2CDownloader:
                 if not returncode:
                     logger.warning(f"{self.premsg} couldnt set [{key}] to [{value}]")
 
-    def _get_filesize(self, uris, proxy=None) -> Union[tuple, None]:
+    def _get_filesize(self, uris, proxy=None) -> Optional[tuple]:
         logger.debug(f"{self.premsg}[get_filesize] start aria2dl dry-run")
 
         opts_dict = {
@@ -298,29 +299,29 @@ class AsyncARIA2CDownloader:
                 except Exception:
                     logger.info(f"{self.premsg}[reset_aria2c]  test conn no ok")
 
-    async def async_pause(self, list_dl: list[Union[None, aria2p.Download]]):
+    async def async_pause(self, list_dl: list[Optional[aria2p.Download]]):
         if list_dl:
             await self._acall(AsyncARIA2CDownloader.aria2_API.pause, list_dl)
 
-    async def async_resume(self, list_dl: list[Union[None, aria2p.Download]]):
+    async def async_resume(self, list_dl: list[Optional[aria2p.Download]]):
         if list_dl:
             async with self._decor:
                 await self._acall(AsyncARIA2CDownloader.aria2_API.resume, list_dl)
 
-    async def async_remove(self, list_dl: list[Union[None, aria2p.Download]]):
+    async def async_remove(self, list_dl: list[Optional[aria2p.Download]]):
         if list_dl:
             await self._acall(AsyncARIA2CDownloader.aria2_API.remove, list_dl, clean=False)
 
-    async def async_restart(self, list_dl: list[Union[None, aria2p.Download]]):
+    async def async_restart(self, list_dl: list[Optional[aria2p.Download]]):
         if list_dl:
             await self._acall(AsyncARIA2CDownloader.aria2_API.remove, list_dl, files=True, clean=True)
 
-    async def add_uris(self, uris: list[str]) -> Union[aria2p.Download, None]:
+    async def add_uris(self, uris: list[str]) -> Optional[aria2p.Download]:
         async with self._decor:
             return cast(aria2p.Download, await self._acall(
                 AsyncARIA2CDownloader.aria2_API.add_uris, uris, options=self.opts))
 
-    async def aupdate(self, dl_cont: Union[aria2p.Download, None]):
+    async def aupdate(self, dl_cont: Optional[aria2p.Download]):
         if dl_cont:
             return await self._acall(dl_cont.update)
 
