@@ -2168,7 +2168,7 @@ if yt_dlp:
             "quiet": args.quiet,
             "format": args.format,
             "format_sort": [args.sort],
-            "nocheckcertificate": args.nocheckcert,
+            "nocheckcertificate": True,
             "subtitleslangs": ["all"],
             "keepvideo": True,
             "convertsubtitles": "srt",
