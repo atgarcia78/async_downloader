@@ -98,13 +98,16 @@ class AsyncHLSDLReset(Exception):
         self.exc_info = exc_info
 
 
-retry = my_dec_on_exception(AsyncHLSDLErrorFatal, max_tries=5, raise_on_giveup=True, interval=5)
+retry = my_dec_on_exception(
+    AsyncHLSDLErrorFatal, max_tries=5, raise_on_giveup=True, interval=5)
 
 on_exception = my_dec_on_exception(
-    (TimeoutError, AsyncHLSDLError, ReExtractInfo), max_tries=5, raise_on_giveup=False, interval=5
+    (TimeoutError, AsyncHLSDLError, ReExtractInfo),
+    max_tries=5, raise_on_giveup=False, interval=5
 )
 
-on_503 = my_dec_on_exception(StatusError503, max_time=360, raise_on_giveup=False, interval=20)
+on_503 = my_dec_on_exception(
+    StatusError503, max_time=360, raise_on_giveup=False, interval=20)
 
 
 class InReset403:
