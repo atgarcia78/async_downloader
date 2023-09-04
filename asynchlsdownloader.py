@@ -691,13 +691,19 @@ class AsyncHLSDownloader:
 
     @retry
     def get_reset_info(self, _reset_url: str, plns=True, first=False) -> dict:
-        _proxy = cast(str, traverse_obj(self._proxy, "http://"))
-        _print_proxy = f':proxy[{_proxy.split(":")[-1]}]' if _proxy else ""
-        _print_plns = f":PLNS[{self.fromplns}]:first[{first}]" if self.fromplns else ""
+        _base = f"{self.premsg}[get_reset_inf]"
+        _proxy = self._proxy.get('http://')
+        _print_proxy = lambda: (
+            f":proxy[{_proxy.split(':')[-1]}]"
+            if _proxy else "")
+        _print_plns = lambda: (
+            f":PLNS[{self.fromplns}]"
+            if self.fromplns else "")
+        _pre = lambda: "".join([
+            f"{_base}:RESET[{self.n_reset}]:first[{first}]",
+            f"{_print_plns()}{_print_proxy()}"])
 
-        _pre = f"{self.premsg}[get_reset_inf]{_print_plns}{_print_proxy}:RESET[{self.n_reset}]"
-
-        logger.debug(_pre)
+        logger.debug(_pre())
 
         _info = None
         info_reset = None
@@ -706,13 +712,13 @@ class AsyncHLSDownloader:
             self.check_stop()
             if plns and self.fromplns:
                 if first:
-                    _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
+                    _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre())
                     self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
                 else:
                     _info = self.ytdl.cache.load("nakedswordmovie", str(self.fromplns))
                     if not _info:
-                        _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
+                        _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre())
                         self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), _info)
 
                 if _info:
@@ -722,7 +728,7 @@ class AsyncHLSDownloader:
                     )
 
             else:
-                _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre)
+                _info = self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre())
                 if _info:
                     if _info.get("entries") and (_pl_index := self.info_dict["playlist_index"]):
                         _info = _info["entries"][_pl_index - 1]
@@ -731,36 +737,41 @@ class AsyncHLSDownloader:
             self.check_stop()
 
             if not info_reset:
-                raise AsyncHLSDLErrorFatal(f"{_pre} fails no descriptor")
+                raise AsyncHLSDLErrorFatal(f"{_pre()} fails no descriptor")
 
-            logger.debug(f"{_pre} format extracted info video ok\n{_for_print(info_reset)}")
+            logger.debug(f"{_pre()} format extracted info video ok\n{_for_print(info_reset)}")
 
             try:
                 self.prep_reset(info_reset)
                 return {"res": "ok"}
             except Exception as e:
-                logger.exception(f"{_pre} Exception occurred when reset {repr(e)}")
+                logger.exception(f"{_pre()} Exception occurred when reset {repr(e)}")
                 raise AsyncHLSDLErrorFatal("RESET fails: preparation frags failed") from e
 
         except StatusStop as e:
-            logger.debug(f"{_pre} check stop {repr(e)}")
+            logger.debug(f"{_pre()} check stop {repr(e)}")
             raise
         except AsyncHLSDLErrorFatal as e:
-            logger.debug(f"{_pre} {repr(e)}")
+            logger.debug(f"{_pre()} {repr(e)}")
             raise
         except Exception as e:
-            logger.error(f"{_pre}fails when extracting reset info {repr(e)}")
+            logger.error(f"{_pre()}fails when extracting reset info {repr(e)}")
             return {"error": e}
 
-    def resetdl(self, cause=None):
-        _proxy = self._proxy["http://"] if getattr(self, "_proxy", None) else None
-        _print_proxy = f':proxy[{_proxy.split(":")[-1]}]' if _proxy else ""
+    def resetdl(self, cause: Optional[str] = None):
+        _base = f"{self.premsg}[resetdl]"
+        _proxy = self._proxy.get('http://')
+        _print_proxy = lambda: (
+            f":proxy[{_proxy.split(':')[-1]}]"
+            if _proxy else "")
+        _print_plns = lambda: (
+            f":PLNS[{self.fromplns}]"
+            if self.fromplns else "")
+        _pre = lambda: "".join([
+            f"{_base}:RESET[{self.n_reset}]",
+            f"{_print_plns()}{_print_proxy()}"])
 
-        _pre = (
-            f"{self.premsg}[resetdl]:CAUSE[{cause}]:RESET[{self.n_reset}]:PLNS[{self.fromplns}]{_print_proxy}"
-        )
-
-        logger.debug(_pre)
+        logger.debug(_pre())
 
         _pasres_cont = False
 
@@ -782,7 +793,7 @@ class AsyncHLSDownloader:
 
                 self.check_stop()
 
-                logger.info(f"{_pre} fin wait in reset cause 403")
+                logger.info(f"{_pre()} fin wait in reset cause 403")
 
             if self.fromplns and str(cause) in ("403"):
                 with (_sem := self.vid_dl.info_dl["fromplns"]["ALL"]["sem"]):
@@ -793,7 +804,7 @@ class AsyncHLSDownloader:
                         _first_all = True
 
                     with (_sem2 := self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"]):
-                        logger.debug(f"{_pre} in sem2")
+                        logger.debug(f"{_pre()} in sem2")
 
                         _first = False
                         if _sem2._initial_value == 1:
@@ -841,10 +852,11 @@ class AsyncHLSDownloader:
                 self.get_reset_info(_webpage_url, plns=False)
 
         except StatusStop:
-            logger.error(f"{_pre} stop_event")
+            logger.error(f"{_pre()} stop_event")
+            raise
         except Exception as e:
             logger.exception(
-                f"{_pre} stop_event:[{self.vid_dl.stop_event.is_set()}] outer Exception {repr(e)}"
+                f"{_pre()} stop_event:[{self.vid_dl.stop_event.is_set()}] outer Exception {repr(e)}"
             )
             raise
         finally:
@@ -854,13 +866,13 @@ class AsyncHLSDownloader:
                 except Exception:
                     logger.warning(
                         "".join([
-                            f'{_pre} error when removing[{self.info_dict["id"]}] ',
+                            f'{_pre()} error when removing[{self.info_dict["id"]}] ',
                             f'from [{AsyncHLSDownloader._INRESET_403}]'
                         ])
                     )
 
             if self.fromplns and cause == "403":
-                logger.debug(f"{_pre} stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY")
+                logger.debug(f"{_pre()} stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY")
 
                 with AsyncHLSDownloader._CLASSLOCK:
                     _inreset = self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]
@@ -869,13 +881,13 @@ class AsyncHLSDownloader:
                     except Exception:
                         logger.warning(
                             "".join([
-                                f'{_pre} error when removing[{self.vid_dl.info_dict["_index_scene"]}] ',
+                                f'{_pre()} error when removing[{self.vid_dl.info_dict["_index_scene"]}] ',
                                 f"from inreset[{self.fromplns}] {_inreset}"
                             ])
                         )
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
-                        logger.debug(f"{_pre} end of resets fromplns [{self.fromplns}]")
+                        logger.debug(f"{_pre()} end of resets fromplns [{self.fromplns}]")
 
                         self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
                         self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(
@@ -884,7 +896,7 @@ class AsyncHLSDownloader:
 
                 if self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
                     logger.info(
-                        f"{_pre} waits for rest scenes in [{self.fromplns}] to start DL "
+                        f"{_pre()} waits for rest scenes in [{self.fromplns}] to start DL "
                         + f"[{self.vid_dl.info_dl['fromplns'][self.fromplns]['in_reset']}]"
                     )
 
@@ -899,20 +911,20 @@ class AsyncHLSDownloader:
                         pass
 
                     if not self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
-                        logger.debug(f"{_pre} end for all plns ")
+                        logger.debug(f"{_pre()} end for all plns ")
 
                         self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
                         self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
                         self.n_reset += 1
                         if _pasres_cont:
                             FrontEndGUI.pasres_continue()
-                        logger.debug(f"{_pre}  exit reset")
+                        logger.debug(f"{_pre()}  exit reset")
                         return
 
                 if self.vid_dl.info_dl["fromplns"]["ALL"]["in_reset"]:
                     logger.info(
                         "".join([
-                            f"{_pre} all scenes in [{self.fromplns}], waiting for scenes in other plns ",
+                            f"{_pre()} all scenes in [{self.fromplns}], waiting for scenes in other plns ",
                             f"[{self.vid_dl.info_dl['fromplns']['ALL']['in_reset']}]"
                         ])
                     )
@@ -922,11 +934,11 @@ class AsyncHLSDownloader:
                     self.n_reset += 1
                     if _pasres_cont:
                         FrontEndGUI.pasres_continue()
-                    logger.debug(f"{_pre} exit reset")
+                    logger.debug(f"{_pre()} exit reset")
                     return
             else:
                 self.n_reset += 1
-                logger.debug(f"{_pre} exit reset")
+                logger.debug(f"{_pre()} exit reset")
 
     async def upt_status(self):
         _timer = ProgressTimer()
@@ -975,7 +987,7 @@ class AsyncHLSDownloader:
 
     async def fetch(self, nco: int):
 
-        async def _decrypt(data: bytes, cipher: Union[None, CbcMode]) -> bytes:
+        async def _decrypt(data: bytes, cipher: Optional[CbcMode]) -> bytes:
             if cipher:
                 return await self.sync_to_async(cipher.decrypt)(data)
             return data
