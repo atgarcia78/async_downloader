@@ -57,6 +57,7 @@ from utils import (
     Union,
     cast,
     Coroutine,
+    Optional,
     MySyncAsyncEvent,
     put_sequence,
     async_lock,
@@ -69,6 +70,7 @@ from utils import (
     ReExtractInfo,
     StatusError503,
     Token,
+    List,
     empty_queue
 )
 
@@ -264,7 +266,7 @@ class AsyncHLSDownloader:
         except Exception as e:
             logger.exception(repr(e))
 
-    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Union[None, str] = None) -> asyncio.Task:
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
         else:
@@ -276,7 +278,7 @@ class AsyncHLSDownloader:
 
     @on_503
     @on_exception
-    def get_key(self, key_uri: str) -> Union[None, bytes]:
+    def get_key(self, key_uri: str) -> Optional[bytes]:
         return try_get(
             send_http_request(key_uri, client=self.init_client, new_e=AsyncHLSDLError),
             lambda x: x.content if x else None,
@@ -286,7 +288,7 @@ class AsyncHLSDownloader:
 
         @on_503
         @on_exception
-        def get_m3u8_doc() -> Union[None, str]:
+        def get_m3u8_doc() -> Optional[str]:
             return try_get(
                 send_http_request(self.info_dict["url"], client=self.init_client, new_e=AsyncHLSDLError),
                 lambda x: x.content.decode("utf-8", "replace") if x else None,
@@ -488,7 +490,7 @@ class AsyncHLSDownloader:
             totalduration += fragment.duration
         return totalduration
 
-    def calculate_filesize(self) -> Union[None, int]:
+    def calculate_filesize(self) -> Optional[int]:
         _filesize = None
         if _bitrate := cast(float, traverse_obj(self.info_dict, "tbr", "abr")):
             _filesize = int(self.totalduration * 1000 * _bitrate / 8)
@@ -534,7 +536,7 @@ class AsyncHLSDownloader:
             logger.error(f"{self.premsg}[get_info_fragments] - {repr(e)}")
             raise AsyncHLSDLErrorFatal("error get info fragments") from e
 
-    def check_any_event_is_set(self, incpause=True):
+    def check_any_event_is_set(self, incpause=True) -> List[Optional[str]]:
         _events = [self.vid_dl.reset_event, self.vid_dl.stop_event]
         if incpause:
             _events.append(self.vid_dl.pause_event)
@@ -546,7 +548,7 @@ class AsyncHLSDownloader:
 
     @on_503
     @on_exception
-    def get_init_section(self, uri: str, file: Path, cipher: Union[None, CbcMode]):
+    def get_init_section(self, uri: str, file: Path, cipher: Optional[CbcMode]):
         try:
             if res := send_http_request(uri, client=self.init_client, new_e=AsyncHLSDLError):
                 _data = res.content if not cipher else cipher.decrypt(res.content)
@@ -560,7 +562,7 @@ class AsyncHLSDownloader:
             logger.exception(f"{self.premsg}:[get_init_section] {repr(e)}")
             raise
 
-    def multi_extract_info(self, url: str, proxy: Union[None, str] = None, msg: Union[None, str] = None) -> dict:
+    def multi_extract_info(self, url: str, proxy: Optional[str] = None, msg: Optional[str] = None) -> dict:
         premsg = "[multi_extract_info]"
         if msg:
             premsg += msg
