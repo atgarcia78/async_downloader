@@ -986,6 +986,16 @@ class AsyncHLSDownloader:
         return _res
 
     async def fetch(self, nco: int):
+        premsg = f"{self.premsg}:[worker-{nco}]"
+        logger.debug(f"{premsg} init worker")
+
+        client = httpx.AsyncClient(
+            proxies=cast(ProxiesTypes, self._proxy),
+            limits=self.limits,
+            follow_redirects=True,
+            timeout=self.timeout,
+            verify=False,
+            headers=self.info_dict["http_headers"])
 
         async def _decrypt(data: bytes, cipher: Optional[CbcMode]) -> bytes:
             if cipher:
@@ -1169,17 +1179,6 @@ class AsyncHLSDownloader:
                         self.info_frag[index - 1]["skipped"] = True
                         break
 
-        premsg = f"{self.premsg}:[worker-{nco}]"
-        logger.debug(f"{premsg} init worker")
-
-        client = httpx.AsyncClient(
-            proxies=cast(ProxiesTypes, self._proxy),
-            limits=self.limits,
-            follow_redirects=True,
-            timeout=self.timeout,
-            verify=False,
-            headers=self.info_dict["http_headers"])
-
         try:
             while True:
                 try:
@@ -1204,8 +1203,8 @@ class AsyncHLSDownloader:
         finally:
             async with self._asynclock:
                 self.count -= 1
-            logger.debug(f"{premsg} bye worker")
             await client.aclose()
+            logger.debug(f"{premsg} bye worker")
 
     async def fetch_async(self):
 
