@@ -10,8 +10,9 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from urllib.parse import unquote, urlparse, urlunparse
-from typing import cast, Union, Coroutine, Callable
+from typing import cast, Union, Coroutine, Callable, Optional
 import aria2p
+from aria2p.api import OperationResult
 from requests import RequestException
 from utils import (
     CONF_AUTO_PASRES,
@@ -43,8 +44,7 @@ from utils import (
     get_host,
     variadic,
     LockType,
-    Token,
-    Optional
+    Token
 )
 
 assert CONF_ARIA2C_SPEED_PER_CONNECTION
@@ -299,22 +299,26 @@ class AsyncARIA2CDownloader:
                 except Exception:
                     logger.info(f"{self.premsg}[reset_aria2c]  test conn no ok")
 
-    async def async_pause(self, list_dl: list[Optional[aria2p.Download]]):
+    async def async_pause(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
         if list_dl:
-            await self._acall(AsyncARIA2CDownloader.aria2_API.pause, list_dl)
+            return cast(list[OperationResult], await self._acall(
+                AsyncARIA2CDownloader.aria2_API.pause, list_dl))
 
-    async def async_resume(self, list_dl: list[Optional[aria2p.Download]]):
+    async def async_resume(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
         if list_dl:
             async with self._decor:
-                await self._acall(AsyncARIA2CDownloader.aria2_API.resume, list_dl)
+                return cast(list[OperationResult], await self._acall(
+                    AsyncARIA2CDownloader.aria2_API.resume, list_dl))
 
-    async def async_remove(self, list_dl: list[Optional[aria2p.Download]]):
+    async def async_remove(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
         if list_dl:
-            await self._acall(AsyncARIA2CDownloader.aria2_API.remove, list_dl, clean=False)
+            return cast(list[OperationResult], await self._acall(
+                AsyncARIA2CDownloader.aria2_API.remove, list_dl, clean=False))
 
-    async def async_restart(self, list_dl: list[Optional[aria2p.Download]]):
+    async def async_restart(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
         if list_dl:
-            await self._acall(AsyncARIA2CDownloader.aria2_API.remove, list_dl, files=True, clean=True)
+            return cast(list[OperationResult], await self._acall(
+                AsyncARIA2CDownloader.aria2_API.remove, list_dl, files=True, clean=True))
 
     async def add_uris(self, uris: list[str]) -> Optional[aria2p.Download]:
         async with self._decor:
