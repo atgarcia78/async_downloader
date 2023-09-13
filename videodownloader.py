@@ -38,6 +38,7 @@ from utils import (
     variadic,
     Union,
     cast,
+    Optional,
     async_waitfortasks,
     MySyncAsyncEvent,
     async_lock,
@@ -304,7 +305,7 @@ class VideoDownloader:
 
             await self.reset("manual")
 
-            logger.info(f"{self.print_hookup}: workers set to {n}")
+            logger.info(f"{self.premsg}: workers set to {n}")
 
     async def reset_from_console(self):
         await self.reset("hard")
@@ -332,7 +333,7 @@ class VideoDownloader:
 
             return _wait_tasks
 
-    async def reset_plns(self, cause: Union[str, None] = "403", plns=None):
+    async def reset_plns(self, cause: Optional[str] = "403", plns: Optional[str] = None):
         if not plns:
             self.info_dl["fromplns"]["ALL"]["reset"].clear()
 

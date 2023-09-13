@@ -622,10 +622,10 @@ def wait_for_either(ev, timeout=None):
             time.sleep(CONF_INTERVAL_GUI)
 
 
-async def async_wait_for_any(events, timeout=None) -> dict:
+async def async_wait_for_any(events, timeout: Optional[float] = None) -> dict[str, list[str]]:
     _events = variadic(events)
 
-    if _res := [getattr(_ev, "name", "noname") for _ev in _events if _ev.is_set()]:
+    if _res := [getattr(_ev, "name", "noname") for _ev in _events if _ev and _ev.is_set()]:
         return {"event": _res}
     else:
 
@@ -637,10 +637,11 @@ async def async_wait_for_any(events, timeout=None) -> dict:
 
         start = time.monotonic()
         while True:
-            if _res := [getattr(_ev, "name", "noname") for _ev in _events if _ev.is_set()]:
+            if _res := [cast(str, getattr(_ev, "name", "noname"))
+                        for _ev in _events if _ev and _ev.is_set()]:
                 return {"event": _res}
             elif check_timeout(start, timeout):
-                return {"timeout": timeout}
+                return {"timeout": [str(timeout)]}
             await asyncio.sleep(CONF_INTERVAL_GUI / 2)
 
 
@@ -2623,6 +2624,10 @@ def int_or_none(res):
     return int(res) if res else None
 
 
+def str_or_none(res):
+    return str(res) if res else None
+
+
 def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
     SUFFIXES = {
         "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
@@ -2753,10 +2758,8 @@ class CountDowns:
         self.klass = klass
         if not events:
             self.outer_events = []
-        elif isinstance(events, (list, tuple)):
-            self.outer_events = list(events)
         else:
-            self.outer_events = [events]
+            self.outer_events = list(variadic(events))
 
         self.kill_input = MySyncAsyncEvent("killinput")
         self.logger = logger if logger else logging.getLogger("asyncdl")
@@ -2833,7 +2836,7 @@ class CountDowns:
         _res = None
         _events = self.outer_events + [self.countdowns[index]["stop"]]
         if event:
-            _events += [event]
+            _events += list(variadic(event))
 
         for i in range(self.N_PER_SECOND * n, 0, -1):
             send_queue(i)
@@ -3014,6 +3017,7 @@ if PySimpleGUI:
     class FrontEndGUI:
         _PASRES_REPEAT = False
         _PASRES_EXIT = MySyncAsyncEvent("pasresexit")
+        _LOCK = threading.Lock()
 
         def __init__(self, asyncdl):
             self.asyncdl = asyncdl
@@ -3041,19 +3045,21 @@ if PySimpleGUI:
 
         @classmethod
         def pasres_break(cls):
-            if FrontEndGUI._PASRES_REPEAT:
-                FrontEndGUI._PASRES_REPEAT = False
-                FrontEndGUI._PASRES_EXIT.set()
-                time.sleep(1)
-                return True
-            else:
-                return False
+            with FrontEndGUI._LOCK:
+                if FrontEndGUI._PASRES_REPEAT:
+                    FrontEndGUI._PASRES_REPEAT = False
+                    FrontEndGUI._PASRES_EXIT.set()
+                    time.sleep(1)
+                    return True
+                else:
+                    return False
 
         @classmethod
         def pasres_continue(cls):
-            if not FrontEndGUI._PASRES_REPEAT:
-                FrontEndGUI._PASRES_EXIT.clear()
-                FrontEndGUI._PASRES_REPEAT = True
+            with FrontEndGUI._LOCK:
+                if not FrontEndGUI._PASRES_REPEAT:
+                    FrontEndGUI._PASRES_EXIT.clear()
+                    FrontEndGUI._PASRES_REPEAT = True
 
         async def gui_root(self, event, values):
             try:
@@ -3296,7 +3302,7 @@ if PySimpleGUI:
 
         async def gui(self):
             try:
-                self.window_console = self.init_gui_console(FrontEndGUI._PASRES_REPEAT)
+                self.window_console = self.init_gui_console()
                 self.window_root = self.init_gui_root()
                 await asyncio.sleep(0)
 
@@ -3433,7 +3439,7 @@ if PySimpleGUI:
 
             return window_root
 
-        def init_gui_console(self, pasres_value):
+        def init_gui_console(self):
             sg.theme("SystemDefaultForReal")
 
             col_pygui = sg.Column(
@@ -3455,7 +3461,7 @@ if PySimpleGUI:
                         sg.Checkbox(
                             "PauseRep",
                             key="-PASRES-",
-                            default=pasres_value,
+                            default=FrontEndGUI._PASRES_REPEAT,
                             enable_events=True,
                         ),
                         sg.Checkbox(
