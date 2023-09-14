@@ -606,10 +606,10 @@ class AsyncDL:
                     self._count_pl = 0
                     self.url_pl_list2 = []
 
-                    if len(self.url_pl_list) == 1 and self.args.use_path_pl and not self.args.path:
-                        _get_path_name = True
-                    else:
-                        _get_path_name = False
+                    # if len(self.url_pl_list) == 1 and self.args.use_path_pl and not self.args.path:
+                    #     _get_path_name = True
+                    # else:
+                    #     _get_path_name = False
 
                     if self.STOP.is_set():
                         raise Exception("STOP")
@@ -623,7 +623,7 @@ class AsyncDL:
                     for _ in range(min(self.init_nworkers, len(self.url_pl_list))):
                         self.url_pl_queue.put_nowait("KILL")
                         tasks_pl_list.append(
-                            self.add_task(self.process_playlist(_get_path_name)))
+                            self.add_task(self.process_playlist()))
 
                     logger.debug(
                         f"{_pre}[url_playlist_list] initial playlists: {len(self.url_pl_list)}")
@@ -644,7 +644,7 @@ class AsyncDL:
                         for _ in range(min(self.init_nworkers, len(self.url_pl_list2))):
                             self.url_pl_queue.put_nowait("KILL")
                             tasks_pl_list2.append(
-                                self.add_task(self.process_playlist(_get_path_name)))
+                                self.add_task(self.process_playlist()))
 
                         await asyncio.wait(tasks_pl_list2)
 
@@ -659,7 +659,7 @@ class AsyncDL:
             if not self.STOP.is_set():
                 self.t1.stop()
 
-    async def process_playlist(self, _get: bool = False):
+    async def process_playlist(self):
         _pre = "[get_list_videos][process_playlist]"
         while True:
             try:
@@ -698,12 +698,12 @@ class AsyncDL:
                     self._url_pl_entries += [_info]
 
                 else:
-                    if _get:
-                        _title = sanitize_filename(_info.get("title"), restricted=True)
-                        _name = f"{_title}{_info.get('extractor_key')}{_info.get('id')}"
-                        self.args.path = str(Path(Path.home(), "testing", _name))
-                        logger.debug(
-                            f"{_pre} path for playlist:\n{self.args.path}")
+                    # if _get:
+                    #     _title = sanitize_filename(_info.get("title"), restricted=True)
+                    #     _name = f"{_title}{_info.get('extractor_key')}{_info.get('id')}"
+                    #     self.args.path = str(Path(Path.home(), "testing", _name))
+                    #     logger.debug(
+                    #         f"{_pre} path for playlist:\n{self.args.path}")
 
                     if isinstance(_info.get("entries"), list):
                         _temp_error = []
@@ -800,10 +800,13 @@ class AsyncDL:
             vid_name = f"{_id}_{_title}"
 
             if not (vid_path_str := self.videos_cached.get(vid_name)):
-                if not (vid_path_str := self.videos_cached.get(_id)):
-                    return False
+                if self.args.deep_aldl:
+                    if not (vid_path_str := self.videos_cached.get(_id)):
+                        return False
+                    else:
+                        logger.warning(f"{_pre} found with ID already DL")
                 else:
-                    logger.warning(f"{_pre} found with ID already DL")
+                    return False
             else:
                 logger.debug(f"{_pre} already DL")  # video en local
 
@@ -816,8 +819,14 @@ class AsyncDL:
                 if self.args.path:
                     _folderpath = Path(self.args.path)
                 else:
-                    _folderpath = Path(
-                        Path.home(), "testing", self.launch_time.strftime("%Y%m%d"))
+                    _folderpath = Path(Path.home(), "testing", self.launch_time.strftime("%Y%m%d"))
+                    if self.args.use_path_pl:
+                        _pltitle = info_dict.get("playlist") or info_dict.get("playlist_title")
+                        _plid = info_dict.get('playlist_id')
+                        if _pltitle and _plid:
+                            _base = f"{_plid}_{sanitize_filename(_pltitle, restricted=True)}_{info_dict.get('extractor_key')}"
+                            _folderpath = Path(Path.home(), "testing", _base)
+
                 _folderpath.mkdir(parents=True, exist_ok=True)
                 file_aldl = Path(_folderpath, vid_path.name)
                 if file_aldl not in _folderpath.iterdir():

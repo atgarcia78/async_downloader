@@ -83,7 +83,15 @@ class VideoDownloader:
         _date_file = datetime.now().strftime("%Y%m%d")
 
         if not self.args.path:
+
             _download_path = Path(Path.home(), "testing", _date_file, self.info_dict["id"])
+            if self.args.use_path_pl:
+
+                _pltitle = self.info_dict.get("playlist") or self.info_dict.get("playlist_title")
+                _plid = self.info_dict.get('playlist_id')
+                if _pltitle and _plid:
+                    _base = f"{_plid}_{sanitize_filename(_pltitle, restricted=True)}_{self.info_dict.get('extractor_key')}"
+                    _download_path = Path(Path.home(), "testing", _base, self.info_dict["id"])
         else:
             _download_path = Path(self.args.path, self.info_dict["id"])
 
