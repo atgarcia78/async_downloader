@@ -2301,7 +2301,7 @@ if yt_dlp:
         try:
             return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
         except ExtractorError as e:
-            raise new_e(str(e))
+            raise new_e(str(e)) from e
 
     def get_files_same_id():
         config_folders = {
