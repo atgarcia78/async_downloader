@@ -675,15 +675,12 @@ class VideoDownloader:
 
                 if self._types == "NATIVE":
                     _video_file_temp = prepend_extension(
-                        (_video_file := str(self.info_dl["downloaders"][0].filename[0])), "temp"
-                    )
+                        (_video_file := str(self.info_dl["downloaders"][0].filename[0])), "temp")
                     _audio_file_temp = prepend_extension(
-                        (_audio_file := str(self.info_dl["downloaders"][0].filename[1])), "temp"
-                    )
+                        (_audio_file := str(self.info_dl["downloaders"][0].filename[1])), "temp")
                     _pssh = cast(str, try_get(
                         traverse_obj(self.info_dict, ("_drm", "pssh")),
-                        lambda x: list(sorted(x, key=lambda y: len(y)))[0],
-                    ))
+                        lambda x: list(sorted(x, key=lambda y: len(y)))[0]))
                     _licurl = cast(str, traverse_obj(self.info_dict, ("_drm", "licurl")))
                     _key = self.get_key_drm(_pssh, _licurl)
 
@@ -695,8 +692,7 @@ class VideoDownloader:
                     procs = [await apostffmpeg(_cmd) for _cmd in cmds]
                     rcs = [proc.returncode for proc in procs]
                     logger.debug(
-                        f"{self.premsg}: {cmds}\n[rc] {rcs}"
-                    )
+                        f"{self.premsg}: {cmds}\n[rc] {rcs}")
 
                     rc = -1
                     if sum(rcs) == 0:
@@ -710,8 +706,7 @@ class VideoDownloader:
 
                         logger.debug(
                             f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                            + f"{proc.stdout}\n[stderr]{proc.stderr}"
-                        )
+                            + f"{proc.stdout}\n[stderr]{proc.stderr}")
 
                     if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
                         logger.debug(
