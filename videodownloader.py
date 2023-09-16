@@ -177,7 +177,8 @@ class VideoDownloader:
             if hasattr(dl, "ex_dl"):
                 dl.ex_dl.shutdown(wait=False, cancel_futures=True)
 
-    def create_drm_cdm(self):
+    @classmethod
+    def create_drm_cdm(cls):
         with open(CONF_DRM['private_key']) as fp:
             _private_key = fp.read()
         with open(CONF_DRM['client_id'], "rb") as fp:
@@ -225,7 +226,7 @@ class VideoDownloader:
             self._types = "NATIVE"
             with VideoDownloader._LOCK:
                 if not VideoDownloader._CDM:
-                    VideoDownloader._CDM = self.create_drm_cdm()
+                    VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
             logger.debug(f"{self.premsg}[get_dl] DL type DASH with DRM")
             return dl
         else:
