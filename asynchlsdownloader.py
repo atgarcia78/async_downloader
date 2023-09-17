@@ -74,8 +74,6 @@ from utils import (
     print_delta_seconds
 )
 
-from videodownloader import VideoDownloader
-
 logger = logging.getLogger("async_HLS_DL")
 
 kill_token = Token("kill")
@@ -142,7 +140,7 @@ class AsyncHLSDownloader:
     _INRESET_403 = InReset403()
     _qproxies = None
 
-    def __init__(self, args: Namespace, video_dict: dict, vid_dl: VideoDownloader):
+    def __init__(self, args: Namespace, video_dict: dict, vid_dl):
         try:
             self.background_tasks = set()
             self.tasks = []
