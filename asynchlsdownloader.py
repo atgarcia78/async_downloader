@@ -3,18 +3,17 @@ import binascii
 import json
 import logging
 import random
-import threading
 import time
 import copy
 import math
 
-from datetime import timedelta
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from queue import Queue
 from shutil import rmtree
 from functools import partial
 from argparse import Namespace
+from threading import BoundedSemaphore, Lock
 
 import aiofiles
 from aiofiles import os
@@ -71,7 +70,8 @@ from utils import (
     StatusError503,
     Token,
     List,
-    empty_queue
+    empty_queue,
+    print_delta_seconds
 )
 
 from videodownloader import VideoDownloader
@@ -135,7 +135,7 @@ class AsyncHLSDownloader:
     _MAX_RESETS = 10
     _MIN_TIME_RESETS = 15
     _CONFIG = load_config_extractors()
-    _CLASSLOCK = threading.Lock()
+    _CLASSLOCK = Lock()
     _COUNTDOWNS = None
     _QUEUE = {}
     _INPUT = Queue()
@@ -266,8 +266,9 @@ class AsyncHLSDownloader:
         except Exception as e:
             logger.exception(repr(e))
 
-    def add_task(
-            self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *,
+                 name: Optional[str] = None) -> asyncio.Task:
+
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
         else:
@@ -311,7 +312,7 @@ class AsyncHLSDownloader:
                         with self.vid_dl.master_hosts_lock:
                             if "ALL" not in self.vid_dl.info_dl["fromplns"]:
                                 self.vid_dl.info_dl["fromplns"]["ALL"] = {
-                                    "sem": threading.BoundedSemaphore(value=1),
+                                    "sem": BoundedSemaphore(),
                                     "downloading": set(),
                                     "in_reset": set(),
                                     "reset": MySyncAsyncEvent("fromplns[ALL]", initset=True),
@@ -322,7 +323,7 @@ class AsyncHLSDownloader:
                                     "downloading": set(),
                                     "in_reset": set(),
                                     "reset": MySyncAsyncEvent(f"fromplns[{self.fromplns}]", initset=True),
-                                    "sem": threading.BoundedSemaphore(value=1),
+                                    "sem": BoundedSemaphore(),
                                 }
                             else:
                                 self.vid_dl.info_dl["fromplns"][self.fromplns]["downloaders"].update(
@@ -845,8 +846,8 @@ class AsyncHLSDownloader:
             raise
         except Exception as e:
             logger.exception(
-                f"{_pre()} stop_event:[{self.vid_dl.stop_event.is_set()}] outer Exception {repr(e)}"
-            )
+                f"{_pre()} stop_event:[{self.vid_dl.stop_event.is_set()}] " +
+                f"outer Exception {repr(e)}")
             raise
         finally:
             if cause == "403":
@@ -854,14 +855,12 @@ class AsyncHLSDownloader:
                     AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"])
                 except Exception:
                     logger.warning(
-                        "".join([
-                            f'{_pre()} error when removing[{self.info_dict["id"]}] ',
-                            f'from [{AsyncHLSDownloader._INRESET_403}]'
-                        ])
-                    )
+                        f'{_pre()} error when removing[{self.info_dict["id"]}] ' +
+                        f'from [{AsyncHLSDownloader._INRESET_403}]')
 
             if self.fromplns and cause == "403":
-                logger.debug(f"{_pre()} stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY")
+                logger.debug(
+                    f"{_pre()} stop_event[{self.vid_dl.stop_event.is_set()}] FINALLY")
 
                 with AsyncHLSDownloader._CLASSLOCK:
                     _inreset = self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]
@@ -869,18 +868,14 @@ class AsyncHLSDownloader:
                         _inreset.remove(self.vid_dl.info_dict["_index_scene"])
                     except Exception:
                         logger.warning(
-                            "".join([
-                                f'{_pre()} error when removing[{self.vid_dl.info_dict["_index_scene"]}] ',
-                                f"from inreset[{self.fromplns}] {_inreset}"
-                            ])
-                        )
+                            f'{_pre()} error when removing[{self.vid_dl.info_dict["_index_scene"]}] ' +
+                            f"from inreset[{self.fromplns}] {_inreset}")
 
                     if not self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
                         logger.debug(f"{_pre()} end of resets fromplns [{self.fromplns}]")
 
                         self.vid_dl.info_dl["fromplns"][self.fromplns]["reset"].set()
-                        self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = threading.BoundedSemaphore(
-                            value=1)
+                        self.vid_dl.info_dl["fromplns"][self.fromplns]["sem"] = BoundedSemaphore()
 
                 if self.vid_dl.info_dl["fromplns"][self.fromplns]["in_reset"]:
                     logger.info(
@@ -902,7 +897,7 @@ class AsyncHLSDownloader:
                         logger.debug(f"{_pre()} end for all plns ")
 
                         self.vid_dl.info_dl["fromplns"]["ALL"]["reset"].set()
-                        self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = threading.BoundedSemaphore(value=1)
+                        self.vid_dl.info_dl["fromplns"]["ALL"]["sem"] = BoundedSemaphore()
                         self.n_reset += 1
                         if _pasres_cont:
                             FrontEndGUI.pasres_continue()
@@ -1564,12 +1559,7 @@ class AsyncHLSDownloader:
                     _speed_meter_str = "--"
 
                 if (_est_time_smooth := _temp.get("est_time_smooth")) and _est_time_smooth < 3600:
-                    _eta_smooth_str = ":".join(
-                        [
-                            _item.split(".")[0]
-                            for _item in f"{timedelta(seconds=_est_time_smooth)}".split(":")[1:]
-                        ]
-                    )
+                    _eta_smooth_str = print_delta_seconds(_est_time_smooth)
                 else:
                     _eta_smooth_str = "--"
 

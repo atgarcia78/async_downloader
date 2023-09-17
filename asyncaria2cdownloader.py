@@ -202,7 +202,10 @@ class AsyncARIA2CDownloader:
         self.n_rounds = 0
         self._index_proxy = -1
 
-    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+    def add_task(
+            self, coro: Union[Coroutine, asyncio.Task], *,
+            name: Optional[str] = None) -> asyncio.Task:
+
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
         else:
@@ -302,23 +305,31 @@ class AsyncARIA2CDownloader:
                 except Exception:
                     logger.info(f"{self.premsg}[reset_aria2c]  test conn no ok")
 
-    async def async_pause(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+    async def async_pause(
+            self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+
         if list_dl:
             return cast(list[OperationResult], await self._acall(
                 AsyncARIA2CDownloader.aria2_API.pause, list_dl))
 
-    async def async_resume(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+    async def async_resume(
+            self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+
         if list_dl:
             async with self._decor:
                 return cast(list[OperationResult], await self._acall(
                     AsyncARIA2CDownloader.aria2_API.resume, list_dl))
 
-    async def async_remove(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+    async def async_remove(
+            self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+
         if list_dl:
             return cast(list[OperationResult], await self._acall(
                 AsyncARIA2CDownloader.aria2_API.remove, list_dl, clean=False))
 
-    async def async_restart(self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+    async def async_restart(
+            self, list_dl: list[Optional[aria2p.Download]]) -> Optional[list[OperationResult]]:
+
         if list_dl:
             return cast(list[OperationResult], await self._acall(
                 AsyncARIA2CDownloader.aria2_API.remove, list_dl, files=True, clean=True))
@@ -372,7 +383,8 @@ class AsyncARIA2CDownloader:
                     proxy_ytdl.sanitize_info(await proxy_ytdl.async_extract_info(_init_url)),
                     self.info_dict["format_id"])
 
-            _url = cast(str, try_get(proxy_info["url"], lambda x: unquote(x) if x else None))
+            _url = cast(str, try_get(
+                proxy_info["url"], lambda x: unquote(x) if x else None))
 
             logger.debug(f"{self.premsg} ip{n}{_proxy} uri{n} {_url}")
 
@@ -383,13 +395,15 @@ class AsyncARIA2CDownloader:
                 return _url
 
             _url_as_dict = urlparse(_url)._asdict()
-            _url_as_dict["netloc"] = f"asyncdlrouting{_proxy_port}.{_url_as_dict['netloc']}".replace(".www.", ".")
+            _dom = re.sub(r"^(www.)", "", f"{_url_as_dict['netloc']}")
+            _url_as_dict["netloc"] = f"asyncdlrouting{_proxy_port}.{_dom}"
             return cast(str, urlunparse(list(_url_as_dict.values())))
 
         except Exception as e:
             _msg = f"host[{self._host}]pr[{n}:{_proxy}]{str(e)}"
             logger.debug(
-                f"{self.premsg}[{self.info_dict.get('original_url')}] ERROR init uris {_msg}")
+                f"{self.premsg}[{self.info_dict.get('original_url')}] " +
+                f"ERROR init uris {_msg}")
             raise
 
     async def update_uri(self):
@@ -399,7 +413,8 @@ class AsyncARIA2CDownloader:
 
         if self._mode == "noproxy":
             if self.n_rounds > 1:
-                async with myYTDL(params=self.ytdl.params, silent=True, executor=self.ex_dl) as ytdl:
+                async with myYTDL(
+                        params=self.ytdl.params, silent=True, executor=self.ex_dl) as ytdl:
                     _info = get_format_id(
                         ytdl.sanitize_info(await ytdl.async_extract_info(_init_url)),
                         self.info_dict["format_id"])
@@ -409,7 +424,9 @@ class AsyncARIA2CDownloader:
                     self.uris = [video_url]
                     if _cookie := _info.get("cookies"):
                         self.headers.update({"Cookie": _cookie})
-                        self.opts.set("header", "\n".join([f"{key}: {value}" for key, value in self.headers.items()]))
+                        self.opts.set("header", "\n".join(
+                            [f"{key}: {value}" for key, value in self.headers.items()]))
+
                     if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
                         self._host = _host
                         if isinstance(self.sem, LockType):
@@ -442,7 +459,8 @@ class AsyncARIA2CDownloader:
                 self.opts.set("all-proxy", self._proxy)
 
                 try:
-                    _proxy_info_url = await self.get_uri(_init_url, _proxy_port, simple=True)
+                    _proxy_info_url = await self.get_uri(
+                        _init_url, _proxy_port, simple=True)
                     _uris.append(_proxy_info_url)
 
                 except Exception as e:

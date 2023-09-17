@@ -30,7 +30,7 @@ from concurrent.futures import (
     as_completed,
     Future
 )
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from pathlib import Path
 from bisect import bisect
@@ -2519,6 +2519,14 @@ if yt_dlp:
 ############################################################
 # """                     various                           """
 ############################################################
+
+
+def print_delta_seconds(seconds):
+    return ":".join(
+        [
+            _item.split(".")[0]
+            for _item in f"{timedelta(seconds=seconds)}".split(":")[1:]
+        ])
 
 
 def print_tasks(tasks):
