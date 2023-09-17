@@ -84,14 +84,16 @@ class AsyncARIA2CDownloader:
 
         with AsyncARIA2CDownloader._LOCK:
             if not AsyncARIA2CDownloader._INIT:
-                AsyncARIA2CDownloader.aria2_API = aria2p.API(aria2p.Client(port=port, timeout=2))
+                AsyncARIA2CDownloader.aria2_API = aria2p.API(
+                    aria2p.Client(port=port, timeout=2))
                 AsyncARIA2CDownloader._INIT = True
 
         self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
 
         video_url = unquote(self.info_dict.get("url"))
         self.uris = cast(list[str], [video_url])
-        self._extractor = try_get(self.info_dict.get("extractor_key"), lambda x: x.lower())
+        self._extractor = try_get(
+            self.info_dict.get("extractor_key"), lambda x: x.lower())
         self._host = get_host(video_url, shorten=self._extractor)
 
         self.headers = self.info_dict.get("http_headers", {})
@@ -102,11 +104,12 @@ class AsyncARIA2CDownloader:
 
         self.download_path.mkdir(parents=True, exist_ok=True)
 
-        _filename = self.info_dict.get("_filename", self.info_dict.get("filename"))
+        _filename = self.info_dict.get(
+            "_filename", self.info_dict.get("filename"))
         self.filename = Path(
             self.download_path,
-            f'{_filename.stem}.{self.info_dict["format_id"]}.aria2c.{self.info_dict["ext"]}',
-        )
+            f'{_filename.stem}.{self.info_dict["format_id"]}' +
+            f'.aria2c.{self.info_dict["ext"]}')
 
         self.dl_cont = None
 

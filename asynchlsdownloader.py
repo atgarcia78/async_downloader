@@ -74,6 +74,8 @@ from utils import (
     empty_queue
 )
 
+from videodownloader import VideoDownloader
+
 logger = logging.getLogger("async_HLS_DL")
 
 kill_token = Token("kill")
@@ -140,7 +142,7 @@ class AsyncHLSDownloader:
     _INRESET_403 = InReset403()
     _qproxies = None
 
-    def __init__(self, args: Namespace, video_dict: dict, vid_dl):
+    def __init__(self, args: Namespace, video_dict: dict, vid_dl: VideoDownloader):
         try:
             self.background_tasks = set()
             self.tasks = []
@@ -1267,9 +1269,10 @@ class AsyncHLSDownloader:
                         return
 
                     if _cause := self.vid_dl.reset_event.is_set():
-                        dump_init_task = [self.add_task(self.dump_init_file(), name=f"{self.premsg}[dump_init_file]")]
-                        self.background_tasks.add(dump_init_task[0])
+                        dump_init_task = [self.add_task(
+                            self.dump_init_file(), name=f"{self.premsg}[dump_init_file]")]
 
+                        self.background_tasks.add(dump_init_task[0])
                         await asyncio.wait(dump_init_task + upt_task)
 
                         if self.n_reset < self._MAX_RESETS:

@@ -310,19 +310,19 @@ class MySyncAsyncEvent:
         self.aevent.set()
         self.event.set()
         self._flag = True
-        self._cause = cause
+        self._cause = cause if cause else 'set_with_no_cause'
 
-    def is_set(self) -> Union[str, bool]:
-        """Return cause(true if cause is none) if
-        and only if the internal flag is true."""
+    def is_set(self) -> Optional[str]:
+        """
+        Return cause(true if cause is none) if
+        and only if the internal flag is true.
+        """
 
         if self._flag:
-            if self._cause:
-                return self._cause
-            else:
-                return True
-        else:
-            return False
+            return self._cause
+
+        # else:
+        #     return False
 
     def clear(self):
         self.aevent.clear()
@@ -1040,11 +1040,13 @@ def get_httpx_async_client(config: dict = {}) -> httpx.AsyncClient:
     return httpx.AsyncClient(**(CLIENT_CONFIG | config))
 
 
-def get_driver(**kwargs) -> Firefox:
+def get_driver(**kwargs) -> Optional[Firefox]:
     if kwargs.get("noheadless") is None:
         kwargs["noheadless"] = True
-    _driver, _ = SeleniumInfoExtractor._get_driver(**kwargs)
-    return _driver
+    if _driver := try_get(
+            SeleniumInfoExtractor._get_driver(**kwargs),
+            lambda x: x[0] if x else None):
+        return _driver
 
 
 ############################################################
