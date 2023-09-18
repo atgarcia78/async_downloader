@@ -809,6 +809,8 @@ class VideoDownloader:
                             subtfile = self.info_dl["downloaded_subtitles"]["es"]
                         else:
                             lang, subtfile = list(self.info_dl["downloaded_subtitles"].items())[0]
+                            if lang == "ca":
+                                lang = "cat"
 
                         embed_filename = prepend_extension(self.info_dl["filename"], "embed")
 
