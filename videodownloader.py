@@ -548,6 +548,8 @@ class VideoDownloader:
                 _langs["es"] = key
             if key.startswith("en"):
                 _langs["en"] = key
+            if key == 'ca':
+                _langs["ca"] = key
 
         if not _langs:
             return
