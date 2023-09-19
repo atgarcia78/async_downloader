@@ -535,7 +535,7 @@ class VideoDownloader:
                 subt_url = urlparse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
             return httpx.get(subt_url, headers=self.info_dict.get("http_headers")).text
 
-        _subts = self.info_dict.get("subtitles") or self.info_dict.get("requested_subtitles")
+        _subts = self.info_dict.get("requested_subtitles")
 
         if not _subts:
             return
@@ -732,8 +732,7 @@ class VideoDownloader:
                         proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                            + f"{proc.stdout}\n[stderr]{proc.stderr}"
-                        )
+                            + f"{proc.stdout}\n[stderr]{proc.stderr}")
 
                         rc = proc.returncode
 
@@ -750,10 +749,7 @@ class VideoDownloader:
                             )
 
                     if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
-                        #  self.info_dl['status'] = "done"
-                        logger.debug(
-                            f"{self.premsg}: DL video file OK"
-                        )
+                        logger.debug(f"{self.premsg}: DL video file OK")
 
                     else:
                         self.info_dl["status"] = "error"
