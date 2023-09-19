@@ -533,7 +533,6 @@ class VideoDownloader:
             if ".m3u8" in url:
                 m3u8obj = m3u8.load(url, headers=self.info_dict.get("http_headers"))
                 subt_url = urlparse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
-
             return httpx.get(subt_url, headers=self.info_dict.get("http_headers")).text
 
         _subts = self.info_dict.get("subtitles") or self.info_dict.get("requested_subtitles")
@@ -804,24 +803,23 @@ class VideoDownloader:
 
                 if self.info_dl["downloaded_subtitles"]:
                     try:
-                        if len(self.info_dl["downloaded_subtitles"]) > 1:
-                            lang = "es"
-                            subtfile = self.info_dl["downloaded_subtitles"]["es"]
-                        else:
-                            lang, subtfile = list(self.info_dl["downloaded_subtitles"].items())[0]
-                            if lang == "ca":
-                                lang = "cat"
+
+                        maplang = {'en': 'eng', 'es': 'spa', 'ca': 'cat'}
+                        subtfiles = []
+                        subtlang = []
 
                         embed_filename = prepend_extension(self.info_dl["filename"], "embed")
 
-                        cmd = (
-                            "ffmpeg -y -loglevel repeat+info -i "
-                            + f'file:"{temp_filename}" -i file:"{str(subtfile)}" -map 0 -dn '
-                            + "-ignore_unknown -c copy -c:s mov_text -map -0:s -map 1:0 "
-                            + f"-metadata:s:s:0 language={lang} -movflags +faststart file:"
-                            + f'"{embed_filename}"')
+                        def _make_embed_cmd():
+                            for i, (_lang, _file) in enumerate(self.info_dl["downloaded_subtitles"].items()):
+                                subtfiles.append(f"-i file:'{_file}'")
+                                subtlang.append(f"-map {i+1}:0 -metadata:s:s:{i} language={maplang.get(_lang, _lang)}")
+                            return (
+                                f"ffmpeg -y -loglevel repeat+info -i file:'{temp_filename}' {' '.join(subtfiles)} " +
+                                f"-map 0 -dn -ignore_unknown -c copy -c:s mov_text -map -0:s {' '.join(subtlang)} " +
+                                f"-movflags +faststart {embed_filename}")
 
-                        proc = await apostffmpeg(cmd)
+                        proc = await apostffmpeg(cmd := _make_embed_cmd())
                         logger.debug(
                             f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                             + f"{proc.stdout}\n[stderr]{proc.stderr}")
