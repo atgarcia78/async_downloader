@@ -2300,10 +2300,29 @@ if yt_dlp:
         """
         _kwargs = kwargs.copy()
         new_e = _kwargs.pop("new_e", Exception)
+        if 'client' not in _kwargs:
+            _kwargs['client'] = httpx.Client(**CLIENT_CONFIG)
         try:
             return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
         except ExtractorError as e:
             raise new_e(str(e)) from e
+
+    def get_xml(mpd_url):
+        import xml.etree.ElementTree as etree
+
+        class _TreeBuilder(etree.TreeBuilder):
+            def doctype(self, name, pubid, system):
+                pass
+
+        def etree_fromstring(text):
+            return etree.XML(text, parser=etree.XMLParser(target=_TreeBuilder()))
+
+        _doc = httpx.Client(**CLIENT_CONFIG).get(mpd_url).content.decode('utf-8', 'replace')
+        return etree_fromstring(_doc)
+
+    def get_drm_keys(lic_url, mpd_url):
+        from videodownloader import VideoDownloader as vd
+        return vd._get_key_drm(lic_url, mpd_url=mpd_url)
 
     def get_files_same_id():
         config_folders = {

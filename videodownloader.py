@@ -42,7 +42,9 @@ from utils import (
     MySyncAsyncEvent,
     async_lock,
     CONF_HTTP_DL,
-    CONF_DRM
+    CONF_DRM,
+    send_http_request,
+    get_xml
 )
 
 from pywidevine.cdm import Cdm
@@ -192,19 +194,42 @@ class VideoDownloader:
 
         return Cdm.from_device(device)
 
+    @classmethod
+    def _get_key_drm(cls, licurl: str, pssh: Optional[str] = None, mpd_url: Optional[str] = None):
+
+        with VideoDownloader._LOCK:
+            if not VideoDownloader._CDM:
+                VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
+
+        if not pssh:
+            mpd_xml = get_xml(mpd_url)
+            _list_pssh = cast(list[str], list(set(list(map(lambda x: x.text, list(mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh')))))))
+            _list_pssh.sort(key=len)
+            pssh = _list_pssh[0]
+
+        session_id = VideoDownloader._CDM.open()
+        challenge = VideoDownloader._CDM.get_license_challenge(session_id, PSSH(pssh))
+        VideoDownloader._CDM.parse_license(session_id, httpx.post(licurl, content=challenge).content)
+        if keys := VideoDownloader._CDM.get_keys(session_id):
+            return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
+
     def get_key_drm(self, pssh: str, licurl: str):
 
-        if VideoDownloader._CDM:
-            session_id = VideoDownloader._CDM.open()
-            _pssh = PSSH(pssh)
-            challenge = VideoDownloader._CDM.get_license_challenge(session_id, _pssh)
+        with VideoDownloader._LOCK:
+            if not VideoDownloader._CDM:
+                VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
 
-            if "onlyfans" in self.info_dict["extractor_key"].lower():
-                ie = self.info_dl["ytdl"].get_info_extractor(self.info_dict["extractor_key"])
-                licence = ie.getlicense(licurl, challenge)
-                VideoDownloader._CDM.parse_license(session_id, licence)
-                if keys := VideoDownloader._CDM.get_keys(session_id):
-                    return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
+        session_id = VideoDownloader._CDM.open()
+        _pssh = PSSH(pssh)
+        challenge = VideoDownloader._CDM.get_license_challenge(session_id, _pssh)
+        ie = self.info_dl["ytdl"].get_info_extractor(self.info_dict["extractor_key"])
+        if "onlyfans" in self.info_dict["extractor_key"].lower():
+            licence_message = ie.getlicense(licurl, challenge)
+        else:
+            licence_message = ie._download_webpage(licurl, video_id=None, data=challenge)
+        VideoDownloader._CDM.parse_license(session_id, licence_message)
+        if keys := VideoDownloader._CDM.get_keys(session_id):
+            return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
 
     def _get_dl(self, info_dict):
         def _determine_type(info):
@@ -528,12 +553,14 @@ class VideoDownloader:
             self.info_dl["status"] = "error"
 
     def _get_subts_files(self):
-        def _dl_subt(url):
+        def _dl_subt(url) -> Optional[str]:
             subt_url = url
             if ".m3u8" in url:
                 m3u8obj = m3u8.load(url, headers=self.info_dict.get("http_headers"))
                 subt_url = urlparse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
-            return httpx.get(subt_url, headers=self.info_dict.get("http_headers")).text
+            return try_get(
+                send_http_request(subt_url, _type="GET", headers=self.info_dict.get("http_headers")),
+                lambda x: x.text if x else None)
 
         _subts = self.info_dict.get("requested_subtitles")
 
@@ -570,43 +597,43 @@ class VideoDownloader:
                             self.info_dl["filename"].absolute().parent,
                             f"{self.info_dl['filename'].stem}.{_lang}.{_format}")
 
-                        _content = _dl_subt(el["url"])
+                        if (_content := _dl_subt(el["url"])):
 
-                        with open(_subts_file, "w") as f:
-                            f.write(_content)
+                            with open(_subts_file, "w") as f:
+                                f.write(_content)
 
-                        logger.info(
-                            f"{self.premsg} subs file for [{_lang}, {_format}] downloaded")
+                            logger.info(
+                                f"{self.premsg} subs file for [{_lang}, {_format}] downloaded")
 
-                        if _format == "ttml":
-                            _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
-                            cmd = f'tt convert -i "{_subts_file}" -o {_final_subts_file}"'
-                            logger.info(f"{self.premsg} convert subt - {cmd}")
-                            res = subprocess.run(shlex.split(cmd), encoding="utf-8", capture_output=True)
-                            logger.info(f"{self.premsg}: subs file conversion result {res.returncode}")
-                            if res.returncode == 0 and _final_subts_file.exists():
-                                _subts_file.unlink()
-                                logger.info(f"{self.premsg}: subs file [{_lang}, {_format}] to srt format")
-                                self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
-                        elif _format == "vtt":
-                            _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
-                            cmd = (
-                                "ffmpeg -y -loglevel repeat+info -i file:"
-                                + f'"{_subts_file}" -f srt -movflags +faststart file:"{_final_subts_file}"'
-                            )
-                            logger.info(f"{self.premsg}: convert subt - {cmd}")
-                            res = self.syncpostffmpeg(cmd)
-                            logger.info(f"{self.premsg}: subs file conversion result {res.returncode}")
-                            if res.returncode == 0 and _final_subts_file.exists():
-                                _subts_file.unlink()
-                                logger.info(
-                                    f"{self.premsg}: subs file for [{_lang}, {_format}] to srt ")
-                                self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
+                            if _format == "ttml":
+                                _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
+                                cmd = f'tt convert -i "{_subts_file}" -o {_final_subts_file}"'
+                                logger.info(f"{self.premsg} convert subt - {cmd}")
+                                res = subprocess.run(shlex.split(cmd), encoding="utf-8", capture_output=True)
+                                logger.info(f"{self.premsg}: subs file conversion result {res.returncode}")
+                                if res.returncode == 0 and _final_subts_file.exists():
+                                    _subts_file.unlink()
+                                    logger.info(f"{self.premsg}: subs file [{_lang}, {_format}] to srt format")
+                                    self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
+                            elif _format == "vtt":
+                                _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
+                                cmd = (
+                                    "ffmpeg -y -loglevel repeat+info -i file:"
+                                    + f'"{_subts_file}" -f srt -movflags +faststart file:"{_final_subts_file}"'
+                                )
+                                logger.info(f"{self.premsg}: convert subt - {cmd}")
+                                res = self.syncpostffmpeg(cmd)
+                                logger.info(f"{self.premsg}: subs file conversion result {res.returncode}")
+                                if res.returncode == 0 and _final_subts_file.exists():
+                                    _subts_file.unlink()
+                                    logger.info(
+                                        f"{self.premsg}: subs file for [{_lang}, {_format}] to srt ")
+                                    self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
 
-                        else:
-                            self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
+                            else:
+                                self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
 
-                        break
+                            break
 
                     except Exception as e:
                         logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
