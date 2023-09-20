@@ -14,7 +14,6 @@ from threading import Lock
 import aiofiles.os
 import os
 
-import httpx
 import m3u8
 from yt_dlp.utils import determine_protocol, sanitize_filename
 
@@ -45,6 +44,7 @@ from utils import (
     CONF_DRM,
     send_http_request,
     get_xml,
+    get_license_drm,
     translate_srt
 )
 
@@ -196,7 +196,7 @@ class VideoDownloader:
         return Cdm.from_device(device)
 
     @classmethod
-    def _get_key_drm(cls, licurl: str, pssh: Optional[str] = None, mpd_url: Optional[str] = None):
+    def _get_key_drm(cls, lic_url: str, pssh: Optional[str] = None, mpd_url: Optional[str] = None):
 
         with VideoDownloader._LOCK:
             if not VideoDownloader._CDM:
@@ -204,13 +204,14 @@ class VideoDownloader:
 
         if not pssh:
             mpd_xml = get_xml(mpd_url)
-            _list_pssh = cast(list[str], list(set(list(map(lambda x: x.text, list(mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh')))))))
+            _list_pssh = cast(list[str], list(set(list(map(
+                lambda x: x.text, list(mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh')))))))
             _list_pssh.sort(key=len)
             pssh = _list_pssh[0]
 
         session_id = VideoDownloader._CDM.open()
         challenge = VideoDownloader._CDM.get_license_challenge(session_id, PSSH(pssh))
-        VideoDownloader._CDM.parse_license(session_id, httpx.post(licurl, content=challenge).content)
+        VideoDownloader._CDM.parse_license(session_id, get_license_drm(lic_url, challenge))
         if keys := VideoDownloader._CDM.get_keys(session_id):
             return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
 
@@ -247,13 +248,19 @@ class VideoDownloader:
         elif info_dict.get("_has_drm") or self.info_dict.get(
             "has_drm"
         ):  # or 'dash' in info_dict.get('format_note', '').lower():
-            dl = AsyncNativeDownloader(info_dict, self)
-            self._types = "NATIVE"
+            dl = AsyncNativeDownloader(info_dict, self, drm=True)
+            self._types = "NATIVE_DRM"
             with VideoDownloader._LOCK:
                 if not VideoDownloader._CDM:
                     VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
             logger.debug(f"{self.premsg}[get_dl] DL type DASH with DRM")
             return dl
+        elif info_dict.get("extractor_key") == "Youtube":
+            dl = AsyncNativeDownloader(info_dict, self, drm=False)
+            self._types = "NATIVE"
+            logger.debug(f"{self.premsg}[get_dl] DL type youtue")
+            return dl
+
         else:
             for f in _info:
                 f.update(
@@ -599,12 +606,12 @@ class VideoDownloader:
                     if _format == "ttml":
                         _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
                         cmd = f'tt convert -i "{_subts_file}" -o {_final_subts_file}"'
-                        logger.info(f"{self.premsg} convert subt - {cmd}")
+                        logger.debug(f"{self.premsg} convert subt - {cmd}")
                         res = subprocess.run(shlex.split(cmd), encoding="utf-8", capture_output=True)
-                        logger.info(f"{self.premsg}: subs file conversion result {res.returncode}")
+                        logger.debug(f"{self.premsg}: subs file conversion result {res.returncode}")
                         if res.returncode == 0 and _final_subts_file.exists():
                             _subts_file.unlink()
-                            logger.info(f"{self.premsg}: subs file [{_lang}, {_format}] to srt format")
+                            logger.info(f"{self.premsg}: subs file [{_lang}, srt] ready")
                             self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
                     elif _format == "vtt":
                         _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
@@ -612,13 +619,13 @@ class VideoDownloader:
                             "ffmpeg -y -loglevel repeat+info -i file:"
                             + f'"{_subts_file}" -f srt -movflags +faststart file:"{_final_subts_file}"'
                         )
-                        logger.info(f"{self.premsg}: convert subt - {cmd}")
+                        logger.debug(f"{self.premsg}: convert subt - {cmd}")
                         res = self.syncpostffmpeg(cmd)
-                        logger.info(f"{self.premsg}: subs file conversion result {res.returncode}")
+                        logger.debug(f"{self.premsg}: subs file conversion result {res.returncode}")
                         if res.returncode == 0 and _final_subts_file.exists():
                             _subts_file.unlink()
                             logger.info(
-                                f"{self.premsg}: subs file for [{_lang}, {_format}] to srt ")
+                                f"{self.premsg}: subs file [{_lang}, srt] ready")
                             self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
 
                     else:
@@ -628,12 +635,14 @@ class VideoDownloader:
                 logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
 
         if len(self.info_dl["downloaded_subtitles"]) == 1 and 'ca' in self.info_dl["downloaded_subtitles"]:
+            logger.info(f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]")
             _subs_file = Path(
                 self.info_dl["filename"].absolute().parent,
                 f"{self.info_dl['filename'].stem}.es.srt")
             with open(_subs_file, 'w') as f:
                 f.write(translate_srt(self.info_dl["downloaded_subtitles"]['ca'], 'ca', 'es'))
             self.info_dl["downloaded_subtitles"]['es'] = _subs_file
+            logger.info(f"{self.premsg}: subs file [es, srt] ready")
 
     async def run_manip(self):
         aget_subts_files = self.sync_to_async(self._get_subts_files)
@@ -695,7 +704,7 @@ class VideoDownloader:
             if res:
                 temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
 
-                if self._types == "NATIVE":
+                if self._types == "NATIVE_DRM":
                     _video_file_temp = prepend_extension(
                         (_video_file := str(self.info_dl["downloaders"][0].filename[0])), "temp")
                     _audio_file_temp = prepend_extension(
@@ -845,6 +854,9 @@ class VideoDownloader:
                             await aiofiles.os.replace(embed_filename, self.info_dl["filename"])
                             await aiofiles.os.remove(temp_filename)
                             self.info_dl["status"] = "done"
+                            for _file in self.info_dl["downloaded_subtitles"].values():
+                                await aiofiles.os.remove(_file)
+
                     except Exception as e:
                         logger.exception(f"{self.premsg}: error embeding subtitles {repr(e)}")
 

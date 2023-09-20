@@ -367,7 +367,7 @@ class AsyncHLSDownloader:
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
                 _cipher = None
-                if _initfrag.key and _initfrag.key.method == "AES-128" and _initfrag.key.iv:
+                if hasattr(_initfrag, 'key') and _initfrag.key.method == "AES-128" and _initfrag.key.iv:
                     if (_key := self.get_key(cast(str, _initfrag.key.absolute_uri))):
                         _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(_initfrag.key.iv[2:]))
                 self.info_init_section.update(

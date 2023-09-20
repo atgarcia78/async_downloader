@@ -22,7 +22,8 @@ from utils import (
     async_lock,
     MySyncAsyncEvent,
     CONF_AUTO_PASRES,
-    LockType
+    LockType,
+    SpeedometerMA
 )
 
 logger = logging.getLogger("async_native")
@@ -47,11 +48,12 @@ class AsyncNativeDLError(Exception):
 class AsyncNativeDownloader:
     _CLASSLOCK = asyncio.Lock()
     _CONFIG = load_config_extractors()
-    _pattern = r"Total:(?P<total>\d+) - Progress:\s*(?P<progress>\d+\.\d+)% - Downloaded:(?P<downloaded>\d+) - Speed:(?P<speed>\d+\.\d+)"
+    _pattern = r"Total:(?P<total>(?:NA|\d+)) - Progress:\s*(?P<progress>\d+\.\d+)% - Downloaded:(?P<downloaded>\d+) - Speed:(?P<speed>\d+\.\d+)"
     progress_pattern = re.compile(_pattern)
 
-    def __init__(self, video_dict, vid_dl):
+    def __init__(self, video_dict, vid_dl, drm=False):
         try:
+            self.drm = drm
             self.background_tasks = set()
             self.info_dict = video_dict.copy()
             self.vid_dl = vid_dl
@@ -59,16 +61,23 @@ class AsyncNativeDownloader:
             self.n_workers = self.vid_dl.info_dl["n_workers"]
             self.download_path = self.info_dict["download_path"]
             self.download_path.mkdir(parents=True, exist_ok=True)
-            _filename = self.info_dict.get("_filename", self.info_dict.get("filename"))
+            self._filename = self.info_dict.get("_filename", self.info_dict.get("filename"))
             _formats = sorted(
                 self.info_dict["requested_formats"],
                 key=lambda x: (x.get("resolution", "") == "audio_only" or x.get("ext", "") == "m4a"),
             )
-            #  1 video, 2 audio
-            self.filename = [
-                Path(self.download_path, f'{_filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
-                for fdict in _formats
-            ]
+
+            if drm:
+                #  1 video, 2 audio
+                self.filename = [
+                    Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
+                    for fdict in _formats
+                ]
+            else:
+                self.filename = Path(
+                    self.download_path,
+                    f'{self._filename.stem}' +
+                    f'.{self.info_dict["ext"]}')
 
             self._host = get_host(unquote(_formats[0]["url"]))
             self.down_size = 0
@@ -114,6 +123,13 @@ class AsyncNativeDownloader:
 
             self.dl_cont = [{"total": "--", "progress": "--", "downloaded": "--", "speed": "--"}]
 
+            _filesize = self.info_dict.get('duration', 0) * self.info_dict.get('vbr', 0) * 1000 / 8
+
+            if _filesize:
+                self.filesize = _filesize
+
+            self.speedometer = SpeedometerMA()
+
         except Exception as e:
             logger.exception(repr(e))
             raise
@@ -130,19 +146,22 @@ class AsyncNativeDownloader:
             "-P",
             str(self.download_path),
             "-o",
-            "%(id)s_%(title)s.%(ext)s",
+            f"{self._filename.stem}.%(ext)s",
             self.info_dict["webpage_url"],
             "-v",
-            "--allow-unplayable-formats",
             "-N",
-            "50",
+            str(self.vid_dl.info_dl["n_workers"]),
             "--downloader",
             "native",
             "--newline",
             "--progress-template",
             "download:Total:%(progress.total_bytes)s - Progress:%(progress._percent_str)s - Downloaded:%(progress.downloaded_bytes)s - Speed:%(progress.speed)s",
         ]
-        return shell_quote(cmd)
+        if self.drm:
+            cmd.append("--allow-unplayable-formats")
+        _cmd = shell_quote(cmd)
+        logger.info(f"{self.premsg}[cmd] {_cmd}")
+        return _cmd
 
     async def async_terminate(self, pid, msg=None):
         premsg = "[async_term]"
@@ -220,16 +239,18 @@ class AsyncNativeDownloader:
                             _upt = False
                         elif _upt and (upt_info := re.search(self.progress_pattern, _line)):
                             _status = upt_info.groupdict()
-                            self.dl_cont.append(_status)
-                            if not hasattr(self, "filesize") and (
-                                (_total := int_or_none(_status.get("total"))) is not None
-                            ):
-                                self.filesize = _total
-                                self.vid_dl.info_dl["filesize"] = self.filesize
                             if (_dl_size := int_or_none(_status.get("downloaded"))) is not None:
                                 self.down_size = _dl_size
                                 self.vid_dl.info_dl["down_size"] += self.down_size - self.downsize_ant
                                 self.downsize_ant = _dl_size
+                                _speed_meter = self.speedometer(_dl_size)
+                                _status['smooth_speed'] = _speed_meter
+                            self.dl_cont.append(_status)
+                            if not hasattr(self, "filesize") and (
+                                (_total := int_or_none(try_get(_status.get("total"), lambda x: None if x == 'NA' else x))) is not None
+                            ):
+                                self.filesize = _total
+                                self.vid_dl.info_dl["filesize"] = self.filesize
 
                         await asyncio.sleep(0)
                     else:
@@ -296,7 +317,7 @@ class AsyncNativeDownloader:
                 _speed_str = "--"
                 _progress_str = "--"
                 if self.dl_cont and (_temp := self.dl_cont[-1].copy()):
-                    if (_speed_meter := _temp.get("speed", "--")) and _speed_meter != "--":
+                    if (_speed_meter := _temp.get("smooth_speed", "--")) and _speed_meter != "--":
                         _speed_str = f"{naturalsize(float(_speed_meter), binary=True)}ps"
                     if (_progress_str := _temp.get("progress", "--")) and _progress_str != "--":
                         _progress_str += "%"

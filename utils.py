@@ -2317,8 +2317,13 @@ if yt_dlp:
         def etree_fromstring(text):
             return etree.XML(text, parser=etree.XMLParser(target=_TreeBuilder()))
 
-        _doc = httpx.Client(**CLIENT_CONFIG).get(mpd_url).content.decode('utf-8', 'replace')
+        with httpx.Client(**CLIENT_CONFIG) as client:
+            _doc = client.get(mpd_url).content.decode('utf-8', 'replace')
         return etree_fromstring(_doc)
+
+    def get_license_drm(lic_url, challenge):
+        with httpx.Client(**CLIENT_CONFIG) as client:
+            return client.post(lic_url, content=challenge).content
 
     def get_drm_keys(lic_url, mpd_url):
         from videodownloader import VideoDownloader as vd
