@@ -44,7 +44,8 @@ from utils import (
     CONF_HTTP_DL,
     CONF_DRM,
     send_http_request,
-    get_xml
+    get_xml,
+    translate_srt
 )
 
 from pywidevine.cdm import Cdm
@@ -623,10 +624,16 @@ class VideoDownloader:
                     else:
                         self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
 
-                    break
-
             except Exception as e:
                 logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
+
+        if len(self.info_dl["downloaded_subtitles"]) == 1 and 'ca' in self.info_dl["downloaded_subtitles"]:
+            _subs_file = Path(
+                self.info_dl["filename"].absolute().parent,
+                f"{self.info_dl['filename'].stem}.es.srt")
+            with open(_subs_file, 'w') as f:
+                f.write(translate_srt(self.info_dl["downloaded_subtitles"]['ca'], 'ca', 'es'))
+            self.info_dl["downloaded_subtitles"]['es'] = _subs_file
 
     async def run_manip(self):
         aget_subts_files = self.sync_to_async(self._get_subts_files)
