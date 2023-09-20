@@ -2173,7 +2173,7 @@ if yt_dlp:
             "format": args.format,
             "format_sort": [args.sort],
             "nocheckcertificate": True,
-            "subtitleslangs": ["all"],
+            "subtitleslangs": ["en", "es", "ca"],
             "keepvideo": True,
             "convertsubtitles": "srt",
             "continuedl": True,
@@ -2534,6 +2534,119 @@ if yt_dlp:
             raise Exception(
                 f"ERROR couldnt create command: entriesleg[{len(entriesleg)}] entriesalt[{len(entriesalt)}]"
             )
+
+
+class SentenceTranslator(object):
+    def __init__(self, src, dst, patience=-1, timeout=30, error_messages_callback=None):
+        self.src = src
+        self.dst = dst
+        self.patience = patience
+        self.timeout = timeout
+        self.error_messages_callback = error_messages_callback
+
+    def __call__(self, sentence):
+        try:
+            patience = self.patience
+            translated_sentence = []
+            # handle the special case: empty string.
+            if not sentence:
+                return None
+            translated_sentence = self.GoogleTranslate(sentence, src=self.src, dst=self.dst, timeout=self.timeout)
+            fail_to_translate = translated_sentence[-1] == '\n'  # type: ignore
+            while fail_to_translate and patience:
+                translated_sentence = self.GoogleTranslate(translated_sentence, src=self.src, dst=self.dst, timeout=self.timeout)
+                if translated_sentence[-1] == '\n':  # type: ignore
+                    if patience == -1:
+                        continue
+                    patience -= 1
+                else:
+                    fail_to_translate = False
+
+            return translated_sentence
+
+        except KeyboardInterrupt:
+            if self.error_messages_callback:
+                self.error_messages_callback("Cancelling all tasks")
+            else:
+                print("Cancelling all tasks")
+            return
+
+        except Exception as e:
+            if self.error_messages_callback:
+                self.error_messages_callback(e)
+            else:
+                print(e)
+            return
+
+    def GoogleTranslate(self, text, src, dst, timeout=30):
+        url = 'https://translate.googleapis.com/translate_a/'
+        params = 'single?client=gtx&sl=' + src + '&tl=' + dst + '&dt=t&q=' + text
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://translate.google.com'}
+
+        try:
+            with httpx.Client() as client:
+                response = client.get(url + params, headers=headers, timeout=self.timeout)
+                if response.status_code == 200:
+                    response_json = response.json()[0]
+                    length = len(response_json)
+                    translation = ""
+                    for i in range(length):
+                        translation = translation + response_json[i][0]
+                    return translation
+                return
+
+        except KeyboardInterrupt:
+            if self.error_messages_callback:
+                self.error_messages_callback("Cancelling all tasks")
+            else:
+                print("Cancelling all tasks")
+            return
+
+        except Exception as e:
+            if self.error_messages_callback:
+                self.error_messages_callback(e)
+            else:
+                print(e)
+            return
+
+
+def translate_srt(filesrt, srclang, dstlang):
+
+    import srt
+
+    lock = threading.Lock()
+
+    def worker(subt, i):
+        if subt.content:
+            _temp = subt.content.replace('\n', ' ')
+            start = _temp.startswith('# ')
+            end = _temp.endswith(' #')
+            _res = trans(_temp.replace('# ', '').replace(' #', ''))
+            if not _res:
+                with lock:
+                    print(f"ERROR: {i} - {_temp}")
+            if start:
+                _res = '# ' + _res
+            if end:
+                _res += ' #'
+            return _res
+        else:
+            with lock:
+                print(f"ERROR: {i} - {subt.content}")
+
+    with open(filesrt, 'r') as f:
+        _srt_text = f.read()
+
+    _list_srt = list(srt.parse(_srt_text))
+
+    trans = SentenceTranslator(src=srclang, dst=dstlang, patience=0)
+    with ThreadPoolExecutor(max_workers=16) as exe:
+        futures = [exe.submit(worker, subt, i) for i, subt in enumerate(_list_srt)]
+
+    for fut, sub in zip(futures, _list_srt):
+        sub.content = fut.result()
+
+    return srt.compose(_list_srt)
 
 ############################################################
 # """                     various                           """
