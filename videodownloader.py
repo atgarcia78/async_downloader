@@ -250,9 +250,9 @@ class VideoDownloader:
         ):  # or 'dash' in info_dict.get('format_note', '').lower():
             dl = AsyncNativeDownloader(info_dict, self, drm=True)
             self._types = "NATIVE_DRM"
-            with VideoDownloader._LOCK:
-                if not VideoDownloader._CDM:
-                    VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
+            # with VideoDownloader._LOCK:
+            #     if not VideoDownloader._CDM:
+            #         VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
             logger.debug(f"{self.premsg}[get_dl] DL type DASH with DRM")
             return dl
         elif info_dict.get("extractor_key") == "Youtube":
@@ -634,7 +634,7 @@ class VideoDownloader:
             except Exception as e:
                 logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
 
-        if len(self.info_dl["downloaded_subtitles"]) == 1 and 'ca' in self.info_dl["downloaded_subtitles"]:
+        if 'ca' in self.info_dl["downloaded_subtitles"] and 'es' not in self.info_dl["downloaded_subtitles"]:
             logger.info(f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]")
             _subs_file = Path(
                 self.info_dl["filename"].absolute().parent,
@@ -740,9 +740,7 @@ class VideoDownloader:
                             + f"{proc.stdout}\n[stderr]{proc.stderr}")
 
                     if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
-                        logger.debug(
-                            f"{self.premsg}: DL video file OK"
-                        )
+                        logger.debug(f"{self.premsg}: DL video file OK")
 
                     async with async_suppress(OSError):
                         await aiofiles.os.remove(_video_file_temp)
@@ -852,10 +850,12 @@ class VideoDownloader:
                             + f"{proc.stdout}\n[stderr]{proc.stderr}")
                         if proc.returncode == 0:
                             await aiofiles.os.replace(embed_filename, self.info_dl["filename"])
-                            await aiofiles.os.remove(temp_filename)
+                            async with async_suppress(OSError):
+                                await aiofiles.os.remove(temp_filename)
                             self.info_dl["status"] = "done"
                             for _file in self.info_dl["downloaded_subtitles"].values():
-                                await aiofiles.os.remove(_file)
+                                async with async_suppress(OSError):
+                                    await aiofiles.os.remove(_file)
 
                     except Exception as e:
                         logger.exception(f"{self.premsg}: error embeding subtitles {repr(e)}")
