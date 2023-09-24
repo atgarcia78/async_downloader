@@ -681,8 +681,9 @@ class AsyncARIA2CDownloader:
                             await self.vid_dl.reset()
                     else:
                         await _update_counters(self.dl_cont.completed_length)
-                        self._qspeed.put_nowait(
-                            (self.dl_cont.download_speed, self.dl_cont.connections, datetime.now()))
+                        if self.args.check_speed:
+                            self._qspeed.put_nowait(
+                                (self.dl_cont.download_speed, self.dl_cont.connections, datetime.now()))
                 else:
                     await asyncio.sleep(0)
 
@@ -713,7 +714,10 @@ class AsyncARIA2CDownloader:
     async def fetch_async(self):
 
         self.progress_timer.reset()
-        check_task = self.add_task(self.check_speed(), name=f"{self.premsg}[check_task]")
+        if self.args.check_speed:
+            check_task = self.add_task(self.check_speed(), name=f"{self.premsg}[check_task]")
+        else:
+            check_task = None
 
         try:
             while True:
@@ -755,8 +759,9 @@ class AsyncARIA2CDownloader:
             if isinstance(e, KeyboardInterrupt):
                 raise
         finally:
-            self._qspeed.put_nowait(kill_token)
-            await asyncio.wait([check_task])
+            if check_task:
+                self._qspeed.put_nowait(kill_token)
+                await asyncio.wait([check_task])
 
             logger.debug(f"{self.premsg}[fetch_async] exiting")
 

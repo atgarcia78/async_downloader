@@ -43,7 +43,6 @@ from typing import (
     Any,
     Iterable,
     cast,
-    Awaitable,
     Callable,
     Optional
 )
@@ -559,7 +558,7 @@ class run_operation_in_executor_from_loop:
         name = self.name
 
         @functools.wraps(func)
-        def wrapper(*args, **kwargs) -> tuple[MySyncAsyncEvent, Awaitable]:
+        def wrapper(*args, **kwargs) -> tuple[MySyncAsyncEvent, asyncio.Task]:
             stop_event = MySyncAsyncEvent(name)
             kwargs["stop_event"] = stop_event
             _task = asyncio.create_task(
@@ -930,6 +929,7 @@ def init_argparser():
     )
     parser.add_argument("--subt", action=ActionNoYes, default=True)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
+    parser.add_argument("--check-speed", action=ActionNoYes, default=True)
     parser.add_argument("--deep-aldl", action=ActionNoYes, default=True)
     parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"], default="aria2c")
     parser.add_argument("--use-path-pl", action="store_true", default=False)
