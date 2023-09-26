@@ -240,13 +240,15 @@ class AsyncHLSDownloader:
             self.limits: httpx.Limits = httpx.Limits(
                 max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
 
-            self.init_client = httpx.Client(
-                proxies=cast(ProxiesTypes, self._proxy),
-                follow_redirects=True,
-                headers=self.info_dict["http_headers"],
-                limits=self.limits,
-                timeout=self.timeout,
-                verify=False)
+            self.config_httpx = lambda: {
+                'proxies': cast(ProxiesTypes, self._proxy),
+                'limits': self.limits,
+                'follow_redirects': True,
+                'timeout': self.timeout,
+                'verify': False,
+                'headers': self.info_dict["http_headers"]}
+
+            self.init_client = httpx.Client(**self.config_httpx())
 
             self.auto_pasres = False
             self.fromplns = None
@@ -601,13 +603,7 @@ class AsyncHLSDownloader:
             logger.error(
                 f"{self.premsg}:RESET[{self.n_reset}]:prep_reset error {repr(e)}")
 
-        self.init_client = httpx.Client(
-            proxies=cast(ProxiesTypes, self._proxy),
-            follow_redirects=True,
-            headers=self.info_dict["http_headers"],
-            limits=self.limits,
-            timeout=self.timeout,
-            verify=False)
+        self.init_client = httpx.Client(**self.config_httpx())
 
         self.frags_to_dl = []
 
@@ -977,13 +973,7 @@ class AsyncHLSDownloader:
         premsg = f"{self.premsg}:[worker-{nco}]"
         logger.debug(f"{premsg} init worker")
 
-        client = httpx.AsyncClient(
-            proxies=cast(ProxiesTypes, self._proxy),
-            limits=self.limits,
-            follow_redirects=True,
-            timeout=self.timeout,
-            verify=False,
-            headers=self.info_dict["http_headers"])
+        client = httpx.AsyncClient(**self.config_httpx())
 
         async def _decrypt(data: bytes, cipher: Optional[CbcMode]) -> bytes:
             if cipher:

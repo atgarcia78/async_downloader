@@ -37,6 +37,7 @@ from utils import (
     Union,
     cast,
     Optional,
+    Coroutine,
     async_waitfortasks,
     MySyncAsyncEvent,
     async_lock,
@@ -337,6 +338,18 @@ class VideoDownloader:
         self._types = " - ".join(_types)
         return res_dl
 
+    def add_task(
+            self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+
+        if not isinstance(coro, asyncio.Task):
+            _task = asyncio.create_task(coro, name=name)
+        else:
+            _task = coro
+
+        self.background_tasks.add(_task)
+        _task.add_done_callback(self.background_tasks.discard)
+        return _task
+
     async def change_numvidworkers(self, n):
         if self.info_dl["status"] in ("downloading", "init"):
             for dl in self.info_dl["downloaders"]:
@@ -418,14 +431,12 @@ class VideoDownloader:
             list_reset = traverse_obj(self.info_dl["fromplns"], (plid, "in_reset"))
             if list_reset and dict_dl:
                 plns = [dl for key, dl in dict_dl.items() if key in list_reset]  # type: ignore
-                _tasks_all.extend([asyncio.create_task(dl.end_tasks.async_wait(timeout=300)) for dl in plns])
+                _tasks_all.extend([
+                    self.add_task(dl.end_tasks.async_wait(timeout=300), name=f'await_end_tasks_{dl.premsg}') for dl in plns])
 
         logger.debug(f"{premsg} endtasks {_tasks_all}")
 
         if _tasks_all:
-            for _task in _tasks_all:
-                self.background_tasks.add(_task)
-                _task.add_done_callback(self.background_tasks.discard)
             await async_waitfortasks(
                 _tasks_all, events=self.stop_event,
                 background_tasks=self.background_tasks)
@@ -499,7 +510,7 @@ class VideoDownloader:
                 logger.debug(
                     f"{self.premsg}[run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
                 tasks_run_0 = [
-                    asyncio.create_task(dl.fetch_async())
+                    self.add_task(dl.fetch_async(), name=f'fetch_async_{i}')
                     for i, dl in enumerate(self.info_dl["downloaders"])
                     if i == 0 and dl.status not in ("init_manipulating", "done")
                 ]
@@ -509,21 +520,15 @@ class VideoDownloader:
                 done = set()
 
                 if tasks_run_0:
-                    for _task in tasks_run_0:
-                        self.background_tasks.add(_task)
-                        _task.add_done_callback(self.background_tasks.discard)
                     done, _ = await asyncio.wait(tasks_run_0)
 
                 if len(self.info_dl["downloaders"]) > 1:
                     tasks_run_1 = [
-                        asyncio.create_task(dl.fetch_async())
+                        self.add_task(dl.fetch_async(), name=f'fetch_async_{i}')
                         for i, dl in enumerate(self.info_dl["downloaders"])
                         if i == 1 and dl.status not in ("init_manipulating", "done")
                     ]
                     if tasks_run_1:
-                        for _task in tasks_run_1:
-                            self.background_tasks.add(_task)
-                            _task.add_done_callback(self.background_tasks.discard)
                         done1, _ = await asyncio.wait(tasks_run_1)
                         done = done.union(done1)
 
@@ -663,7 +668,7 @@ class VideoDownloader:
                     dl.status = "manipulating"
 
             blocking_tasks = [
-                asyncio.create_task(dl.ensamble_file())
+                self.add_task(dl.ensamble_file(), name=f'ensamble_file_{dl.pre_msg}')
                 for dl in self.info_dl["downloaders"]
                 if (
                     not any(
@@ -674,12 +679,10 @@ class VideoDownloader:
             ]
 
             if self.args.subt and self.info_dict.get("requested_subtitles"):
-                blocking_tasks += [asyncio.create_task(aget_subts_files())]
+                blocking_tasks += [self.add_task(aget_subts_files(), name='get_subts')]
 
             if blocking_tasks:
-                for _task in blocking_tasks:
-                    self.background_tasks.add(_task)
-                    _task.add_done_callback(self.background_tasks.discard)
+
                 done, _ = await asyncio.wait(blocking_tasks)
 
                 for d in done:
