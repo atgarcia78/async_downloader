@@ -1102,9 +1102,8 @@ class AsyncHLSDownloader:
                                     _tasks_chunks.append(
                                         self.add_task(
                                             fileobj.write(_buffer),
-                                            name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]",
-                                        )
-                                    )
+                                            name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
+
                                     _buffer = b""
 
                         num_bytes_downloaded = await _update_counters(
@@ -1115,9 +1114,8 @@ class AsyncHLSDownloader:
                             _tasks_chunks.append(
                                 self.add_task(
                                     fileobj.write(_buffer),
-                                    name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]",
-                                )
-                            )
+                                    name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
+
                             _buffer = b""
                             await asyncio.wait(_tasks_chunks[-1:])
 
@@ -1135,8 +1133,7 @@ class AsyncHLSDownloader:
                         "".join([
                             f"{_premsg}: end of streaming. Fragment not completed\n",
                             f"{self.info_frag[index - 1]}"
-                        ])
-                    )
+                        ]))
                     raise AsyncHLSDLError(f"fragment not completed frag[{index}]")
 
                 except StatusError503 as e:
@@ -1193,7 +1190,7 @@ class AsyncHLSDownloader:
         async with async_lock(AsyncHLSDownloader._CLASSLOCK):
             if self.fromplns:
                 _event = traverse_obj(self.vid_dl.info_dl["fromplns"], ("ALL", "reset"))
-                _res = await async_wait_for_any([_event, self.vid_dl.stop_event])
+                _res = await async_wait_for_any([_event, self.vid_dl.stop_event], timeout=300)
                 if event := _res.get("event"):
                     if "stop" in event:
                         self.status = "stop"

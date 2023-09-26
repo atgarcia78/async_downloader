@@ -3308,7 +3308,9 @@ if PySimpleGUI:
                 if not values["-IN-"]:
                     sg.cprint(
                         "[pause-resume autom] Please enter timers [time to resume:"
-                        + f"{self.pasres_time_from_resume_to_pause}],[time in pause:{self.pasres_time_in_pause}]\nDL in pasres: {list(self.asyncdl.list_pasres)}"
+                        + f"{self.pasres_time_from_resume_to_pause}],"
+                        + f"[time in pause:{self.pasres_time_in_pause}]"
+                        + f"\nDL in pasres: {list(self.asyncdl.list_pasres)}"
                     )
                 else:
                     timers = [timer.strip() for timer in values["-IN-"].split(",")]
@@ -3327,8 +3329,7 @@ if PySimpleGUI:
 
                             sg.cprint(
                                 f"[pause-resume autom] [time to resume] {self.pasres_time_from_resume_to_pause} "
-                                + f"[time in pause] {self.pasres_time_in_pause}"
-                            )
+                                + f"[time in pause] {self.pasres_time_in_pause}")
 
                     self.window_console["-IN-"].update(value="")
 
@@ -3405,8 +3406,8 @@ if PySimpleGUI:
                             if event == "MoveTopWaitingDL":
                                 if not self.asyncdl.WorkersInit.exit.is_set():
                                     sg.cprint(
-                                        "[move to top waiting list] cant process until every video has been checked by init"
-                                    )
+                                        "[move to top waiting list] cant process until every video " +
+                                        "has been checked by init")
                                 else:
                                     await self.asyncdl.WorkersRun.move_to_waiting_top(_index)
                             if event == "StopCount":
@@ -3433,8 +3434,7 @@ if PySimpleGUI:
                                     + f"pause[{self.asyncdl.list_dl[_index].pause_event.is_set()}]"
                                     + f"resume[{self.asyncdl.list_dl[_index].resume_event.is_set()}]"
                                     + f"stop[{self.asyncdl.list_dl[_index].stop_event.is_set()}]"
-                                    + f"reset[{self.asyncdl.list_dl[_index].reset_event.is_set()}]"
-                                )
+                                    + f"reset[{self.asyncdl.list_dl[_index].reset_event.is_set()}]")
 
                                 info.append(_info)
 
@@ -3606,22 +3606,19 @@ if PySimpleGUI:
                             key="-ML-",
                             reroute_cprint=True,
                             auto_refresh=True,
-                            autoscroll=True,
-                        )
+                            autoscroll=True)
                     ],
                     [
                         sg.Checkbox(
                             "PauseRep",
                             key="-PASRES-",
                             default=FrontEndGUI._PASRES_REPEAT,
-                            enable_events=True,
-                        ),
+                            enable_events=True),
                         sg.Checkbox(
                             "ResRep",
                             key="-RESETREP-",
                             default=False,
-                            enable_events=True,
-                        ),
+                            enable_events=True),
                         sg.Button("+PasRes"),
                         sg.Button("-PasRes"),
                         sg.Button("DLStatus", key="-DL-STATUS"),
@@ -3642,8 +3639,7 @@ if PySimpleGUI:
                 ],
                 element_justification="c",
                 expand_x=True,
-                expand_y=True,
-            )
+                expand_y=True)
 
             layout_pygui = [[col_pygui]]
 
@@ -3653,8 +3649,7 @@ if PySimpleGUI:
                 alpha_channel=0.99,
                 location=(0, 500),
                 finalize=True,
-                resizable=True,
-            )
+                resizable=True)
             window_console.set_min_size(window_console.size)
             window_console["-ML-"].expand(True, True, True)
 
@@ -3781,10 +3776,9 @@ if PySimpleGUI:
                     if self.asyncdl.list_pasres and FrontEndGUI._PASRES_REPEAT:
                         _waitres_nopause = wait_for_either(
                             [stop_event, FrontEndGUI._PASRES_EXIT],
-                            timeout=self.pasres_time_from_resume_to_pause,
-                        )
+                            timeout=self.pasres_time_from_resume_to_pause)
                         FrontEndGUI._PASRES_EXIT.clear()
-                        if not FrontEndGUI._PASRES_REPEAT:
+                        if not FrontEndGUI._PASRES_REPEAT or not self.asyncdl.list_pasres:
                             continue
                         if _waitres_nopause == "TIMEOUT" and (_list := list(self.asyncdl.list_pasres)):
                             if not self.reset_repeat:
@@ -3792,48 +3786,43 @@ if PySimpleGUI:
                                     sg.cprint(f"[time resume -> pause] {time.monotonic()-_start_no_pause}")
 
                                 self.window_console.write_event_value(
-                                    "Pause", ",".join(list(map(str, _list)))
-                                )
+                                    "Pause", ",".join(list(map(str, _list))))
                                 time.sleep(1)
                                 self.logger.debug("[pasres_periodic]: pauses sent")
                                 _start_pause = time.monotonic()
                                 _waitres = wait_for_either(
-                                    [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause
-                                )
+                                    [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause)
                                 FrontEndGUI._PASRES_EXIT.clear()
                                 self.logger.debug("[pasres_periodic]: start sending resumes")
                                 if _waitres == "TIMEOUT":
                                     _time = self.pasres_time_in_pause / len(_list)
-                                    for _el in _list:
+                                    for i, _el in enumerate(_list):
                                         self.window_console.write_event_value("Resume", str(_el))
 
-                                        if (
-                                            wait_for_either(
+                                        if i + 1 < len(_list):
+                                            _waitres = wait_for_either(
                                                 [stop_event, FrontEndGUI._PASRES_EXIT],
-                                                timeout=random.uniform(0.75 * _time, 1.25 * _time),
-                                            )
-                                            != "TIMEOUT"
-                                        ):
-                                            self.window_console.write_event_value(
-                                                "Resume", ",".join(list(map(str, _list)))
-                                            )
-                                            break
+                                                timeout=random.uniform(0.75 * _time, 1.25 * _time))
+                                            FrontEndGUI._PASRES_EXIT.clear()
+                                            if _waitres != "TIMEOUT":
+                                                self.window_console.write_event_value(
+                                                    "Resume", ",".join(list(map(str, _list[i + 1:]))))
+
+                                                break
 
                                 else:
                                     self.window_console.write_event_value(
-                                        "Resume", ",".join(list(map(str, _list)))
-                                    )
+                                        "Resume", ",".join(list(map(str, _list))))
 
                                 self.logger.debug(
-                                    "[pasres_periodic]: resumes sent, start timer to next pause"
-                                )
+                                    "[pasres_periodic]: resumes sent, start timer to next pause")
+
                                 sg.cprint(f"[time in pause] {time.monotonic()-_start_pause}")
                                 _start_no_pause = time.monotonic()
 
                             else:
                                 self.window_console.write_event_value(
-                                    "Reset", ",".join(list(map(str, _list)))
-                                )
+                                    "Reset", ",".join(list(map(str, _list))))
                     else:
                         _start_no_pause = None
                         time.sleep(CONF_INTERVAL_GUI)

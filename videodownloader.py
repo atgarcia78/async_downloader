@@ -668,7 +668,7 @@ class VideoDownloader:
                     dl.status = "manipulating"
 
             blocking_tasks = [
-                self.add_task(dl.ensamble_file(), name=f'ensamble_file_{dl.pre_msg}')
+                self.add_task(dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}')
                 for dl in self.info_dl["downloaders"]
                 if (
                     not any(
