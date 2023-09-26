@@ -418,7 +418,7 @@ class VideoDownloader:
             list_reset = traverse_obj(self.info_dl["fromplns"], (plid, "in_reset"))
             if list_reset and dict_dl:
                 plns = [dl for key, dl in dict_dl.items() if key in list_reset]  # type: ignore
-                _tasks_all.extend([asyncio.create_task(dl.end_tasks.async_wait()) for dl in plns])
+                _tasks_all.extend([asyncio.create_task(dl.end_tasks.async_wait(timeout=300)) for dl in plns])
 
         logger.debug(f"{premsg} endtasks {_tasks_all}")
 

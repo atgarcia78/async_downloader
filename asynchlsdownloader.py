@@ -958,7 +958,7 @@ class AsyncHLSDownloader:
                 if self.vid_dl.pause_event.is_set():
                     _res = _res | await async_wait_for_any([
                         self.vid_dl.resume_event, self.vid_dl.reset_event,
-                        self.vid_dl.stop_event])
+                        self.vid_dl.stop_event], timeout=300)
                     logger.debug(f"{msg}[handle] after wait pause: {_res}")
                     if "event" in _res and "resume" in _res["event"]:
                         _res["event"].remove("resume")

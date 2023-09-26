@@ -330,10 +330,14 @@ class MySyncAsyncEvent:
         self._cause = None
 
     def wait(self, timeout: Optional[float] = None) -> bool:
+        if self._flag:
+            return True
         return self.event.wait(timeout=timeout)
 
-    async def async_wait(self):
-        return await self.aevent.wait()
+    async def async_wait(self, timeout: Optional[float] = None):
+        if self._flag:
+            return True
+        return await async_wait_for_any(self, timeout=timeout)
 
     def __repr__(self):
         cls = self.__class__
