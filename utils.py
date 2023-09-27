@@ -23,6 +23,7 @@ import termios
 import selectors
 from importlib.machinery import SOURCE_SUFFIXES, FileFinder, SourceFileLoader
 from importlib.util import module_from_spec
+from dataclasses import dataclass
 
 from concurrent.futures import (
     ThreadPoolExecutor,
@@ -3859,145 +3860,163 @@ if PySimpleGUI:
                 del self.window_root
 
 
-if proxy:
+class NWSetUp:
 
-    class NWSetUp:
-
+    if proxy:
         Proxy = proxy.Proxy
 
-        def __init__(self, asyncdl):
-            self.asyncdl = asyncdl
-            self.logger = logging.getLogger("setupnw")
-            self.shutdown_proxy = MySyncAsyncEvent("shutdownproxy")
-            self.init_ready = MySyncAsyncEvent("initready")
-            self.routing_table = {}
-            self.proc_gost = []
-            self.proc_aria2c = None
-            self.exe = ThreadPoolExecutor(thread_name_prefix="setupnw")
+    def __init__(self, asyncdl):
+        self.asyncdl = asyncdl
+        self.logger = logging.getLogger("setupnw")
+        self.shutdown_proxy = MySyncAsyncEvent("shutdownproxy")
+        self.init_ready = MySyncAsyncEvent("initready")
+        self.routing_table = {}
+        self.proc_gost = []
+        self.proc_aria2c = None
+        self.exe = ThreadPoolExecutor(thread_name_prefix="setupnw")
 
-            self._tasks_init = {}
-            if not self.asyncdl.args.nodl:
-                if self.asyncdl.args.aria2c:
-                    ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
-                    _task_aria2c = self.asyncdl.add_task(
-                        ainit_aria2c(self.asyncdl.args))
-                    _tasks_init_aria2c = {_task_aria2c: "aria2"}
-                    self._tasks_init.update(_tasks_init_aria2c)
-                if self.asyncdl.args.enproxy:
-                    self.stop_proxy, self.fut_proxy = self.run_proxy_http()
-                    self.asyncdl.add_task(self.fut_proxy)
-                    ainit_proxies = sync_to_async(
-                        TorGuardProxies.init_proxies, thread_sensitive=False, executor=self.exe)
-                    _task_proxies = self.asyncdl.add_task(
-                        ainit_proxies(event=self.asyncdl.end_dl))
-                    _task_init_proxies = {_task_proxies: "proxies"}
-                    self._tasks_init.update(_task_init_proxies)
-            if self._tasks_init:
-                self.task_init = self.asyncdl.add_task(self.init())
-            else:
-                self.init_ready.set()
-
-        async def init(self):
-            if self._tasks_init:
-                done, _ = await asyncio.wait(self._tasks_init)
-                for task in done:
-                    try:
-                        if self._tasks_init[task] == "aria2":
-                            self.proc_aria2c = task.result()
-                        else:
-                            self.proc_gost, self.routing_table = task.result()
-                            self.asyncdl.ytdl.params["routing_table"] = self.routing_table
-                    except Exception as e:
-                        self.logger.exception(f"[init] {repr(e)}")
-                self.init_ready.set()
-
-        @run_operation_in_executor_from_loop(name="proxythr")
-        def run_proxy_http(self, *args, **kwargs):
-            stop_event: MySyncAsyncEvent = kwargs["stop_event"]
-            log_level = kwargs.get("log_level", "INFO")
-            try:
-                with NWSetUp.Proxy(
-                    [
-                        "--log-level",
-                        log_level,
-                        "--plugins",
-                        "plugins.ProxyPoolByHostPlugin",
-                    ]
-                ) as p:
-                    try:
-                        self.logger.debug(p.flags)
-                        stop_event.wait()
-                    except BaseException:
-                        self.logger.error("context manager proxy")
-            finally:
-                self.shutdown_proxy.set()
-
-        async def close(self):
+        self._tasks_init = {}
+        if not self.asyncdl.args.nodl:
+            if self.asyncdl.args.aria2c:
+                ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
+                _task_aria2c = self.asyncdl.add_task(
+                    ainit_aria2c(self.asyncdl.args))
+                _tasks_init_aria2c = {_task_aria2c: "aria2"}
+                self._tasks_init.update(_tasks_init_aria2c)
             if self.asyncdl.args.enproxy:
-                self.logger.debug("[close] proxy")
-                self.stop_proxy.set()
-                await asyncio.sleep(0)
-                self.shutdown_proxy.wait()
-                self.logger.debug("[close] OK shutdown")
+                self.stop_proxy, self.fut_proxy = self.run_proxy_http()
+                self.asyncdl.add_task(self.fut_proxy)
+                ainit_proxies = sync_to_async(
+                    TorGuardProxies.init_proxies, thread_sensitive=False, executor=self.exe)
+                _task_proxies = self.asyncdl.add_task(
+                    ainit_proxies(event=self.asyncdl.end_dl))
+                _task_init_proxies = {_task_proxies: "proxies"}
+                self._tasks_init.update(_task_init_proxies)
+        if self._tasks_init:
+            self.task_init = self.asyncdl.add_task(self.init())
+        else:
+            self.init_ready.set()
 
-                await asyncio.gather()
-
-                if self.proc_gost:
-                    self.logger.debug("[close] gost")
-                    for proc in self.proc_gost:
-                        proc.terminate()
-                        try:
-                            if proc.stdout:
-                                proc.stdout.close()
-                            if proc.stderr:
-                                proc.stderr.close()
-                            if proc.stdin:
-                                proc.stdin.close()
-                        except Exception:
-                            pass
-                        finally:
-                            await sync_to_async(proc.wait, thread_sensitive=False, executor=self.exe)()
-                            await asyncio.sleep(0)
-
-            if self.proc_aria2c:
-                self.logger.debug("[close] aria2c")
-                self.proc_aria2c.terminate()
+    async def init(self):
+        if self._tasks_init:
+            done, _ = await asyncio.wait(self._tasks_init)
+            for task in done:
                 try:
-                    if self.proc_aria2c.stdout:
-                        self.proc_aria2c.stdout.close()
-                    if self.proc_aria2c.stderr:
-                        self.proc_aria2c.stderr.close()
-                    if self.proc_aria2c.stdin:
-                        self.proc_aria2c.stdin.close()
-                except Exception:
-                    pass
-                finally:
-                    await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+                    if self._tasks_init[task] == "aria2":
+                        self.proc_aria2c = task.result()
+                    else:
+                        self.proc_gost, self.routing_table = task.result()
+                        self.asyncdl.ytdl.params["routing_table"] = self.routing_table
+                except Exception as e:
+                    self.logger.exception(f"[init] {repr(e)}")
+            self.init_ready.set()
 
-        async def reset_aria2c(self):
-            if self.proc_aria2c:
-                self.logger.debug("[close] aria2c")
-                self.proc_aria2c.terminate()
+    @run_operation_in_executor_from_loop(name="proxythr")
+    def run_proxy_http(self, *args, **kwargs):
+        stop_event: MySyncAsyncEvent = kwargs["stop_event"]
+        log_level = kwargs.get("log_level", "INFO")
+        try:
+            with NWSetUp.Proxy(
+                [
+                    "--log-level",
+                    log_level,
+                    "--plugins",
+                    "plugins.ProxyPoolByHostPlugin",
+                ]
+            ) as p:
                 try:
-                    if self.proc_aria2c.stdout:
-                        self.proc_aria2c.stdout.close()
-                    if self.proc_aria2c.stderr:
-                        self.proc_aria2c.stderr.close()
-                    if self.proc_aria2c.stdin:
-                        self.proc_aria2c.stdin.close()
-                except Exception:
-                    pass
-                finally:
-                    await sync_to_async(
-                        self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+                    self.logger.debug(p.flags)
+                    stop_event.wait()
+                except BaseException:
+                    self.logger.error("context manager proxy")
+        finally:
+            self.shutdown_proxy.set()
 
-                ainit_aria2c = sync_to_async(
-                    init_aria2c, thread_sensitive=False, executor=self.exe)
-                _task_aria2c = [self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))]
-                done, _ = await asyncio.wait(_task_aria2c)
-                for task in done:
-                    self.proc_aria2c = task.result()
-                    return (self.proc_aria2c, self.asyncdl.args.rpcport)
+    async def close(self):
+        if self.asyncdl.args.enproxy:
+            self.logger.debug("[close] proxy")
+            self.stop_proxy.set()
+            await asyncio.sleep(0)
+            self.shutdown_proxy.wait()
+            self.logger.debug("[close] OK shutdown")
+
+            await asyncio.gather()
+
+            if self.proc_gost:
+                self.logger.debug("[close] gost")
+                for proc in self.proc_gost:
+                    proc.terminate()
+                    try:
+                        if proc.stdout:
+                            proc.stdout.close()
+                        if proc.stderr:
+                            proc.stderr.close()
+                        if proc.stdin:
+                            proc.stdin.close()
+                    except Exception:
+                        pass
+                    finally:
+                        await sync_to_async(proc.wait, thread_sensitive=False, executor=self.exe)()
+                        await asyncio.sleep(0)
+
+        if self.proc_aria2c:
+            self.logger.debug("[close] aria2c")
+            self.proc_aria2c.terminate()
+            try:
+                if self.proc_aria2c.stdout:
+                    self.proc_aria2c.stdout.close()
+                if self.proc_aria2c.stderr:
+                    self.proc_aria2c.stderr.close()
+                if self.proc_aria2c.stdin:
+                    self.proc_aria2c.stdin.close()
+            except Exception:
+                pass
+            finally:
+                await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+
+    async def reset_aria2c(self):
+        if self.proc_aria2c:
+            self.logger.debug("[close] aria2c")
+            self.proc_aria2c.terminate()
+            try:
+                if self.proc_aria2c.stdout:
+                    self.proc_aria2c.stdout.close()
+                if self.proc_aria2c.stderr:
+                    self.proc_aria2c.stderr.close()
+                if self.proc_aria2c.stdin:
+                    self.proc_aria2c.stdin.close()
+            except Exception:
+                pass
+            finally:
+                await sync_to_async(
+                    self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+
+            ainit_aria2c = sync_to_async(
+                init_aria2c, thread_sensitive=False, executor=self.exe)
+            _task_aria2c = [self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))]
+            done, _ = await asyncio.wait(_task_aria2c)
+            for task in done:
+                self.proc_aria2c = task.result()
+                return (self.proc_aria2c, self.asyncdl.args.rpcport)
+
+
+@dataclass
+class InfoDL:
+    pause_event: MySyncAsyncEvent
+    resume_event: MySyncAsyncEvent
+    stop_event: MySyncAsyncEvent
+    end_tasks: MySyncAsyncEvent
+    reset_event: MySyncAsyncEvent
+    total_sizes: dict
+    nwsetup: NWSetUp
+
+    def clear(self):
+        self.pause_event.clear()
+        self.resume_event.clear()
+        self.stop_event.clear()
+        self.end_tasks.clear()
+        self.reset_event.clear()
+
 
 if FileLock and xattr:
 

@@ -38,7 +38,6 @@ from utils import (
     cast,
     Optional,
     Coroutine,
-    async_waitfortasks,
     MySyncAsyncEvent,
     async_lock,
     CONF_HTTP_DL,
@@ -46,7 +45,8 @@ from utils import (
     send_http_request,
     get_xml,
     get_license_drm,
-    translate_srt
+    translate_srt,
+    InfoDL
 )
 
 from pywidevine.cdm import Cdm
@@ -66,15 +66,13 @@ class AsyncDLError:
 
 
 class VideoDownloader:
-    _PLNS = {}
+    _DIC_DL = {}
     _QUEUE = Queue()
     _LOCK = Lock()
-    _HOSTS_DL = {}
     _CDM = None
 
     def __init__(self, video_dict, ytdl, nwsetup, args):
         self.background_tasks = set()
-        self.hosts_dl = VideoDownloader._HOSTS_DL
         self.master_hosts_alock = partial(async_lock, VideoDownloader._LOCK)
         self.master_hosts_lock = VideoDownloader._LOCK
         self.args = args
@@ -130,9 +128,9 @@ class VideoDownloader:
                 + "."
                 + self.info_dict.get("ext", "mp4"),
             ),
-            "fromplns": VideoDownloader._PLNS,
+            "fromplns": AsyncHLSDownloader._PLNS,
             "error_message": "",
-            "nwsetup": nwsetup,
+            "nwsetup": nwsetup
         }
 
         self._types = ""
@@ -140,6 +138,15 @@ class VideoDownloader:
 
         _new_info_dict = self.info_dict | {"filename": self.info_dl["filename"],
                                            "download_path": self.info_dl["download_path"]}
+
+        self.total_sizes = {
+            "filesize": 0,
+            "down_size": 0
+        }
+
+        self._infodl = InfoDL(
+            self.pause_event, self.resume_event, self.stop_event, self.end_tasks, self.reset_event,
+            self.total_sizes, nwsetup)
 
         dl = self._get_dl(_new_info_dict)
         downloaders.extend(variadic(dl))
@@ -152,12 +159,17 @@ class VideoDownloader:
         else:
             _status = "init"
 
+        _filesize = sum([dl.filesize for dl in downloaders if hasattr(dl, "filesize")])
+        _down_size = sum([dl.down_size for dl in downloaders])
+
+        self.total_sizes.update({"filesize": _filesize, "down_size": _down_size})
+
         self.info_dl.update(
             {
                 "downloaders": downloaders,
                 "downloaded_subtitles": {},
-                "filesize": sum([dl.filesize for dl in downloaders if hasattr(dl, "filesize")]),
-                "down_size": sum([dl.down_size for dl in downloaders]),
+                "filesize": _filesize,
+                "down_size": _down_size,
                 "status": _status,
             }
         )
@@ -169,6 +181,9 @@ class VideoDownloader:
     @index.setter
     def index(self, value):
         self._index = value
+        for dl in self.info_dl["downloaders"]:
+            dl.pos = value
+        VideoDownloader._DIC_DL.update({value: self})
 
     @index.deleter
     def index(self):
@@ -256,15 +271,12 @@ class VideoDownloader:
         elif info_dict.get("_has_drm") or self.info_dict.get(
             "has_drm"
         ):  # or 'dash' in info_dict.get('format_note', '').lower():
-            dl = AsyncNativeDownloader(info_dict, self, drm=True)
+            dl = AsyncNativeDownloader(self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=True)
             self._types = "NATIVE_DRM"
-            # with VideoDownloader._LOCK:
-            #     if not VideoDownloader._CDM:
-            #         VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
             logger.debug(f"{self.premsg}[get_dl] DL type DASH with DRM")
             return dl
         elif info_dict.get("extractor_key") == "Youtube":
-            dl = AsyncNativeDownloader(info_dict, self, drm=False)
+            dl = AsyncNativeDownloader(self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=False)
             self._types = "NATIVE"
             logger.debug(f"{self.premsg}[get_dl] DL type youtue")
             return dl
@@ -304,7 +316,7 @@ class VideoDownloader:
                         if dl.auto_pasres:
                             self.info_dl.update({"auto_pasres": True})
                     elif any([self.args.aria2c]):
-                        dl = AsyncARIA2CDownloader(self.info_dl["rpcport"], self.args, info, self)
+                        dl = AsyncARIA2CDownloader(self.info_dl["rpcport"], self.args, self.info_dl["ytdl"], info, self._infodl)
                         _types.append("ARIA2")
                         logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C")
                         if dl.auto_pasres:
@@ -317,7 +329,7 @@ class VideoDownloader:
                             self.info_dl.update({"auto_pasres": True})
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
-                    dl = AsyncHLSDownloader(self.args, info, self)  # self.args.enproxy,
+                    dl = AsyncHLSDownloader(self.args, self.info_dl["ytdl"], info, self._infodl)  # self.args.enproxy,
                     _types.append("HLS")
                     logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
                     if dl.auto_pasres:
@@ -371,7 +383,7 @@ class VideoDownloader:
     async def reset_from_console(self):
         await self.reset("hard")
 
-    async def reset(self, cause: Union[str, None] = None):
+    async def reset(self, cause: Union[str, None] = None, wait=True):
         if self.info_dl["status"] == "downloading":
             _wait_tasks = []
             if not self.reset_event.is_set():
@@ -390,63 +402,10 @@ class VideoDownloader:
             else:
                 self.reset_event.set(cause)
 
-            await asyncio.sleep(0)
+            if wait and _wait_tasks:
+                await asyncio.wait(_wait_tasks)
 
             return _wait_tasks
-
-    async def reset_plns(self, cause: Optional[str] = "403", plns: Optional[str] = None):
-        if not plns:
-            self.info_dl["fromplns"]["ALL"]["reset"].clear()
-
-            plid_total = self.info_dl["fromplns"]["ALL"]["downloading"]
-
-        else:
-            plid_total = [plns]
-
-        _wait_all_tasks = []
-
-        for plid in plid_total:
-            dict_dl = traverse_obj(self.info_dl["fromplns"], (plid, "downloaders"))
-            list_dl = traverse_obj(self.info_dl["fromplns"], (plid, "downloading"))
-            list_reset = traverse_obj(self.info_dl["fromplns"], (plid, "in_reset"))
-
-            if list_dl and dict_dl:
-                self.info_dl["fromplns"]["ALL"]["in_reset"].add(plid)
-                self.info_dl["fromplns"][plid]["reset"].clear()
-                plns = [dl for key, dl in dict_dl.items() if key in list_dl]  # type: ignore
-                for dl, key in zip(plns, list_dl):  # type: ignore
-                    if _tasks := await dl.reset(cause):
-                        _wait_all_tasks.extend(_tasks)
-                    list_reset.add(key)  # type: ignore
-                    await asyncio.sleep(0)
-
-            #  self.info_dl['fromplns'][plid]['in_reset'] = list_reset
-
-            await asyncio.sleep(0)
-
-        return _wait_all_tasks
-
-    async def back_from_reset_plns(self, premsg, plns=None):
-        _tasks_all = []
-        if not plns:
-            plid_total = self.info_dl["fromplns"]["ALL"]["in_reset"]
-        else:
-            plid_total = [plns]
-
-        for plid in plid_total:
-            dict_dl = traverse_obj(self.info_dl["fromplns"], (plid, "downloaders"))
-            list_reset = traverse_obj(self.info_dl["fromplns"], (plid, "in_reset"))
-            if list_reset and dict_dl:
-                plns = [dl for key, dl in dict_dl.items() if key in list_reset]  # type: ignore
-                _tasks_all.extend([
-                    self.add_task(dl.end_tasks.async_wait(timeout=300), name=f'await_end_tasks_{dl.premsg}') for dl in plns])
-
-        logger.debug(f"{premsg} endtasks {_tasks_all}")
-
-        if _tasks_all:
-            await async_waitfortasks(
-                _tasks_all, events=self.stop_event,
-                background_tasks=self.background_tasks)
 
     async def stop(self, cause=None):
         if self.info_dl["status"] in ("done", "error"):
@@ -940,10 +899,10 @@ class VideoDownloader:
 
         _pre = f"[{self.index}][{self.info_dict['id']}][{_title[:_maxlen]}]:"
 
-        _filesize_str = f"[{naturalsize(self.info_dl['filesize'], format_='.2f')}]"
+        _filesize_str = f"[{naturalsize(self.total_sizes['filesize'], format_='.2f')}]"
 
         def _progress_dl():
-            return f"{naturalsize(self.info_dl['down_size'], format_='.2f')} {_filesize_str}"
+            return f"{naturalsize(self.total_sizes['down_size'], format_='.2f')} {_filesize_str}"
 
         if self.info_dl["status"] == "done":
             _size_str = f"{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}"

@@ -8,6 +8,7 @@ from typing import cast
 from threading import Lock
 from pathlib import Path
 from datetime import datetime
+from argparse import Namespace
 
 from yt_dlp.utils import shell_quote, int_or_none
 
@@ -23,7 +24,9 @@ from utils import (
     MySyncAsyncEvent,
     CONF_AUTO_PASRES,
     LockType,
-    SpeedometerMA
+    SpeedometerMA,
+    myYTDL,
+    InfoDL
 )
 
 logger = logging.getLogger("async_native")
@@ -51,14 +54,15 @@ class AsyncNativeDownloader:
     _pattern = r"Total:(?P<total>(?:NA|\d+)) - Progress:\s*(?P<progress>\d+\.\d+)% - Downloaded:(?P<downloaded>\d+) - Speed:(?P<speed>\d+\.\d+)"
     progress_pattern = re.compile(_pattern)
 
-    def __init__(self, video_dict, vid_dl, drm=False):
+    def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL, drm=False):
         try:
+            self.args = args
             self.drm = drm
             self.background_tasks = set()
             self.info_dict = video_dict.copy()
-            self.vid_dl = vid_dl
-            self.ytdl = self.vid_dl.info_dl["ytdl"]
-            self.n_workers = self.vid_dl.info_dl["n_workers"]
+            self._vid_dl = info_dl
+            self.ytdl = ytdl
+            self.n_workers = self.args.parts
             self.download_path = self.info_dict["download_path"]
             self.download_path.mkdir(parents=True, exist_ok=True)
             self._filename = self.info_dict.get("_filename", self.info_dict.get("filename"))
@@ -150,7 +154,7 @@ class AsyncNativeDownloader:
             self.info_dict["webpage_url"],
             "-v",
             "-N",
-            str(self.vid_dl.info_dl["n_workers"]),
+            str(self.n_workers),
             "--downloader",
             "native",
             "--newline",
@@ -190,7 +194,7 @@ class AsyncNativeDownloader:
 
         if _event := [
             _ev.name
-            for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event, self.ready_check)
+            for _ev in (self._vid_dl.reset_event, self._vid_dl.stop_event, self.ready_check)
             if _ev.is_set()
         ]:
             _res = {"event": _event}
@@ -241,7 +245,7 @@ class AsyncNativeDownloader:
                             _status = upt_info.groupdict()
                             if (_dl_size := int_or_none(_status.get("downloaded"))) is not None:
                                 self.down_size = _dl_size
-                                self.vid_dl.info_dl["down_size"] += self.down_size - self.downsize_ant
+                                self._vid_dl.total_sizes["down_size"] += self.down_size - self.downsize_ant
                                 self.downsize_ant = _dl_size
                                 _speed_meter = self.speedometer(_dl_size)
                                 _status['smooth_speed'] = _speed_meter
@@ -250,7 +254,7 @@ class AsyncNativeDownloader:
                                 (_total := int_or_none(try_get(_status.get("total"), lambda x: None if x == 'NA' else x))) is not None
                             ):
                                 self.filesize = _total
-                                self.vid_dl.info_dl["filesize"] = self.filesize
+                                self._vid_dl.total_sizes["filesize"] = self.filesize
 
                         await asyncio.sleep(0)
                     else:
@@ -274,9 +278,7 @@ class AsyncNativeDownloader:
                 async with async_lock(self.sem):
                     self.ready_check.clear()
                     pid = await self.async_start()
-                    self.vid_dl.reset_event.clear()
-                    self.vid_dl.pause_event.clear()
-                    self.vid_dl.resume_event.clear()
+                    self._vid_dl.clear()
                     try:
                         while True:
                             _res = await self.event_handle(pid)
