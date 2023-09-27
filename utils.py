@@ -1653,6 +1653,7 @@ if yt_dlp:
         smuggle_url,
         traverse_obj,
         try_get,
+        try_call,
         variadic,
         unsmuggle_url,
         find_available_port,
@@ -1692,6 +1693,7 @@ if yt_dlp:
     assert my_dec_on_exception
     assert ec
     assert By
+    assert try_call
 
     def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
         for str_reg in str_reg_list:

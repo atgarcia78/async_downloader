@@ -64,7 +64,8 @@ class AsyncARIA2CDLError(Exception):
         self.exc_info = exc_info
 
 
-retry = my_dec_on_exception(AsyncARIA2CDLErrorFatal, max_time=60, raise_on_giveup=False, interval=5)
+retry = my_dec_on_exception(
+    AsyncARIA2CDLErrorFatal, max_time=60, raise_on_giveup=False, interval=5)
 
 kill_token = Token("kill")
 
@@ -383,8 +384,7 @@ class AsyncARIA2CDownloader:
                     proxy_ytdl.sanitize_info(await proxy_ytdl.async_extract_info(_init_url)),
                     self.info_dict["format_id"])
 
-            _url = cast(str, try_get(
-                proxy_info["url"], lambda x: unquote(x) if x else None))
+            _url = cast(str, traverse_obj(proxy_info, ("url", {unquote})))
 
             logger.debug(f"{self.premsg} ip{n}{_proxy} uri{n} {_url}")
 
@@ -641,7 +641,8 @@ class AsyncARIA2CDownloader:
             tout = 30
         elif error == "403":
             tout = 60
-        _res = await async_wait_for_any([self.vid_dl.stop_event, self.vid_dl.reset_event], timeout=tout)
+        _res = await async_wait_for_any(
+            [self.vid_dl.stop_event, self.vid_dl.reset_event], timeout=tout)
         if _event := _res.get("event"):
             if "stop" in _event:
                 self.status = "stop"
@@ -715,7 +716,8 @@ class AsyncARIA2CDownloader:
 
         self.progress_timer.reset()
         if self.args.check_speed:
-            check_task = self.add_task(self.check_speed(), name=f"{self.premsg}[check_task]")
+            check_task = self.add_task(
+                self.check_speed(), name=f"{self.premsg}[check_task]")
         else:
             check_task = None
 
@@ -740,7 +742,8 @@ class AsyncARIA2CDownloader:
                     if self.dl_cont and self.dl_cont.status == "error":
                         _msg_error += f" - {self.dl_cont.error_message}"
 
-                    logger.exception(f"{self.uptpremsg()}[fetch_async] error: {_msg_error}")
+                    logger.exception(
+                        f"{self.uptpremsg()}[fetch_async] error: {_msg_error}")
                     self.status = "error"
                     self.error_message = _msg_error
                     if isinstance(e, KeyboardInterrupt):

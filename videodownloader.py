@@ -180,6 +180,13 @@ class VideoDownloader:
             if hasattr(dl, "ex_dl"):
                 dl.ex_dl.shutdown(wait=False, cancel_futures=True)
 
+    def clear_events(self):
+        self.pause_event.clear()
+        self.resume_event.clear()
+        self.stop_event.clear()
+        self.end_tasks.clear()
+        self.reset_event.clear()
+
     @classmethod
     def create_drm_cdm(cls):
         with open(CONF_DRM['private_key']) as fp:
@@ -483,11 +490,7 @@ class VideoDownloader:
                 await asyncio.sleep(0)
 
     async def reinit(self):
-        self.pause_event.clear()
-        self.resume_event.clear()
-        self.stop_event.clear()
-        self.end_tasks.clear()
-        self.reset_event.clear()
+        self.clear_events()
         self.info_dl["status"] = "init"
         await asyncio.sleep(0)
         for dl in self.info_dl["downloaders"]:
@@ -501,8 +504,7 @@ class VideoDownloader:
         self.info_dl["ytdl"].params["stop_dl"][str(self.index)] = self.stop_event
         logger.debug(
             f"{self.premsg}: [run_dl] "
-            + f"[stop_dl] {self.info_dl['ytdl'].params['stop_dl']}"
-        )
+            + f"[stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
 
         try:
             if self.info_dl["status"] != "stop":
@@ -554,8 +556,7 @@ class VideoDownloader:
                                 dl.error_message
                                 for dl in self.info_dl["downloaders"]
                                 if hasattr(dl, "error_message")
-                            ]
-                        )
+                            ])
 
                     else:
                         self.info_dl["status"] = "init_manipulating"
@@ -622,8 +623,7 @@ class VideoDownloader:
                         _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
                         cmd = (
                             "ffmpeg -y -loglevel repeat+info -i file:"
-                            + f'"{_subts_file}" -f srt -movflags +faststart file:"{_final_subts_file}"'
-                        )
+                            + f'"{_subts_file}" -f srt -movflags +faststart file:"{_final_subts_file}"')
                         logger.debug(f"{self.premsg}: convert subt - {cmd}")
                         res = self.syncpostffmpeg(cmd)
                         logger.debug(f"{self.premsg}: subs file conversion result {res.returncode}")
@@ -691,8 +691,7 @@ class VideoDownloader:
                     except Exception as e:
                         logger.exception(
                             f"{self.premsg}[run_manip] result de dl.ensamble_file: "
-                            + f"{repr(e)}"
-                        )
+                            + f"{repr(e)}")
 
             res = True
 
@@ -701,8 +700,7 @@ class VideoDownloader:
                 res = res and _exists and dl.status == "done"
                 logger.debug(
                     f"{self.premsg} "
-                    + f"{dl.filename} exists: [{_exists}] status: [{dl.status}]"
-                )
+                    + f"{dl.filename} exists: [{_exists}] status: [{dl.status}]")
 
             if res:
                 temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
@@ -732,8 +730,7 @@ class VideoDownloader:
                     if sum(rcs) == 0:
                         cmd = (
                             f'ffmpeg -y -loglevel repeat+info -i file:"{_video_file_temp}"'
-                            + f' -i file:"{_audio_file_temp}" -vcodec copy -acodec copy file:"{temp_filename}"'
-                        )
+                            + f' -i file:"{_audio_file_temp}" -vcodec copy -acodec copy file:"{temp_filename}"')
                         proc = await apostffmpeg(cmd)
 
                         rc = proc.returncode
@@ -758,8 +755,7 @@ class VideoDownloader:
                         cmd = (
                             "ffmpeg -y -probesize max -loglevel "
                             + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
-                            + f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:"{temp_filename}"'
-                        )
+                            + f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:"{temp_filename}"')
 
                         proc = await apostffmpeg(cmd)
                         logger.debug(
@@ -777,8 +773,7 @@ class VideoDownloader:
 
                         except Exception as e:
                             logger.exception(
-                                f"{self.premsg}: error when manipulating {repr(e)}"
-                            )
+                                f"{self.premsg}: error when manipulating {repr(e)}")
 
                     if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
                         logger.debug(f"{self.premsg}: DL video file OK")
@@ -786,8 +781,7 @@ class VideoDownloader:
                     else:
                         self.info_dl["status"] = "error"
                         raise Exception(
-                            f"{self.premsg}: error move file: {rc}"
-                        )
+                            f"{self.premsg}: error move file: {rc}")
 
                 else:
                     cmd = (
@@ -795,8 +789,7 @@ class VideoDownloader:
                         + f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:"
                         + f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 "
                         + "-map 1:a:0 -bsf:a:0 aac_adtstoasc "
-                        + f'-movflags +faststart file:"{temp_filename}"'
-                    )
+                        + f'-movflags +faststart file:"{temp_filename}"')
 
                     logger.debug(f"{self.premsg}:{cmd}")
 
@@ -806,8 +799,7 @@ class VideoDownloader:
 
                     logger.debug(
                         f"{self.premsg}"
-                        + f": ffmpeg rc[{proc.returncode}]\n{proc.stdout}"
-                    )
+                        + f": ffmpeg rc[{proc.returncode}]\n{proc.stdout}")
 
                     rc = proc.returncode
 
@@ -884,21 +876,18 @@ class VideoDownloader:
                             "ffmpeg -y -loglevel repeat+info -i "
                             + f"file:\"{str(self.info_dl['filename'])}\" -map 0 -dn -ignore_unknown "
                             + f"-c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart "
-                            + f'file:"{temp_filename}"'
-                        )
+                            + f'file:"{temp_filename}"')
 
                         proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]"
                             + f"[{self.info_dict['title']}]: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                            + f"{proc.stdout}\n[stderr]{proc.stderr}"
-                        )
+                            + f"{proc.stdout}\n[stderr]{proc.stderr}")
                         if proc.returncode == 0:
                             await aiofiles.os.replace(temp_filename, self.info_dl["filename"])
 
                         xattr.setxattr(
-                            self.info_dl["filename"], "user.dublincore.description", _meta.encode()
-                        )
+                            self.info_dl["filename"], "user.dublincore.description", _meta.encode())
 
                 except Exception as e:
                     logger.exception(
