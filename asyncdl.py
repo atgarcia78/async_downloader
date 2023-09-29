@@ -1244,7 +1244,7 @@ class AsyncDL:
                     events=(self.getlistvid_first, self.end_dl, self.STOP),
                     background_tasks=self.background_tasks)
 
-                if _res.get("event") == "first":
+                if traverse_obj(_res, ("condition", "event")) == "first":
                     self.FEgui = FrontEndGUI(self)
 
                     tasks_to_wait.update(

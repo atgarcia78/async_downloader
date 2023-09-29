@@ -268,7 +268,6 @@ class AsyncHLSDownloader:
             self.info_frag = []
             self.info_init_section = {}
             self.n_dl_fragments = 0
-            self.info_decrypt = {}
             self.init()
 
         except Exception as e:
@@ -345,7 +344,7 @@ class AsyncHLSDownloader:
 
         try:
             _nworkers, self._interv, self._limit = getter(self._extractor)
-            self.n_workers = min(self.n_workers, _nworkers)
+            self.n_workers = max(self.n_workers, _nworkers)
 
             self.m3u8_doc = self.get_m3u8_doc()
             self.info_dict["fragments"] = self.get_info_fragments()
@@ -1097,7 +1096,7 @@ class AsyncHLSDownloader:
 
                 async with (
                     aiofiles.open(filename, mode="ab") as fileobj,
-                    client.stream("GET", url, headers=headers, timeout=5) as response
+                    client.stream("GET", url, headers=headers) as response
                 ):
 
                     if response.status_code == 403:

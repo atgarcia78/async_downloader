@@ -41,7 +41,6 @@ from typing import (
     Union,
     Dict,
     Coroutine,
-    Any,
     Iterable,
     cast,
     Callable,
@@ -683,11 +682,16 @@ async def async_waitfortasks(
     fs: Optional[Iterable | Coroutine | asyncio.Task] = None,
     timeout: Optional[float] = None,
     events: Optional[Iterable | asyncio.Event | MySyncAsyncEvent] = None,
-    cancel_tasks: bool = True,
+    cancel_pending_tasks: bool = True,
+    wait_pending_tasks: bool = True,
+    get_results: Union[str, bool] = "discard_if_condition",
     **kwargs,
-) -> dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]]:
+) -> Optional[dict[str, dict | Iterable | bool]]:
+
     _final_wait = {}
     _tasks: dict[asyncio.Task, str] = {}
+    _tasks_events = {}
+    _one_task_to_wait_tasks = None
 
     _background_tasks = kwargs.get("background_tasks", set())
 
@@ -698,13 +702,13 @@ async def async_waitfortasks(
             if not isinstance(_fs, asyncio.Task):
                 _tasks.update({add_task(
                     _fs, bktasks=_background_tasks,
-                    name=f"[waitfortasks]{_fs.__name__}"): "task"})
+                    name=f"_entry_fs_{_fs.__name__}"): "task"})
             else:
                 _tasks.update({_fs: "task"})
 
         _one_task_to_wait_tasks = add_task(
             asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED),
-            bktasks=_background_tasks)
+            bktasks=_background_tasks, name="fs_list")
 
         _final_wait.update({_one_task_to_wait_tasks: "tasks"})
 
@@ -712,22 +716,20 @@ async def async_waitfortasks(
         _events = cast(Iterable, variadic(events))
 
         def getter(ev):
-            if hasattr(ev, "name"):
-                return f"_{ev.name}"
-            return ""
+            return getattr(ev, "name", "noname")
 
         _tasks_events = {}
 
         for event in _events:
             if isinstance(event, asyncio.Event):
                 _tasks_events.update(
-                    {add_task(event.wait(), bktasks=_background_tasks): f"event{getter(event)}"})
+                    {add_task(event.wait(), bktasks=_background_tasks, name=f"{getter(event)}"): f"{getter(event)}"})
             elif isinstance(event, MySyncAsyncEvent):
                 _tasks_events.update(
-                    {add_task(event.async_wait(), bktasks=_background_tasks): f"event{getter(event)}"}
+                    {add_task(event.async_wait(), bktasks=_background_tasks, name=f"{getter(event)}"): f"{getter(event)}"}
                 )
 
-        _final_wait.update(_tasks_events)
+        _final_wait |= _tasks_events
 
     if not _final_wait:
         if timeout:
@@ -737,54 +739,65 @@ async def async_waitfortasks(
         else:
             return {"timeout": "nothing to await"}
 
+    _pending = []
+    _done = []
+    _done_before_condition = []
+    _condition = {"timeout": False, "event": None}
+    _results = []
+    _cancelled = []
+    _cancelled_per_request = []
+
     done, pending = await asyncio.wait(
         _final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
 
-    res: dict[str, Union[float, Exception, Iterable, asyncio.Task, str, Any]] = {}
-
     try:
+        to_cancel = []
         if not done:
-            if timeout:
-                res = {"timeout": timeout}
-            else:
-                raise Exception("not done with no timeout")
+            _condition["timeout"] = True
+            if _tasks:
+                _done_before_condition.extend(list(filter(lambda x: x._state == "FINISHED", _tasks)))
+                _pending.extend(list(filter(lambda x: x._state == "PENDING", _tasks)))
         else:
-            _task = done.pop()
-            _label = _final_wait.get(_task, "")
-            if _label.startswith("event"):
+            _task_done = done.pop()
+            if "list_fs" in _task_done.get_name():
+                if _tasks_events:
+                    to_cancel.append(_tasks_events)
+                _done.extend(_tasks)
 
-                def getname(x, task) -> Union[str, asyncio.Task]:
-                    if "event_" in x:
-                        return x.split("event_")[1]
-                    else:
-                        return task
+            else:
+                _condition["event"] = _task_done.get_name()
+                if _one_task_to_wait_tasks:
+                    to_cancel.append(_one_task_to_wait_tasks)
+                to_cancel.extend(_tasks_events)
+                if _tasks:
+                    _done_before_condition.extend(list(filter(lambda x: x._state == "FINISHED", _tasks)))
+                    _pending.extend(list(filter(lambda x: x._state == "PENDING", _tasks)))
 
-                res = {"event": getname(_label, _task)}
+        if to_cancel:
+            list(map(lambda x: x.cancel(), to_cancel))
+            await asyncio.wait(to_cancel)
 
-            elif fs:
-                d, p = _task.result()
-                _results = [_d.result() for _d in d if not _d.exception()]
-                if len(_results) == 1:
-                    _results = _results[0]
-                res = {"result": _results}
+        if _pending:
+            if cancel_pending_tasks:
+                list(map(lambda x: x.cancel(), _pending))
+                _cancelled_per_request.extend(_pending)
+            if wait_pending_tasks:
+                await asyncio.wait(_pending)
+
+        if get_results:
+            _get_from = _done
+            if get_results is True or get_results == 'all':
+                _get_from += _done_before_condition
+            if _get_from:
+                _results.extend([_d.result() for _d in _get_from if not _d.exception()])
+
+        return {'condition': _condition, 'results': _results, 'done': _done,
+                'done_before_condition': _done_before_condition, 'pending': _pending,
+                'cancelled': _cancelled, 'cancelled_per_request': _cancelled_per_request}
 
     except Exception as e:
-        res = {"exception": e}
-    finally:
-        try:
-            for p in pending:
-                p.cancel()
-                if _final_wait.get(p) == "tasks" and cancel_tasks:
-                    for _task in _tasks:
-                        _task.cancel()
-                        pending.add(_task)
-            if pending:
-                await asyncio.wait(pending)
-
-        except Exception:
-            pass
-
-        return res
+        logger = logging.getLogger('utils.asyncwaitfortasks')
+        logger.exception(repr(e))
 
 
 @contextlib.asynccontextmanager

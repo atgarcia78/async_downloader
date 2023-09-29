@@ -458,10 +458,10 @@ class AsyncARIA2CDownloader:
                 events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
                 background_tasks=self.background_tasks)
 
-            if "event" in _res:
+            if traverse_obj(_res, ("condition", "event")):
                 return
-            if (_temp := _res.get("exception")) or (_temp := _res.get("result")) is None:
-                raise AsyncARIA2CDLError(f"couldnt get index proxy: {repr(_temp)}")
+            if not (_temp := traverse_obj(_res, ("results", 0))):
+                raise AsyncARIA2CDLError("couldnt get index proxy")
 
             self._index_proxy = cast(int, _temp)
             async with self._ALOCK():
@@ -515,10 +515,11 @@ class AsyncARIA2CDownloader:
 
                 logger.debug(f"{self.premsg} {_res}")
 
-                if _res.get("event"):
+                if traverse_obj(_res, ("condition", "event")):
                     return
-                if (_temp := _res.get("exception")) or not (_temp := _res.get("result")):
-                    raise AsyncARIA2CDLError(f"couldnt get uris: {str(_temp)}")
+                if not (_temp := traverse_obj(_res, ("results"))):
+                    raise AsyncARIA2CDLError(f"couldnt get uris {_temp}")
+
                 _uris.extend(cast(list[str], variadic(_temp)))
 
             self.uris = _uris
@@ -558,13 +559,10 @@ class AsyncARIA2CDownloader:
                     self._qspeed.get(), events=self._vid_dl.stop_event,
                     background_tasks=self.background_tasks)
 
-                if "event" in _res:
-                    logger.debug(f"{self.premsg}[check_speed] stop event")
+                if traverse_obj(_res, ("condition", "event")):
                     return
-                if _temp := _res.get("exception"):
-                    raise AsyncARIA2CDLError(f"error when get from qspeed: {repr(_temp)}")
-
-                _input_speed = _res.get("result")
+                if not (_input_speed := traverse_obj(_res, ("results", 0))):
+                    raise AsyncARIA2CDLError(f"error when get from qspeed: {repr(_res)}")
 
                 if _input_speed == kill_token:
                     logger.debug(f"{self.premsg}[check_speed] {kill_token} from queue")

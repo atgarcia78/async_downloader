@@ -510,17 +510,13 @@ class AsyncHTTPDownloader:
                     events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
                     background_tasks=self.background_tasks,
                 )
-                if _res.get("event"):
+                if traverse_obj(_res, ("condition", "event")):
                     return
-                elif _e := _res.get("exception"):
-                    raise AsyncHTTPDLError(f"couldnt get frag from queue {repr(_e)}")
-                else:
-                    part = _res.get("result")
-                    if part is None:
-                        continue
-                    elif isinstance(part, str) and part == "KILL":
-                        logger.debug(f"{self.premsg}[worker-{i}] KILL")
-                        return
+                if (part := traverse_obj(_res, ("results", 0))) is None:
+                    continue
+                elif isinstance(part, str) and part == "KILL":
+                    logger.debug(f"{self.premsg}[worker-{i}] KILL")
+                    return
 
                 assert isinstance(part, int)
 
