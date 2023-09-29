@@ -338,7 +338,14 @@ class MySyncAsyncEvent:
     async def async_wait(self, timeout: Optional[float] = None):
         if self._flag:
             return True
-        return await async_wait_for_any(self, timeout=timeout)
+        try:
+            if await asyncio.wait_for(self.aevent.wait(), timeout=timeout):
+                return {"event": self.name}
+        except asyncio.TimeoutError:
+            return {"timeout": timeout}
+
+    def add_task(self, timeout: Optional[float] = None):
+        return asyncio.create_task(self.async_wait(timeout=timeout), name=self.name)
 
     def __repr__(self):
         cls = self.__class__
@@ -422,18 +429,24 @@ class SpeedometerMA:
 
     def __init__(
         self, initial_bytes: int = 0,
-        upt_time: Union[int, float] = 1.0, ave_time: Union[int, float] = 5.0
+        upt_time: Union[int, float] = 1.0, ave_time: Union[int, float] = 5.0,
+        smoothing: float = 0.3
     ):
+        self.initial_bytes = initial_bytes
+        self.rec_bytes = 0
         self.ts_data = [(self.TIMER_FUNC(), initial_bytes)]
         self.timer = ProgressTimer()
         self.last_value = None
         self.UPDATE_TIMESPAN_S = float(upt_time)
         self.AVERAGE_TIMESPAN_S = float(ave_time)
-        self.ema_value = EMA(smoothing=0.3)
+        if smoothing < 0:
+            self.ema_value = lambda x: x
+        else:
+            self.ema_value = EMA(smoothing=smoothing)
 
     def __call__(self, byte_counter: int):
         time_now = self.TIMER_FUNC()
-
+        self.rec_bytes = byte_counter - self.initial_bytes
         # only append data older than 50ms
         if time_now - self.ts_data[-1][0] > 0.05:
             self.ts_data.append((time_now, byte_counter))
@@ -624,6 +637,23 @@ def wait_for_either(ev, timeout=None):
             elif check_timeout(start, timeout):
                 return "TIMEOUT"
             time.sleep(CONF_INTERVAL_GUI)
+
+
+async def await_for_any(events, timeout: Optional[int] = None):
+    _events = variadic(events)
+    if _res := [getattr(_ev, "name", "noname") for _ev in _events if _ev and _ev.is_set()]:
+        return {"event": _res}
+
+    _tasks_events = {event.add_task(): f'event_{event.name}' for event in _events}
+    done, pending = await asyncio.wait(_tasks_events, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    if pending:
+        for _task in pending:
+            _task.cancel()
+        await asyncio.wait(pending)
+    if not done:
+        return {"timeout": timeout}
+    _done = done.pop()
+    return _done.result()
 
 
 async def async_wait_for_any(events, timeout: Optional[float] = None) -> dict[str, list[str]]:
@@ -2783,39 +2813,30 @@ def str_or_none(res):
     return str(res) if res else None
 
 
-def naturalsize(value, binary=False, gnu=False, format_="6.2f"):
+def naturalsize(value, binary=False, format_="6.2f"):
     SUFFIXES = {
         "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
         "binary": ("KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
-        "gnu": "KMGTPEZY",
     }
 
-    if gnu:
-        suffix = SUFFIXES["gnu"]
-    elif binary:
+    if binary:
         suffix = SUFFIXES["binary"]
     else:
         suffix = SUFFIXES["decimal"]
 
-    base = 1024 if (gnu or binary) else 1000
+    base = 1024 if binary else 1000
     _bytes = float(value)
     abs_bytes = abs(_bytes)
 
-    if abs_bytes == 1 and not gnu:
+    if abs_bytes == 1:
         return f"{abs_bytes:{format_}} KB"
-    elif abs_bytes < base and not gnu:
-        return f"{abs_bytes:{format_}} B"
-    elif abs_bytes < base and gnu:
+    elif abs_bytes < base:
         return f"{abs_bytes:{format_}} B"
 
     for i, s in enumerate(suffix):
         unit = base ** (i + 2)
-        if abs_bytes < unit and not gnu:
+        if abs_bytes < unit:
             return f"{(base*abs_bytes/unit):{format_}} {s}"
-        elif abs_bytes < unit and gnu:
-            return f"{(base * abs_bytes / unit):{format_}}{s}"
-    if gnu:
-        return f"{(base * abs_bytes / unit):{format_}}{s}"  # type: ignore
     return f"{(base*abs_bytes/unit):{format_}} {s}"  # type: ignore
 
 
@@ -3441,8 +3462,6 @@ if PySimpleGUI:
 
                                 info.append(_info)
 
-                            await asyncio.sleep(0)
-
                         if event in ["+PasRes", "-PasRes"]:
                             sg.cprint(f"[pause-resume autom] after: {list(self.asyncdl.list_pasres)}")
 
@@ -3674,34 +3693,33 @@ if PySimpleGUI:
             if status == "all":
                 _status = ("init", "downloading", "manip", "finish")
             else:
-                if isinstance(status, str):
-                    _status = (status,)
-                else:
-                    _status = status
+                _status = variadic(status)
 
-            _copy_list_dl = self.asyncdl.list_dl.copy()
-            _waiting = list(self.asyncdl.WorkersRun.waiting)
-            _running = list(self.asyncdl.WorkersRun.running)
+            if self.asyncdl.list_dl:
 
-            for st in _status:
-                list_upt[st] = {}
-                list_res[st] = {}
+                _copy_list_dl = self.asyncdl.list_dl.copy()
+                _waiting = list(self.asyncdl.WorkersRun.waiting).copy()
+                _running = list(self.asyncdl.WorkersRun.running).copy()
 
-                if st == "init":
-                    _list_items = _waiting
-                    for i, index in enumerate(_list_items):
-                        if self.asyncdl.list_dl[index].info_dl["status"] in trans[st]:
-                            list_res[st].update({index: (i, self.asyncdl.list_dl[index].print_hookup())})
-                else:
-                    _list_items = _copy_list_dl if st != "downloading" else _running
-                    for index in _list_items:
-                        if self.asyncdl.list_dl[index].info_dl["status"] in trans[st]:
-                            list_res[st].update({index: self.asyncdl.list_dl[index].print_hookup()})
+                for st in _status:
+                    list_upt[st] = {}
+                    list_res[st] = {}
 
-                if list_res[st] == self.list_all_old[st]:
-                    del list_upt[st]
-                else:
-                    list_upt[st] = list_res[st]
+                    if st == "init":
+                        _list_items = _waiting
+                        for i, index in enumerate(_list_items):
+                            if self.asyncdl.list_dl[index].info_dl["status"] in trans[st]:
+                                list_res[st].update({index: (i, self.asyncdl.list_dl[index].print_hookup())})
+                    else:
+                        _list_items = _copy_list_dl if st != "downloading" else _running
+                        for index in _list_items:
+                            if self.asyncdl.list_dl[index].info_dl["status"] in trans[st]:
+                                list_res[st].update({index: self.asyncdl.list_dl[index].print_hookup()})
+
+                    if list_res[st] == self.list_all_old[st]:
+                        del list_upt[st]
+                    else:
+                        list_upt[st] = list_res[st]
 
             if nwmon:
                 list_upt["nwmon"] = nwmon
@@ -3723,27 +3741,20 @@ if PySimpleGUI:
                 progress_timer = ProgressTimer()
                 short_progress_timer = ProgressTimer()
                 self.list_nwmon = []
-                init_bytes_recv = psutil.net_io_counters().bytes_recv
-                speedometer = SpeedometerMA(initial_bytes=init_bytes_recv)
+                io_init = psutil.net_io_counters()
+                speedometer = SpeedometerMA(initial_bytes=io_init.bytes_recv, ave_time=0.5, smoothing=0.9)
                 ds = None
                 while not stop_upt.is_set():
-                    if self.asyncdl.list_dl:
-                        if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
-                            _recv = psutil.net_io_counters().bytes_recv
-                            ds = speedometer(_recv)
-                            msg = f"RECV: {naturalsize(_recv - init_bytes_recv)}  "
-                            msg += f'DL: {naturalsize(ds, binary=True) + "ps" if ds else "--"} / '
-                            msg += f'{naturalsize(ds*8) + "itps" if ds else "--"}'
-
-                            self.update_window("all", nwmon=msg)
-                            if short_progress_timer.has_elapsed(seconds=10 * CONF_INTERVAL_GUI):
-                                self.list_nwmon.append((datetime.now(), ds))
-                        else:
-                            time.sleep(CONF_INTERVAL_GUI / 4)
+                    if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                        io_upt = psutil.net_io_counters()
+                        ds = speedometer(io_upt.bytes_recv)
+                        msg = f"RECV: {naturalsize(speedometer.rec_bytes, binary=True)}  "
+                        msg += f'DL: {naturalsize(ds, binary=True, format_="7.3f") + "ps" if ds > 1024 else "--"}'
+                        self.update_window("all", nwmon=msg)
+                        if short_progress_timer.has_elapsed(seconds=10 * CONF_INTERVAL_GUI):
+                            self.list_nwmon.append((datetime.now(), ds))
                     else:
-                        time.sleep(CONF_INTERVAL_GUI)
-                        progress_timer.reset()
-                        short_progress_timer.reset()
+                        time.sleep(CONF_INTERVAL_GUI / 4)
 
             except Exception as e:
                 self.logger.exception(f"[upt_window_periodic]: error: {repr(e)}")

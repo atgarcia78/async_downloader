@@ -435,7 +435,7 @@ class AsyncDL:
         if self.list_dl:
             for _, dl in self.list_dl.items():
                 await dl.stop("exit")
-                await asyncio.sleep(0)
+        await asyncio.sleep(0)
         await self.WorkersRun.check_to_stop()
 
     def print_pending_tasks(self):

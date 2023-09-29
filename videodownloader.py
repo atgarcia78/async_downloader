@@ -159,7 +159,7 @@ class VideoDownloader:
         else:
             _status = "init"
 
-        _filesize = sum([dl.filesize for dl in downloaders if hasattr(dl, "filesize")])
+        _filesize = sum([dl.filesize for dl in downloaders if getattr(dl, "filesize", None)])
         _down_size = sum([dl.down_size for dl in downloaders])
 
         self.total_sizes.update({"filesize": _filesize, "down_size": _down_size})
@@ -407,30 +407,36 @@ class VideoDownloader:
 
             return _wait_tasks
 
-    async def stop(self, cause=None):
-        if self.info_dl["status"] in ("done", "error"):
+    async def stop(self, cause=None, wait=True):
+        if self.info_dl["status"] in ("done", "error") or self.stop_event.is_set() == "exit":
             return
 
         try:
-            if not cause:
-                if "aria2" not in str(type(self.info_dl["downloaders"][0])).lower():
-                    self.info_dl["status"] = "stop"
-                    for dl in self.info_dl["downloaders"]:
-                        dl.status = "stop"
 
-            elif cause == "exit":
-                self.info_dl["status"] = "stop"
-                for dl in self.info_dl["downloaders"]:
-                    dl.status = "stop"
-
-            logger.info(f"{self.premsg}: stop - {cause}")
+            self.info_dl["status"] = "stop"
+            for dl in self.info_dl["downloaders"]:
+                dl.status = "stop"
 
             self.stop_event.set(cause)
             await asyncio.sleep(0)
 
-            if cause == "exit" and self.reset_event.is_set():
-                self.reset_event.clear()
-                await asyncio.sleep(0)
+            if cause == "exit":
+                if self.reset_event.is_set():
+                    self.reset_event.clear()
+                    await asyncio.sleep(0)
+                _wait_tasks = []
+                for dl in self.info_dl["downloaders"]:
+                    if "asynchls" in str(type(dl)).lower() and getattr(dl, "tasks", None):
+                        if _tasks := [
+                            _task for _task in dl.tasks
+                            if not _task.done() and not _task.cancelled()
+                            and _task not in [asyncio.current_task()]
+                        ]:
+                            for _t in _tasks:
+                                _t.cancel()
+                            _wait_tasks.extend(_tasks)
+                if wait and _wait_tasks:
+                    await asyncio.wait(_wait_tasks)
 
         except Exception as e:
             logger.exception(f"{self.premsg}: " + f"{repr(e)}")
@@ -501,7 +507,8 @@ class VideoDownloader:
                             logger.exception(f"{self.premsg}[run_dl] error fetch_async: {repr(e)}")
 
                 if self.stop_event.is_set():
-                    logger.info(f"{self.premsg}[run_dl] salida tasks with stop event")
+                    logger.debug(f"{self.premsg}[run_dl] salida tasks with stop event - {self.info_dl['status']}")
+                    self.info_dl["status"] = "stop"
 
                 else:
                     res = sorted(list(set([dl.status for dl in self.info_dl["downloaders"]])))
@@ -882,44 +889,44 @@ class VideoDownloader:
                 shlex.split(cmd), 1, stdout=None, stderr=repr(e))
 
     def print_hookup(self):
-        msg = ""
-        for dl in self.info_dl["downloaders"]:
-            msg += f"  {dl.print_hookup()}"
-        msg += "\n"
 
-        if self.info_dl["status"] == "downloading":
-            _maxlen = 40
-        else:
-            _maxlen = 10
+        def _pre(_maxlen=10):
+            _title = (
+                self.info_dict["title"]
+                if ((_len := len(self.info_dict["title"])) >= _len)
+                else self.info_dict["title"] + " " * (_maxlen - _len))
+            return f"[{self.index}][{self.info_dict['id']}][{_title[:_maxlen]}]:"
 
-        _title = (
-            self.info_dict["title"]
-            if ((_len := len(self.info_dict["title"])) >= _len)
-            else self.info_dict["title"] + " " * (_maxlen - _len))
+        def _get_msg():
+            msg = ""
+            for dl in self.info_dl["downloaders"]:
+                msg += f"  {dl.print_hookup()}"
+            msg += "\n"
+            return msg
 
-        _pre = f"[{self.index}][{self.info_dict['id']}][{_title[:_maxlen]}]:"
-
-        _filesize_str = f"[{naturalsize(self.total_sizes['filesize'], format_='.2f')}]"
+        def _filesize_str():
+            return f"[{naturalsize(self.total_sizes['filesize'], format_='.2f')}]"
 
         def _progress_dl():
-            return f"{naturalsize(self.total_sizes['down_size'], format_='.2f')} {_filesize_str}"
+            return f"{naturalsize(self.total_sizes['down_size'], format_='.2f')} {_filesize_str()}"
 
         if self.info_dl["status"] == "done":
-            _size_str = f"{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}"
-            return f"{_pre} Completed [{_size_str}]\n {msg}\n"
+            if not (_size_str := getattr(self, '_size_str', None)):
+                self._size_str = f"{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}"
+            return f"{_pre()} Completed [{_size_str}]\n {_get_msg()}\n"
         elif self.info_dl["status"] == "init":
-            return f"{_pre} Waiting to DL [{_filesize_str}]\n {msg}\n"
+            return f"{_pre()} Waiting to DL [{_filesize_str()}]\n {_get_msg()}\n"
         elif self.info_dl["status"] == "init_manipulating":
-            return f"{_pre} Waiting to create file [{_filesize_str}]\n {msg}\n"
+            return f"{_pre()} Waiting to create file [{_filesize_str()}]\n {_get_msg()}\n"
         elif self.info_dl["status"] == "error":
-            return f"{_pre} ERROR {_progress_dl()}\n {msg}\n"
+            return f"{_pre()} ERROR {_progress_dl()}\n {_get_msg()}\n"
         elif self.info_dl["status"] == "stop":
-            return f"{_pre} STOPPED {_progress_dl()}\n {msg}\n"
+            return f"{_pre()} STOPPED {_progress_dl()}\n {_get_msg()}\n"
         elif self.info_dl["status"] == "downloading":
             if self.pause_event.is_set() and not self.resume_event.is_set():
                 status = "PAUSED"
             else:
                 status = "Downloading"
-            return f"{_pre} {status} {_progress_dl()}\n {msg}\n"
+            return f"{_pre(40)} {status} {_progress_dl()}\n {_get_msg()}\n"
         elif self.info_dl["status"] == "manipulating":
-            return f"{_pre} Ensambling/Merging {_progress_dl()}\n {msg}\n"
+            return f"{_pre()} Ensambling/Merging {_progress_dl()}\n {_get_msg()}\n"
