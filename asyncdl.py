@@ -5,18 +5,13 @@ import shutil
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from itertools import zip_longest
-from collections import deque, defaultdict
+from collections import deque
 import signal
 import re
 from functools import partial
-
 from pathlib import Path
-
 import os as syncos
-
 from threading import Lock
-
 from codetiming import Timer
 
 from utils import (
@@ -32,7 +27,6 @@ from utils import (
     _for_print_videos,
     sync_to_async,
     async_waitfortasks,
-    get_domain,
     init_ytdl,
     js_to_json,
     kill_processes,
@@ -46,117 +40,12 @@ from utils import (
     cast,
     Coroutine,
     render_res_table,
+    get_list_interl
 )
 
 from videodownloader import VideoDownloader
 
 logger = mylogger(logging.getLogger("asyncDL"))
-
-
-def get_list_interl(res, asyncdl, _pre):
-    def mix_lists(_http_list, _hls_list, _asyncdl):
-        _final_list = []
-        if _hls_list:
-            if not _http_list:
-                _final_list = _hls_list
-            else:
-                iters = len(_hls_list)
-                step = int(len(_http_list) / iters) + 1
-                _final_list = []
-                for idx in range(iters):
-                    start = step * idx
-                    end = step * (idx + 1)
-                    _final_list.extend(_http_list[start:end])
-                    _final_list.append(_hls_list[idx])
-        else:
-            _final_list = _http_list
-
-        if (_total := len(_final_list)) > 0:
-            for _newidx, _el in enumerate(_final_list):
-                _el["__interl_index"] = _asyncdl.max_index_playlist + _newidx + 1
-                _el["__interl_total"] = _total
-
-            _asyncdl.max_index_playlist += _total
-
-        return _final_list
-
-    def get_dif_interl(_dict, _interl, workers):
-        """
-        get dif in the interl list if distance of elements
-        with same host is less than num runners dl workers of asyncdl
-        """
-        dif = defaultdict(lambda: [])
-        for host, group in _dict.items():
-            index_old = None
-            _group = sorted(group, key=lambda x: _interl.index(x))
-            for el in _group:
-                index = _interl.index(el)
-                if index_old:
-                    if index - index_old < workers:
-                        dif[host].append(el)
-                index_old = index
-        return dif
-
-    if not res:
-        return []
-    if len(res) < 3:
-        return res
-    _dict = defaultdict(lambda: [])
-    _hls_list = []
-    _res = []
-    for ent in res:
-        if "hls" not in ent["format_id"]:
-            _res.append(ent)
-            _dict[get_domain(ent["url"])].append(ent["id"])
-        else:
-            _hls_list.append(ent)
-
-    if not _dict:
-        return mix_lists([], _hls_list, asyncdl)
-    logger.info(
-        f"{_pre}[get_list_interl] entries"
-        + f"interleave: {len(list(_dict.keys()))} different hosts, "
-        + f"longest with {len(max(list(_dict.values()), key=len))} entries"
-    )
-
-    _workers = asyncdl.workers
-    _interl = []
-    while _workers > asyncdl.workers // 2:
-        _interl = []
-        for el in list(zip_longest(*list(_dict.values()))):
-            _interl.extend([_el for _el in el if _el])
-
-        for tunein in range(3):
-            dif = get_dif_interl(_dict, _interl, _workers)
-
-            if dif:
-                if tunein < 2:
-                    for i, host in enumerate(list(dif.keys())):
-                        group = [el for el in _dict[host]]
-
-                        for j, el in enumerate(group):
-                            _interl.pop(_interl.index(el))
-                            _interl.insert(_workers * (j + 1) + i, el)
-                    continue
-                else:
-                    logger.info(f"{_pre}[get_list_interl] tune in NOK, try with less num of workers")
-                    _workers -= 1
-                    break
-
-            else:
-                logger.info(f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
-                asyncdl.workers = _workers
-                asyncdl.WorkersRun.max = _workers
-                _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
-                return mix_lists(_http_list, _hls_list, asyncdl)
-
-    asyncdl.workers = _workers
-    asyncdl.WorkersRun.max = _workers
-    if _interl:
-        _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
-    else:
-        _http_list = _res
-    return mix_lists(_http_list, _hls_list, asyncdl)
 
 
 class WorkersRun:
@@ -187,8 +76,7 @@ class WorkersRun:
                     dl_index = self.waiting.popleft()
                     self.running.append(dl_index)
                     self.tasks.update(
-                        {self.asyncdl.add_task(self._task(dl_index)): dl_index}
-                    )
+                        {self.asyncdl.add_task(self._task(dl_index)): dl_index})
 
     async def del_worker(self):
         async with self.alock:
@@ -197,7 +85,9 @@ class WorkersRun:
 
     async def check_to_stop(self):
         async with self.alock:
-            self.logger.debug(f"[check_to_stop] running[{len(self.running)}] waiting[{len(self.waiting)}]")
+            self.logger.debug(
+                f"[check_to_stop] running[{len(self.running)}] " +
+                f"waiting[{len(self.waiting)}]")
             if not self.waiting and not self.running:
                 self.logger.debug("[check_to_stop] set exit")
                 self.exit.set()
@@ -219,8 +109,7 @@ class WorkersRun:
                 else:
                     self.running.append(dl_index)
                     self.tasks.update(
-                        {self.asyncdl.add_task(self._task(dl_index)): dl_index}
-                    )
+                        {self.asyncdl.add_task(self._task(dl_index)): dl_index})
 
     async def add_dl(self, dl, url_key):
         _pre = f"[add_dl]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
@@ -267,8 +156,7 @@ class WorkersRun:
                         dl_index2 = self.waiting.popleft()
                         self.running.append(dl_index2)
                         self.tasks.update(
-                            {self.asyncdl.add_task(self._task(dl_index2)): dl_index2}
-                        )
+                            {self.asyncdl.add_task(self._task(dl_index2)): dl_index2})
 
         except Exception as e:
             self.logger.exception(f"{_pre} error {str(e)}")
@@ -283,31 +171,33 @@ class WorkersRun:
                         self.asyncdl.end_dl.set()
                         self.logger.debug("end_dl set")
                     else:
-                        self.logger.debug(f"{_pre} there are videos running or waiting, so lets exit")
+                        self.logger.debug(
+                            f"{_pre} there are videos running or waiting, so lets exit")
                     return
             else:
                 self.logger.debug(f"{_pre} WorkersInit.exit not set")
                 async with self.alock:
                     if self.waiting or self.running:
-                        self.logger.debug(f"{_pre} there are videos running or waiting, so lets exit")
+                        self.logger.debug(
+                            f"{_pre} there are videos running or waiting, so lets exit")
                         return
 
                 self.logger.debug(
-                    f"{_pre} there are no videos running or waiting, so lets wait for WorkersInit.exit"
-                )
+                    f"{_pre} there are no videos running or waiting, " +
+                    "so lets wait for WorkersInit.exit")
                 await self.asyncdl.WorkersInit.exit.async_wait()
                 async with self.alock:
                     if not self.waiting and not self.running:
                         self.logger.debug(
-                            f"{_pre} WorkersInit.exit is set after waiting, no running no waiting, lets set exit"
-                        )
+                            f"{_pre} WorkersInit.exit is set after waiting, " +
+                            "no running no waiting, lets set exit")
                         self.exit.set()
                         self.asyncdl.end_dl.set()
                         self.logger.info("end_dl set")
                     else:
                         self.logger.debug(
-                            f"{_pre} WorkersInit.exit is set after waiting, there are videos running or waiting, so lets exit"
-                        )
+                            f"{_pre} WorkersInit.exit is set after waiting, " +
+                            "there are videos running or waiting, so lets exit")
                     return
 
 
@@ -366,8 +256,7 @@ class WorkersInit:
                             url_key2 = self.waiting.popleft()
                             self.running.add(url_key2)
                             self.tasks.update(
-                                {self.asyncdl.add_task(self._task(url_key2)): url_key2}
-                            )
+                                {self.asyncdl.add_task(self._task(url_key2)): url_key2})
 
         except Exception as e:
             self.logger.exception(f"{_pre} error {str(e)}")
@@ -556,8 +445,7 @@ class AsyncDL:
             logger.debug(
                 "".join([
                     f"{_pre} Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\t",
-                    f"CAP[{len(_url_list_caplinks)}]"
-                ]))
+                    f"CAP[{len(_url_list_caplinks)}]"]))
 
             if _url_list:
                 for _source, _ulist in _url_list.items():
@@ -605,11 +493,6 @@ class AsyncDL:
                     self._url_pl_entries = []
                     self._count_pl = 0
                     self.url_pl_list2 = []
-
-                    # if len(self.url_pl_list) == 1 and self.args.use_path_pl and not self.args.path:
-                    #     _get_path_name = True
-                    # else:
-                    #     _get_path_name = False
 
                     if self.STOP.is_set():
                         raise Exception("STOP")
@@ -698,12 +581,6 @@ class AsyncDL:
                     self._url_pl_entries += [_info]
 
                 else:
-                    # if _get:
-                    #     _title = sanitize_filename(_info.get("title"), restricted=True)
-                    #     _name = f"{_title}{_info.get('extractor_key')}{_info.get('id')}"
-                    #     self.args.path = str(Path(Path.home(), "testing", _name))
-                    #     logger.debug(
-                    #         f"{_pre} path for playlist:\n{self.args.path}")
 
                     if isinstance(_info.get("entries"), list):
                         _temp_error = []
@@ -839,8 +716,7 @@ class AsyncDL:
                             "".join([
                                 f"{_pre} [{str(file_aldl)}] -> ",
                                 f"[{str(vid_path)}] error when copying times {str(e)}"
-                            ])
-                        )
+                            ]))
 
             return vid_path_str
 
@@ -873,30 +749,32 @@ class AsyncDL:
 
     async def _prepare_for_dl(self, url: str, put: bool = True) -> bool:
         self.info_videos[url].update({"todl": True})
-        if _id := self.info_videos[url]["video_info"].get("id"):
-            self.info_videos[url]["video_info"]["id"] = sanitize_filename(
+
+        video_info = self.info_videos[url]["video_info"]
+
+        if _id := video_info.get("id"):
+            video_info["id"] = sanitize_filename(
                 _id, restricted=True).replace("_", "").replace("-", "")
-        if _title := self.info_videos[url]["video_info"].get("title"):
-            self.info_videos[url]["video_info"]["title"] = sanitize_filename(
+
+        if _title := video_info.get("title"):
+            video_info["title"] = sanitize_filename(
                 _title[:MAXLEN_TITLE], restricted=True)
-        if not self.info_videos[url]["video_info"].get("filesize", None):
-            self.info_videos[url]["video_info"]["filesize"] = 0
-        if _path := await self.async_check_if_aldl(self.info_videos[url]["video_info"]):
+
+        if not video_info.get("filesize", None):
+            video_info["filesize"] = 0
+
+        if _path := await self.async_check_if_aldl(video_info):
             self.info_videos[url].update({"aldl": _path, "status": "done"})
             logger.debug(
                 "".join([
                     "[prepare_for_dl] ",
                     f"[{self.info_videos[url]['video_info'].get('id')}]",
                     f"[{self.info_videos[url]['video_info'].get('title')}] already DL"
-                ])
-            )
+                ]))
 
-        if (
-            self.info_videos[url].get("todl")
-            and not self.info_videos[url].get("aldl")
-            and not self.info_videos[url].get("samevideo")
-            and self.info_videos[url].get("status") != "prenok"
-        ):
+        if all([self.info_videos[url].get("todl"), not self.info_videos[url].get("aldl"),
+                not self.info_videos[url].get("samevideo"), self.info_videos[url].get("status") != "prenok"]):
+
             async with self.alock:
                 self.videos_to_dl.append(url)
                 if put:
@@ -972,6 +850,7 @@ class AsyncDL:
                     )
 
                     await self._prepare_for_dl(_url)
+
                 else:
                     await self._prepare_for_dl(_url)
                     self.list_videos.append(self.info_videos[_url]["video_info"])

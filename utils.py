@@ -95,6 +95,7 @@ try:
 except Exception:
     yt_dlp = None
 
+from itertools import zip_longest
 
 # ***********************************+
 # ************************************
@@ -160,6 +161,115 @@ CLIENT_CONFIG = {
     "follow_redirects": True,
     "verify": False,
 }
+
+
+def get_list_interl(res, asyncdl, _pre):
+
+    logger = logging.getLogger('interl')
+
+    def mix_lists(_http_list, _hls_list, _asyncdl):
+        _final_list = []
+        if _hls_list:
+            if not _http_list:
+                _final_list = _hls_list
+            else:
+                iters = len(_hls_list)
+                step = int(len(_http_list) / iters) + 1
+                _final_list = []
+                for idx in range(iters):
+                    start = step * idx
+                    end = step * (idx + 1)
+                    _final_list.extend(_http_list[start:end])
+                    _final_list.append(_hls_list[idx])
+        else:
+            _final_list = _http_list
+
+        if (_total := len(_final_list)) > 0:
+            for _newidx, _el in enumerate(_final_list):
+                _el["__interl_index"] = _asyncdl.max_index_playlist + _newidx + 1
+                _el["__interl_total"] = _total
+
+            _asyncdl.max_index_playlist += _total
+
+        return _final_list
+
+    def get_dif_interl(_dict, _interl, workers):
+        """
+        get dif in the interl list if distance of elements
+        with same host is less than num runners dl workers of asyncdl
+        """
+        dif = defaultdict(lambda: [])
+        for host, group in _dict.items():
+            index_old = None
+            _group = sorted(group, key=lambda x: _interl.index(x))
+            for el in _group:
+                index = _interl.index(el)
+                if index_old:
+                    if index - index_old < workers:
+                        dif[host].append(el)
+                index_old = index
+        return dif
+
+    if not res:
+        return []
+    if len(res) < 3:
+        return res
+    _dict = defaultdict(lambda: [])
+    _hls_list = []
+    _res = []
+    for ent in res:
+        if "hls" not in ent["format_id"]:
+            _res.append(ent)
+            _dict[get_domain(ent["url"])].append(ent["id"])
+        else:
+            _hls_list.append(ent)
+
+    if not _dict:
+        return mix_lists([], _hls_list, asyncdl)
+    logger.info(
+        f"{_pre}[get_list_interl] entries"
+        + f"interleave: {len(list(_dict.keys()))} different hosts, "
+        + f"longest with {len(max(list(_dict.values()), key=len))} entries"
+    )
+
+    _workers = asyncdl.workers
+    _interl = []
+    while _workers > asyncdl.workers // 2:
+        _interl = []
+        for el in list(zip_longest(*list(_dict.values()))):
+            _interl.extend([_el for _el in el if _el])
+
+        for tunein in range(3):
+            dif = get_dif_interl(_dict, _interl, _workers)
+
+            if dif:
+                if tunein < 2:
+                    for i, host in enumerate(list(dif.keys())):
+                        group = [el for el in _dict[host]]
+
+                        for j, el in enumerate(group):
+                            _interl.pop(_interl.index(el))
+                            _interl.insert(_workers * (j + 1) + i, el)
+                    continue
+                else:
+                    logger.info(f"{_pre}[get_list_interl] tune in NOK, try with less num of workers")
+                    _workers -= 1
+                    break
+
+            else:
+                logger.info(f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
+                asyncdl.workers = _workers
+                asyncdl.WorkersRun.max = _workers
+                _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
+                return mix_lists(_http_list, _hls_list, asyncdl)
+
+    asyncdl.workers = _workers
+    asyncdl.WorkersRun.max = _workers
+    if _interl:
+        _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
+    else:
+        _http_list = _res
+    return mix_lists(_http_list, _hls_list, asyncdl)
 
 
 def empty_queue(q: Union[asyncio.Queue, Queue]):
@@ -320,9 +430,6 @@ class MySyncAsyncEvent:
         if self._flag:
             return self._cause
 
-        # else:
-        #     return False
-
     def clear(self):
         self.aevent.clear()
         self.event.clear()
@@ -334,17 +441,20 @@ class MySyncAsyncEvent:
             return True
         return self.event.wait(timeout=timeout)
 
-    async def async_wait(self, timeout: Optional[float] = None):
+    async def async_wait(self, timeout: Optional[float] = None) -> dict:
+
         if self._flag:
-            return True
+            return {"cause": self._cause}
         try:
-            if await asyncio.wait_for(self.aevent.wait(), timeout=timeout):
-                return {"event": self.name}
+            await asyncio.wait_for(
+                self.aevent.wait(), timeout=timeout)
+            return {"event": self.name}
         except asyncio.TimeoutError:
             return {"timeout": timeout}
 
-    def add_task(self, timeout: Optional[float] = None):
-        return asyncio.create_task(self.async_wait(timeout=timeout), name=self.name)
+    def add_task(self, timeout: Optional[float] = None) -> asyncio.Task:
+        return asyncio.create_task(
+            self.async_wait(timeout=timeout), name=self.name)
 
     def __repr__(self):
         cls = self.__class__
@@ -525,8 +635,7 @@ class long_operation_in_thread:
             thread = threading.Thread(
                 target=func, name=name, args=args,
                 kwargs={"stop_event": stop_event, **kwargs},
-                daemon=True
-            )
+                daemon=True)
             thread.start()
             return stop_event
 
@@ -583,8 +692,7 @@ class run_operation_in_executor_from_loop:
                     func, thread_sensitive=False,
                     executor=ThreadPoolExecutor(thread_name_prefix=name)
                 )(*args, **kwargs),
-                name=name,
-            )
+                name=name)
             return (stop_event, _task)
 
         return wrapper
@@ -638,16 +746,24 @@ def wait_for_either(ev, timeout=None):
             time.sleep(CONF_INTERVAL_GUI)
 
 
-async def await_for_any(events, timeout: Optional[int] = None):
-    _events = variadic(events)
-    if _res := [getattr(_ev, "name", "noname") for _ev in _events if _ev and _ev.is_set()]:
+async def await_for_any(
+        events: Union[MySyncAsyncEvent, Iterable[MySyncAsyncEvent]],
+        timeout: Optional[int] = None) -> dict:
+
+    _events = cast(Iterable[MySyncAsyncEvent], variadic(events))
+
+    if _res := [getattr(_ev, "name", "noname")
+                for _ev in _events if _ev and _ev.is_set()]:
+
         return {"event": _res}
 
-    _tasks_events = {event.add_task(): f'event_{event.name}' for event in _events}
-    done, pending = await asyncio.wait(_tasks_events, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+    _tasks_events = {event.add_task(): f'{event.name}' for event in _events}
+
+    done, pending = await asyncio.wait(
+        _tasks_events, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+
     if pending:
-        for _task in pending:
-            _task.cancel()
+        list(map(lambda x: x.cancel(), pending))
         await asyncio.wait(pending)
     if not done:
         return {"timeout": timeout}
@@ -682,11 +798,16 @@ async def async_waitfortasks(
     fs: Optional[Iterable | Coroutine | asyncio.Task] = None,
     timeout: Optional[float] = None,
     events: Optional[Iterable | asyncio.Event | MySyncAsyncEvent] = None,
-    cancel_pending_tasks: bool = True,
     wait_pending_tasks: bool = True,
     get_results: Union[str, bool] = "discard_if_condition",
     **kwargs,
 ) -> Optional[dict[str, dict | Iterable | bool]]:
+
+    '''
+    si timeout y se llega al timeout en el asyncio.wait,
+    se devuelven las tasks en pending cancelled
+
+    '''
 
     _final_wait = {}
     _tasks: dict[asyncio.Task, str] = {}
@@ -745,18 +866,22 @@ async def async_waitfortasks(
     _condition = {"timeout": False, "event": None}
     _results = []
     _cancelled = []
-    _cancelled_per_request = []
 
     done, pending = await asyncio.wait(
-        _final_wait, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        _final_wait, timeout=timeout,
+        return_when=asyncio.FIRST_COMPLETED)
+
+    # aux task created and has to be cancelled
+    to_cancel = []
 
     try:
-        to_cancel = []
         if not done:
             _condition["timeout"] = True
             if _tasks:
-                _done_before_condition.extend(list(filter(lambda x: x._state == "FINISHED", _tasks)))
-                _pending.extend(list(filter(lambda x: x._state == "PENDING", _tasks)))
+                _done_before_condition.extend(list(filter(
+                    lambda x: x._state == "FINISHED", _tasks)))
+                _pending.extend(list(filter(
+                    lambda x: x._state == "PENDING", _tasks)))
         else:
             _task_done = done.pop()
             if "list_fs" in _task_done.get_name():
@@ -770,30 +895,31 @@ async def async_waitfortasks(
                     to_cancel.append(_one_task_to_wait_tasks)
                 to_cancel.extend(_tasks_events)
                 if _tasks:
-                    _done_before_condition.extend(list(filter(lambda x: x._state == "FINISHED", _tasks)))
-                    _pending.extend(list(filter(lambda x: x._state == "PENDING", _tasks)))
+                    _done_before_condition.extend(list(filter(
+                        lambda x: x._state == "FINISHED", _tasks)))
+                    _pending.extend(list(filter(
+                        lambda x: x._state == "PENDING", _tasks)))
 
         if to_cancel:
             list(map(lambda x: x.cancel(), to_cancel))
             await asyncio.wait(to_cancel)
 
         if _pending:
-            if cancel_pending_tasks:
-                list(map(lambda x: x.cancel(), _pending))
-                _cancelled_per_request.extend(_pending)
+            list(map(lambda x: x.cancel(), _pending))
             if wait_pending_tasks:
                 await asyncio.wait(_pending)
 
         if get_results:
             _get_from = _done
-            if get_results is True or get_results == 'all':
+            if get_results != "discard_if_condition":
                 _get_from += _done_before_condition
+
             if _get_from:
                 _results.extend([_d.result() for _d in _get_from if not _d.exception()])
 
         return {'condition': _condition, 'results': _results, 'done': _done,
                 'done_before_condition': _done_before_condition, 'pending': _pending,
-                'cancelled': _cancelled, 'cancelled_per_request': _cancelled_per_request}
+                'cancelled': _cancelled}
 
     except Exception as e:
         logger = logging.getLogger('utils.asyncwaitfortasks')

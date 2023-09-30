@@ -186,8 +186,7 @@ class AsyncHLSDownloader:
                     f'[{self.info_dict["id"]}]',
                     f'[{self.info_dict["title"]}]',
                     f'[{self.info_dict["format_id"]}]',
-                ]
-            )
+                ])
 
             self.count_msg = ""
             self._proxy = {}
@@ -245,8 +244,7 @@ class AsyncHLSDownloader:
             self.areset = self.sync_to_async(self.resetdl)
 
             self.timeout: httpx.Timeout = httpx.Timeout(15)
-            self.limits: httpx.Limits = httpx.Limits(
-                max_keepalive_connections=None, max_connections=None, keepalive_expiry=30)
+            self.limits: httpx.Limits = httpx.Limits(keepalive_expiry=30)
 
             self.config_httpx = lambda: {
                 'proxies': cast(ProxiesTypes, self._proxy),
@@ -306,7 +304,8 @@ class AsyncHLSDownloader:
     @on_exception
     def get_m3u8_doc(self) -> Optional[str]:
         return try_get(
-            send_http_request(self.info_dict["url"], client=self.init_client, new_e=AsyncHLSDLError),
+            send_http_request(
+                self.info_dict["url"], client=self.init_client, new_e=AsyncHLSDLError),
             lambda x: x.content.decode("utf-8", "replace") if x else None)
 
     def init(self):
@@ -459,8 +458,7 @@ class AsyncHLSDownloader:
                     f"{naturalsize(self.down_size)} -- total fragments ",
                     f"{self.n_total_fragments} -- fragments already dl ",
                     f"{self.n_dl_fragments}"
-                ])
-            )
+                ]))
 
             if not self.frags_to_dl:
                 self.status = "init_manipulating"
@@ -476,14 +474,16 @@ class AsyncHLSDownloader:
                     "sem": BoundedSemaphore(),
                     "downloading": set(),
                     "in_reset": set(),
-                    "reset": MySyncAsyncEvent(name="fromplns[ALL]", initset=True),
+                    "reset": MySyncAsyncEvent(
+                        name="fromplns[ALL]", initset=True),
                 }
             if self.fromplns not in AsyncHLSDownloader._PLNS:
                 AsyncHLSDownloader._PLNS[self.fromplns] = {
                     "downloaders": {self.info_dict["_index_scene"]: self},
                     "downloading": set(),
                     "in_reset": set(),
-                    "reset": MySyncAsyncEvent(name=f"fromplns[{self.fromplns}]", initset=True),
+                    "reset": MySyncAsyncEvent(
+                        name=f"fromplns[{self.fromplns}]", initset=True),
                     "sem": BoundedSemaphore(),
                 }
             else:
@@ -1038,7 +1038,9 @@ class AsyncHLSDownloader:
             if list_reset and dict_dl:
                 plns = [dl for key, dl in dict_dl.items() if key in list_reset]  # type: ignore
                 _tasks_all.extend([
-                    self.add_task(dl._vid_dl.end_tasks.async_wait(timeout=300), name=f'await_end_tasks_{dl.premsg}') for dl in plns])
+                    self.add_task(
+                        dl._vid_dl.end_tasks.async_wait(timeout=300),
+                        name=f'await_end_tasks_{dl.premsg}') for dl in plns])
 
         logger.debug(f"{premsg} endtasks {_tasks_all}")
 
@@ -1255,7 +1257,8 @@ class AsyncHLSDownloader:
 
         async with async_lock(AsyncHLSDownloader._CLASSLOCK):
             if self.fromplns:
-                _event = traverse_obj(AsyncHLSDownloader._PLNS, ("ALL", "reset"))
+                _event = cast(MySyncAsyncEvent, traverse_obj(
+                    AsyncHLSDownloader._PLNS, ("ALL", "reset")))
                 _res = await await_for_any(
                     [_event, self._vid_dl.stop_event], timeout=300)
                 if traverse_obj(_res, "event") == "stop":
