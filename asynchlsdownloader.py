@@ -1239,6 +1239,9 @@ class AsyncHLSDownloader:
                 except asyncio.QueueEmpty:
                     await asyncio.sleep(0)
                     continue
+                except httpx.ReadTimeout:
+                    await asyncio.sleep(0)
+                    continue
 
         except Exception as e:
             logger.debug(f"{premsg} outer exception {repr(e)}")
