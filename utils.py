@@ -2374,6 +2374,7 @@ if yt_dlp:
             "embed": not args.no_embed,
             "_util_classes": {"SimpleCountDown": SimpleCountDown},
             "outtmpl": {"default": "%(id)s_%(title)s.%(ext)s"},
+        
         }
 
         if args.use_cookies:

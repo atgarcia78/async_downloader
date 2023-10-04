@@ -343,7 +343,7 @@ class AsyncHLSDownloader:
 
         try:
             _nworkers, self._interv, self._limit = getter(self._extractor)
-            self.n_workers = max(self.n_workers, _nworkers)
+            self.n_workers = max(self.n_workers, _nworkers) if _nworkers >= 16 else min(self.n_workers, _nworkers)
 
             self.m3u8_doc = self.get_m3u8_doc()
             self.info_dict["fragments"] = self.get_info_fragments()
