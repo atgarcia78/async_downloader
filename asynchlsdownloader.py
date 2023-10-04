@@ -861,10 +861,10 @@ class AsyncHLSDownloader:
                 f"outer Exception {repr(e)}")
             raise
         finally:
-            if cause == "403":
+            if str(cause) == "403":
                 try_call(lambda: AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"]))
 
-            if self.fromplns and cause == "403":
+            if self.fromplns and str(cause) == "403":
                 logger.debug(
                     f"{_pre()} stop_event[{self._vid_dl.stop_event}] FINALLY")
 
@@ -993,9 +993,9 @@ class AsyncHLSDownloader:
 
     @classmethod
     async def reset_plns(cls, cause: Optional[str] = "403", plns: Optional[str] = None, wait=True):
-        if not plns:
-            AsyncHLSDownloader._PLNS["ALL"]["reset"].clear()
 
+        AsyncHLSDownloader._PLNS["ALL"]["reset"].clear()
+        if not plns:
             plid_total = AsyncHLSDownloader._PLNS["ALL"]["downloading"]
 
         else:
@@ -1370,15 +1370,19 @@ class AsyncHLSDownloader:
                     else:
                         if inc_frags_dl > 0:
                             try:
+                                logger.info(
+                                    "".join([
+                                        f"{_premsg}:RESET:new cycle ",
+                                        f"with pending frags [{len(self.fragsnotdl())}]"
+                                    ]))
                                 async with self._limit_reset:
                                     await self.areset("hard")
                                 if self._vid_dl.stop_event.is_set():
                                     return
                                 logger.debug(
                                     "".join([
-                                        f"{_premsg}:RESET",
-                                        f"[{self.n_reset}]:OK new cycle ",
-                                        f"pending frags [{len(self.fragsnotdl())}]"
+                                        f"{_premsg}:RESET:OK new cycle ",
+                                        f"with pending frags [{len(self.fragsnotdl())}]"
                                     ]))
                                 self.n_reset -= 1
                                 continue
@@ -1436,30 +1440,6 @@ class AsyncHLSDownloader:
             elif self.status not in ("error"):
                 logger.debug(f"{_premsg} Frags DL completed")
                 self.status = "init_manipulating"
-
-    async def clean_from_reset(self):
-        if not self.fromplns:
-            return
-        try:
-            try_call(lambda: AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"].remove(
-                self.info_dict["_index_scene"]))
-
-            if not AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"]:
-                AsyncHLSDownloader._PLNS[self.fromplns]["reset"].set()
-                logger.info(f"{self.premsg} end of resets fromplns [{self.fromplns}]")
-
-                try_call(lambda: AsyncHLSDownloader._PLNS["ALL"]["in_reset"].remove(self.fromplns))
-
-                if not AsyncHLSDownloader._PLNS["ALL"]["in_reset"]:
-                    AsyncHLSDownloader._PLNS["ALL"]["reset"].set()
-
-        except Exception:
-            logger.warning(
-                "".join([
-                    f"{self.premsg}[clean_from_reset] error when removing ",
-                    f'[{self.info_dict["_index_scene"]}] from',
-                    f'{AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"]}'
-                ]))
 
     async def dump_init_file(self):
         init_data = {
