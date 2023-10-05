@@ -2373,8 +2373,7 @@ if yt_dlp:
             "lock": threading.Lock(),
             "embed": not args.no_embed,
             "_util_classes": {"SimpleCountDown": SimpleCountDown},
-            "outtmpl": {"default": "%(id)s_%(title)s.%(ext)s"},
-        
+            "outtmpl": {"default": "%(id)s_%(title)s.%(ext)s"}
         }
 
         if args.use_cookies:
