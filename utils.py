@@ -2470,7 +2470,7 @@ if yt_dlp:
             logger.warning("Tabulate is not installed, tables will not be presented optimized")
             return render_table(headers, data, delim=True)
 
-    def send_http_request(url, **kwargs) -> Optional[httpx.Response]:
+    def send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
         """
         raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
         """
@@ -2482,6 +2482,8 @@ if yt_dlp:
             return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
         except ExtractorError as e:
             raise new_e(str(e)) from e
+        except (ConnectError, httpx.HTTPStatusError) as e:
+            return {"error": repr(e)}
 
     def get_xml(mpd_url):
         import xml.etree.ElementTree as etree

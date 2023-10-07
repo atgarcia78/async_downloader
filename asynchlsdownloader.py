@@ -153,7 +153,6 @@ class AsyncHLSDownloader:
             self._pos = None
             self.n_workers: int = self.args.parts
             self.count: int = 0
-            self.m3u8_doc = None
             self.ytdl = ytdl
             self.base_download_path = Path(self.info_dict["download_path"])
             self.download_path = Path(
@@ -303,10 +302,14 @@ class AsyncHLSDownloader:
     @on_503
     @on_exception
     def get_m3u8_doc(self) -> Optional[str]:
-        return try_get(
-            send_http_request(
-                self.info_dict["url"], client=self.init_client, new_e=AsyncHLSDLError),
-            lambda x: x.content.decode("utf-8", "replace") if x else None)
+        if (res := send_http_request(self.info_dict["url"], client=self.init_client, new_e=AsyncHLSDLError)):
+            if isinstance(res, dict):
+                raise AsyncHLSDLError(
+                    f"{self.premsg}:[get_m3u8_doc] {res['error']}")
+            return res.content.decode("utf-8", "replace")
+        else:
+            raise AsyncHLSDLError(
+                f"{self.premsg}:[get_m3u8_doc] couldnt get init section")
 
     def init(self):
 
@@ -342,10 +345,13 @@ class AsyncHLSDownloader:
             return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
 
         try:
+            if self.n_reset:
+                self.n_reset = 0
             _nworkers, self._interv, self._limit = getter(self._extractor)
             self.n_workers = max(self.n_workers, _nworkers) if _nworkers >= 16 else min(self.n_workers, _nworkers)
 
-            self.m3u8_doc = self.get_m3u8_doc()
+            if not self.m3u8_doc:
+                self.m3u8_doc = self.get_m3u8_doc()
             self.info_dict["fragments"] = self.get_info_fragments()
 
             if (_initfrag := self.info_dict["fragments"][0].init_section):
@@ -566,7 +572,11 @@ class AsyncHLSDownloader:
     @on_exception
     def get_init_section(self, uri: str, file: Path, cipher: Optional[CbcMode]):
         try:
-            if res := send_http_request(uri, client=self.init_client, new_e=AsyncHLSDLError):
+            if (res := send_http_request(uri, client=self.init_client, new_e=AsyncHLSDLError)):
+                if isinstance(res, dict):
+                    raise AsyncHLSDLError(
+                        f"{self.premsg}:[get_init_section] {res['error']}")
+
                 _data = res.content if not cipher else cipher.decrypt(res.content)
                 with open(file, "wb") as fsect:
                     fsect.write(_data)
@@ -817,8 +827,8 @@ class AsyncHLSDownloader:
                         if _first_all:
                             NakedSwordBaseIE.API_LOGOUT(msg="[resetdl]")
                             time.sleep(5)
-                            NakedSwordBaseIE.API_LOGIN(msg="[resetdl]")
-                            time.sleep(2)
+                            # NakedSwordBaseIE.API_LOGIN(msg="[resetdl]")
+                            # time.sleep(2)
 
                         _listreset = [
                             int(index)
@@ -908,15 +918,15 @@ class AsyncHLSDownloader:
                     if self._vid_dl.stop_event.is_set():
                         return
 
-                    logger.info(
-                        "".join([
-                            f"{_pre()} all scenes in [{self.fromplns}], waiting for scenes in other plns ",
-                            f"[{_inreset}]"
-                        ])
-                    )
+                    # logger.info(
+                    #     "".join([
+                    #         f"{_pre()} all scenes in [{self.fromplns}], waiting for scenes in other plns ",
+                    #         f"[{_inreset}]"
+                    #     ])
+                    # )
 
-                    wait_for_either(
-                        [AsyncHLSDownloader._PLNS["ALL"]["reset"], self._vid_dl.stop_event], timeout=300)
+                    # wait_for_either(
+                    #     [AsyncHLSDownloader._PLNS["ALL"]["reset"], self._vid_dl.stop_event], timeout=300)
 
                     self.n_reset += 1
                     if _pasres_cont:
@@ -1258,17 +1268,18 @@ class AsyncHLSDownloader:
         _premsg = f"{self.premsg}[fetch_async]"
         AsyncHLSDownloader._QUEUE[str(self.pos)] = Queue()
 
-        async with async_lock(AsyncHLSDownloader._CLASSLOCK):
-            if self.fromplns:
-                _event = cast(MySyncAsyncEvent, traverse_obj(
-                    AsyncHLSDownloader._PLNS, ("ALL", "reset")))
+        if self.fromplns:
+            _event = cast(MySyncAsyncEvent, traverse_obj(
+                AsyncHLSDownloader._PLNS, (self.fromplns, "reset")))
+            if not _event.is_set():
                 _res = await await_for_any(
                     [_event, self._vid_dl.stop_event], timeout=300)
                 if traverse_obj(_res, "event") == "stop":
                     self.status = "stop"
                     return
-                AsyncHLSDownloader._PLNS[self.fromplns]["downloading"].add(self.info_dict["_index_scene"])
-                AsyncHLSDownloader._PLNS["ALL"]["downloading"].add(self.fromplns)
+        async with async_lock(AsyncHLSDownloader._CLASSLOCK):
+            AsyncHLSDownloader._PLNS[self.fromplns]["downloading"].add(self.info_dict["_index_scene"])
+            AsyncHLSDownloader._PLNS["ALL"]["downloading"].add(self.fromplns)
 
         try:
             while True:
@@ -1428,7 +1439,7 @@ class AsyncHLSDownloader:
             await self.dump_init_file()
             self.init_client.close()
             if self.fromplns:
-                with AsyncHLSDownloader._CLASSLOCK:
+                async with async_lock(AsyncHLSDownloader._CLASSLOCK):
                     try_call(lambda: AsyncHLSDownloader._PLNS[self.fromplns]["downloading"].remove(
                         self.info_dict["_index_scene"]))
 
