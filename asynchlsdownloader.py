@@ -134,7 +134,6 @@ class AsyncHLSDownloader:
     _CHUNK_SIZE = 16384  # 1024  # 102400
     _MAX_RETRIES = 5
     _MAX_RESETS = 10
-    # _MIN_TIME_RESETS = 15
     _CONFIG = load_config_extractors()
     _CLASSLOCK = Lock()
     _COUNTDOWNS = None
@@ -314,24 +313,17 @@ class AsyncHLSDownloader:
     def init(self):
 
         def getter(name: Union[str, None]) -> tuple[int, Union[int, float], LimitContextDecorator]:
-            try:
-                if not name:
-                    self.special_extr = False
-                    return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
-
-                if "nakedsword" in name:
-                    self.auto_pasres = True
-                    if not any(
-                        _ in self.info_dict.get("playlist_title", "")
-                        for _ in ("MostWatchedScenes", "Search")
-                    ):
-                        self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
-
-            except Exception as e:
-                logger.exception(f"{self.premsg}: {str(e)}")
-
+            if not name:
+                self.special_extr = False
+                return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
+            if "nakedsword" in name:
+                self.auto_pasres = True
+                if not any(
+                    _ in self.info_dict.get("playlist_title", "")
+                    for _ in ("MostWatchedScenes", "Search")
+                ):
+                    self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
             value, key_text = getter_basic_config_extr(name, AsyncHLSDownloader._CONFIG) or (None, None)
-
             self.special_extr = False
             if value and key_text:
                 self.special_extr = True
@@ -341,7 +333,6 @@ class AsyncHLSDownloader:
                     value["maxsplits"],
                     value["interval"],
                     value["ratelimit"].ratelimit(key_text, delay=True))
-
             return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
 
         try:
@@ -367,13 +358,11 @@ class AsyncHLSDownloader:
                     {"frag": 0, "url": _url, "file": _file_path, "downloaded": False})
                 self.get_init_section(_url, _file_path, _cipher)
 
+            init_data = {}
             if self.init_file.exists():
                 with open(self.init_file, "rt", encoding='utf-8') as finit:
                     init_data = json.loads(finit.read())
                 init_data = {int(k): v for k, v in init_data.items()}
-
-            else:
-                init_data = {}
 
             byte_range = {}
 
@@ -521,7 +510,6 @@ class AsyncHLSDownloader:
     def get_info_fragments(self) -> Union[list, m3u8.SegmentList]:
 
         try:
-            self._host = get_host(self.info_dict["url"])
             m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict["url"])
 
             if not m3u8_obj or not m3u8_obj.segments:
@@ -621,7 +609,9 @@ class AsyncHLSDownloader:
             raise AsyncHLSDLErrorFatal("error extracting info video") from e
 
     def prep_reset(self, info_reset: dict):
+
         self.info_dict.update(info_reset)
+        self._host = get_host(self.info_dict["url"])
 
         try:
             self.init_client.close()
