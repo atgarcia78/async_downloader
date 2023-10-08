@@ -3,7 +3,6 @@ import logging
 import shlex
 import shutil
 import subprocess
-from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
@@ -14,7 +13,6 @@ from threading import Lock
 import aiofiles.os
 import os
 
-import m3u8
 from yt_dlp.utils import determine_protocol, sanitize_filename
 
 import xattr
@@ -42,7 +40,6 @@ from utils import (
     async_lock,
     CONF_HTTP_DL,
     CONF_DRM,
-    send_http_request,
     get_xml,
     get_license_drm,
     translate_srt,
@@ -128,7 +125,6 @@ class VideoDownloader:
                 + "."
                 + self.info_dict.get("ext", "mp4"),
             ),
-            "fromplns": AsyncHLSDownloader._PLNS,
             "error_message": "",
             "nwsetup": nwsetup
         }
@@ -141,12 +137,11 @@ class VideoDownloader:
 
         self.total_sizes = {
             "filesize": 0,
-            "down_size": 0
-        }
+            "down_size": 0}
 
         self._infodl = InfoDL(
-            self.pause_event, self.resume_event, self.stop_event, self.end_tasks, self.reset_event,
-            self.total_sizes, nwsetup)
+            self.pause_event, self.resume_event, self.stop_event,
+            self.end_tasks, self.reset_event, self.total_sizes, nwsetup)
 
         dl = self._get_dl(_new_info_dict)
         downloaders.extend(variadic(dl))
@@ -533,19 +528,26 @@ class VideoDownloader:
             self.info_dl["status"] = "error"
 
     def _get_subts_files(self):
-        def _dl_subt(url) -> Optional[str]:
-            subt_url = url
-            if ".m3u8" in url:
-                m3u8obj = m3u8.load(url, headers=self.info_dict.get("http_headers"))
-                subt_url = urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
-            return try_get(
-                send_http_request(subt_url, _type="GET", headers=self.info_dict.get("http_headers")),
-                lambda x: x.text if x else None)
+        def _dl_subt():
+            cmd = [
+                "yt-dlp",
+                "-P",
+                self.info_dl['filename'].absolute().parent,
+                "-o",
+                f"{self.info_dl['filename'].stem}.%(ext)s",
+                "--no-download",
+                self.info_dict["webpage_url"]]
+            proc = subprocess.run(cmd, encoding="utf-8", capture_output=True)
+            return proc
 
         _subts = self.info_dict.get("requested_subtitles")
 
         if not _subts:
             return
+
+        res = _dl_subt()
+
+        logger.info(f"{self.premsg}: subs dl and converted to srt, rc[{res.returncode}]")
 
         _final_subts = {}
 
@@ -560,47 +562,15 @@ class VideoDownloader:
         if not _final_subts:
             return
 
-        for _lang, el in _final_subts.items():
-            _format = el["ext"]
+        for _lang, _ in _final_subts.items():
             try:
                 _subts_file = Path(
                     self.info_dl["filename"].absolute().parent,
-                    f"{self.info_dl['filename'].stem}.{_lang}.{_format}")
+                    f"{self.info_dl['filename'].stem}.{_lang}.srt")
 
-                if (_content := _dl_subt(el["url"])):
-
-                    with open(_subts_file, "w") as f:
-                        f.write(_content)
-
-                    logger.info(
-                        f"{self.premsg} subs file for [{_lang}, {_format}] downloaded")
-
-                    if _format == "ttml":
-                        _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
-                        cmd = f'tt convert -i "{_subts_file}" -o {_final_subts_file}"'
-                        logger.debug(f"{self.premsg} convert subt - {cmd}")
-                        res = subprocess.run(shlex.split(cmd), encoding="utf-8", capture_output=True)
-                        logger.debug(f"{self.premsg}: subs file conversion result {res.returncode}")
-                        if res.returncode == 0 and _final_subts_file.exists():
-                            _subts_file.unlink()
-                            logger.info(f"{self.premsg}: subs file [{_lang}, srt] ready")
-                            self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
-                    elif _format == "vtt":
-                        _final_subts_file = Path(str(_subts_file).replace(f".{_format}", ".srt"))
-                        cmd = (
-                            "ffmpeg -y -loglevel repeat+info -i file:"
-                            + f'"{_subts_file}" -f srt -movflags +faststart file:"{_final_subts_file}"')
-                        logger.debug(f"{self.premsg}: convert subt - {cmd}")
-                        res = self.syncpostffmpeg(cmd)
-                        logger.debug(f"{self.premsg}: subs file conversion result {res.returncode}")
-                        if res.returncode == 0 and _final_subts_file.exists():
-                            _subts_file.unlink()
-                            logger.info(
-                                f"{self.premsg}: subs file [{_lang}, srt] ready")
-                            self.info_dl["downloaded_subtitles"].update({_lang: _final_subts_file})
-
-                    else:
-                        self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
+                logger.info(f"{self.premsg}: {str(_subts_file)} exists[{_subts_file.exists()}]")
+                if _subts_file.exists():
+                    self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
 
             except Exception as e:
                 logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
@@ -794,7 +764,7 @@ class VideoDownloader:
                         subtfiles = []
                         subtlang = []
 
-                        embed_filename = prepend_extension(self.info_dl["filename"], "embed")
+                        embed_filename = prepend_extension(str(self.info_dl["filename"]), "embed")
 
                         def _make_embed_cmd():
                             for i, (_lang, _file) in enumerate(self.info_dl["downloaded_subtitles"].items()):
@@ -853,7 +823,7 @@ class VideoDownloader:
                             await aiofiles.os.replace(temp_filename, self.info_dl["filename"])
 
                         xattr.setxattr(
-                            self.info_dl["filename"], "user.dublincore.description", _meta.encode())
+                            str(self.info_dl["filename"]), "user.dublincore.description", _meta.encode())
 
                 except Exception as e:
                     logger.exception(

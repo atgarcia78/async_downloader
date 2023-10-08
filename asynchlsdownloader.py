@@ -538,8 +538,7 @@ class AsyncHLSDownloader:
             if _start_time := self.info_dict.get("_start_time"):
                 logger.info(f"{self.premsg}[get_info_fragments] start time {_start_time}")
                 _duration = try_get(
-                    getattr(m3u8_obj, "target_duration", None), lambda x: float(x) if x else None
-                )
+                    getattr(m3u8_obj, "target_duration", None), lambda x: float(x) if x else None)
                 logger.info(f"{self.premsg}[get_info_fragments] duration {_duration}")
                 if _duration:
                     _start_segment = int(_start_time // _duration) - 1
@@ -827,8 +826,6 @@ class AsyncHLSDownloader:
                         if _first_all:
                             NakedSwordBaseIE.API_LOGOUT(msg="[resetdl]")
                             time.sleep(5)
-                            # NakedSwordBaseIE.API_LOGIN(msg="[resetdl]")
-                            # time.sleep(2)
 
                         _listreset = [
                             int(index)
