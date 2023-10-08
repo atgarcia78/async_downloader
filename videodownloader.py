@@ -3,7 +3,7 @@ import logging
 import shlex
 import shutil
 import subprocess
-from urllib.parse import urlparse
+from urllib.parse import urljoin
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
@@ -537,7 +537,7 @@ class VideoDownloader:
             subt_url = url
             if ".m3u8" in url:
                 m3u8obj = m3u8.load(url, headers=self.info_dict.get("http_headers"))
-                subt_url = urlparse.urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
+                subt_url = urljoin(m3u8obj.segments[0]._base_uri, m3u8obj.segments[0].uri)
             return try_get(
                 send_http_request(subt_url, _type="GET", headers=self.info_dict.get("http_headers")),
                 lambda x: x.text if x else None)

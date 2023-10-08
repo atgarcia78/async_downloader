@@ -1277,9 +1277,9 @@ class AsyncHLSDownloader:
                 if traverse_obj(_res, "event") == "stop":
                     self.status = "stop"
                     return
-        async with async_lock(AsyncHLSDownloader._CLASSLOCK):
-            AsyncHLSDownloader._PLNS[self.fromplns]["downloading"].add(self.info_dict["_index_scene"])
-            AsyncHLSDownloader._PLNS["ALL"]["downloading"].add(self.fromplns)
+            async with async_lock(AsyncHLSDownloader._CLASSLOCK):
+                AsyncHLSDownloader._PLNS[self.fromplns]["downloading"].add(self.info_dict["_index_scene"])
+                AsyncHLSDownloader._PLNS["ALL"]["downloading"].add(self.fromplns)
 
         try:
             while True:
