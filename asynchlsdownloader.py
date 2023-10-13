@@ -801,6 +801,7 @@ class AsyncHLSDownloader:
                 logger.info(f"{_pre()} fin wait in reset cause 403")
 
             # if self.fromplns and str(cause) == "403":
+            if self.fromplns:
                 with (_sem := AsyncHLSDownloader._PLNS["ALL"]["sem"]):
                     logger.debug(f"{_pre()} in sem")
 
@@ -815,7 +816,7 @@ class AsyncHLSDownloader:
                         if _sem2._initial_value == 1:
                             _first = True
 
-                        if _first_all:
+                        if _first_all and str(cause) == "403":
                             NakedSwordBaseIE.API_LOGOUT(msg="[resetdl]")
                             time.sleep(5)
 
@@ -864,6 +865,7 @@ class AsyncHLSDownloader:
                 try_call(lambda: AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"]))
 
             # if self.fromplns and str(cause) == "403":
+            if self.fromplns:
                 logger.debug(
                     f"{_pre()} stop_event[{self._vid_dl.stop_event}] FINALLY")
 
