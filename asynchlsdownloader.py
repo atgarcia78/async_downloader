@@ -610,7 +610,9 @@ class AsyncHLSDownloader:
 
     def prep_reset(self, info_reset: dict):
 
-        self.info_dict.update(info_reset)
+        self.info_dict.update({
+            "url": info_reset["url"], "formats": info_reset["formats"],
+            "http_headers": info_reset["http_headers"]})
         self._host = get_host(self.info_dict["url"])
 
         try:
@@ -823,7 +825,7 @@ class AsyncHLSDownloader:
                                 AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"])]
                         _aux = {
                             "indexdl": self.pos,
-                            "args": {"nakedswordmovie": {"listreset": _listreset}},
+                            "args": {self.fromplns: {"listreset": _listreset}},
                         }
 
                         _plns_url = smuggle_url(self.info_dict["original_url"], _aux)
