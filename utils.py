@@ -4421,10 +4421,10 @@ if FileLock and xattr:
                                             if self.deep:
                                                 self.deep_check(_text, file, _video_path)
 
-                                if _id:
+                                if _id and self.asyncdl.args.deep_aldl:
                                     insert_videoscached(_id)
-
-                                insert_videoscached(_name)
+                                else:
+                                    insert_videoscached(_name)
 
                         except Exception as e:
                             self.logger.error(f"[videos_cached][{list_folders_to_scan[folder]}]{repr(e)}")
