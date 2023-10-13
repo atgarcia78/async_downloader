@@ -1102,7 +1102,11 @@ def init_argparser():
     parser.add_argument("--subt", action=ActionNoYes, default=True)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--check-speed", action=ActionNoYes, default=True)
-    parser.add_argument("--deep-aldl", action=ActionNoYes, default=True)
+    parser.add_argument(
+        "--deep-aldl",
+        help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'",
+        action=ActionNoYes,
+        default=False)
     parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"], default="aria2c")
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=True)
