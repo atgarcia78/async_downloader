@@ -780,7 +780,7 @@ class AsyncHLSDownloader:
         _pasres_cont = False
 
         try:
-            if str(cause) == "403":
+            if self.fromplns and str(cause) == "403":
                 AsyncHLSDownloader._INRESET_403.add(self.info_dict["id"])
                 with AsyncHLSDownloader._CLASSLOCK:
                     _pasres_cont = FrontEndGUI.pasres_break()
@@ -800,7 +800,7 @@ class AsyncHLSDownloader:
 
                 logger.info(f"{_pre()} fin wait in reset cause 403")
 
-            if self.fromplns and str(cause) in ("403"):
+            # if self.fromplns and str(cause) == "403":
                 with (_sem := AsyncHLSDownloader._PLNS["ALL"]["sem"]):
                     logger.debug(f"{_pre()} in sem")
 
@@ -860,10 +860,10 @@ class AsyncHLSDownloader:
                 f"outer Exception {repr(e)}")
             raise
         finally:
-            if str(cause) == "403":
+            if self.fromplns and str(cause) == "403":
                 try_call(lambda: AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"]))
 
-            if self.fromplns and str(cause) == "403":
+            # if self.fromplns and str(cause) == "403":
                 logger.debug(
                     f"{_pre()} stop_event[{self._vid_dl.stop_event}] FINALLY")
 
@@ -876,7 +876,7 @@ class AsyncHLSDownloader:
                         AsyncHLSDownloader._PLNS[self.fromplns]["reset"].set()
                         AsyncHLSDownloader._PLNS[self.fromplns]["sem"] = BoundedSemaphore()
 
-                if (_inreset := AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"]):
+                if _inreset:
 
                     if self._vid_dl.stop_event.is_set():
                         return
@@ -891,7 +891,7 @@ class AsyncHLSDownloader:
 
                     try_call(lambda: AsyncHLSDownloader._PLNS["ALL"]["in_reset"].remove(self.fromplns))
 
-                    if not AsyncHLSDownloader._PLNS["ALL"]["in_reset"]:
+                    if not (_inreset := AsyncHLSDownloader._PLNS["ALL"]["in_reset"]):
                         logger.debug(f"{_pre()} end for all plns ")
 
                         AsyncHLSDownloader._PLNS["ALL"]["reset"].set()
@@ -902,8 +902,7 @@ class AsyncHLSDownloader:
                         logger.debug(f"{_pre()}  exit reset")
                         return
 
-                if _inreset := AsyncHLSDownloader._PLNS["ALL"]["in_reset"]:
-
+                if _inreset:
                     if self._vid_dl.stop_event.is_set():
                         return
 

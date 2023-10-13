@@ -3173,6 +3173,10 @@ class CountDowns:
         if msg:
             _premsg += msg
 
+        if index in self.countdowns:
+            self.logger.error(f"{_premsg} error: already in countdown")
+            return ["ERROR"]
+
         if n is not None and isinstance(n, int) and n > 3:
             timeout = n - 3
         else:
@@ -3202,7 +3206,9 @@ class CountDowns:
 
         done, _ = wait_thr([_fut])
 
-        self.countdowns[index]["status"] = "done"
+        # self.countdowns[index]["status"] = "done"
+
+        self.countdowns.pop(index, None)
 
         with self.lock:
             if self.index_main == index:
