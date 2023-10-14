@@ -1981,15 +1981,15 @@ if yt_dlp:
     def change_status_nakedsword(status):
         NakedSwordBaseIE._STATUS = status
 
-    def ies_close(ies):
-        if not ies:
-            return
-        for _, ins in ies.items():
-            if close := getattr(ins, "close", None):
-                try:
-                    close()
-                except Exception:
-                    pass
+    # def ies_close(ies):
+    #     if not ies:
+    #         return
+    #     for _, ins in ies.items():
+    #         if close := getattr(ins, "close", None):
+    #             try:
+    #                 close()
+    #             except Exception:
+    #                 pass
 
     def cli_to_api(*opts):
         default = yt_dlp.parse_options([]).ydl_opts
@@ -2050,8 +2050,9 @@ if yt_dlp:
             else:
                 return (ie._RETURN_TYPE == "playlist", ie_key)
 
-        def close(self):
-            ies_close(self._ies_instances)
+        # def close(self):
+        #     super().close()
+        #     ies_close(self._ies_instances)
 
         async def stop(self):
             if _stop := self.params.get("stop"):
