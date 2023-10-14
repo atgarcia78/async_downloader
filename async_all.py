@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import asyncio
+import uvloop
 import logging
 from asyncdl import AsyncDL
 
@@ -12,7 +12,7 @@ logger = logging.getLogger("async_all")
 def main():
     args = init_argparser()
     asyncDL = AsyncDL(args)
-    asyncio.run(asyncDL.async_ex())
+    uvloop.run(asyncDL.async_ex())
 
 
 if __name__ == "__main__":

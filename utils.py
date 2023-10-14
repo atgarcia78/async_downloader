@@ -13,7 +13,6 @@ import signal
 import subprocess
 import threading
 import time
-import uvloop
 import sys
 import os
 from statistics import median
@@ -3054,8 +3053,7 @@ def patch_https_connection_pool(**constructor_kwargs):
 
 
 def init_config(quiet=False, test=False):
-    uvloop.install()
-    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
     patch_http_connection_pool(maxsize=1000)
     patch_https_connection_pool(maxsize=1000)
     os.environ["MOZ_HEADLESS_WIDTH"] = "1920"
