@@ -41,7 +41,7 @@ from utils import (
     CONF_HTTP_DL,
     CONF_DRM,
     get_xml,
-    get_license_drm,
+    validate_drm_lic,
     translate_srt,
     InfoDL
 )
@@ -216,24 +216,27 @@ class VideoDownloader:
     @classmethod
     def _get_key_drm(cls, lic_url: str, pssh: Optional[str] = None, mpd_url: Optional[str] = None):
 
-        with VideoDownloader._LOCK:
-            if not VideoDownloader._CDM:
-                VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
+        if not pssh and mpd_url:
+            if (mpd_xml := get_xml(mpd_url)):
+                if (_list_pssh := cast(list[str], list(set(list(map(
+                        lambda x: x.text, list(mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh')))))))):
+                    _list_pssh.sort(key=len)
+                    pssh = _list_pssh[0]
+        if pssh:
 
-        if not pssh:
-            mpd_xml = get_xml(mpd_url)
-            _list_pssh = cast(list[str], list(set(list(map(
-                lambda x: x.text, list(mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh')))))))
-            _list_pssh.sort(key=len)
-            pssh = _list_pssh[0]
+            with VideoDownloader._LOCK:
+                if not VideoDownloader._CDM:
+                    VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
 
-        session_id = VideoDownloader._CDM.open()
-        challenge = VideoDownloader._CDM.get_license_challenge(session_id, PSSH(pssh))
-        VideoDownloader._CDM.parse_license(session_id, get_license_drm(lic_url, challenge))
-        if keys := VideoDownloader._CDM.get_keys(session_id):
-            return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
+            session_id = VideoDownloader._CDM.open()
+            challenge = VideoDownloader._CDM.get_license_challenge(session_id, PSSH(pssh))
+            VideoDownloader._CDM.parse_license(session_id, validate_drm_lic(lic_url, challenge))
+            if (keys := VideoDownloader._CDM.get_keys(session_id)):
+                return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
 
     def get_key_drm(self, pssh: str, licurl: str):
+
+        from yt_dlp.extractor.onlyfans import OnlyFansBaseIE
 
         with VideoDownloader._LOCK:
             if not VideoDownloader._CDM:
@@ -242,13 +245,12 @@ class VideoDownloader:
         session_id = VideoDownloader._CDM.open()
         _pssh = PSSH(pssh)
         challenge = VideoDownloader._CDM.get_license_challenge(session_id, _pssh)
-        ie = self.info_dl["ytdl"].get_info_extractor(self.info_dict["extractor_key"])
         if "onlyfans" in self.info_dict["extractor_key"].lower():
-            licence_message = ie.getlicense(licurl, challenge)
+            licence_message = OnlyFansBaseIE.validate_drm_lic(licurl, challenge)
         else:
-            licence_message = ie._download_webpage(licurl, video_id=None, data=challenge)
+            licence_message = validate_drm_lic(licurl, challenge)
         VideoDownloader._CDM.parse_license(session_id, licence_message)
-        if keys := VideoDownloader._CDM.get_keys(session_id):
+        if (keys := VideoDownloader._CDM.get_keys(session_id)):
             return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
 
     def _get_dl(self, info_dict):
@@ -646,21 +648,21 @@ class VideoDownloader:
                         (_video_file := str(self.info_dl["downloaders"][0].filename[0])), "temp")
                     _audio_file_temp = prepend_extension(
                         (_audio_file := str(self.info_dl["downloaders"][0].filename[1])), "temp")
+
                     _pssh = cast(str, try_get(
                         traverse_obj(self.info_dict, ("_drm", "pssh")),
                         lambda x: list(sorted(x, key=lambda y: len(y)))[0]))
                     _licurl = cast(str, traverse_obj(self.info_dict, ("_drm", "licurl")))
 
-                    if not _pssh or not _licurl:
-                        raise Exception(
-                            f"{self.premsg}: error processing DRM info - licurl[{_licurl}] pssh[{_pssh}]")
+                    _key = None
+                    if not _pssh or not _licurl or not (_key := self.get_key_drm(_pssh, _licurl)):
 
-                    _key = self.get_key_drm(_pssh, _licurl)
+                        raise Exception(
+                            f"{self.premsg}: error processing DRM info - licurl[{_licurl}] pssh[{_pssh}] key[{_key}]")
 
                     cmds = [
                         f"mp4decrypt --key {_key} {_video_file} {_video_file_temp}",
-                        f"mp4decrypt --key {_key} {_audio_file} {_audio_file_temp}",
-                    ]
+                        f"mp4decrypt --key {_key} {_audio_file} {_audio_file_temp}"]
 
                     procs = [await apostffmpeg(_cmd) for _cmd in cmds]
                     rcs = [proc.returncode for proc in procs]

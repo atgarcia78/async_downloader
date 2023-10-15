@@ -2487,7 +2487,7 @@ if yt_dlp:
         except (ConnectError, httpx.HTTPStatusError) as e:
             return {"error": repr(e)}
 
-    def get_xml(mpd_url):
+    def get_xml(mpd_url, **kwargs):
         import xml.etree.ElementTree as etree
 
         class _TreeBuilder(etree.TreeBuilder):
@@ -2498,10 +2498,10 @@ if yt_dlp:
             return etree.XML(text, parser=etree.XMLParser(target=_TreeBuilder()))
 
         with httpx.Client(**CLIENT_CONFIG) as client:
-            _doc = client.get(mpd_url).content.decode('utf-8', 'replace')
-        return etree_fromstring(_doc)
+            if (_doc := try_get(client.get(mpd_url, **kwargs), lambda x: x.content.decode('utf-8', 'replace') if x else None)):
+                return etree_fromstring(_doc)
 
-    def get_license_drm(lic_url, challenge):
+    def validate_drm_lic(lic_url, challenge):
         with httpx.Client(**CLIENT_CONFIG) as client:
             return client.post(lic_url, content=challenge).content
 

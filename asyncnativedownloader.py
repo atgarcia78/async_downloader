@@ -151,6 +151,8 @@ class AsyncNativeDownloader:
             str(self.download_path),
             "-o",
             f"{self._filename.stem}.%(ext)s",
+            "-f",
+            self.args.format,
             self.info_dict["webpage_url"],
             "-v",
             "-N",
