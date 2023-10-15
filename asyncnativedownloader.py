@@ -65,11 +65,11 @@ class AsyncNativeDownloader:
             self.n_workers = self.args.parts
             self.download_path = self.info_dict["download_path"]
             self.download_path.mkdir(parents=True, exist_ok=True)
-            self._filename = self.info_dict.get("_filename", self.info_dict.get("filename"))
+            self._filename = self.info_dict.get(
+                "_filename", self.info_dict.get("filename"))
             _formats = sorted(
                 self.info_dict["requested_formats"],
-                key=lambda x: (x.get("resolution", "") == "audio_only" or x.get("ext", "") == "m4a"),
-            )
+                key=lambda x: (x.get("resolution", "") == "audio_only" or x.get("ext", "") == "m4a"))
 
             if drm:
                 #  1 video, 2 audio
@@ -107,7 +107,8 @@ class AsyncNativeDownloader:
 
                 return (limit, maxplits)
 
-            self._extractor = try_get(self.info_dict.get("extractor_key"), lambda x: x.lower())
+            self._extractor = try_get(
+                self.info_dict.get("extractor_key"), lambda x: x.lower())
             self.auto_pasres = False
             if self._extractor in CONF_AUTO_PASRES:
                 self.auto_pasres = True
@@ -184,8 +185,7 @@ class AsyncNativeDownloader:
         async with AsyncNativeDownloader._CLASSLOCK:
             async with self._limit:
                 proc = await asyncio.create_subprocess_shell(
-                    self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
-                )
+                    self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                 await asyncio.sleep(0)
                 self._proc[proc.pid] = proc
                 self._tasks[proc.pid] = [self.add_task(self.read_stream(proc)), self.add_task(proc.wait())]
@@ -298,6 +298,7 @@ class AsyncNativeDownloader:
                         return
                     finally:
                         await asyncio.wait(self._tasks[pid])
+
         except Exception as e:
             logger.error(f"{self.premsg}[fetch_async] error {repr(e)}")
             self.status = "error"
@@ -327,7 +328,7 @@ class AsyncNativeDownloader:
                         _progress_str += "%"
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] DL [{_speed_str}] PR [{_progress_str}] {_now_str}\n'
 
+            return msg
+
         except Exception as e:
             logger.exception(f"{self.premsg}[print hookup] error {repr(e)}")
-
-        return msg
