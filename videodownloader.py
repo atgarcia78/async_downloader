@@ -650,6 +650,11 @@ class VideoDownloader:
                         traverse_obj(self.info_dict, ("_drm", "pssh")),
                         lambda x: list(sorted(x, key=lambda y: len(y)))[0]))
                     _licurl = cast(str, traverse_obj(self.info_dict, ("_drm", "licurl")))
+
+                    if not _pssh or not _licurl:
+                        raise Exception(
+                            f"{self.premsg}: error processing DRM info - licurl[{_licurl}] pssh[{_pssh}]")
+
                     _key = self.get_key_drm(_pssh, _licurl)
 
                     cmds = [

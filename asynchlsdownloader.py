@@ -178,7 +178,10 @@ class AsyncHLSDownloader:
             self.sync_to_async = partial(
                 sync_to_async, thread_sensitive=False, executor=self.ex_dl)
             self.special_extr: bool = False
-            self.filesize = self.info_dict.get("filesize") or self.info_dict.get("filesize_approx")
+
+            self.totalduration = cast(int, self.info_dict.get("duration", 0))
+            self.filesize = cast(int, traverse_obj(self.info_dict, "filesize", "filesize_approx", default=0))  # type: ignore
+
             self.premsg = "".join(
                 [
                     f'[{self.info_dict["id"]}]',
@@ -252,7 +255,7 @@ class AsyncHLSDownloader:
                 'verify': False,
                 'headers': self.info_dict["http_headers"]}
 
-            self.init_client = httpx.Client(**self.config_httpx())
+            self.init_client: httpx.Client
 
             self.auto_pasres = False
             self.fromplns = None
@@ -264,6 +267,33 @@ class AsyncHLSDownloader:
             self.info_frag = []
             self.info_init_section = {}
             self.n_dl_fragments = 0
+
+            def getter(name: Union[str, None]) -> tuple[int, Union[int, float], LimitContextDecorator]:
+                if not name:
+                    self.special_extr = False
+                    return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
+                if "nakedsword" in name:
+                    self.auto_pasres = True
+                    if not any(
+                        _ in self.info_dict.get("playlist_title", "")
+                        for _ in ("MostWatchedScenes", "Search")
+                    ):
+                        self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
+                value, key_text = getter_basic_config_extr(name, AsyncHLSDownloader._CONFIG) or (None, None)
+                self.special_extr = False
+                if value and key_text:
+                    self.special_extr = True
+                    if "nakedsword" in key_text:
+                        key_text = "nakedsword"
+                    return (
+                        value["maxsplits"],
+                        value["interval"],
+                        value["ratelimit"].ratelimit(key_text, delay=True))
+                return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
+
+            _nworkers, self._interv, self._limit = getter(self._extractor)
+            self.n_workers = max(self.n_workers, _nworkers) if _nworkers >= 16 else min(self.n_workers, _nworkers)
+
             self.init()
 
         except Exception as e:
@@ -276,6 +306,7 @@ class AsyncHLSDownloader:
     @pos.setter
     def pos(self, value):
         self._pos = value
+        self.premsg = f"[{value}]{self.premsg}"
         if self.fromplns:
             self.upt_plns()
 
@@ -312,38 +343,19 @@ class AsyncHLSDownloader:
 
     def init(self):
 
-        def getter(name: Union[str, None]) -> tuple[int, Union[int, float], LimitContextDecorator]:
-            if not name:
-                self.special_extr = False
-                return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
-            if "nakedsword" in name:
-                self.auto_pasres = True
-                if not any(
-                    _ in self.info_dict.get("playlist_title", "")
-                    for _ in ("MostWatchedScenes", "Search")
-                ):
-                    self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
-            value, key_text = getter_basic_config_extr(name, AsyncHLSDownloader._CONFIG) or (None, None)
-            self.special_extr = False
-            if value and key_text:
-                self.special_extr = True
-                if "nakedsword" in key_text:
-                    key_text = "nakedsword"
-                return (
-                    value["maxsplits"],
-                    value["interval"],
-                    value["ratelimit"].ratelimit(key_text, delay=True))
-            return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
+        self.n_reset = 0
+        self.frags_to_dl = []
+        self.init_client = httpx.Client(**self.config_httpx())
 
         try:
-            if self.n_reset:
-                self.n_reset = 0
-            _nworkers, self._interv, self._limit = getter(self._extractor)
-            self.n_workers = max(self.n_workers, _nworkers) if _nworkers >= 16 else min(self.n_workers, _nworkers)
 
             if not self.m3u8_doc:
                 self.m3u8_doc = self.get_m3u8_doc()
+
             self.info_dict["fragments"] = self.get_info_fragments()
+
+            self.n_total_fragments = len(self.info_dict["fragments"])
+            self.format_frags = f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
 
             if (_initfrag := self.info_dict["fragments"][0].init_section):
                 _file_path = Path(str(self.fragments_base_path) + ".Frag0")
@@ -366,6 +378,10 @@ class AsyncHLSDownloader:
 
             byte_range = {}
 
+            _mode_init = False
+            if not self.info_frag:
+                _mode_init = True
+
             for i, fragment in enumerate(self.info_dict["fragments"]):
                 if not fragment.uri and fragment.parts:
                     fragment.uri = fragment.parts[0].uri
@@ -384,44 +400,67 @@ class AsyncHLSDownloader:
                 _url = fragment.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
-                is_dl = False
-                size = None
-                hsize = init_data.get(i + 1)
 
-                cipher = None
-                if fragment.key:
-                    cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
+                if _mode_init:
 
-                _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
-                if _file_path.exists():
-                    size = _file_path.stat().st_size
-                    is_dl = True
-                    if not size or (hsize and not hsize - 100 <= size <= hsize + 100):
-                        is_dl = False
-                        _file_path.unlink()
-                        size = None
+                    is_dl = False
+                    size = None
+                    hsize = init_data.get(i + 1)
 
-                _frag = {
-                    "frag": i + 1,
-                    "url": _url,
-                    "key": fragment.key,
-                    "cipher": cipher,
-                    "file": _file_path,
-                    "byterange": byte_range,
-                    "downloaded": is_dl,
-                    "headersize": hsize,
-                    "size": size,
-                    "n_retries": 0,
-                    "error": [],
-                }
+                    cipher = None
+                    if fragment.key:
+                        cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
 
-                if is_dl and size:
-                    self.down_size += size
-                    self.n_dl_fragments += 1
-                if not is_dl or not hsize:
-                    self.frags_to_dl.append(i + 1)
+                    _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
+                    if _file_path.exists():
+                        size = _file_path.stat().st_size
+                        is_dl = True
+                        if not size or (hsize and not hsize - 100 <= size <= hsize + 100):
+                            is_dl = False
+                            _file_path.unlink()
+                            size = None
 
-                self.info_frag.append(_frag)
+                    _frag = {
+                        "frag": i + 1,
+                        "url": _url,
+                        "key": fragment.key,
+                        "cipher": cipher,
+                        "file": _file_path,
+                        "byterange": byte_range,
+                        "downloaded": is_dl,
+                        "headersize": hsize,
+                        "size": size,
+                        "n_retries": 0,
+                        "error": [],
+                    }
+
+                    if is_dl and size:
+                        self.down_size += size
+                        self.n_dl_fragments += 1
+                    if not is_dl or not hsize:
+                        self.frags_to_dl.append(i + 1)
+
+                    self.info_frag.append(_frag)
+
+                else:
+                    if not self.info_frag[i]["headersize"]:
+                        if _hsize := init_data.get(i + 1):
+                            self.info_frag[i]["headersize"] = _hsize
+                    if not self.info_frag[i]["downloaded"] or not self.info_frag[i]["headersize"]:
+                        self.frags_to_dl.append(i + 1)
+                        self.info_frag[i]["url"] = _url
+                        if not self.info_frag[i]["downloaded"] and self.info_frag[i]["file"].exists():
+                            self.info_frag[i]["file"].unlink()
+
+                        self.info_frag[i]["n_retries"] = 0
+                        self.info_frag[i]["byterange"] = byte_range
+                        self.info_frag[i]["key"] = fragment.key
+
+                        cipher = None
+                        if fragment.key:
+                            cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
+
+                        self.info_frag[i]["cipher"] = cipher
 
             logger.debug(
                 "".join([
@@ -431,17 +470,13 @@ class AsyncHLSDownloader:
                 ])
             )
 
-            self.n_total_fragments = len(self.info_dict["fragments"])
-            self.format_frags = f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
-
-            self.totalduration = cast(int, self.info_dict.get("duration", self.calculate_duration()))
-
+            if not self.totalduration:
+                self.totalduration = self.calculate_duration()
             if not self.filesize:
                 self.filesize = self.calculate_filesize()
 
             if not self.filesize:
                 _est_size = "NA"
-
             else:
                 _est_size = naturalsize(self.filesize)
 
@@ -1254,7 +1289,6 @@ class AsyncHLSDownloader:
 
     async def fetch_async(self):
         n_frags_dl = 0
-        self.premsg = f"[{self.pos}]{self.premsg}"
         _premsg = f"{self.premsg}[fetch_async]"
         AsyncHLSDownloader._QUEUE[str(self.pos)] = Queue()
 
