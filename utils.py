@@ -2513,6 +2513,7 @@ if yt_dlp:
         config_folders = {
             "local": Path(Path.home(), "testing"),
             "pandaext4": Path("/Volumes/Pandaext4/videos"),
+            "pandaext1": Path("/Volumes/Pandaext1/videos"),
             "datostoni": Path("/Volumes/DatosToni/videos"),
             "wd1b": Path("/Volumes/WD1B/videos"),
             "wd5": Path("/Volumes/WD5/videos"),
@@ -4188,6 +4189,7 @@ if FileLock and xattr:
         config_folders = {
             "local": Path(Path.home(), "testing"),
             "pandaext4": Path("/Volumes/Pandaext4/videos"),
+            "pandaext1": Path("/Volumes/Pandaext1/videos"),
             "datostoni": Path("/Volumes/DatosToni/videos"),
             "wd1b": Path("/Volumes/WD1B/videos"),
             "wd5": Path("/Volumes/WD5/videos"),
@@ -4226,6 +4228,8 @@ if FileLock and xattr:
             def getter(x):
                 if "Pandaext4/videos" in x:
                     return "pandaext4"
+                elif "Pandaext1/videos" in x:
+                    return "pandaext1"
                 elif "WD5/videos" in x:
                     return "wd5"
                 elif "WD1B/videos" in x:
@@ -4252,6 +4256,7 @@ if FileLock and xattr:
                 "wd5": {},
                 "wd1b": {},
                 "pandaext4": {},
+                "pandaext1": {},
                 "datostoni": {},
                 "wd8_1": {},
                 "wd8_2": {},
