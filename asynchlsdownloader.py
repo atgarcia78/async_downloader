@@ -1300,14 +1300,15 @@ class AsyncHLSDownloader:
         AsyncHLSDownloader._QUEUE[str(self.pos)] = Queue()
 
         if self.fromplns:
-            _event = cast(MySyncAsyncEvent, traverse_obj(
-                AsyncHLSDownloader._PLNS, (self.fromplns, "reset")))
-            if not _event.is_set():
-                _res = await await_for_any(
-                    [_event, self._vid_dl.stop_event], timeout=300)
-                if traverse_obj(_res, "event") == "stop":
-                    self.status = "stop"
-                    return
+            if (_event := cast(MySyncAsyncEvent, traverse_obj(
+                    AsyncHLSDownloader._PLNS, (self.fromplns, "reset")))):
+                if not _event.is_set():
+                    logger.info(f"{_premsg} waiting at start")
+                    _res = await await_for_any(
+                        [_event, self._vid_dl.stop_event], timeout=300)
+                    if traverse_obj(_res, "event") == "stop":
+                        self.status = "stop"
+                        return
             async with async_lock(AsyncHLSDownloader._CLASSLOCK):
                 AsyncHLSDownloader._PLNS[self.fromplns]["downloading"].add(self.info_dict["_index_scene"])
                 AsyncHLSDownloader._PLNS["ALL"]["downloading"].add(self.fromplns)
