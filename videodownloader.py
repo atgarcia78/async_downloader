@@ -251,7 +251,9 @@ class VideoDownloader:
             licence_message = validate_drm_lic(licurl, challenge)
         VideoDownloader._CDM.parse_license(session_id, licence_message)
         if (keys := VideoDownloader._CDM.get_keys(session_id)):
-            return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
+            for key in keys:
+                if key.type == 'CONTENT':
+                    return f"{key.kid.hex}:{key.key.hex()}"
 
     def _get_dl(self, info_dict):
         def _determine_type(info):
