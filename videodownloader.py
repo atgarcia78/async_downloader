@@ -33,6 +33,7 @@ from utils import (
     try_get,
     variadic,
     Union,
+    Callable,
     cast,
     Optional,
     Coroutine,
@@ -199,10 +200,10 @@ class VideoDownloader:
 
     @classmethod
     def create_drm_cdm(cls):
-        with open(CONF_DRM['private_key']) as fp:
-            _private_key = fp.read()
-        with open(CONF_DRM['client_id'], "rb") as fp:
-            _client_id = fp.read()
+        with open(CONF_DRM['private_key']) as fpriv:
+            _private_key = fpriv.read()
+        with open(CONF_DRM['client_id'], "rb") as fpid:
+            _client_id = fpid.read()
 
         device = Device(
             type_=Device.Types.ANDROID,
@@ -214,7 +215,7 @@ class VideoDownloader:
         return Cdm.from_device(device)
 
     @classmethod
-    def _get_key_drm(cls, lic_url: str, pssh: Optional[str] = None, mpd_url: Optional[str] = None):
+    def _get_key_drm(cls, lic_url: str, pssh: Optional[str] = None, func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None):
 
         if not pssh and mpd_url:
             if (mpd_xml := get_xml(mpd_url)):
@@ -223,37 +224,27 @@ class VideoDownloader:
                     _list_pssh.sort(key=len)
                     pssh = _list_pssh[0]
         if pssh:
-
             with VideoDownloader._LOCK:
                 if not VideoDownloader._CDM:
                     VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
 
             session_id = VideoDownloader._CDM.open()
             challenge = VideoDownloader._CDM.get_license_challenge(session_id, PSSH(pssh))
-            VideoDownloader._CDM.parse_license(session_id, validate_drm_lic(lic_url, challenge))
+            _validate_lic = func_validate or validate_drm_lic
+            VideoDownloader._CDM.parse_license(session_id, _validate_lic(lic_url, challenge))
             if (keys := VideoDownloader._CDM.get_keys(session_id)):
-                return f"{keys[-1].kid.hex}:{keys[-1].key.hex()}"
+                for key in keys:
+                    if key.type == 'CONTENT':
+                        return f"{key.kid.hex}:{key.key.hex()}"
 
-    def get_key_drm(self, pssh: str, licurl: str):
+    def get_key_drm(self, licurl: str, pssh: str):
 
         from yt_dlp.extractor.onlyfans import OnlyFansBaseIE
 
-        with VideoDownloader._LOCK:
-            if not VideoDownloader._CDM:
-                VideoDownloader._CDM = VideoDownloader.create_drm_cdm()
-
-        session_id = VideoDownloader._CDM.open()
-        _pssh = PSSH(pssh)
-        challenge = VideoDownloader._CDM.get_license_challenge(session_id, _pssh)
+        _func_validate = None
         if "onlyfans" in self.info_dict["extractor_key"].lower():
-            licence_message = OnlyFansBaseIE.validate_drm_lic(licurl, challenge)
-        else:
-            licence_message = validate_drm_lic(licurl, challenge)
-        VideoDownloader._CDM.parse_license(session_id, licence_message)
-        if (keys := VideoDownloader._CDM.get_keys(session_id)):
-            for key in keys:
-                if key.type == 'CONTENT':
-                    return f"{key.kid.hex}:{key.key.hex()}"
+            _func_validate = OnlyFansBaseIE.validate_drm_lic
+        return VideoDownloader._get_key_drm(licurl, pssh=pssh, func_validate=_func_validate)
 
     def _get_dl(self, info_dict):
         def _determine_type(info):
@@ -657,7 +648,7 @@ class VideoDownloader:
                     _licurl = cast(str, traverse_obj(self.info_dict, ("_drm", "licurl")))
 
                     _key = None
-                    if not _pssh or not _licurl or not (_key := self.get_key_drm(_pssh, _licurl)):
+                    if not _pssh or not _licurl or not (_key := self.get_key_drm(_licurl, _pssh)):
 
                         raise Exception(
                             f"{self.premsg}: error processing DRM info - licurl[{_licurl}] pssh[{_pssh}] key[{_key}]")
