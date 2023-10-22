@@ -1,32 +1,32 @@
-import logging
 import asyncio
-import re
 import contextlib
-from concurrent.futures import ThreadPoolExecutor
-from urllib.parse import unquote
-from typing import cast
-from threading import Lock
-from pathlib import Path
-from datetime import datetime
+import logging
+import re
 from argparse import Namespace
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
+from threading import Lock
+from typing import cast
+from urllib.parse import unquote
 
-from yt_dlp.utils import shell_quote, int_or_none
+from yt_dlp.utils import int_or_none, shell_quote
 
 from utils import (
-    naturalsize,
-    try_get,
-    traverse_obj,
-    load_config_extractors,
+    CONF_AUTO_PASRES,
+    InfoDL,
+    LockType,
+    MySyncAsyncEvent,
+    SpeedometerMA,
+    async_lock,
+    get_host,
     getter_basic_config_extr,
     limiter_non,
-    get_host,
-    async_lock,
-    MySyncAsyncEvent,
-    CONF_AUTO_PASRES,
-    LockType,
-    SpeedometerMA,
+    load_config_extractors,
     myYTDL,
-    InfoDL
+    naturalsize,
+    traverse_obj,
+    try_get,
 )
 
 logger = logging.getLogger("async_native")
@@ -75,8 +75,7 @@ class AsyncNativeDownloader:
                 #  1 video, 2 audio
                 self.filename = [
                     Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
-                    for fdict in _formats
-                ]
+                    for fdict in _formats]
             else:
                 self.filename = Path(
                     self.download_path,
@@ -95,7 +94,8 @@ class AsyncNativeDownloader:
             self.special_extr = False
 
             def getter(x):
-                value, key_text = getter_basic_config_extr(x, AsyncNativeDownloader._CONFIG) or (None, None)
+                value, key_text = getter_basic_config_extr(
+                    x, AsyncNativeDownloader._CONFIG) or (None, None)
 
                 if value and key_text:
                     self.special_extr = True
@@ -117,7 +117,8 @@ class AsyncNativeDownloader:
             if self._conn < 16:
                 with self.ytdl.params.setdefault("lock", Lock()):
                     self.ytdl.params.setdefault("sem", {})
-                    self.sem = cast(LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
+                    self.sem = cast(
+                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
             else:
                 self.sem = contextlib.nullcontext()
 

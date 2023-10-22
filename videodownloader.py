@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import shlex
 import shutil
 import subprocess
@@ -11,45 +12,37 @@ from queue import Queue
 from threading import Lock
 
 import aiofiles.os
-import os
-
-from yt_dlp.utils import determine_protocol, sanitize_filename
-
 import xattr
-
-from asyncaria2cdownloader import AsyncARIA2CDownloader
-from asyncdashdownloader import AsyncDASHDownloader
-from asynchlsdownloader import AsyncHLSDownloader
-from asynchttpdownloader import AsyncHTTPDownloader
-from asyncsaldownloader import AsyncSALDownloader
-from asyncnativedownloader import AsyncNativeDownloader
-
-from utils import (
-    async_suppress,
-    naturalsize,
-    prepend_extension,
-    sync_to_async,
-    traverse_obj,
-    try_get,
-    variadic,
-    Union,
-    Callable,
-    cast,
-    Optional,
-    Coroutine,
-    MySyncAsyncEvent,
-    async_lock,
-    CONF_HTTP_DL,
-    CONF_DRM,
-    get_xml,
-    validate_drm_lic,
-    translate_srt,
-    InfoDL
-)
-
 from pywidevine.cdm import Cdm
 from pywidevine.device import Device
 from pywidevine.pssh import PSSH
+from yt_dlp.utils import determine_protocol, sanitize_filename
+
+from asyncaria2cdownloader import AsyncARIA2CDownloader
+from asynchlsdownloader import AsyncHLSDownloader
+from asynchttpdownloader import AsyncHTTPDownloader
+from asyncnativedownloader import AsyncNativeDownloader
+from utils import (
+    CONF_DRM,
+    Callable,
+    Coroutine,
+    InfoDL,
+    MySyncAsyncEvent,
+    Optional,
+    Union,
+    async_lock,
+    async_suppress,
+    cast,
+    get_xml,
+    naturalsize,
+    prepend_extension,
+    sync_to_async,
+    translate_srt,
+    traverse_obj,
+    try_get,
+    validate_drm_lic,
+    variadic,
+)
 
 logger = logging.getLogger("video_DL")
 
@@ -215,7 +208,9 @@ class VideoDownloader:
         return Cdm.from_device(device)
 
     @classmethod
-    def _get_key_drm(cls, lic_url: str, pssh: Optional[str] = None, func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None):
+    def _get_key_drm(
+            cls, lic_url: str, pssh: Optional[str] = None,
+            func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None):
 
         if not pssh and mpd_url:
             if (mpd_xml := get_xml(mpd_url)):
@@ -247,6 +242,7 @@ class VideoDownloader:
         return VideoDownloader._get_key_drm(licurl, pssh=pssh, func_validate=_func_validate)
 
     def _get_dl(self, info_dict):
+
         def _determine_type(info):
             protocol = determine_protocol(info)
             if "dash" in info.get("container", ""):
@@ -254,59 +250,49 @@ class VideoDownloader:
             else:
                 return protocol
 
-        _streams = True
         if not (_info := info_dict.get("requested_formats")):
             _info = [info_dict]
-            _streams = False
-        elif info_dict.get("_has_drm") or self.info_dict.get(
-            "has_drm"
-        ):  # or 'dash' in info_dict.get('format_note', '').lower():
-            dl = AsyncNativeDownloader(self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=True)
+        elif info_dict.get("_has_drm") or self.info_dict.get("has_drm"):
+            dl = AsyncNativeDownloader(
+                self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=True)
             self._types = "NATIVE_DRM"
             logger.debug(f"{self.premsg}[get_dl] DL type DASH with DRM")
             return dl
         elif info_dict.get("extractor_key") == "Youtube":
-            dl = AsyncNativeDownloader(self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=False)
+            dl = AsyncNativeDownloader(
+                self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=False)
             self._types = "NATIVE"
             logger.debug(f"{self.premsg}[get_dl] DL type youtue")
             return dl
-
         else:
             for f in _info:
-                f.update(
-                    {
-                        "id": info_dict["id"],
-                        "title": info_dict["title"],
-                        "_filename": info_dict["filename"],
-                        "download_path": info_dict["download_path"],
-                        "original_url": info_dict.get("original_url"),
-                        "webpage_url": info_dict.get("webpage_url"),
-                        "extractor_key": info_dict.get("extractor_key"),
-                        "extractor": info_dict.get("extractor"),
-                    }
-                )
+                f.update({
+                    "id": info_dict["id"],
+                    "title": info_dict["title"],
+                    "_filename": info_dict["filename"],
+                    "download_path": info_dict["download_path"],
+                    "original_url": info_dict.get("original_url"),
+                    "webpage_url": info_dict.get("webpage_url"),
+                    "extractor_key": info_dict.get("extractor_key"),
+                    "extractor": info_dict.get("extractor")})
 
         res_dl = []
         _types = []
         for n, info in enumerate(_info):
             try:
                 type_protocol = _determine_type(info)
-                if type_protocol in ("http", "https"):
-                    if all(
-                        [
-                            self.args.http_downloader == "saldl",
-                            self.args.http_downloader == "aria2c" and not self.args.aria2c,
-                            info.get("extractor").lower() not in CONF_HTTP_DL["ARIA2C"]["extractors"],
-                            (info.get("filesize") or 0) > CONF_HTTP_DL["ARIA2C"]["max_filesize"],
-                        ]
-                    ):
-                        dl = AsyncSALDownloader(info, self)
-                        _types.append("SAL")
-                        logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type SAL")
-                        if dl.auto_pasres:
-                            self.info_dl.update({"auto_pasres": True})
-                    elif any([self.args.aria2c]):
-                        dl = AsyncARIA2CDownloader(self.info_dl["rpcport"], self.args, self.info_dl["ytdl"], info, self._infodl)
+                # si uno de los dl tiene que ser dash, hacemos un sólo dl native
+                if type_protocol in ("http_dash_segments", "dash"):
+                    dl = AsyncNativeDownloader(
+                        self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=False)
+                    self._types = "NATIVE"
+                    logger.debug(f"{self.premsg}[get_dl] DL type youtue")
+                    return dl
+
+                elif type_protocol in ("http", "https"):
+                    if any([self.args.aria2c]):
+                        dl = AsyncARIA2CDownloader(
+                            self.info_dl["rpcport"], self.args, self.info_dl["ytdl"], info, self._infodl)
                         _types.append("ARIA2")
                         logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C")
                         if dl.auto_pasres:
@@ -319,27 +305,20 @@ class VideoDownloader:
                             self.info_dl.update({"auto_pasres": True})
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
-                    dl = AsyncHLSDownloader(self.args, self.info_dl["ytdl"], info, self._infodl)  # self.args.enproxy,
+                    dl = AsyncHLSDownloader(
+                        self.args, self.info_dl["ytdl"], info, self._infodl)  # self.args.enproxy,
                     _types.append("HLS")
                     logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
                     if dl.auto_pasres:
                         self.info_dl.update({"auto_pasres": True})
 
-                elif type_protocol in ("http_dash_segments", "dash"):
-                    if _streams:
-                        _str = n
-                    else:
-                        _str = None
-                    dl = AsyncDASHDownloader(info, self, stream=_str)
-                    _types.append("DASH")
-                    logger.debug(
-                        f"{self.premsg}[{info['format_id']}][get_dl] DL type DASH")
                 else:
                     logger.error(
                         f"{self.premsg}[{info['format_id']}]:protocol not supported")
                     raise NotImplementedError("protocol not supported")
 
                 res_dl.append(dl)
+
             except Exception as e:
                 logger.exception(f"{self.premsg}[{info['format_id']}] {repr(e)}")
                 res_dl.append(AsyncDLError(info, repr(e)))
