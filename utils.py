@@ -471,7 +471,8 @@ class ProgressTimer:
         return self.TIMER_FUNC() - self._last_ts
 
     def has_elapsed(self, seconds: float) -> bool:
-        assert seconds > 0.0
+        if seconds <= 0.0:
+            return False
         elapsed_seconds = self.elapsed_seconds()
         if elapsed_seconds < seconds:
             return False
@@ -3255,8 +3256,8 @@ class SimpleCountDown:
 
     def _wait_for_queue(self, interval: Optional[int] = None):
         try:
-            assert self.inputq
-            return self.inputq.get(block=True, timeout=interval)
+            if self.inputq:
+                return self.inputq.get(block=True, timeout=interval)
         except queue.Empty:
             return self.restimeout
         except Exception as e:
