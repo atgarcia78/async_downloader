@@ -6,52 +6,51 @@ import functools
 import json
 import logging
 import logging.config
+import os
+import queue
 import random
 import re
+import selectors
+import shlex
 import shutil
 import signal
 import subprocess
+import sys
+import termios
 import threading
 import time
-import sys
-import os
-from statistics import median
-from queue import Empty, Queue
+import urllib.parse
+from _thread import LockType
+from bisect import bisect
 from collections import defaultdict
-import termios
-import selectors
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import wait as wait_thr
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from importlib.machinery import SOURCE_SUFFIXES, FileFinder, SourceFileLoader
 from importlib.util import module_from_spec
-from dataclasses import dataclass
-
-from concurrent.futures import (
-    ThreadPoolExecutor,
-    wait as wait_thr,
-    as_completed,
-    Future
-)
-from datetime import datetime, timedelta
-
+from ipaddress import ip_address
+from itertools import zip_longest
+from operator import getitem
 from pathlib import Path
-from bisect import bisect
+from queue import Empty, Queue
+from statistics import median
 from typing import (
+    Callable,
+    Coroutine,
+    Dict,
+    Iterable,
     List,
+    Optional,
     Tuple,
     Union,
-    Dict,
-    Coroutine,
-    Iterable,
     cast,
-    Callable,
-    Optional
 )
-
-from _thread import LockType
-import queue
-from ipaddress import ip_address
-from operator import getitem
-import urllib.parse
 from urllib.parse import urlparse
+
+import httpx
+from asgiref.sync import sync_to_async
+from selenium.webdriver import Firefox
 
 FileLock = None
 try:
@@ -78,23 +77,15 @@ except Exception:
 
 
 try:
-    import PySimpleGUI
     import psutil
+    import PySimpleGUI
 except Exception:
     PySimpleGUI = None
-
-import httpx
-
-from selenium.webdriver import Firefox
-
-from asgiref.sync import sync_to_async
 
 try:
     import yt_dlp
 except Exception:
     yt_dlp = None
-
-from itertools import zip_longest
 
 # ***********************************+
 # ************************************
@@ -351,15 +342,15 @@ def nested_obj(d, *selectors, get_all=True, default=None, v=False):
 def put_sequence(q: Union[queue.Queue, asyncio.Queue], seq: Iterable) -> Union[queue.Queue, asyncio.Queue]:
     if seq:
         queue_ = getattr(q, "queue", getattr(q, "_queue", None))
-        assert queue_ is not None
-        queue_.extend(seq)
+        if queue_:
+            queue_.extend(seq)
     return q
 
 
 def subnright(pattern, repl, text, n):
     pattern = re.compile(rf"{pattern}(?!.*{pattern})", flags=re.DOTALL)
     _text = text
-    for i in range(n):
+    for _ in range(n):
         _text = pattern.sub(repl, _text)
     return _text
 
@@ -802,11 +793,11 @@ async def async_waitfortasks(
     **kwargs,
 ) -> Optional[dict[str, dict | Iterable | bool]]:
 
-    '''
+    """
     si timeout y se llega al timeout en el asyncio.wait,
     se devuelven las tasks en pending cancelled
 
-    '''
+    """
 
     _final_wait = {}
     _tasks: dict[asyncio.Task, str] = {}
@@ -957,7 +948,7 @@ def wait_time(n: Union[int, float], event: Optional[threading.Event | MySyncAsyn
             return
 
 
-async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
+async def async_wait_until(timeout, cor, args, kwargs, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
     if not cor:
 
@@ -974,7 +965,7 @@ async def async_wait_until(timeout, cor=None, args=(None,), kwargs={}, interv=CO
             await async_wait_time(interv)
 
 
-def wait_until(timeout, statement=None, args=(None,), kwargs={}, interv=CONF_INTERVAL_GUI):
+def wait_until(timeout, statement, args, kwargs, interv=CONF_INTERVAL_GUI):
     _started = time.monotonic()
     if not statement:
 
@@ -1010,7 +1001,7 @@ def init_logging(file_path=None, test=False):
 
     logging.config.dictConfig(config)
 
-    for log_name, log_obj in logging.Logger.manager.loggerDict.items():
+    for log_name, _ in logging.Logger.manager.loggerDict.items():
         if log_name.startswith("proxy"):
             logger = logging.getLogger(log_name)
             logger.setLevel(logging.INFO)
@@ -1207,11 +1198,15 @@ def init_aria2c(args):
     return _proc
 
 
-def get_httpx_client(config: dict = {}) -> httpx.Client:
+def get_httpx_client(config: Optional[dict] = None) -> httpx.Client:
+    if not config:
+        config = {}
     return httpx.Client(**(CLIENT_CONFIG | config))
 
 
-def get_httpx_async_client(config: dict = {}) -> httpx.AsyncClient:
+def get_httpx_async_client(config: Optional[dict] = None) -> httpx.AsyncClient:
+    if not config:
+        config = {}
     return httpx.AsyncClient(**(CLIENT_CONFIG | config))
 
 
@@ -1382,7 +1377,7 @@ class TorGuardProxies:
         for cmd in cmd_gost:
             if TorGuardProxies.EVENT.is_set():
                 break
-            _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+            _proc = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
             _proc.poll()
             if _proc.returncode:
                 TorGuardProxies.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{cmd}]")
@@ -1543,7 +1538,7 @@ class TorGuardProxies:
             try:
                 for cmd in cmd_gost:
                     TorGuardProxies.logger.debug(cmd)
-                    _proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True)
+                    _proc = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
                     _proc.poll()
                     if _proc.returncode:
                         TorGuardProxies.logger.error(
@@ -1629,20 +1624,6 @@ class TorGuardProxies:
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
-            "Alt-Used": "torguard.net",
-            "Connection": "keep-alive",
-            "Referer": "https://torguard.net/tgconf.php?action=vpn-openvpnconfig",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "Connection": "keep-alive",
-            "Referer": "https://torguard.net/tgconf.php?action=vpn-openvpnconfig",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
             "Pragma": "no-cache",
             "Cache-Control": "no-cache",
             "TE": "trailers",
@@ -1672,9 +1653,7 @@ class TorGuardProxies:
         else:
             TorGuardProxies.logger.error(f"[gen_wg_conf] {host} is not a torguard domain: xx.torguard.com")
 
-        assert httpx
-
-        cl = httpx.Client(follow_redirects=True, verify=False)
+        cl = get_httpx_client()
 
         if ckies := kwargs.get("cookies"):
             reqckies = ckies.get("Request Cookies", ckies)
@@ -1792,52 +1771,46 @@ def get_wd_conf(name=None, pre=None):
 
 if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
-
+    from yt_dlp import YoutubeDL, parse_options
+    from yt_dlp.cookies import extract_cookies_from_browser
     from yt_dlp.extractor.commonwebdriver import (
-        load_config_extractors,
-        getter_basic_config_extr,
+        By,
+        ConnectError,
+        HTTPStatusError,
+        ProgressBar,
+        ReExtractInfo,
         SeleniumInfoExtractor,
+        StatusError503,
         StatusStop,
         dec_on_exception,
         dec_retry_error,
+        ec,
+        getter_basic_config_extr,
         limiter_0_1,
         limiter_1,
         limiter_5,
         limiter_15,
         limiter_non,
-        ReExtractInfo,
-        ConnectError,
-        StatusError503,
+        load_config_extractors,
         my_dec_on_exception,
-        ec,
-        By,
-        ProgressBar,
-        HTTPStatusError,
     )
-
     from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
     from yt_dlp.utils import (
+        ExtractorError,
+        find_available_port,
         get_domain,
         js_to_json,
         prepend_extension,
+        render_table,
         sanitize_filename,
         smuggle_url,
         traverse_obj,
-        try_get,
         try_call,
-        variadic,
+        try_get,
         unsmuggle_url,
-        find_available_port,
+        variadic,
         write_string,
-        ExtractorError,
-        render_table,
     )
-
-    from yt_dlp.cookies import extract_cookies_from_browser
-
-    from yt_dlp import YoutubeDL
-
-    from yt_dlp import parse_options
 
     assert HTTPStatusError
     assert LimitContextDecorator
@@ -2462,7 +2435,7 @@ if yt_dlp:
             _videos = [str(_for_print(_vid)) for _vid in _videos]
             return "[" + ",\n".join(_videos) + "]"
 
-    def render_res_table(data, headers=[], maxcolwidths=None, showindex=True, tablefmt="simple"):
+    def render_res_table(data, headers=(), maxcolwidths=None, showindex=True, tablefmt="simple"):
         if tabulate:
             return tabulate(
                 data, headers=headers, maxcolwidths=maxcolwidths, showindex=showindex, tablefmt=tablefmt
@@ -2488,18 +2461,11 @@ if yt_dlp:
             return {"error": repr(e)}
 
     def get_xml(mpd_url, **kwargs):
-        import xml.etree.ElementTree as etree
-
-        class _TreeBuilder(etree.TreeBuilder):
-            def doctype(self, name, pubid, system):
-                pass
-
-        def etree_fromstring(text):
-            return etree.XML(text, parser=etree.XMLParser(target=_TreeBuilder()))
+        import defusedxml.ElementTree as etree
 
         with httpx.Client(**CLIENT_CONFIG) as client:
             if (_doc := try_get(client.get(mpd_url, **kwargs), lambda x: x.content.decode('utf-8', 'replace') if x else None)):
-                return etree_fromstring(_doc)
+                return etree.XML(_doc)
 
     def validate_drm_lic(lic_url, challenge):
         with httpx.Client(**CLIENT_CONFIG) as client:
@@ -3005,8 +2971,9 @@ def patch_http_connection_pool(**constructor_kwargs):
     call this function with maxsize=16 (or whatever size
     you want to give to the connection pool)
     """
-    from urllib3 import connectionpool, poolmanager
     import socket
+
+    from urllib3 import connectionpool, poolmanager
 
     specificoptions = [
         (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
@@ -3034,8 +3001,9 @@ def patch_https_connection_pool(**constructor_kwargs):
     call this function with maxsize=16 (or whatever size
     you want to give to the connection pool)
     """
-    from urllib3 import connectionpool, poolmanager
     import socket
+
+    from urllib3 import connectionpool, poolmanager
 
     specificoptions = [
         (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
@@ -4292,8 +4260,8 @@ if FileLock and xattr:
             self._data_for_scan = {}  # data ready for scan
             self._last_time_sync = {}
 
-    getxattr = lambda x: upartial(xattr.getxattr, attr="user.dublincore.description")(x).decode()
-    # getxattr = lambda x: try_get(upartial(xattr.getxattr, attr='user.dublincore.description')(x), lambda y: y.decode())
+    def getxattr(x):
+        return upartial(xattr.getxattr, attr="user.dublincore.description")(x).decode()
 
     def _getxattr(f):
         try:
@@ -4337,6 +4305,28 @@ if FileLock and xattr:
             If any of the volumes can't be accesed in real time, the
             local storage info of that volume will be used.
             """
+
+            def insert_videoscached(_text, _file):
+                if not (_video_path_str := self._videoscached.get(_text)):
+                    self._videoscached.update({_text: str(_file)})
+
+                else:
+                    _video_path = Path(_video_path_str)
+                    if _video_path != _file:
+                        if not _file.is_symlink() and not _video_path.is_symlink():
+                            # only if both are hard files we have
+                            # to do something, so lets report it
+                            # in repeated files
+                            self._repeated.append(
+                                {
+                                    "text": _text,
+                                    "indict": _video_path_str,
+                                    "file": str(_file),
+                                }
+                            )
+
+                        if self.deep:
+                            self.deep_check(_text, _file, _video_path)
 
             _finished: MySyncAsyncEvent = kwargs["stop_event"]
 
@@ -4413,32 +4403,10 @@ if FileLock and xattr:
                                     _title = None
                                     _name = sanitize_filename(file.stem, restricted=True).upper()
 
-                                def insert_videoscached(_text):
-                                    if not (_video_path_str := self._videoscached.get(_text)):
-                                        self._videoscached.update({_text: str(file)})
-
-                                    else:
-                                        _video_path = Path(_video_path_str)
-                                        if _video_path != file:
-                                            if not file.is_symlink() and not _video_path.is_symlink():
-                                                # only if both are hard files we have
-                                                # to do something, so lets report it
-                                                # in repeated files
-                                                self._repeated.append(
-                                                    {
-                                                        "text": _text,
-                                                        "indict": _video_path_str,
-                                                        "file": str(file),
-                                                    }
-                                                )
-
-                                            if self.deep:
-                                                self.deep_check(_text, file, _video_path)
-
                                 if _id and self.asyncdl.args.deep_aldl:
-                                    insert_videoscached(_id)
+                                    insert_videoscached(_id, file)
                                 else:
-                                    insert_videoscached(_name)
+                                    insert_videoscached(_name, file)
 
                         except Exception as e:
                             self.logger.error(f"[videos_cached][{list_folders_to_scan[folder]}]{repr(e)}")

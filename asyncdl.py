@@ -1,48 +1,48 @@
 import asyncio
 import json
 import logging
+import os as syncos
+import re
 import shutil
+import signal
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from collections import deque
-import signal
-import re
 from functools import partial
 from pathlib import Path
-import os as syncos
 from threading import Lock
+
 from codetiming import Timer
 
 from utils import (
-    PATH_LOGS,
     CONF_PLAYLIST_INTERL_URLS,
     MAXLEN_TITLE,
-    mylogger,
+    PATH_LOGS,
+    Coroutine,
     FrontEndGUI,
+    LocalVideos,
     MySyncAsyncEvent,
     NWSetUp,
-    LocalVideos,
+    Union,
     _for_print,
     _for_print_videos,
-    sync_to_async,
     async_waitfortasks,
+    cast,
+    get_list_interl,
     init_ytdl,
     js_to_json,
     kill_processes,
+    mylogger,
     naturalsize,
     none_to_zero,
     print_tasks,
+    render_res_table,
     sanitize_filename,
+    sync_to_async,
     traverse_obj,
     try_get,
-    Union,
-    cast,
-    Coroutine,
-    render_res_table,
-    get_list_interl
 )
-
 from videodownloader import VideoDownloader
 
 logger = mylogger(logging.getLogger("asyncDL"))
@@ -173,7 +173,6 @@ class WorkersRun:
                     else:
                         self.logger.debug(
                             f"{_pre} there are videos running or waiting, so lets exit")
-                    return
             else:
                 self.logger.debug(f"{_pre} WorkersInit.exit not set")
                 async with self.alock:
@@ -198,7 +197,6 @@ class WorkersRun:
                         self.logger.debug(
                             f"{_pre} WorkersInit.exit is set after waiting, " +
                             "there are videos running or waiting, so lets exit")
-                    return
 
 
 class WorkersInit:

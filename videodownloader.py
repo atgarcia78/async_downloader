@@ -278,7 +278,7 @@ class VideoDownloader:
 
         res_dl = []
         _types = []
-        for n, info in enumerate(_info):
+        for _, info in enumerate(_info):
             try:
                 type_protocol = _determine_type(info)
                 # si uno de los dl tiene que ser dash, hacemos un sólo dl native
