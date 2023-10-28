@@ -2233,7 +2233,7 @@ if yt_dlp:
             "prefer_insecure": null,
             "enable_file_urls": false,
             "http_headers": {
-                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv: 109.0) Gecko/20100101 Firefox/111.0",
+                "User-Agent": ,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
                 "Accept-Language": "en-US,en;q=0.5",
                 "Sec-Fetch-Mode": "navigate",
@@ -2738,7 +2738,7 @@ class SentenceTranslator(object):
 
         try:
             with httpx.Client() as client:
-                response = client.get(url + params, headers=headers, timeout=self.timeout)
+                response = client.get(url + params, headers=headers, timeout=timeout)
                 if response.status_code == 200:
                     response_json = response.json()[0]
                     length = len(response_json)
