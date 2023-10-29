@@ -761,7 +761,7 @@ class AsyncDL:
         if not video_info.get("filesize", None):
             video_info["filesize"] = 0
 
-        if _path := await self.async_check_if_aldl(video_info):
+        if (_path := await self.async_check_if_aldl(video_info)):
             self.info_videos[url].update({"aldl": _path, "status": "done"})
             logger.debug(
                 "".join([
@@ -773,10 +773,10 @@ class AsyncDL:
         if all([self.info_videos[url].get("todl"), not self.info_videos[url].get("aldl"),
                 not self.info_videos[url].get("samevideo"), self.info_videos[url].get("status") != "prenok"]):
 
+            if put:
+                await self.WorkersInit.add_init(url)
             async with self.alock:
                 self.videos_to_dl.append(url)
-                if put:
-                    await self.WorkersInit.add_init(url)
                 self.num_videos_to_check += 1
                 self.num_videos_pending += 1
             return True
@@ -887,7 +887,7 @@ class AsyncDL:
 
             async with self.alock:
                 self.getlistvid_first.set()
-                if _index := dl.info_dict.get("__interl_index"):
+                if (_index := dl.info_dict.get("__interl_index")):
                     dl.index = _index
                 else:
                     _index = max(self.max_index_playlist, max(list(self.list_dl.keys()) or [0]))
@@ -903,7 +903,7 @@ class AsyncDL:
                     }
                 )
 
-                await self.WorkersRun.add_dl(dl, url_key)
+            await self.WorkersRun.add_dl(dl, url_key)
 
     async def init_callback(self, url_key):
         # worker que lanza la creación de los objetos VideoDownloaders,
