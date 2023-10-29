@@ -2,27 +2,24 @@ import asyncio
 import binascii
 import json
 import logging
+import math
 import random
 import time
-import math
-
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from pathlib import Path
 from queue import Queue
 from shutil import rmtree
-from functools import partial
-from argparse import Namespace
 from threading import BoundedSemaphore, Lock
 
 import aiofiles
-from aiofiles import os
 import httpx
-from httpx._types import ProxiesTypes
 import m3u8
-
-from Cryptodome.Cipher._mode_cbc import CbcMode
+from aiofiles import os
 from Cryptodome.Cipher import AES
-
+from Cryptodome.Cipher._mode_cbc import CbcMode
+from httpx._types import ProxiesTypes
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 from utils import (
@@ -30,50 +27,50 @@ from utils import (
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
-    load_config_extractors,
-    getter_basic_config_extr,
+    Coroutine,
+    CountDowns,
     FrontEndGUI,
+    InfoDL,
+    LimitContextDecorator,
+    List,
+    MySyncAsyncEvent,
+    Optional,
     ProgressTimer,
+    ReExtractInfo,
     SmoothETA,
     SpeedometerMA,
+    StatusError503,
+    StatusStop,
+    Token,
+    Union,
     _for_print,
+    async_lock,
+    async_waitfortasks,
+    await_for_any,
+    cast,
+    change_status_nakedsword,
+    empty_queue,
     get_format_id,
+    get_host,
+    getter_basic_config_extr,
     int_or_none,
-    str_or_none,
-    limiter_non,
     limiter_0_1,
+    limiter_non,
+    load_config_extractors,
     my_dec_on_exception,
+    myYTDL,
     naturalsize,
+    print_delta_seconds,
     print_norm_time,
+    put_sequence,
+    send_http_request,
     smuggle_url,
+    str_or_none,
     sync_to_async,
     traverse_obj,
-    try_get,
     try_call,
-    CountDowns,
-    myYTDL,
-    Union,
-    cast,
-    Coroutine,
-    Optional,
-    MySyncAsyncEvent,
-    put_sequence,
-    async_lock,
-    StatusStop,
+    try_get,
     wait_for_either,
-    change_status_nakedsword,
-    get_host,
-    LimitContextDecorator,
-    send_http_request,
-    ReExtractInfo,
-    StatusError503,
-    Token,
-    List,
-    empty_queue,
-    print_delta_seconds,
-    async_waitfortasks,
-    InfoDL,
-    await_for_any
 )
 
 logger = logging.getLogger("async_HLS_DL")
@@ -859,6 +856,7 @@ class AsyncHLSDownloader:
                             _first = True
 
                         if _first_all and str(cause) == "403":
+                            NakedSwordBaseIE.API_REFRESH(msg="[resetdl]")
                             NakedSwordBaseIE.API_LOGOUT(msg="[resetdl]")
                             time.sleep(5)
 

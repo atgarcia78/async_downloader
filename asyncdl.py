@@ -24,6 +24,7 @@ from utils import (
     LocalVideos,
     MySyncAsyncEvent,
     NWSetUp,
+    Optional,
     Union,
     _for_print,
     _for_print_videos,
@@ -332,7 +333,7 @@ class AsyncDL:
         except Exception as e:
             logger.exception(f"[print_pending_tasks]: error: {str(e)}")
 
-    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Union[None, str] = None) -> asyncio.Task:
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
         else:
@@ -484,7 +485,7 @@ class AsyncDL:
                 if self.url_pl_list:
                     logger.debug(
                         "".join([
-                            "{_pre}[url_playlist_list] urls that ",
+                            f"{_pre}[url_playlist_list] urls that ",
                             f"are pl [{len(self.url_pl_list)}]\n{self.url_pl_list}"
                         ])
                     )
@@ -501,13 +502,12 @@ class AsyncDL:
                         self.url_pl_queue.put_nowait(url)
 
                     tasks_pl_list = []
-                    for _ in range(min(self.init_nworkers, len(self.url_pl_list))):
+                    _workers_pl_list = min(self.init_nworkers, len(self.url_pl_list))
+                    for _ in range(_workers_pl_list):
                         self.url_pl_queue.put_nowait("KILL")
+                    for _ in range(_workers_pl_list):
                         tasks_pl_list.append(
                             self.add_task(self.process_playlist()))
-
-                    logger.debug(
-                        f"{_pre}[url_playlist_list] initial playlists: {len(self.url_pl_list)}")
 
                     await asyncio.wait(tasks_pl_list)
 
@@ -522,8 +522,10 @@ class AsyncDL:
                         for url in self.url_pl_list2:
                             self.url_pl_queue.put_nowait(url)
                         tasks_pl_list2 = []
-                        for _ in range(min(self.init_nworkers, len(self.url_pl_list2))):
+                        _workers_pl_list2 = min(self.init_nworkers, len(self.url_pl_list2))
+                        for _ in range(_workers_pl_list2):
                             self.url_pl_queue.put_nowait("KILL")
+                        for _ in range(_workers_pl_list2):
                             tasks_pl_list2.append(
                                 self.add_task(self.process_playlist()))
 
@@ -542,126 +544,138 @@ class AsyncDL:
 
     async def process_playlist(self):
         _pre = "[get_list_videos][process_playlist]"
-        while True:
-            try:
-                await asyncio.sleep(0)
-                _url = await self.url_pl_queue.get()
-                if _url == "KILL":
-                    break
-                if self.STOP.is_set():
-                    raise Exception("STOP")
-                async with self.alock:
-                    self._count_pl += 1
-
-                _pre = f"[get_list_videos][process_playlist][{_url}]"
-                _total_pl = len(self.url_pl_list) + len(self.url_pl_list2)
-                logger.info(
-                    f"{_pre}[{self._count_pl}/{_total_pl}] processing")
-
+        try:
+            while True:
                 try:
-                    _info = self.ytdl.sanitize_info(
-                        await self.ytdl.async_extract_info(_url, download=False))
-                    if not _info:
-                        raise Exception("no info")
-                except Exception as e:
-                    logger.warning(f"{_pre} {str(e)}")
+                    _url = await self.url_pl_queue.get()
+                    if _url == "KILL":
+                        return
+                    if self.STOP.is_set():
+                        raise Exception("STOP")
+                    async with self.alock:
+                        self._count_pl += 1
 
-                    _info = {"_type": "error", "url": _url, "error": str(e)}
-                    await self._prepare_entry_pl_for_dl(_info)
-                    self._url_pl_entries += [_info]
-                    continue
+                    _pre = f"[get_list_videos][process_playlist][{_url}]"
+                    _total_pl = len(self.url_pl_list) + len(self.url_pl_list2)
+                    logger.info(
+                        f"{_pre}[{self._count_pl}/{_total_pl}] processing")
 
-                if _info.get("_type", "video") != "playlist":
-                    if not _info.get("original_url"):
-                        _info.update({"original_url": _url})
+                    try:
+                        _info = self.ytdl.sanitize_info(
+                            await self.ytdl.async_extract_info(_url, download=False))
+                        if not _info:
+                            raise Exception("no info")
+                    except Exception as e:
+                        logger.warning(f"{_pre} {str(e)}")
 
-                    await self._prepare_entry_pl_for_dl(_info)
-                    self._url_pl_entries += [_info]
+                        _info = {"_type": "error", "url": _url, "error": str(e)}
+                        await self._prepare_entry_pl_for_dl(_info)
+                        async with self.alock:
+                            self._url_pl_entries += [_info]
+                        continue
 
-                else:
+                    if _info.get("_type", "video") != "playlist":
+                        if not _info.get("original_url"):
+                            _info.update({"original_url": _url})
 
-                    if isinstance(_info.get("entries"), list):
-                        _temp_error = []
+                        await self._prepare_entry_pl_for_dl(_info)
+                        async with self.alock:
+                            self._url_pl_entries += [_info]
 
-                        _entries_ok = []
-                        for _ent in _info["entries"]:
-                            if _ent.get("error"):
-                                _ent["_type"] = "error"
-                                if not _ent.get("original_url"):
-                                    _ent.update({"original_url": _url})
-                                await self._prepare_entry_pl_for_dl(_ent)
-                                self._url_pl_entries.append(_ent)
-                                _temp_error.append(_ent)
-                            else:
-                                _entries_ok.append(_ent)
+                    else:
 
-                        _info["entries"] = _entries_ok
+                        if isinstance(_info.get("entries"), list):
+                            _temp_error = []
 
-                        if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_URLS:
-                            _temp_aldl = []
-                            _temp_nodl = []
-
+                            _entries_ok = []
                             for _ent in _info["entries"]:
-                                if not await self.async_check_if_aldl(_ent, test=True):
-                                    _temp_nodl.append(_ent)
-                                else:
-                                    _temp_aldl.append(_ent)
-
-                            _info["entries"] = get_list_interl(_temp_nodl, self, _pre) + _temp_aldl
-
-                    for _ent in _info["entries"]:
-                        if self.STOP.is_set():
-                            raise Exception("STOP")
-
-                        if _ent.get("_type", "video") == "video" and not _ent.get("error"):
-                            if not _ent.get("original_url"):
-                                _ent.update({"original_url": _url})
-
-                            if (_ent.get(
-                                "extractor_key", _ent.get("ie_key", ""))).lower() == "generic" and (
-                                _ent.get("n_entries", 0) <= 1
-                            ):
-                                _ent.pop("playlist", "")
-                                _ent.pop("playlist_index", "")
-                                _ent.pop("n_entries", "")
-                                _ent.pop("playlist", "")
-                                _ent.pop("playlist_id", "")
-                                _ent.pop("playlist_title", "")
-
-                            if (_wurl := _ent["webpage_url"]) == _ent["original_url"]:
-                                if _ent.get("n_entries", 0) > 1:
-                                    _ent.update({"webpage_url": f"{_wurl}?index={_ent['playlist_index']}"})
-                                    logger.warning(
-                                        "".join([
-                                            f"{_pre}[{_ent['playlist_index']}]: nentries > 1, ",
-                                            f"webpage_url == original_url: {_wurl}"
-                                        ])
-                                    )
-
-                            await self._prepare_entry_pl_for_dl(_ent)
-                            self._url_pl_entries += [_ent]
-
-                        else:
-                            try:
-                                is_pl, _ = self.ytdl.is_playlist(_ent["url"])
-                                _error = _ent.get("error")
-                                if not is_pl or _error:
+                                if _ent.get("error"):
+                                    _ent["_type"] = "error"
                                     if not _ent.get("original_url"):
                                         _ent.update({"original_url": _url})
-                                    if _error:
-                                        _ent["_type"] = "error"
                                     await self._prepare_entry_pl_for_dl(_ent)
-                                    self._url_pl_entries.append(_ent)
+                                    async with self.alock:
+                                        self._url_pl_entries.append(_ent)
+                                    _temp_error.append(_ent)
                                 else:
-                                    self.url_pl_list2.append(_ent["url"])
+                                    _entries_ok.append(_ent)
 
-                            except Exception as e:
-                                logger.error(f"{_pre} {_ent['url']} no video entries - {str(e)}")
+                            _info["entries"] = _entries_ok
 
-            except BaseException as e:
-                logger.exception(f"{_pre} {str(e)}")
-                if isinstance(e, KeyboardInterrupt):
-                    raise
+                            if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_URLS:
+                                _temp_aldl = []
+                                _temp_nodl = []
+
+                                for _ent in _info["entries"]:
+                                    if not await self.async_check_if_aldl(_ent, test=True):
+                                        _temp_nodl.append(_ent)
+                                    else:
+                                        _temp_aldl.append(_ent)
+
+                                _info["entries"] = get_list_interl(_temp_nodl, self, _pre) + _temp_aldl
+
+                        for _ent in _info["entries"]:
+                            if self.STOP.is_set():
+                                raise Exception("STOP")
+
+                            if _ent.get("_type", "video") == "video" and not _ent.get("error"):
+                                if not _ent.get("original_url"):
+                                    _ent.update({"original_url": _url})
+
+                                if (_ent.get(
+                                    "extractor_key", _ent.get("ie_key", ""))).lower() == "generic" and (
+                                    _ent.get("n_entries", 0) <= 1
+                                ):
+                                    _ent.pop("playlist", "")
+                                    _ent.pop("playlist_index", "")
+                                    _ent.pop("n_entries", "")
+                                    _ent.pop("playlist", "")
+                                    _ent.pop("playlist_id", "")
+                                    _ent.pop("playlist_title", "")
+
+                                if (_wurl := _ent["webpage_url"]) == _ent["original_url"]:
+                                    if _ent.get("n_entries", 0) > 1:
+                                        _ent.update({"webpage_url": f"{_wurl}?index={_ent['playlist_index']}"})
+                                        logger.warning(
+                                            "".join([
+                                                f"{_pre}[{_ent['playlist_index']}]: nentries > 1, ",
+                                                f"webpage_url == original_url: {_wurl}"
+                                            ])
+                                        )
+
+                                await self._prepare_entry_pl_for_dl(_ent)
+                                async with self.alock:
+                                    self._url_pl_entries += [_ent]
+
+                            else:
+                                try:
+                                    is_pl, _ = self.ytdl.is_playlist(_ent["url"])
+                                    _error = _ent.get("error")
+                                    if not is_pl or _error:
+                                        if not _ent.get("original_url"):
+                                            _ent.update({"original_url": _url})
+                                        if _error:
+                                            _ent["_type"] = "error"
+                                        await self._prepare_entry_pl_for_dl(_ent)
+                                        async with self.alock:
+                                            self._url_pl_entries.append(_ent)
+                                    else:
+                                        async with self.alock:
+                                            self.url_pl_list2.append(_ent["url"])
+
+                                except Exception as e:
+                                    logger.error(f"{_pre} {_ent['url']} no video entries - {str(e)}")
+
+                except BaseException as e:
+                    logger.exception(f"{_pre} {str(e)}")
+                    if isinstance(e, KeyboardInterrupt):
+                        raise
+        except BaseException as e:
+            logger.exception(f"{_pre} outer exception {str(e)}")
+            if isinstance(e, KeyboardInterrupt):
+                raise
+        finally:
+            logger.debug(f"{_pre} bye worker")
 
     def _check_if_aldl(self, info_dict, test=False):
         if not (_id := info_dict.get("id")) or not (_title := info_dict.get("title")):

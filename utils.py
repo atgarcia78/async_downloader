@@ -1976,11 +1976,15 @@ if yt_dlp:
 
     class myYTDL(YoutubeDL):
         def __init__(self, params: Optional[dict] = None, auto_init: Union[bool, str] = True, **kwargs):
-            self._close: bool = kwargs.get("close", True)
-            self.executor: ThreadPoolExecutor = kwargs.get(
-                "executor", ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower())
-            )
-            _silent = kwargs.get("silent", False)
+            self._close = kwargs.get("close", None)
+            if self._close is None:
+                self._close = True
+            self.executor = kwargs.get("executor", None)
+            if self.executor is None:
+                self.executor = ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower())
+            _silent = kwargs.get("silent")
+            if _silent is None:
+                _silent = False
             _proxy = kwargs.pop("proxy", None)
             opts = {}
             if _proxy:
@@ -1993,7 +1997,7 @@ if yt_dlp:
                     logging.getLogger("yt_dlp_s"), quiet=True, verbose=False, superverbose=False
                 )
 
-            super().__init__(params=params | opts, auto_init=auto_init)  # type: ignore
+            super().__init__(params=(params or {}) | opts, auto_init=auto_init)  # type: ignore
 
         def __exit__(self, *args):
             super().__exit__(*args)
@@ -2029,10 +2033,10 @@ if yt_dlp:
         #     ies_close(self._ies_instances)
 
         async def stop(self):
-            if _stop := self.params.get("stop"):
+            if (_stop := self.params.get("stop")):
                 _stop.set()
                 await asyncio.sleep(0)
-            if _stop_dl := self.params.get("stop_dl"):
+            if (_stop_dl := self.params.get("stop_dl")):
                 for _, _ev_stop_dl in _stop_dl.items():
                     _ev_stop_dl.set()
                     await asyncio.sleep(0)
