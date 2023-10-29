@@ -628,7 +628,7 @@ class AsyncHLSDownloader:
             self.check_stop()
 
             if not self.args.proxy and proxy:
-                with myYTDL(params=self.ytdl.params, proxy=proxy) as proxy_ytdl:
+                with myYTDL(params=self.ytdl.params, proxy=proxy, silent=True) as proxy_ytdl:
                     _info_video = proxy_ytdl.sanitize_info(
                         proxy_ytdl.extract_info(url, download=False))
             else:

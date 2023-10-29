@@ -355,6 +355,54 @@ def subnright(pattern, repl, text, n):
     return _text
 
 
+class classproperty(property):
+
+    def __get__(self, owner_self, owner_cls):
+        return self.fget(owner_cls)
+
+
+_NOT_FOUND = object()
+
+
+class cached_classproperty(functools.cached_property):
+    __slots__ = ("func", "attrname", "__doc__", "lock")
+
+    def __init__(self, func, attrname=None):
+        self.func = func
+        self.attrname = attrname
+        self.__doc__ = func.__doc__
+        self.lock = threading.RLock()
+
+    def __set_name__(self, owner, name):
+        if self.attrname is None:
+            self.attrname = name
+        elif name != self.attrname:
+            raise TypeError(
+                "Cannot assign the same cached_property to two different names "
+                f"({self.attrname!r} and {name!r})."
+            )
+
+    def __get__(self, instance, owner=None):
+        if owner is None:
+            raise TypeError("Cannot use cached_classproperty without an owner class.")
+        if self.attrname is None:
+            raise TypeError("Cannot use cached_classproperty instance without calling __set_name__ on it.")
+        try:
+            cache = owner.__dict__
+        except AttributeError:
+            msg = f"No '__dict__' attribute on {owner.__name__!r} " f"to cache {self.attrname!r} property."
+            raise TypeError(msg) from None
+        val = cache.get(self.attrname, _NOT_FOUND)
+        if val is _NOT_FOUND or val is self:
+            with self.lock:  # type: ignore
+                # check if another thread filled cache while we awaited lock
+                val = cache.get(self.attrname, _NOT_FOUND)
+                if val is _NOT_FOUND or val is self:
+                    val = self.func(owner)
+                    setattr(owner, self.attrname, val)
+        return val
+
+
 class Cache:
     def __init__(self, app="noname"):
         self.app = app
@@ -1239,7 +1287,15 @@ class myIP:
         "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
         "ipapi": {"url": "http://ip-api.com/json", "key": "query"},
     }
+    CONFIG = {}
     CLIENT = None
+
+    @classmethod
+    def _set_config(cls, key, timeout=1):
+        _proxies = {"all://": f"http://127.0.0.1:{key}"} if key else None
+        _timeout = httpx.Timeout(timeout=timeout)
+        cls.CONFIG.update({"proxies": _proxies, "timeout": _timeout})
+        cls.CLIENT = get_httpx_client(config=cls.CONFIG)
 
     @staticmethod
     def _get_rtt(ip):
@@ -1256,31 +1312,31 @@ class myIP:
         if api not in cls.URLS_API_GETMYIP:
             raise Exception("api not supported")
 
-        if cls.CLIENT:
-            _urlapi = cls.URLS_API_GETMYIP[api]["url"]
-            _keyapi = cls.URLS_API_GETMYIP[api]["key"]
-            return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
-        else:
-            raise Exception("No httpx client")
+        _urlapi = cls.URLS_API_GETMYIP[api]["url"]
+        _keyapi = cls.URLS_API_GETMYIP[api]["key"]
+        return try_get(cls.CLIENT.get(_urlapi), lambda x: x.json().get(_keyapi))
 
     @classmethod
     def get_myiptryall(cls):
-        if not cls.CLIENT:
-            raise Exception("No httpx client")
         exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
-        futures = {exe.submit(cls.get_ip, api=api): api for api in cls.URLS_API_GETMYIP}
-        for el in as_completed(futures):
-            if not el.exception() and is_ipaddr(_res := el.result()):
-                exe.shutdown(wait=False, cancel_futures=True)
-                return _res
-            else:
-                continue
+        try:
+            futures = [exe.submit(cls.get_ip, api=api) for api in cls.URLS_API_GETMYIP]
+            for el in as_completed(futures):
+                if not el.exception() and is_ipaddr(_ip := el.result()):
+                    return _ip
+        finally:
+            exe.shutdown(wait=False)
 
     @classmethod
     def get_myip(cls, key=None, timeout=1, tryall=True, api=None):
-        _proxies = {"all://": f"http://127.0.0.1:{key}"} if key else None
-        _timeout = httpx.Timeout(timeout=timeout)
-        cls.CLIENT = get_httpx_client({"proxies": _proxies, "timeout": _timeout})
+        """
+        class method which is entry for the functionality.
+
+        _myip = myIP.get_myip(key=12408, timeout=8)
+
+        key is the port of the 127.0.0.1:{key} proxy. Dont set it to not use proxy
+        """
+        cls._set_config(key, timeout=timeout)
         try:
             if tryall:
                 return cls.get_myiptryall()
@@ -1289,10 +1345,11 @@ class myIP:
                     api = random.choice(list(cls.URLS_API_GETMYIP))
                 return cls.get_ip(api=api)
         finally:
-            cls.CLIENT.close()
+            if cls.CLIENT:
+                cls.CLIENT.close()
 
 
-def getmyip(key=None, timeout=3):
+def getmyip(key=None, timeout=1):
     return myIP.get_myip(key=key, timeout=timeout)
 
 
@@ -1346,23 +1403,26 @@ class TorGuardProxies:
     def test_proxies_rt(cls, routing_table, timeout=2):
         TorGuardProxies.logger.info("[init_proxies] starting test proxies")
         bad_pr = []
-        with ThreadPoolExecutor() as exe:
+        exe = ThreadPoolExecutor(thread_name_prefix="testproxrt")
+        try:
             futures = {
                 exe.submit(getmyip, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())
             }
 
-            for fut in as_completed(futures):
+            for fut in as_completed(list(futures.keys())):
                 if TorGuardProxies.EVENT.is_set():
-                    exe.shutdown(wait=False, cancel_futures=True)
                     break
-                _ip = fut.result()
-                if _ip != routing_table[futures[fut]]:
-                    TorGuardProxies.logger.debug(
-                        f"[{futures[fut]}] test: {_ip} expect res: " + f"{routing_table[futures[fut]]}"
-                    )
+                if not fut.exception() and is_ipaddr(_ip := fut.result()):
+                    if _ip != routing_table[futures[fut]]:
+                        TorGuardProxies.logger.debug(
+                            f"[{futures[fut]}] test: {_ip} expect res: " + f"{routing_table[futures[fut]]}"
+                        )
+                        bad_pr.append(routing_table[futures[fut]])
+                else:
                     bad_pr.append(routing_table[futures[fut]])
-
-        return bad_pr
+            return bad_pr
+        finally:
+            exe.shutdown(wait=False, cancel_futures=True)
 
     @classmethod
     def test_proxies_raw(cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2):
@@ -1778,6 +1838,7 @@ if yt_dlp:
         By,
         ConnectError,
         HTTPStatusError,
+        InfoExtractor,
         ProgressBar,
         ReExtractInfo,
         SeleniumInfoExtractor,
@@ -1824,6 +1885,7 @@ if yt_dlp:
     assert load_config_extractors
     assert getter_basic_config_extr
     assert SeleniumInfoExtractor
+    assert InfoExtractor
     assert StatusStop
     assert dec_on_exception
     assert dec_retry_error
@@ -2010,19 +2072,31 @@ if yt_dlp:
         async def __aexit__(self, *args):
             return await sync_to_async(self.__exit__, thread_sensitive=False, executor=self.executor)(*args)
 
-        def get_extractor(self, url: str) -> tuple:
-            ies = self._ies
-            for ie_key, ie in ies.items():
-                try:
-                    if ie.suitable(url) and (ie_key != "Generic"):
-                        return (ie_key, self.get_info_extractor(ie_key))
-                except Exception as e:
-                    logger = logging.getLogger("asyncdl")
-                    logger.exception(f"[get_extractor] fail with {ie_key} - {repr(e)}")
-            return ("Generic", self.get_info_extractor("Generic"))
+        def get_extractor(self, el: str) -> Union[tuple, InfoExtractor]:
+            if el.startswith('http'):
+                url = el
+                ies = self._ies
+                _sel_ie_key = "Generic"
+                for ie_key, ie in ies.items():
+                    try:
+                        if ie.suitable(url) and (ie_key != "Generic"):
+                            # return (ie_key, self.get_info_extractor(ie_key))
+                            _sel_ie_key = ie_key
+                            break
+                    except Exception as e:
+                        logger = logging.getLogger("asyncdl")
+                        logger.exception(f"[get_extractor] fail with {ie_key} - {repr(e)}")
+                _sel_ie = self.get_info_extractor(_sel_ie_key)
+                _sel_ie._real_initialize()
+                # return ("Generic", self.get_info_extractor("Generic"))
+                return (_sel_ie_key, _sel_ie)
+            else:
+                _sel_ie = self.get_info_extractor(el)
+                _sel_ie._real_initialize()
+                return _sel_ie
 
         def is_playlist(self, url: str) -> tuple:
-            ie_key, ie = self.get_extractor(url)
+            ie_key, ie = cast(tuple, self.get_extractor(url))
             if ie_key == "Generic":
                 return (True, ie_key)
             else:
@@ -2057,30 +2131,30 @@ if yt_dlp:
                 self.process_ie_result, thread_sensitive=False, executor=self.executor
             )(*args, **kwargs)
 
-    class ProxyYTDL(myYTDL):
-        def __init__(self, **kwargs):
-            _kwargs = kwargs.copy()
-            opts = _kwargs.pop("opts", {}).copy()
-            proxy = _kwargs.pop("proxy", None)
-            quiet = _kwargs.pop("quiet", True)
-            verbose = _kwargs.pop("verbose", False)
-            verboseplus = _kwargs.pop("verboseplus", False)
-            _kwargs.pop("auto_init", None)
+    # class ProxyYTDL(myYTDL):
+    #     def __init__(self, **kwargs):
+    #         _kwargs = kwargs.copy()
+    #         opts = _kwargs.pop("opts", {}).copy()
+    #         proxy = _kwargs.pop("proxy", None)
+    #         quiet = _kwargs.pop("quiet", True)
+    #         verbose = _kwargs.pop("verbose", False)
+    #         verboseplus = _kwargs.pop("verboseplus", False)
+    #         _kwargs.pop("auto_init", None)
 
-            opts["quiet"] = quiet
-            opts["verbose"] = verbose
-            opts["verboseplus"] = verboseplus
-            opts["logger"] = MyYTLogger(
-                logging.getLogger(self.__class__.__name__.lower()),
-                quiet=opts["quiet"],
-                verbose=opts["verbose"],
-                superverbose=opts["verboseplus"],
-            )
-            opts["proxy"] = proxy
+    #         opts["quiet"] = quiet
+    #         opts["verbose"] = verbose
+    #         opts["verboseplus"] = verboseplus
+    #         opts["logger"] = MyYTLogger(
+    #             logging.getLogger(self.__class__.__name__.lower()),
+    #             quiet=opts["quiet"],
+    #             verbose=opts["verbose"],
+    #             superverbose=opts["verboseplus"],
+    #         )
+    #         opts["proxy"] = proxy
 
-            super().__init__(params=opts, auto_init="no_verbose_header", **_kwargs)  # type: ignore
+    #         super().__init__(params=opts, auto_init="no_verbose_header", **_kwargs)  # type: ignore
 
-    def get_extractor_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL, ProxyYTDL]) -> tuple:
+    def get_extractor_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL]) -> tuple:
         logger = logging.getLogger("asyncdl")
         ies = ytdl._ies
         for ie_key, ie in ies.items():
@@ -2091,7 +2165,7 @@ if yt_dlp:
                 logger.exception(f"[get_extractor] fail with {ie_key} - {repr(e)}")
         return ("Generic", ytdl.get_info_extractor("Generic"))
 
-    def is_playlist_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL, ProxyYTDL]) -> tuple:
+    def is_playlist_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL]) -> tuple:
         ie_key, ie = get_extractor_ytdl(url, ytdl)
         if ie_key == "Generic":
             return (True, ie_key)

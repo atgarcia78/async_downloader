@@ -1,44 +1,43 @@
 import asyncio
 import contextlib
 import copy
-from datetime import timedelta
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from shutil import rmtree
+from threading import Lock
+from urllib.parse import unquote
+
 import aiofiles
 import aiofiles.os as os
 import httpx
 
 from utils import (
+    CONF_INTERVAL_GUI,
     ProgressTimer,
     SmoothETA,
     SpeedometerMA,
+    async_lock,
+    async_waitfortasks,
+    cast,
+    dec_retry_error,
+    get_domain,
+    get_format_id,
+    getter_basic_config_extr,
     int_or_none,
+    limiter_non,
+    load_config_extractors,
+    my_dec_on_exception,
+    myYTDL,
     naturalsize,
     none_to_zero,
-    traverse_obj,
-    async_lock,
-    limiter_non,
-    dec_retry_error,
-    load_config_extractors,
-    getter_basic_config_extr,
-    CONF_INTERVAL_GUI,
-    get_domain,
     smuggle_url,
-    my_dec_on_exception,
-    get_format_id,
     sync_to_async,
-    myYTDL,
-    async_waitfortasks,
+    traverse_obj,
 )
-
-from functools import partial
-
-from threading import Lock
-
-from urllib.parse import unquote
 
 logger = logging.getLogger("async_http_DL")
 
@@ -77,7 +76,7 @@ class AsyncHTTPDownloader:
 
         self.uris = [unquote(self.video_url)]
 
-        self.ytdl: myYTDL = self.vid_dl.info_dl["ytdl"]
+        self.ytdl = cast(myYTDL, self.vid_dl.info_dl["ytdl"])
 
         #  self.proxies = None
 
