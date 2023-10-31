@@ -258,12 +258,12 @@ async def get_list_interl(entries, asyncdl, _pre):
                 logger.info(
                     f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
                 asyncdl.workers = _workers
-                asyncdl.WorkersRun.max = _workers
+                asyncdl.WorkersRun.max_workers = _workers
                 _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
                 return mix_lists(_http_list, _hls_list, asyncdl) + _temp_aldl
 
     asyncdl.workers = _workers
-    asyncdl.WorkersRun.max = _workers
+    asyncdl.WorkersRun.max_workers = _workers
     if _interl:
         _http_list = sorted(
             _res, key=lambda x: _interl.index(x["id"]))
@@ -3542,10 +3542,10 @@ if PySimpleGUI:
                     self.console_dl_status = True
             elif event in ["IncWorkerRun"]:
                 await self.asyncdl.WorkersRun.add_worker()
-                sg.cprint(f"Workers: {self.asyncdl.WorkersRun.max}")
+                sg.cprint(f"Workers: {self.asyncdl.WorkersRun.max_workers}")
             elif event in ["DecWorkerRun"]:
                 await self.asyncdl.WorkersRun.del_worker()
-                sg.cprint(f"Workers: {self.asyncdl.WorkersRun.max}")
+                sg.cprint(f"Workers: {self.asyncdl.WorkersRun.max_workers}")
             elif event in ["TimePasRes"]:
                 await _handle_timepasres(values)
             elif event in ["NumVideoWorkers"]:
