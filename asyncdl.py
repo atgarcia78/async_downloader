@@ -48,49 +48,77 @@ from videodownloader import VideoDownloader
 logger = mylogger(logging.getLogger("asyncDL"))
 
 
-class WorkersRun:
-    def __init__(self, asyncdl):
+class Workers:
+    def __init__(self, asyncdl, name):
         self.asyncdl = asyncdl
-        self.logger = logging.getLogger("WorkersRun")
-        self._max = asyncdl.workers
+        self.logger = logging.getLogger(name)
+        self._max = asyncdl.max_workers
         self.running = deque()
         self.waiting = deque()
         self.tasks = {}
         self.info_dl = {}
         self.alock = asyncio.Lock()
-        self.exit = MySyncAsyncEvent("workersrunexit")
+        self.exit = MySyncAsyncEvent(f"{name}exit")
 
     @property
-    def max(self):
+    def max_workers(self):
         return self._max
 
-    @max.setter
-    def max(self, value):
+    @max_workers.setter
+    def max_workers(self, value):
         self._max = value
+
+    async def add_task(self, task_index, sortwaiting=False):
+        async with self.alock:
+            if len(self.running) < self.max_workers:  # case there is room for one task to run
+                self.running.append(task_index)
+                self.tasks |= {self.asyncdl.add_task(self._task(task_index)): task_index}
+                self.logger.debug(f"[{task_index}] task ok {print_tasks(self.tasks)}")
+            else:
+                self.waiting.append(task_index)
+                if sortwaiting:
+                    self.waiting = deque(sorted(self.waiting))
+
+    async def remove_task(self, task_index):
+        async with self.alock:
+            self.running.remove(task_index)
+            if self.waiting and (len(self.running) < self.max_workers):
+                next_task_index = self.waiting.popleft()
+                self.add_task(next_task_index)
+
+    async def run_task(self):
+        async with self.alock:
+            if self.waiting and (len(self.running) < self.max_workers):
+                next_task_index = self.waiting.popleft()
+                self.add_task(next_task_index)
+
+    async def has_tasks(self):
+        async with self.alock:
+            return bool(self.waiting or self.running)
+
+
+class WorkersRun(Workers):
+    def __init__(self, asyncdl):
+        super().__init__(asyncdl, asyncdl.workers, "WorkersRun")
 
     async def add_worker(self):
         async with self.alock:
-            self.max += 1
-            if self.waiting and len(self.running) < self.max:
-                dl_index = self.waiting.popleft()
-                self.running.append(dl_index)
-                self.tasks.update(
-                    {self.asyncdl.add_task(self._task(dl_index)): dl_index})
+            self.max_workers += 1
+            await self.run_task()
 
     async def del_worker(self):
         async with self.alock:
-            if self.max > 0:
-                self.max -= 1
+            if self.max_workers > 0:
+                self.max_workers -= 1
 
     async def check_to_stop(self):
-        async with self.alock:
-            self.logger.debug(
-                f"[check_to_stop] running[{len(self.running)}] " +
-                f"waiting[{len(self.waiting)}]")
-            if not self.waiting and not self.running:
-                self.logger.debug("[check_to_stop] set exit")
-                self.exit.set()
-                self.asyncdl.end_dl.set()
+        self.logger.debug(
+            f"[check_to_stop] running[{len(self.running)}] " +
+            f"waiting[{len(self.waiting)}]")
+        if not await self.has_tasks():
+            self.logger.debug("[check_to_stop] set exit")
+            self.exit.set()
+            self.asyncdl.end_dl.set()
 
     async def move_to_waiting_top(self, dl_index):
         async with self.alock:
@@ -103,31 +131,16 @@ class WorkersRun:
                     self.logger.debug(f"[move_to_waiting_top] {list(self.waiting)}")
             elif dl_index not in self.running and dl_status in ("stop", "error"):
                 await dl.reinit()
-                if len(self.running) >= self.max:
-                    self.waiting.append(dl_index)
-                else:
-                    self.running.append(dl_index)
-                    self.tasks.update(
-                        {self.asyncdl.add_task(self._task(dl_index)): dl_index})
+                await self.add_task(dl_index)
 
     async def add_dl(self, dl, url_key):
         _pre = f"[add_dl]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
-
         if dl.index in self.info_dl:
             self.logger.warning(f"{_pre} dl with index[{dl.index}] already processed")
             return
-
         self.info_dl.update({dl.index: {"url": url_key, "dl": dl}})
-
-        async with self.alock:
-            self.logger.debug(f"{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]")
-            if len(self.running) >= self.max:
-                self.waiting.append(dl.index)
-                self.waiting = deque(sorted(self.waiting))
-            else:
-                self.running.append(dl.index)
-                self.tasks.update({self.asyncdl.add_task(self._task(dl.index)): dl.index})
-                self.logger.debug(f"[{url_key}] task ok {print_tasks(self.tasks)}")
+        self.logger.debug(f"{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]")
+        await self.add_task(dl.index, sortwaiting=True)
 
     async def _task(self, dl_index):
         url_key, dl = self.info_dl[dl_index]["url"], self.info_dl[dl_index]["dl"]
@@ -148,94 +161,65 @@ class WorkersRun:
 
             await self.asyncdl.run_callback(dl, url_key)
 
-            async with self.alock:
-                self.running.remove(dl_index)
-                if self.waiting and len(self.running) < self.max:
-                    dl_index2 = self.waiting.popleft()
-                    self.running.append(dl_index2)
-                    self.tasks.update(
-                        {self.asyncdl.add_task(self._task(dl_index2)): dl_index2})
-
         except Exception as e:
             self.logger.exception(f"{_pre} error {str(e)}")
         finally:
             self.logger.debug(f"{_pre} end task worker run")
+            self.remove_task(dl_index)
             if self.asyncdl.WorkersInit.exit.is_set():
                 self.logger.debug(f"{_pre} WorkersInit.exit is set")
-                async with self.alock:
-                    if not self.waiting and not self.running:
-                        self.logger.debug(f"{_pre} no running no waiting, lets set exit")
-                        self.exit.set()
-                        self.asyncdl.end_dl.set()
-                        self.logger.debug("end_dl set")
-                    else:
-                        self.logger.debug(
-                            f"{_pre} there are videos running or waiting, so lets exit")
+                if not self.has_tasks():
+                    self.logger.debug(f"{_pre} no running no waiting, lets set exit")
+                    self.exit.set()
+                    self.asyncdl.end_dl.set()
+                    self.logger.debug("end_dl set")
+                else:
+                    self.logger.debug(f"{_pre} there are videos running or waiting, so lets exit")
             else:
                 self.logger.debug(f"{_pre} WorkersInit.exit not set")
-                async with self.alock:
-                    if self.waiting or self.running:
-                        self.logger.debug(
-                            f"{_pre} there are videos running or waiting, so lets exit")
-                        return
-
+                if self.has_tasks():
+                    self.logger.debug(f"{_pre} there are videos running or waiting, so lets exit")
+                    return
                 self.logger.debug(
                     f"{_pre} there are no videos running or waiting, " +
                     "so lets wait for WorkersInit.exit")
                 await self.asyncdl.WorkersInit.exit.async_wait()
-                async with self.alock:
-                    if not self.waiting and not self.running:
-                        self.logger.debug(
-                            f"{_pre} WorkersInit.exit is set after waiting, " +
-                            "no running no waiting, lets set exit")
-                        self.exit.set()
-                        self.asyncdl.end_dl.set()
-                        self.logger.info("end_dl set")
-                    else:
-                        self.logger.debug(
-                            f"{_pre} WorkersInit.exit is set after waiting, " +
-                            "there are videos running or waiting, so lets exit")
+                if not self.has_tasks():
+                    self.logger.debug(
+                        f"{_pre} WorkersInit.exit is set after waiting, " +
+                        "no running no waiting, lets set exit")
+                    self.exit.set()
+                    self.asyncdl.end_dl.set()
+                    self.logger.info("end_dl set")
+                else:
+                    self.logger.debug(
+                        f"{_pre} WorkersInit.exit is set after waiting, " +
+                        "there are videos running or waiting, so lets exit")
 
 
-class WorkersInit:
+class WorkersInit(Workers):
     def __init__(self, asyncdl):
-        self.asyncdl = asyncdl
-        self.max = self.asyncdl.init_nworkers
-        self.running = set()
-        self.waiting = deque()
-        self.tasks = {}
-        self.alock = asyncio.Lock()
-        self.exit = MySyncAsyncEvent("workersinitexit")
-        self.logger = logging.getLogger("WorkersInit")
+        super().__init__(asyncdl, asyncdl.init_nworkers, "WorkersInit")
 
     async def add_init(self, url_key):
         _pre = f"[add_init]:[{url_key}]"
-        async with self.alock:
-            self.logger.debug(f"{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]")
-            if url_key in self.waiting or url_key in list(self.tasks.values()):
-                self.logger.warning(f"{_pre} already processed")
-                return
-
-            if len(self.running) > self.max:
-                self.waiting.append(url_key)
-            else:
-                self.running.add(url_key)
-                self.tasks.update({self.asyncdl.add_task(self._task(url_key)): url_key})
-                self.logger.debug(f"[{url_key}] task ok {print_tasks(self.tasks)}")
+        self.logger.debug(
+            f"{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]")
+        if url_key in self.waiting or url_key in list(self.tasks.values()):
+            self.logger.warning(f"{_pre} already processed")
+            return
+        await self.add_task(url_key)
 
     async def _task(self, url_key):
         _pre = f"[_task]:[{url_key}]"
 
         try:
             if url_key == "KILL":
-                async with self.alock:
-                    self.running.remove(url_key)
-
+                self.remove_task(url_key)
                 while True:
                     await asyncio.sleep(0)
-                    async with self.alock:
-                        if not self.waiting and not self.running:
-                            break
+                    if not self.has_tasks():
+                        break
 
                 self.logger.debug(f"{_pre} end tasks worker init: exit")
                 self.asyncdl.t3.stop()
@@ -246,13 +230,7 @@ class WorkersInit:
                 try:
                     await self.asyncdl.init_callback(url_key)
                 finally:
-                    async with self.alock:
-                        self.running.remove(url_key)
-                        if self.waiting and (len(self.running) < self.max):
-                            url_key2 = self.waiting.popleft()
-                            self.running.add(url_key2)
-                            self.tasks.update(
-                                {self.asyncdl.add_task(self._task(url_key2)): url_key2})
+                    self.remove_task(url_key)
 
         except Exception as e:
             self.logger.exception(f"{_pre} error {str(e)}")
