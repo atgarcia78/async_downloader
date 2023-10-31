@@ -3,51 +3,53 @@ import contextlib
 import copy
 import logging
 import random
-import time
 import re
+import time
+from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from threading import Lock
+from typing import Callable, Coroutine, Optional, Union, cast
 from urllib.parse import unquote, urlparse, urlunparse
-from typing import cast, Union, Coroutine, Callable, Optional
-from functools import partial
-from argparse import Namespace
+
 import aria2p
 from aria2p.api import OperationResult
 from requests import RequestException
+
 from utils import (
-    CONF_AUTO_PASRES,
     CONF_ARIA2C_EXTR_GROUP,
     CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED,
     CONF_ARIA2C_MIN_SIZE_SPLIT,
     CONF_ARIA2C_N_CHUNKS_CHECK_SPEED,
     CONF_ARIA2C_SPEED_PER_CONNECTION,
+    CONF_AUTO_PASRES,
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
     CONF_PROXIES_N_GR_VIDEO,
-    load_config_extractors,
-    getter_basic_config_extr,
+    InfoDL,
+    LockType,
     ProgressTimer,
+    Token,
     async_lock,
+    async_wait_for_any,
+    async_waitfortasks,
     get_format_id,
+    get_host,
+    getter_basic_config_extr,
     limiter_non,
+    load_config_extractors,
+    my_dec_on_exception,
+    myYTDL,
     naturalsize,
+    put_sequence,
     smuggle_url,
     sync_to_async,
     traverse_obj,
     try_get,
-    myYTDL,
-    async_waitfortasks,
-    async_wait_for_any,
-    put_sequence,
-    my_dec_on_exception,
-    get_host,
     variadic,
-    LockType,
-    Token,
-    InfoDL
 )
 
 assert CONF_ARIA2C_SPEED_PER_CONNECTION
@@ -311,7 +313,7 @@ class AsyncARIA2CDownloader:
                 return True
             except Exception:
                 logger.info(f"{self.premsg}[reset_aria2c] test conn no ok, lets reset aria2c")
-                res, _port = try_get(self._vid_dl.nwsetup.reset_aria2c(), lambda x: x if x else None) or (None, None)
+                res, _port = try_get(self._vid_dl.nwsetup.reset_aria2c(), lambda x: x or None) or (None, None)
                 logger.info(f"{self.premsg}[reset_aria2c] {_port} {res}")
                 if _port:
                     AsyncARIA2CDownloader.aria2_API.client.port = _port
@@ -435,23 +437,22 @@ class AsyncARIA2CDownloader:
                         ytdl.sanitize_info(await ytdl.async_extract_info(_init_url)),
                         self.info_dict["format_id"])
 
-                if _url := _info.get("url"):
-                    video_url = unquote(_url)
-                    self.uris = [video_url]
-                    if _cookie := _info.get("cookies"):
-                        self.headers.update({"Cookie": _cookie})
-                        self.opts.set("header", "\n".join(
-                            [f"{key}: {value}" for key, value in self.headers.items()]))
-
-                    if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
-                        self._host = _host
-                        if isinstance(self.sem, LockType):
-                            async with async_lock(self.ytdl.params["lock"]):
-                                self.sem = cast(
-                                    LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
-                else:
+                if not (_url := _info.get("url")):
                     raise AsyncARIA2CDLError("couldnt get video url")
 
+                video_url = unquote(_url)
+                self.uris = [video_url]
+                if _cookie := _info.get("cookies"):
+                    self.headers.update({"Cookie": _cookie})
+                    self.opts.set("header", "\n".join(
+                        [f"{key}: {value}" for key, value in self.headers.items()]))
+
+                if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
+                    self._host = _host
+                    if isinstance(self.sem, LockType):
+                        async with async_lock(self.ytdl.params["lock"]):
+                            self.sem = cast(
+                                LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
         else:
             _res = await async_waitfortasks(
                 AsyncARIA2CDownloader._HOSTS_DL[self._host]["queue"].get(),
@@ -530,20 +531,6 @@ class AsyncARIA2CDownloader:
             _list.append(_eltoap)
             return len(_list)
 
-        # def getter(x):
-        #     if x <= 2:
-        #         return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 0.25
-        #     if x <= (self.n_workers // 2):
-        #         return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 1.25
-        #     return x * CONF_ARIA2C_SPEED_PER_CONNECTION * 5
-
-        # def perc_below(_list, _max):
-        #     total = len(_list)
-        #     _below = sum(1 for el in _list if el[0] < getter(el[1]))
-        #     _perc = int((_below / total) * 100)
-        #     if _perc > _max:
-        #         return _perc
-
         def _print_el(item: tuple) -> str:
             _secs = item[2].second + item[2].microsecond / 1000000
             return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
@@ -598,7 +585,7 @@ class AsyncARIA2CDownloader:
                         await asyncio.sleep(0)
 
                     else:
-                        _speed[0:_min_check - _index // 2 + 1] = ()
+                        _speed[:_min_check - _index // 2 + 1] = ()
                         await asyncio.sleep(0)
                 else:
                     await asyncio.sleep(0)
@@ -631,10 +618,9 @@ class AsyncARIA2CDownloader:
                     _res = {}
             await asyncio.sleep(0)
             self.progress_timer.reset()
-        else:
-            if _event := self.check_any_event_is_set(incpause=False):
-                _res = {"event": _event}
-                self.progress_timer.reset()
+        elif _event := self.check_any_event_is_set(incpause=False):
+            _res = {"event": _event}
+            self.progress_timer.reset()
 
         if _event := _res.get("event"):
             if "stop" in _event:
@@ -687,10 +673,7 @@ class AsyncARIA2CDownloader:
             if not self.dl_cont:
                 raise AsyncARIA2CDLErrorFatal("could get dl_cont")
 
-            while True:
-                if self.dl_cont.status not in ["active", "paused", "waiting"]:
-                    break
-
+            while self.dl_cont.status in ["active", "paused", "waiting"]:
                 if self.progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
                     if traverse_obj(await self.event_handle(), "event"):
                         return
@@ -754,7 +737,7 @@ class AsyncARIA2CDownloader:
                     logger.debug(f"{self.uptpremsg()} uris:\n{self.uris}")
                     async with async_lock(self.sem):
                         await self.fetch()
-                    if self.status in ("done", "error", "stop"):
+                    if self.status in {"done", "error", "stop"}:
                         return
 
                 except BaseException as e:
@@ -808,18 +791,7 @@ class AsyncARIA2CDownloader:
                      not self._vid_dl.stop_event.is_set(), not self._vid_dl.pause_event.is_set(),
                     self.dl_cont])):
 
-                _temp = cast(aria2p.Download, copy.deepcopy(self.dl_cont))
-                _speed_str = f"{naturalsize(_temp.download_speed, binary=True)}ps"
-                _progress_str = f"{_temp.progress:.0f}%"
-                self.last_progress_str = _progress_str
-                _connections = _temp.connections
-                _eta_str = _temp.eta_string()
-                _pre3 = "".join([
-                    f"CONN[{_connections:2d}/{self.n_workers:2d}] ",
-                    f"DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"])
-
-                msg = f'{_pre} {_pre3}'
-
+                msg = self._extracted_from_print_hookup_21(_pre)
             else:
                 if self.block_init:
                     _substr = "INIT"
@@ -838,3 +810,16 @@ class AsyncARIA2CDownloader:
             msg = f'{_pre} Ensambling {_pre2}'
 
         return msg
+
+    def _extracted_from_print_hookup_21(self, _pre):
+        _temp = cast(aria2p.Download, copy.deepcopy(self.dl_cont))
+        _speed_str = f"{naturalsize(_temp.download_speed, binary=True)}ps"
+        _progress_str = f"{_temp.progress:.0f}%"
+        self.last_progress_str = _progress_str
+        _connections = _temp.connections
+        _eta_str = _temp.eta_string()
+        _pre3 = "".join([
+            f"CONN[{_connections:2d}/{self.n_workers:2d}] ",
+            f"DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"])
+
+        return f'{_pre} {_pre3}'
