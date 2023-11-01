@@ -24,6 +24,7 @@ from asynchttpdownloader import AsyncHTTPDownloader
 from asyncnativedownloader import AsyncNativeDownloader
 from utils import (
     CONF_DRM,
+    AsyncDLError,
     Callable,
     Coroutine,
     InfoDL,
@@ -47,7 +48,7 @@ from utils import (
 logger = logging.getLogger("video_DL")
 
 
-class AsyncDLError:
+class AsyncErrorDownloader:
     def __init__(self, info_dict, msg_error=None):
         self.status = "error"
         self.error_message = msg_error
@@ -140,28 +141,27 @@ class VideoDownloader:
         dl = self._get_dl(_new_info_dict)
         downloaders.extend(variadic(dl))
 
-        res = sorted(list(set([dl.status for dl in downloaders])))
-        if any([_ in res for _ in ("done", "init_manipulating")]):
-            _status = "init_manipulating"
-        elif "error" in res:
+        res = [dl.status for dl in downloaders]
+
+        if "error" in res:
             _status = "error"
+        elif all(el in ("done", "init_manipulating") for el in res):
+            _status = "init_manipulating"
         else:
             _status = "init"
 
-        _filesize = sum([dl.filesize for dl in downloaders if getattr(dl, "filesize", None)])
-        _down_size = sum([dl.down_size for dl in downloaders])
+        _filesize = sum(getattr(dl, "filesize", 0) for dl in downloaders)
+        _down_size = sum(getattr(dl, "down_size", 0) for dl in downloaders)
 
-        self.total_sizes.update({"filesize": _filesize, "down_size": _down_size})
+        self.total_sizes |= {"filesize": _filesize, "down_size": _down_size}
 
-        self.info_dl.update(
-            {
-                "downloaders": downloaders,
-                "downloaded_subtitles": {},
-                "filesize": _filesize,
-                "down_size": _down_size,
-                "status": _status,
-            }
-        )
+        self.info_dl |= {
+            "downloaders": downloaders,
+            "downloaded_subtitles": {},
+            "filesize": _filesize,
+            "down_size": _down_size,
+            "status": _status,
+        }
 
     @property
     def index(self):
@@ -192,7 +192,7 @@ class VideoDownloader:
         self.reset_event.clear()
 
     @classmethod
-    def create_drm_cdm(cls):
+    def create_drm_cdm(cls):  # sourcery skip: path-read
         with open(CONF_DRM['private_key']) as fpriv:
             _private_key = fpriv.read()
         with open(CONF_DRM['client_id'], "rb") as fpid:
@@ -245,10 +245,7 @@ class VideoDownloader:
 
         def _determine_type(info):
             protocol = determine_protocol(info)
-            if "dash" in info.get("container", ""):
-                return "dash"
-            else:
-                return protocol
+            return "dash" if "dash" in info.get("container", "") else protocol
 
         if not (_info := info_dict.get("requested_formats")):
             _info = [info_dict]
@@ -321,7 +318,7 @@ class VideoDownloader:
 
             except Exception as e:
                 logger.exception(f"{self.premsg}[{info['format_id']}] {repr(e)}")
-                res_dl.append(AsyncDLError(info, repr(e)))
+                res_dl.append(AsyncErrorDownloader(info, repr(e)))
 
         self._types = " - ".join(_types)
         return res_dl
@@ -353,28 +350,29 @@ class VideoDownloader:
         await self.reset("hard")
 
     async def reset(self, cause: Union[str, None] = None, wait=True):
-        if self.info_dl["status"] == "downloading":
-            _wait_tasks = []
-            if not self.reset_event.is_set():
-                self.reset_event.set(cause)
-                await asyncio.sleep(0)
-                for dl in self.info_dl["downloaders"]:
-                    if "asynchls" in str(type(dl)).lower() and getattr(dl, "tasks", None):
-                        if _tasks := [
-                            _task for _task in dl.tasks
-                            if not _task.done() and not _task.cancelled()
-                            and _task not in [asyncio.current_task()]
-                        ]:
-                            for _t in _tasks:
-                                _t.cancel()
-                            _wait_tasks.extend(_tasks)
-            else:
-                self.reset_event.set(cause)
+        if self.info_dl["status"] != "downloading":
+            return
+        _wait_tasks = []
+        if not self.reset_event.is_set():
+            self.reset_event.set(cause)
+            await asyncio.sleep(0)
+            for dl in self.info_dl["downloaders"]:
+                if "asynchls" in str(type(dl)).lower() and getattr(dl, "tasks", None):
+                    if _tasks := [
+                        _task for _task in dl.tasks
+                        if not _task.done() and not _task.cancelled()
+                        and _task not in [asyncio.current_task()]
+                    ]:
+                        for _t in _tasks:
+                            _t.cancel()
+                        _wait_tasks.extend(_tasks)
+        else:
+            self.reset_event.set(cause)
 
-            if wait and _wait_tasks:
-                await asyncio.wait(_wait_tasks)
+        if wait and _wait_tasks:
+            await asyncio.wait(_wait_tasks)
 
-            return _wait_tasks
+        return _wait_tasks
 
     async def stop(self, cause=None, wait=True):
         if self.info_dl["status"] in ("done", "error") or self.stop_event.is_set() == "exit":
@@ -411,17 +409,15 @@ class VideoDownloader:
             logger.exception(f"{self.premsg}: " + f"{repr(e)}")
 
     async def pause(self):
-        if self.info_dl["status"] == "downloading":
-            if not self.pause_event.is_set():
-                self.pause_event.set()
-                self.resume_event.clear()
-                await asyncio.sleep(0)
+        if self.info_dl["status"] == "downloading" and not self.pause_event.is_set():
+            self.pause_event.set()
+            self.resume_event.clear()
+            await asyncio.sleep(0)
 
     async def resume(self):
-        if self.info_dl["status"] == "downloading":
-            if not self.resume_event.is_set():
-                self.resume_event.set()
-                await asyncio.sleep(0)
+        if self.info_dl["status"] == "downloading" and not self.resume_event.is_set():
+            self.resume_event.set()
+            await asyncio.sleep(0)
 
     async def reinit(self):
         self.clear_events()
@@ -445,28 +441,14 @@ class VideoDownloader:
                 self.info_dl["status"] = "downloading"
                 logger.debug(
                     f"{self.premsg}[run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
-                tasks_run_0 = [
+                tasks_run = [
                     self.add_task(dl.fetch_async(), name=f'fetch_async_{i}')
                     for i, dl in enumerate(self.info_dl["downloaders"])
-                    if i == 0 and dl.status not in ("init_manipulating", "done")
-                ]
+                    if dl.status not in ("init_manipulating", "done")]
 
-                logger.debug(f"{self.premsg}[run_dl] tasks run {len(tasks_run_0)}")
+                logger.debug(f"{self.premsg}[run_dl] tasks run {len(tasks_run)}")
 
-                done = set()
-
-                if tasks_run_0:
-                    done, _ = await asyncio.wait(tasks_run_0)
-
-                if len(self.info_dl["downloaders"]) > 1:
-                    tasks_run_1 = [
-                        self.add_task(dl.fetch_async(), name=f'fetch_async_{i}')
-                        for i, dl in enumerate(self.info_dl["downloaders"])
-                        if i == 1 and dl.status not in ("init_manipulating", "done")
-                    ]
-                    if tasks_run_1:
-                        done1, _ = await asyncio.wait(tasks_run_1)
-                        done = done.union(done1)
+                done, _ = await asyncio.wait(tasks_run)
 
                 if done:
                     for d in done:
@@ -480,7 +462,7 @@ class VideoDownloader:
                     self.info_dl["status"] = "stop"
 
                 else:
-                    res = sorted(list(set([dl.status for dl in self.info_dl["downloaders"]])))
+                    res = [dl.status for dl in self.info_dl["downloaders"]]
 
                     logger.debug(f"{self.premsg}[run_dl] salida tasks {res}")
 
@@ -498,33 +480,20 @@ class VideoDownloader:
 
         except Exception as e:
             logger.exception(f"{self.premsg}[run_dl] error when DL {repr(e)}")
-
             self.info_dl["status"] = "error"
 
     def _get_subts_files(self):
         def _dl_subt():
             cmd = [
-                "yt-dlp",
-                "-P",
-                self.info_dl['filename'].absolute().parent,
-                "-o",
-                f"{self.info_dl['filename'].stem}.%(ext)s",
-                "--no-download",
-                self.info_dict["webpage_url"]]
-            proc = subprocess.run(cmd, encoding="utf-8", capture_output=True)
-            return proc
+                "yt-dlp", "-P", self.info_dl['filename'].absolute().parent,
+                "-o", f"{self.info_dl['filename'].stem}.%(ext)s",
+                "--no-download", self.info_dict["webpage_url"]]
 
-        _subts = self.info_dict.get("requested_subtitles")
+            return subprocess.run(cmd, encoding="utf-8", capture_output=True)
 
-        if not _subts:
+        if not (_subts := self.info_dict.get("requested_subtitles")):
             return
-
-        res = _dl_subt()
-
-        logger.info(f"{self.premsg}: subs dl and converted to srt, rc[{res.returncode}]")
-
         _final_subts = {}
-
         for key, val in _subts.items():
             if key.startswith("es"):
                 _final_subts['es'] = val
@@ -532,9 +501,12 @@ class VideoDownloader:
                 _final_subts['en'] = val
             if key == "ca":
                 _final_subts['ca'] = val
-
         if not _final_subts:
             return
+
+        res = _dl_subt()
+
+        logger.info(f"{self.premsg}: subs dl and converted to srt, rc[{res.returncode}]")
 
         for _lang, _ in _final_subts.items():
             try:
@@ -578,14 +550,15 @@ class VideoDownloader:
                     dl.status = "manipulating"
 
             blocking_tasks = [
-                self.add_task(dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}')
-                for dl in self.info_dl["downloaders"]
-                if (
-                    not any(
-                        _ in str(type(dl)).lower() for _ in ("aria2", "ffmpeg", "saldownloader", "native")
-                    )
-                    and dl.status == "manipulating"
+                self.add_task(
+                    dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}'
                 )
+                for dl in self.info_dl["downloaders"]
+                if all(
+                    _ not in str(type(dl)).lower()
+                    for _ in ("aria2", "ffmpeg", "saldownloader", "native")
+                )
+                and dl.status == "manipulating"
             ]
 
             if self.args.subt and self.info_dict.get("requested_subtitles"):
@@ -606,7 +579,9 @@ class VideoDownloader:
             res = True
 
             for dl in self.info_dl["downloaders"]:
-                _exists = all([await aiofiles.os.path.exists(_file) for _file in variadic(dl.filename)])
+                _exists = all(
+                    await aiofiles.os.path.exists(_file)
+                    for _file in variadic(dl.filename))
                 res = res and _exists and dl.status == "done"
                 logger.debug(
                     f"{self.premsg} "
@@ -629,7 +604,7 @@ class VideoDownloader:
                     _key = None
                     if not _pssh or not _licurl or not (_key := self.get_key_drm(_licurl, _pssh)):
 
-                        raise Exception(
+                        raise AsyncDLError(
                             f"{self.premsg}: error processing DRM info - licurl[{_licurl}] pssh[{_pssh}] key[{_key}]")
 
                     cmds = [
@@ -695,7 +670,7 @@ class VideoDownloader:
 
                     else:
                         self.info_dl["status"] = "error"
-                        raise Exception(
+                        raise AsyncDLError(
                             f"{self.premsg}: error move file: {rc}")
 
                 else:
@@ -733,7 +708,7 @@ class VideoDownloader:
 
                     else:
                         self.info_dl["status"] = "error"
-                        raise Exception(
+                        raise AsyncDLError(
                             f"{self.premsg}: error merge, ffmpeg error: {rc}")
 
                 if self.info_dl["downloaded_subtitles"]:
@@ -830,9 +805,12 @@ class VideoDownloader:
 
     def syncpostffmpeg(self, cmd):
         try:
-            res = subprocess.run(
-                shlex.split(cmd), encoding="utf-8", capture_output=True, timeout=120)
-            return res
+            return subprocess.run(
+                shlex.split(cmd),
+                encoding="utf-8",
+                capture_output=True,
+                timeout=120,
+            )
         except Exception as e:
             return subprocess.CompletedProcess(
                 shlex.split(cmd), 1, stdout=None, stderr=repr(e))

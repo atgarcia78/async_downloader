@@ -424,106 +424,112 @@ class AsyncARIA2CDownloader:
                 f"ERROR init uris {_msg}")
             raise
 
+    async def _update_uri_noproxy(self, _init_url):
+        async with myYTDL(
+                params=self.ytdl.params, silent=True, executor=self.ex_dl) as ytdl:
+            if not (_info := get_format_id(
+                    ytdl.sanitize_info(await ytdl.async_extract_info(_init_url)),
+                    self.info_dict["format_id"])):
+                raise AsyncARIA2CDLError("couldnt get video url")
+
+        video_url = unquote(_info["url"])
+        self.uris = [video_url]
+        if _cookie := _info.get("cookies"):
+            self.headers.update({"Cookie": _cookie})
+            self.opts.set("header", "\n".join(
+                [f"{key}: {value}" for key, value in self.headers.items()]))
+
+        if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
+            self._host = _host
+            if isinstance(self.sem, LockType):
+                async with async_lock(self.ytdl.params["lock"]):
+                    self.sem = cast(
+                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
+
+    async def _update_uri_proxy_simple(self, _init_url):
+        _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
+        self._proxy = f"http://127.0.0.1:{_proxy_port}"
+        self.opts.set("all-proxy", self._proxy)
+        return await self.get_uri(_init_url, _proxy_port, simple=True)
+
+    async def _update_uri_proxy_group(self, _init_url):
+        self._proxy = "http://127.0.0.1:8899"
+        self.opts.set("all-proxy", self._proxy)
+
+        if self.filesize:
+            _n = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
+            _gr = min(_n // self._nsplits or 1, CONF_PROXIES_N_GR_VIDEO)
+        else:
+            _gr = CONF_PROXIES_N_GR_VIDEO
+
+        self.n_workers = _gr * self._nsplits
+        self.opts.set("split", self.n_workers)
+
+        logger.debug(
+            "".join([
+                f"{self.premsg}enproxy[{self.args.enproxy}]mode[{self._mode}]",
+                f"proxy[{self._proxy}]_gr[{_gr}]n_workers[{self.n_workers}]"
+            ]))
+
+        _tasks = [
+            self.add_task(
+                self.get_uri(_init_url, CONF_PROXIES_BASE_PORT + self._index_proxy * 100 + j, n=j),
+                name=f"{self.premsg}[update_uri][{j}]")
+            for j in range(1, _gr + 1)
+        ]
+
+        _res = await async_waitfortasks(
+            _tasks, events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
+            background_tasks=self.background_tasks)
+
+        logger.debug(f"{self.premsg} {_res}")
+        if traverse_obj(_res, ("condition", "event")):
+            return
+        if not (_temp := traverse_obj(_res, ("results"))):
+            raise AsyncARIA2CDLError(f"couldnt get uris {_temp}")
+        return cast(list[str], variadic(_temp))
+
     async def update_uri(self):
+
+        async def _get_index_proxy(_host: str) -> int:
+
+            _res = await async_waitfortasks(
+                AsyncARIA2CDownloader._HOSTS_DL[_host]["queue"].get(),
+                events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
+                background_tasks=self.background_tasks)
+
+            if traverse_obj(_res, ("condition", "event")):
+                return -1
+            if not (_temp := traverse_obj(_res, ("results", 0))):
+                raise AsyncARIA2CDLError("couldnt get index proxy")
+
+            async with self._ALOCK():
+                AsyncARIA2CDownloader._HOSTS_DL[_host]["count"] += 1
+
+            return cast(int, _temp)
+
         _init_url = self.info_dict.get("webpage_url")
         if self.special_extr:
             _init_url = smuggle_url(_init_url, {"indexdl": self.pos})
 
         if self._mode == "noproxy":
             if self.n_rounds > 1:
-                async with myYTDL(
-                        params=self.ytdl.params, silent=True, executor=self.ex_dl) as ytdl:
-                    _info = get_format_id(
-                        ytdl.sanitize_info(await ytdl.async_extract_info(_init_url)),
-                        self.info_dict["format_id"])
-
-                if not (_url := _info.get("url")):
-                    raise AsyncARIA2CDLError("couldnt get video url")
-
-                video_url = unquote(_url)
-                self.uris = [video_url]
-                if _cookie := _info.get("cookies"):
-                    self.headers.update({"Cookie": _cookie})
-                    self.opts.set("header", "\n".join(
-                        [f"{key}: {value}" for key, value in self.headers.items()]))
-
-                if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
-                    self._host = _host
-                    if isinstance(self.sem, LockType):
-                        async with async_lock(self.ytdl.params["lock"]):
-                            self.sem = cast(
-                                LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
+                await self._update_uri_noproxy(_init_url)
         else:
-            _res = await async_waitfortasks(
-                AsyncARIA2CDownloader._HOSTS_DL[self._host]["queue"].get(),
-                events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
-                background_tasks=self.background_tasks)
-
-            if traverse_obj(_res, ("condition", "event")):
+            if (_temp := await _get_index_proxy(self._host)) < 0:
                 return
-            if not (_temp := traverse_obj(_res, ("results", 0))):
-                raise AsyncARIA2CDLError("couldnt get index proxy")
-
-            self._index_proxy = cast(int, _temp)
-            async with self._ALOCK():
-                AsyncARIA2CDownloader._HOSTS_DL[self._host]["count"] += 1
-
-            _uris: list[str] = []
+            else:
+                self._index_proxy = _temp
 
             if self._mode == "simple":
-                _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
-                self._proxy = f"http://127.0.0.1:{_proxy_port}"
-                self.opts.set("all-proxy", self._proxy)
-
-                try:
-                    _proxy_info_url = await self.get_uri(
-                        _init_url, _proxy_port, simple=True)
-                    _uris.append(_proxy_info_url)
-
-                except Exception as e:
-                    logger.warning(f"{self.uptpremsg()} [update_uri] {str(e)}")
-                    raise AsyncARIA2CDLError("couldnt get uris") from e
+                _proxy_info_url = await self._update_uri_proxy_simple(_init_url)
+                self.uris = [_proxy_info_url]
 
             elif self._mode == "group":
-                self._proxy = "http://127.0.0.1:8899"
-                self.opts.set("all-proxy", self._proxy)
-
-                if self.filesize:
-                    _n = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
-                    _gr = min(_n // self._nsplits or 1, CONF_PROXIES_N_GR_VIDEO)
-                else:
-                    _gr = CONF_PROXIES_N_GR_VIDEO
-
-                self.n_workers = _gr * self._nsplits
-                self.opts.set("split", self.n_workers)
-
-                logger.debug(
-                    "".join([
-                        f"{self.premsg}enproxy[{self.args.enproxy}]mode[{self._mode}]",
-                        f"proxy[{self._proxy}]_gr[{_gr}]n_workers[{self.n_workers}]"
-                    ]))
-
-                _tasks = [
-                    self.add_task(
-                        self.get_uri(_init_url, CONF_PROXIES_BASE_PORT + self._index_proxy * 100 + j, n=j),
-                        name=f"{self.premsg}[update_uri][{j}]")
-                    for j in range(1, _gr + 1)
-                ]
-
-                _res = await async_waitfortasks(
-                    _tasks, events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
-                    background_tasks=self.background_tasks)
-
-                logger.debug(f"{self.premsg} {_res}")
-
-                if traverse_obj(_res, ("condition", "event")):
+                if (_temp := await self._update_uri_proxy_group(_init_url)) is None:
                     return
-                if not (_temp := traverse_obj(_res, ("results"))):
-                    raise AsyncARIA2CDLError(f"couldnt get uris {_temp}")
-
-                _uris.extend(cast(list[str], variadic(_temp)))
-
-            self.uris = _uris
+                else:
+                    self.uris = _temp
 
     async def check_speed(self):
 

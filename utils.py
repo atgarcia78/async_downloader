@@ -153,6 +153,24 @@ CLIENT_CONFIG = {
 }
 
 
+class AsyncDLErrorFatal(Exception):
+    def __init__(self, msg, exc_info=None):
+        super().__init__(msg)
+
+        self.exc_info = exc_info
+
+
+class AsyncDLError(Exception):
+    def __init__(self, msg, exc_info=None):
+        super().__init__(msg)
+
+        self.exc_info = exc_info
+
+
+class AsyncDLSTOP(Exception):
+    pass
+
+
 async def get_list_interl(entries, asyncdl, _pre):
 
     logger = logging.getLogger('interl')
