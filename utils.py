@@ -1213,11 +1213,11 @@ def get_listening_tcp() -> dict:
         tcp port,
         command
     """
-    printout = subprocess.run(["listening"], encoding="utf-8", capture_output=True).stdout
+    printout = subprocess.run(["sudo", "listening"], encoding="utf-8", capture_output=True).stdout
     final_list = defaultdict(lambda: [])
-    for el in re.findall(r"^([^\s]+)\s+(\d+)[^\:]+\:(\d+)", printout, re.MULTILINE):
-        final_list[el[0]].append({"port": int(el[2]), "pid": int(el[1])})
-        final_list[int(el[2])].append({"pid": int(el[1]), "command": el[0]})
+    for el in re.findall(r"^(\d+) (\d+) (.+)", printout, re.MULTILINE):
+        final_list[el[2]].append({"port": int(el[1]), "pid": int(el[0])})
+        final_list[int(el[1])].append({"pid": int(el[0]), "command": el[2]})
     return dict(final_list)
 
 
