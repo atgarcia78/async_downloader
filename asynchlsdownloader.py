@@ -170,8 +170,8 @@ class AsyncHLSDownloader:
             self.download_path = Path(
                 self.base_download_path, self.info_dict["format_id"])
             self.download_path.mkdir(parents=True, exist_ok=True)
-            self.init_file = Path(
-                self.base_download_path, f"init_file.{self.info_dict['format_id']}")
+            self.config_file = Path(
+                self.base_download_path, f"config_file.{self.info_dict['format_id']}")
             _filename = Path(
                 self.info_dict.get("_filename", self.info_dict.get("filename")))
             self.fragments_base_path = Path(
@@ -180,6 +180,14 @@ class AsyncHLSDownloader:
             self.filename = Path(
                 self.base_download_path,
                 f'{_filename.stem}.{self.info_dict["format_id"]}.ts')
+            self.premsg = "".join(
+                [
+                    f'[{self.info_dict["id"]}]',
+                    f'[{self.info_dict["title"]}]',
+                    f'[{self.info_dict["format_id"]}]',
+                ])
+
+            self.count_msg = ""
             self.key_cache = {}
             self.n_reset = 0
             self._limit_reset = limiter_0_1.ratelimit("resetdl", delay=True)
@@ -195,14 +203,6 @@ class AsyncHLSDownloader:
             self.totalduration = cast(int, self.info_dict.get("duration", 0))
             self.filesize = cast(int, traverse_obj(self.info_dict, "filesize", "filesize_approx", default=0))  # type: ignore
 
-            self.premsg = "".join(
-                [
-                    f'[{self.info_dict["id"]}]',
-                    f'[{self.info_dict["title"]}]',
-                    f'[{self.info_dict["format_id"]}]',
-                ])
-
-            self.count_msg = ""
             self._proxy = {}
             if _proxy := cast(str, self.args.proxy):
                 self._proxy = {"http://": _proxy, "https://": _proxy}
@@ -245,9 +245,6 @@ class AsyncHLSDownloader:
                             self.info_dict.update(_info)
                 except Exception as e:
                     logger.exception("[init info proxy] %s", str(e))
-
-            if self.filename.exists() and self.filename.stat().st_size > 0:
-                self.status = "done"
 
             self.smooth_eta = SmoothETA()
             self.progress_timer = ProgressTimer()
@@ -307,6 +304,11 @@ class AsyncHLSDownloader:
             _nworkers, self._interv, self._limit = getter(self._extractor)
             self.n_workers = max(self.n_workers, _nworkers) if _nworkers >= 16 else min(self.n_workers, _nworkers)
 
+            if self.filename.exists() and (_dsize := self.filename.stat().st_size) > 0:
+                self.status = "done"
+                self.down_size = _dsize
+                return
+
             self.init()
 
         except Exception as e:
@@ -359,113 +361,94 @@ class AsyncHLSDownloader:
                 f"{self.premsg}:[get_m3u8_doc] {res['error']}")
         return res.content.decode("utf-8", "replace")
 
-    def init(self):
+    def get_config_data(self) -> dict:
+        _data = {}
+        if self.config_file.exists():
+            with open(self.config_file, "rt", encoding='utf-8') as finit:
+                if (_content := json.loads(finit.read())):
+                    _data = {int(k): v for k, v in _content.items()}
+        return _data
+
+    def _create_info_frag(self, i, frag, hsize):
+        _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
+        is_dl, size, _ = check_is_dl(_file_path, hsize)
+        cipher = traverse_obj(self.key_cache, (frag.key.uri, "cipher")) if frag.key else None
+        _info_frag = {
+            "frag": i + 1, "url": frag.url, "key": frag.key, "cipher": cipher,
+            "file": _file_path, "byterange": frag.byte_range, "downloaded": is_dl,
+            "headersize": hsize, "size": size, "n_retries": 0, "error": []}
+
+        if is_dl:
+            self.down_size += size
+            self.n_dl_fragments += 1
+        if not is_dl or not hsize:
+            self.frags_to_dl.append(i + 1)
+
+        self.info_frag.append(_info_frag)
+
+    def _update_info_frag(self, i, frag, hsize):
+        # sourcery skip: extract-method
+        if not self.info_frag[i]["headersize"] and hsize:
+            self.info_frag[i]["headersize"] = hsize
+        if self.info_frag[i]["downloaded"]:
+            is_dl, _, dec_size = check_is_dl(self.info_frag[i]["file"], self.info_frag[i]["headersize"])
+            if not is_dl:
+                self.info_frag[i]["downloaded"] = False
+                self.n_dl_fragments -= 1
+                self.down_size -= dec_size
+                self._vid_dl.total_sizes["down_size"] -= dec_size
+        elif self.info_frag[i]["file"].exists():
+            self.info_frag[i]["file"].unlink()
+
+        if not self.info_frag[i]["downloaded"] or not self.info_frag[i]["headersize"]:
+            self.info_frag[i]["url"] = frag.url
+            self.info_frag[i]["n_retries"] = 0
+            self.info_frag[i]["byterange"] = frag.byte_range
+            self.info_frag[i]["key"] = frag.key
+            cipher = traverse_obj(self.key_cache, (frag.key.uri, "cipher")) if frag.key else None
+
+            self.info_frag[i]["cipher"] = cipher
+
+            self.frags_to_dl.append(i + 1)
+
+    def _get_init_section(self, _initfrag):
+        if not self.info_init_section or not self.info_init_section['downloaded'] or not self.info_init_section['file'].exists():
+            _file_path = Path(f"{str(self.fragments_base_path)}.Frag0")
+            _url = _initfrag.absolute_uri
+            if "&hash=" in _url and _url.endswith("&="):
+                _url += "&="
+            _cipher = None
+            if hasattr(_initfrag, 'key') and _initfrag.key.method == "AES-128" and _initfrag.key.iv:
+                if (_key := self.download_key(cast(str, _initfrag.key.absolute_uri))):
+                    _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(_initfrag.key.iv[2:]))
+            self.info_init_section |= (
+                {"frag": 0, "url": _url, "file": _file_path, "cipher": _cipher, "downloaded": False})
+
+        if not self.info_init_section['downloaded']:
+            self.get_init_section()
+
+    def init(self):  # sourcery skip: assign-if-exp, extract-method
 
         self.n_reset = 0
         self.frags_to_dl = []
         self.init_client = httpx.Client(**self.config_httpx())
 
-        try:
-            if not self.m3u8_doc:
-                self.m3u8_doc = self.get_m3u8_doc()
+        _mode_init = not bool(self.info_frag)
 
+        try:
             self.info_dict["fragments"] = self.get_info_fragments()
 
-            self.n_total_fragments = len(self.info_dict["fragments"])
-            self.format_frags = f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
+            if _mode_init and (_initfrag := self.info_dict["fragments"][0].init_section):
+                self._get_init_section(_initfrag)
 
-            if (_initfrag := self.info_dict["fragments"][0].init_section):
-                if not self.info_init_section or not self.info_init_section['downloaded'] or not self.info_init_section['file'].exists():
-                    _file_path = Path(str(self.fragments_base_path) + ".Frag0")
-                    _url = _initfrag.absolute_uri
-                    if "&hash=" in _url and _url.endswith("&="):
-                        _url += "&="
-                    _cipher = None
-                    if hasattr(_initfrag, 'key') and _initfrag.key.method == "AES-128" and _initfrag.key.iv:
-                        if (_key := self.download_key(cast(str, _initfrag.key.absolute_uri))):
-                            _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(_initfrag.key.iv[2:]))
-                    self.info_init_section.update(
-                        {"frag": 0, "url": _url, "file": _file_path, "cipher": _cipher, "downloaded": False})
+            config_data = self.get_config_data()
 
-                if not self.info_init_section['downloaded']:
-                    self.get_init_section()
-
-            init_data = {}
-            if self.init_file.exists():
-                with open(self.init_file, "rt", encoding='utf-8') as finit:
-                    init_data = json.loads(finit.read())
-                init_data = {int(k): v for k, v in init_data.items()}
-
-            _mode_init = False
-            if not self.info_frag:
-                _mode_init = True
-
-            byte_range = {}
             for i, fragment in enumerate(self.info_dict["fragments"]):
-                if not fragment.uri and fragment.parts:
-                    fragment.uri = fragment.parts[0].uri
 
-                if fragment.byterange:
-                    splitted_byte_range = fragment.byterange.split("@")
-                    if (sub_range_start := (
-                            try_get(splitted_byte_range, lambda x: int(x[1])) or byte_range.get("end"))):
-                        byte_range = {
-                            "start": sub_range_start,
-                            "end": sub_range_start + int(splitted_byte_range[0])}
-                else:
-                    byte_range = {}
-
-                _url = fragment.absolute_uri
-                if "&hash=" in _url and _url.endswith("&="):
-                    _url += "&="
-
-                # hlsdl first step
                 if _mode_init:
-                    hsize = init_data.get(i + 1)
-                    _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
-                    is_dl, size, _ = check_is_dl(_file_path, hsize)
-                    cipher = None
-                    if fragment.key:
-                        cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
-                    _frag = {
-                        "frag": i + 1, "url": _url, "key": fragment.key, "cipher": cipher,
-                        "file": _file_path, "byterange": byte_range, "downloaded": is_dl,
-                        "headersize": hsize, "size": size, "n_retries": 0, "error": []}
-
-                    if is_dl:
-                        self.down_size += size
-                        self.n_dl_fragments += 1
-                    if not is_dl or not hsize:
-                        self.frags_to_dl.append(i + 1)
-
-                    self.info_frag.append(_frag)
-
-                # reinit
+                    self._create_info_frag(i, fragment, config_data.get(i + 1))
                 else:
-                    if not self.info_frag[i]["headersize"]:
-                        if _hsize := init_data.get(i + 1):
-                            self.info_frag[i]["headersize"] = _hsize
-                    if self.info_frag[i]["downloaded"]:
-                        is_dl, _, dec_size = check_is_dl(self.info_frag[i]["file"], self.info_frag[i]["headersize"])
-                        if not is_dl:
-                            self.info_frag[i]["downloaded"] = False
-                            self.n_dl_fragments -= 1
-                            self.down_size -= dec_size
-                            self._vid_dl.total_sizes["down_size"] -= dec_size
-                    elif self.info_frag[i]["file"].exists():
-                        self.info_frag[i]["file"].unlink()
-
-                    if not self.info_frag[i]["downloaded"] or not self.info_frag[i]["headersize"]:
-                        self.info_frag[i]["url"] = _url
-                        self.info_frag[i]["n_retries"] = 0
-                        self.info_frag[i]["byterange"] = byte_range
-                        self.info_frag[i]["key"] = fragment.key
-                        cipher = None
-                        if fragment.key:
-                            cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
-                        self.info_frag[i]["cipher"] = cipher
-
-                        self.frags_to_dl.append(i + 1)
+                    self._update_info_frag(i, fragment, config_data.get(i + 1))
 
             logger.debug(
                 "".join([
@@ -474,11 +457,6 @@ class AsyncHLSDownloader:
                     f"Frags to request: {len(self.frags_to_dl)}"
                 ])
             )
-
-            if not self.totalduration:
-                self.totalduration = self.calculate_duration()
-            if not self.filesize:
-                self.filesize = self.calculate_filesize()
 
             if not self.filesize:
                 _est_size = "NA"
@@ -550,7 +528,10 @@ class AsyncHLSDownloader:
     def get_info_fragments(self) -> Union[list, m3u8.SegmentList]:
 
         try:
-            m3u8_obj = m3u8.loads(self.m3u8_doc, self.info_dict["url"])
+            if not self.m3u8_doc:
+                self.m3u8_doc = self.get_m3u8_doc()
+
+            m3u8_obj = m3u8.loads(self.m3u8_doc, uri=self.info_dict["url"])
 
             if not m3u8_obj or not m3u8_obj.segments:
                 raise AsyncHLSDLError("couldnt get m3u8 file")
@@ -577,7 +558,36 @@ class AsyncHLSDownloader:
                         _last_segment = len(m3u8_obj.segments)
                     logger.info(f"{self.premsg}[get_info_fragments] last seg {_last_segment}")
 
-                    return m3u8_obj.segments[_start_segment:_last_segment]
+                    m3u8_obj.segments = m3u8_obj.segments[_start_segment:_last_segment]
+
+            self.n_total_fragments = len(m3u8_obj.segments)
+            self.format_frags = f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
+            if not self.totalduration:
+                self.totalduration = self.calculate_duration()
+            if not self.filesize:
+                self.filesize = self.calculate_filesize()
+
+            byte_range = {}
+            for fragment in m3u8_obj.segments:
+                if not fragment.uri and fragment.parts:
+                    fragment.uri = fragment.parts[0].uri
+
+                if fragment.byterange:
+                    splitted_byte_range = fragment.byterange.split("@")
+                    if (sub_range_start := (
+                            try_get(splitted_byte_range, lambda x: int(x[1])) or byte_range.get("end"))):
+                        byte_range = {
+                            "start": sub_range_start,
+                            "end": sub_range_start + int(splitted_byte_range[0])}
+                else:
+                    byte_range = {}
+
+                _url = fragment.absolute_uri
+                if "&hash=" in _url and _url.endswith("&="):
+                    _url += "&="
+
+                fragment.__dict__['url'] = _url
+                fragment.__dict__['byte_range'] = byte_range
 
             return m3u8_obj.segments
 
@@ -673,68 +683,11 @@ class AsyncHLSDownloader:
         self.info_dict["fragments"] = self.get_info_fragments()
 
         self.frags_to_dl = []
-        init_data = {}
-        if self.init_file.exists():
-            with open(self.init_file, "rt", encoding='utf-8') as finit:
-                init_data = json.loads(finit.read())
-            init_data = {int(_key): _value for _key, _value in init_data.items()}
+        config_data = self.get_config_data()
 
-        byte_range = {}
         for i, fragment in enumerate(self.info_dict["fragments"]):
-            try:
-                if not fragment.uri and fragment.parts:
-                    fragment.uri = fragment.parts[0].uri
 
-                if fragment.byterange:
-                    splitted_byte_range = fragment.byterange.split("@")
-                    if (sub_range_start := (
-                            try_get(splitted_byte_range, lambda x: int(x[1])) or byte_range.get("end"))):
-                        byte_range = {
-                            "start": sub_range_start,
-                            "end": sub_range_start + int(splitted_byte_range[0])}
-                else:
-                    byte_range = {}
-
-                _url = fragment.absolute_uri
-                if "&hash=" in _url and _url.endswith("&="):
-                    _url += "&="
-
-                if not self.info_frag[i]["headersize"]:
-                    if _hsize := init_data.get(i + 1):
-                        self.info_frag[i]["headersize"] = _hsize
-                if self.info_frag[i]["downloaded"]:
-                    is_dl, _, dec_size = check_is_dl(self.info_frag[i]["file"], self.info_frag[i]["headersize"])
-                    if not is_dl:
-                        self.info_frag[i]["downloaded"] = False
-                        self.n_dl_fragments -= 1
-                        self.down_size -= dec_size
-                        self._vid_dl.total_sizes["down_size"] -= dec_size
-                elif self.info_frag[i]["file"].exists():
-                    self.info_frag[i]["file"].unlink()
-
-                if not self.info_frag[i]["downloaded"] or not self.info_frag[i]["headersize"]:
-                    self.info_frag[i]["url"] = _url
-                    self.info_frag[i]["n_retries"] = 0
-                    self.info_frag[i]["byterange"] = byte_range
-                    self.info_frag[i]["key"] = fragment.key
-                    cipher = None
-                    if fragment.key:
-                        cipher = traverse_obj(self.key_cache, (fragment.key.uri, "cipher"))
-                    self.info_frag[i]["cipher"] = cipher
-
-                    self.frags_to_dl.append(i + 1)
-
-            except Exception as e:
-                logger.debug(
-                    "".join([
-                        f"{self.premsg}:RESET[{self.n_reset}]:prep_reset:error {str(e)}",
-                        f"with i = [{i}] \n\ninfo_dict['fragments'] ",
-                        f"{len(self.info_dict['fragments'])}\n\n",
-                        f"{[str(frag) for frag in self.info_dict['fragments']]}\n\n",
-                        f"info_frag {len(self.info_frag)}"
-                    ]))
-
-                raise
+            self._update_info_frag(i, fragment, config_data.get(i + 1))
 
         if not self.frags_to_dl:
             self.status = "init_manipulating"
@@ -807,6 +760,7 @@ class AsyncHLSDownloader:
             raise
 
     def resetdl(self, cause: Optional[str] = None):
+        # sourcery skip: extract-duplicate-method
         _base = f"{self.premsg}[resetdl]"
         _proxy = self._proxy.get('http://')
         _print_proxy = lambda: (
@@ -1134,9 +1088,8 @@ class AsyncHLSDownloader:
                             response.headers.get("content-length"))
 
                     if info_frag["downloaded"]:
-                        _size = info_frag["size"] = (
-                            await os.stat(filename)).st_size
-                        if (_hsize and (_hsize - 100 <= _size <= _hsize + 100)) or not _hsize:
+                        _size = info_frag["size"] = (await os.stat(filename)).st_size
+                        if not _hsize or (_hsize - 100 <= _size <= _hsize + 100):
                             break
 
                         await fileobj.truncate(0)
@@ -1318,7 +1271,7 @@ class AsyncHLSDownloader:
 
                     self._vid_dl.end_tasks.set()
 
-                    await self.dump_init_file()
+                    await self.dump_config_file()
 
                     _nfragsdl = len(self.fragsdl())
                     inc_frags_dl = _nfragsdl - n_frags_dl
@@ -1437,7 +1390,7 @@ class AsyncHLSDownloader:
             logger.error(f"{_premsg} error {repr(e)}")
             self.status = "error"
         finally:
-            await self.dump_init_file()
+            await self.dump_config_file()
             self.init_client.close()
             if self.fromplns:
                 async with async_lock(AsyncHLSDownloader._CLASSLOCK):
@@ -1453,13 +1406,13 @@ class AsyncHLSDownloader:
                 logger.debug(f"{_premsg} Frags DL completed")
                 self.status = "init_manipulating"
 
-    async def dump_init_file(self):
-        init_data = {
+    async def dump_config_file(self):
+        _data = {
             el["frag"]: el["headersize"]
             for el in self.info_frag if el["headersize"]
         }
-        async with aiofiles.open(self.init_file, mode="w") as finit:
-            await finit.write(json.dumps(init_data))
+        async with aiofiles.open(self.config_file, mode="w") as finit:
+            await finit.write(json.dumps(_data))
 
     async def clean_when_error(self):
         for frag in self.info_frag:

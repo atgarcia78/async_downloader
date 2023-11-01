@@ -4004,11 +4004,12 @@ class NWSetUp:
         self._tasks_init = {}
         if not self.asyncdl.args.nodl:
             if self.asyncdl.args.aria2c:
-                ainit_aria2c = sync_to_async(init_aria2c, thread_sensitive=False, executor=self.exe)
+                ainit_aria2c = sync_to_async(
+                    init_aria2c, thread_sensitive=False, executor=self.exe)
                 _task_aria2c = self.asyncdl.add_task(
                     ainit_aria2c(self.asyncdl.args))
                 _tasks_init_aria2c = {_task_aria2c: "aria2"}
-                self._tasks_init.update(_tasks_init_aria2c)
+                self._tasks_init |= _tasks_init_aria2c
             if self.asyncdl.args.enproxy:
                 self.stop_proxy, self.fut_proxy = self.run_proxy_http()
                 self.asyncdl.add_task(self.fut_proxy)
@@ -4017,7 +4018,7 @@ class NWSetUp:
                 _task_proxies = self.asyncdl.add_task(
                     ainit_proxies(event=self.asyncdl.end_dl))
                 _task_init_proxies = {_task_proxies: "proxies"}
-                self._tasks_init.update(_task_init_proxies)
+                self._tasks_init |= _task_init_proxies
         if self._tasks_init:
             self.task_init = self.asyncdl.add_task(self.init())
         else:
@@ -4083,7 +4084,8 @@ class NWSetUp:
                     except Exception:
                         pass
                     finally:
-                        await sync_to_async(proc.wait, thread_sensitive=False, executor=self.exe)()
+                        await sync_to_async(
+                            proc.wait, thread_sensitive=False, executor=self.exe)()
                         await asyncio.sleep(0)
 
         if self.proc_aria2c:

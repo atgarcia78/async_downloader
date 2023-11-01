@@ -531,7 +531,7 @@ class VideoDownloader:
             self.info_dl["downloaded_subtitles"]['es'] = _subs_file
             logger.info(f"{self.premsg}: subs file [es, srt] ready")
 
-    async def run_manip(self):
+    async def run_manip(self):  # sourcery skip: comprehension-to-generator
         aget_subts_files = self.sync_to_async(self._get_subts_files)
         apostffmpeg = self.sync_to_async(self.syncpostffmpeg)
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
@@ -579,9 +579,9 @@ class VideoDownloader:
             res = True
 
             for dl in self.info_dl["downloaders"]:
-                _exists = all(
+                _exists = all([
                     await aiofiles.os.path.exists(_file)
-                    for _file in variadic(dl.filename))
+                    for _file in variadic(dl.filename)])
                 res = res and _exists and dl.status == "done"
                 logger.debug(
                     f"{self.premsg} "
