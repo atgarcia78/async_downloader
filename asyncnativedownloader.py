@@ -128,6 +128,9 @@ class AsyncNativeDownloader:
 
             self.status = "init"
 
+            # for parsing output ffmpeg
+            self._buffer = []
+            self._upt = True
             self.dl_cont = [{"total": "--", "progress": "--", "downloaded": "--", "speed": "--"}]
 
             _filesize = self.info_dict.get('duration', 0) * self.info_dict.get('vbr', 0) * 1000 / 8
@@ -149,21 +152,9 @@ class AsyncNativeDownloader:
 
     def _make_cmd(self) -> str:
         cmd = [
-            "yt-dlp",
-            "-P",
-            str(self.download_path),
-            "-o",
-            f"{self._filename.stem}.%(ext)s",
-            "-f",
-            self.args.format,
-            self.info_dict["webpage_url"],
-            "-v",
-            "-N",
-            str(self.n_workers),
-            "--downloader",
-            "native",
-            "--newline",
-            "--progress-template",
+            "yt-dlp", "-P", str(self.download_path), "-o", f"{self._filename.stem}.%(ext)s",
+            "-f", self.args.format, self.info_dict["webpage_url"], "-v", "-N", str(self.n_workers),
+            "--downloader", "native", "--newline", "--progress-template",
             "download:Total:%(progress.total_bytes)s - Progress:%(progress._percent_str)s - Downloaded:%(progress.downloaded_bytes)s - Speed:%(progress.speed)s",
         ]
         if self.drm:
@@ -245,8 +236,7 @@ class AsyncNativeDownloader:
                 self._vid_dl.total_sizes["filesize"] = self.filesize
 
     async def read_stream(self, proc: asyncio.subprocess.Process):
-        self._buffer = []
-        self._upt = True
+
         _aparse_output = sync_to_async(self._parse_output, thread_sensitive=False, executor=self.ex_dl)
 
         try:
