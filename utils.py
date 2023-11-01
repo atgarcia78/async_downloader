@@ -1247,7 +1247,7 @@ def init_aria2c(args):
     _cmd = f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc "
     _cmd += "--rpc-max-request-size=2M --rpc-listen-all --quiet=true"
     _proc = subprocess.Popen(
-        _cmd.split(" "), stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, shell=False
+        shlex.split(_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, shell=False
     )
 
     time.sleep(1)
