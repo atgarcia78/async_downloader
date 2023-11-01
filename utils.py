@@ -1214,7 +1214,7 @@ def get_listening_tcp() -> dict:
         command
     """
     printout = subprocess.run(["sudo", "_listening"], encoding="utf-8", capture_output=True).stdout
-    final_list = defaultdict(lambda: [])
+    final_list = defaultdict(list)
     for el in re.findall(r"^(\d+) (\d+) (.+)", printout, re.MULTILINE):
         final_list[el[2]].append({"port": int(el[1]), "pid": int(el[0])})
         final_list[int(el[1])].append({"pid": int(el[0]), "command": el[2]})
