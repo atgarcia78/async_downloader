@@ -1213,12 +1213,15 @@ def get_listening_tcp() -> dict:
         tcp port,
         command
     """
-    printout = subprocess.run(["sudo", "_listening"], encoding="utf-8", capture_output=True).stdout
-    final_list = defaultdict(list)
-    for el in re.findall(r"^(\d+) (\d+) (.+)", printout, re.MULTILINE):
-        final_list[el[2]].append({"port": int(el[1]), "pid": int(el[0])})
-        final_list[int(el[1])].append({"pid": int(el[0]), "command": el[2]})
-    return dict(final_list)
+
+    def jsonKeys2int(x):
+        trans = lambda x: int(x) if x.isdigit() else x
+        if isinstance(x, dict):
+            return {trans(k): v for k, v in x.items()}
+
+    printout = subprocess.run(["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout
+    final_list = json.loads(printout, object_hook=jsonKeys2int)
+    return final_list
 
 
 def find_in_ps(pattern, value=None):
