@@ -25,6 +25,7 @@ from utils import (
     load_config_extractors,
     myYTDL,
     naturalsize,
+    sync_to_async,
     traverse_obj,
     try_get,
 )
@@ -89,7 +90,7 @@ class AsyncNativeDownloader:
 
             self.error_message = ""
 
-            self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_saldl")
+            self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_natdl")
 
             self.special_extr = False
 
@@ -223,15 +224,36 @@ class AsyncNativeDownloader:
 
         return _res
 
+    def _parse_output(self, line):
+        _line = line.decode("utf-8").strip(" \n")
+        self._buffer.append(_line)
+        if re.search(r"\[download\] Destination:.+\.m4a", _line):
+            self._upt = False
+        elif self._upt and (upt_info := re.search(self.progress_pattern, _line)):
+            _status = upt_info.groupdict()
+            if (_dl_size := int_or_none(_status.get("downloaded"))) is not None:
+                self.down_size = _dl_size
+                self._vid_dl.total_sizes["down_size"] += self.down_size - self.downsize_ant
+                self.downsize_ant = _dl_size
+                _speed_meter = self.speedometer(_dl_size)
+                _status['smooth_speed'] = _speed_meter
+            self.dl_cont.append(_status)
+            if not hasattr(self, "filesize") and (
+                (_total := int_or_none(try_get(_status.get("total"), lambda x: None if x == 'NA' else x))) is not None
+            ):
+                self.filesize = _total
+                self._vid_dl.total_sizes["filesize"] = self.filesize
+
     async def read_stream(self, proc: asyncio.subprocess.Process):
-        _buffer = []
+        self._buffer = []
+        self._upt = True
+        _aparse_output = sync_to_async(self._parse_output, thread_sensitive=False, executor=self.ex_dl)
 
         try:
             if proc.returncode is not None or not proc.stdout:
                 if proc.stderr and (buffer := await proc.stderr.read()):  # type: ignore
-                    _buffer.append(buffer.decode("utf-8"))
-                return _buffer
-            _upt = True
+                    self._buffer.append(buffer.decode("utf-8"))
+                return self._buffer
             while proc.returncode is None:
                 try:
                     line = await proc.stdout.readline()
@@ -239,31 +261,10 @@ class AsyncNativeDownloader:
                     logger.exception(f"{self.premsg}[read stream] {repr(e)}")
                     await asyncio.sleep(0)
                 else:
-                    if line:
-                        _line = line.decode("utf-8").strip(" \n")
-                        _buffer.append(_line)
-                        if re.search(r"\[download\] Destination:.+\.m4a", _line):
-                            _upt = False
-                        elif _upt and (upt_info := re.search(self.progress_pattern, _line)):
-                            _status = upt_info.groupdict()
-                            if (_dl_size := int_or_none(_status.get("downloaded"))) is not None:
-                                self.down_size = _dl_size
-                                self._vid_dl.total_sizes["down_size"] += self.down_size - self.downsize_ant
-                                self.downsize_ant = _dl_size
-                                _speed_meter = self.speedometer(_dl_size)
-                                _status['smooth_speed'] = _speed_meter
-                            self.dl_cont.append(_status)
-                            if not hasattr(self, "filesize") and (
-                                (_total := int_or_none(try_get(_status.get("total"), lambda x: None if x == 'NA' else x))) is not None
-                            ):
-                                self.filesize = _total
-                                self._vid_dl.total_sizes["filesize"] = self.filesize
-
-                        await asyncio.sleep(0)
-                    else:
+                    if not line:
                         break
-
-            return _buffer
+                    await _aparse_output(line)
+            return self._buffer
 
         except Exception as e:
             logger.exception(f"{self.premsg}[read stream] {repr(e)}")
