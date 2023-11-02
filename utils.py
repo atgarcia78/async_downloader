@@ -2023,28 +2023,23 @@ if yt_dlp:
 
         def get_extractor(self, el: str) -> Union[tuple, InfoExtractor]:
             if el.startswith('http'):
-                return self._extracted_from_get_extractor_3(el)
+                return self._get_extractor_from_url(el)
             _sel_ie = self.get_info_extractor(el)
-            _sel_ie._real_initialize()
+            _sel_ie.initialize()
             return _sel_ie
 
-        # TODO Rename this here and in `get_extractor`
-        def _extracted_from_get_extractor_3(self, el):
-            url = el
-            ies = self._ies
+        def _get_extractor_from_url(self, url: str) -> tuple:
             _sel_ie_key = "Generic"
-            for ie_key, ie in ies.items():
+            for ie_key, ie in self._ies.items():
                 try:
                     if ie.suitable(url) and (ie_key != "Generic"):
-                        # return (ie_key, self.get_info_extractor(ie_key))
                         _sel_ie_key = ie_key
                         break
                 except Exception as e:
                     logger = logging.getLogger("asyncdl")
                     logger.exception(f"[get_extractor] fail with {ie_key} - {repr(e)}")
             _sel_ie = self.get_info_extractor(_sel_ie_key)
-            _sel_ie._real_initialize()
-            # return ("Generic", self.get_info_extractor("Generic"))
+            _sel_ie.initialize()
             return (_sel_ie_key, _sel_ie)
 
         def is_playlist(self, url: str) -> tuple:
