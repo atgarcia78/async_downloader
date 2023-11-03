@@ -1135,7 +1135,7 @@ class AsyncHLSDownloader:
                             _timer.reset()
                             _timer2.reset()
 
-                        await asyncio.sleep(0)
+                        # await asyncio.sleep(0)
 
                     await self._update_counters(
                         response.num_bytes_downloaded, num_bytes_downloaded)
@@ -1200,7 +1200,7 @@ class AsyncHLSDownloader:
                         return
 
                     await self._download_frag(qindex, premsg, client)
-                    await asyncio.sleep(0)
+                    # await asyncio.sleep(0)
 
                 except asyncio.QueueEmpty:
                     await asyncio.sleep(0)
