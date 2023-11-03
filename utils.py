@@ -131,13 +131,6 @@ CONF_PLAYLIST_INTERL_URLS = [
     "MyVidsterRSSPlaylistIE",
 ]
 
-CONF_HTTP_DL = {
-    "ARIA2C": {
-        "extractors": ["mixdrop", "hungyoungbrit", "doodstream"],  # ['doodstream']
-        "max_filesize": 300000000,
-    }
-}
-
 CLIENT_CONFIG = {
     "timeout": httpx.Timeout(timeout=20),
     "limits": httpx.Limits(
@@ -2049,10 +2042,6 @@ if yt_dlp:
             else:
                 return (ie._RETURN_TYPE == "playlist", ie_key)
 
-        # def close(self):
-        #     super().close()
-        #     ies_close(self._ies_instances)
-
         async def stop(self):
             if (_stop := self.params.get("stop")):
                 _stop.set()
@@ -2077,29 +2066,6 @@ if yt_dlp:
             return await sync_to_async(
                 self.process_ie_result, thread_sensitive=False, executor=self.executor
             )(*args, **kwargs)
-
-    # class ProxyYTDL(myYTDL):
-    #     def __init__(self, **kwargs):
-    #         _kwargs = kwargs.copy()
-    #         opts = _kwargs.pop("opts", {}).copy()
-    #         proxy = _kwargs.pop("proxy", None)
-    #         quiet = _kwargs.pop("quiet", True)
-    #         verbose = _kwargs.pop("verbose", False)
-    #         verboseplus = _kwargs.pop("verboseplus", False)
-    #         _kwargs.pop("auto_init", None)
-
-    #         opts["quiet"] = quiet
-    #         opts["verbose"] = verbose
-    #         opts["verboseplus"] = verboseplus
-    #         opts["logger"] = MyYTLogger(
-    #             logging.getLogger(self.__class__.__name__.lower()),
-    #             quiet=opts["quiet"],
-    #             verbose=opts["verbose"],
-    #             superverbose=opts["verboseplus"],
-    #         )
-    #         opts["proxy"] = proxy
-
-    #         super().__init__(params=opts, auto_init="no_verbose_header", **_kwargs)  # type: ignore
 
     def get_extractor_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL]) -> tuple:
         logger = logging.getLogger("asyncdl")
@@ -3997,26 +3963,23 @@ class NWSetUp:
         self.routing_table = {}
         self.proc_gost = []
         self.proc_aria2c = None
-        self.exe = ThreadPoolExecutor(thread_name_prefix="setupnw")
+        self.sync_to_async = functools.partial(
+            thread_sensitive=False,
+            executor=ThreadPoolExecutor(thread_name_prefix="setupnw"))
 
         self._tasks_init = {}
         if not self.asyncdl.args.nodl:
             if self.asyncdl.args.aria2c:
-                ainit_aria2c = sync_to_async(
-                    init_aria2c, thread_sensitive=False, executor=self.exe)
                 _task_aria2c = self.asyncdl.add_task(
-                    ainit_aria2c(self.asyncdl.args))
-                _tasks_init_aria2c = {_task_aria2c: "aria2"}
-                self._tasks_init |= _tasks_init_aria2c
+                    self.sync_to_async(init_aria2c)(self.asyncdl.args))
+                self._tasks_init |= {_task_aria2c: "aria2"}
             if self.asyncdl.args.enproxy:
                 self.stop_proxy, self.fut_proxy = self.run_proxy_http()
                 self.asyncdl.add_task(self.fut_proxy)
-                ainit_proxies = sync_to_async(
-                    TorGuardProxies.init_proxies, thread_sensitive=False, executor=self.exe)
                 _task_proxies = self.asyncdl.add_task(
-                    ainit_proxies(event=self.asyncdl.end_dl))
-                _task_init_proxies = {_task_proxies: "proxies"}
-                self._tasks_init |= _task_init_proxies
+                    self.sync_to_async(TorGuardProxies.init_proxies)(event=self.asyncdl.end_dl))
+                self._tasks_init |= {_task_proxies: "proxies"}
+
         if self._tasks_init:
             self.task_init = self.asyncdl.add_task(self.init())
         else:
@@ -4082,8 +4045,7 @@ class NWSetUp:
                     except Exception:
                         pass
                     finally:
-                        await sync_to_async(
-                            proc.wait, thread_sensitive=False, executor=self.exe)()
+                        await self.sync_to_async(proc.wait)()
                         await asyncio.sleep(0)
 
         if self.proc_aria2c:
@@ -4099,7 +4061,7 @@ class NWSetUp:
             except Exception:
                 pass
             finally:
-                await sync_to_async(self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+                await self.sync_to_async(self.proc_aria2c.wait)()
 
     async def reset_aria2c(self):
         if not self.proc_aria2c:
