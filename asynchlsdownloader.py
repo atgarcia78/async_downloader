@@ -1125,17 +1125,17 @@ class AsyncHLSDownloader:
                                     name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
                             _buffer = b""
 
-                        _check = await self.event_handle(_premsg)
-                        if _ev := traverse_obj(_check, "event"):
-                            if _tasks_chunks:
-                                _tasks_chunks[-1].cancel()
-                            raise AsyncHLSDLErrorFatal(_ev)
+                        if _check := await self.event_handle(_premsg):
+                            if _ev := traverse_obj(_check, "event"):
+                                if _tasks_chunks:
+                                    _tasks_chunks[-1].cancel()
+                                raise AsyncHLSDLErrorFatal(_ev)
 
-                        if traverse_obj(_check, "pause"):
-                            _timer.reset()
-                            _timer2.reset()
+                            if traverse_obj(_check, "pause"):
+                                _timer.reset()
+                                _timer2.reset()
 
-                        # await asyncio.sleep(0)
+                        await asyncio.sleep(0)
 
                     await self._update_counters(
                         response.num_bytes_downloaded, num_bytes_downloaded)
