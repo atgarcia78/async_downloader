@@ -71,7 +71,6 @@ class Workers:
         self._max = value
 
     async def add_task(self, task_index=None, sortwaiting=False):
-
         if len(self.running) < self.max_workers:  # case there is room for one task to run
             if task_index is None and self.waiting:
                 task_index = self.waiting.popleft()
