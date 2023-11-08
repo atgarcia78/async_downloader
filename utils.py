@@ -3964,6 +3964,7 @@ class NWSetUp:
         self.proc_gost = []
         self.proc_aria2c = None
         self.sync_to_async = functools.partial(
+            sync_to_async,
             thread_sensitive=False,
             executor=ThreadPoolExecutor(thread_name_prefix="setupnw"))
 
