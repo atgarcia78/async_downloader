@@ -1065,7 +1065,7 @@ class AsyncHLSDownloader:
                     async with self._limit:
                         await asyncio.sleep(self._interv)
 
-                if _ev := self.check_any_event_is_set(incpause=False):
+                if (_ev := self.check_any_event_is_set(incpause=False)):
                     raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
 
                 async with (aiofiles.open(filename, mode="ab") as fileobj, client.stream("GET", url, headers=headers) as response):
@@ -1110,9 +1110,9 @@ class AsyncHLSDownloader:
                     _tasks_chunks = []
 
                     async for chunk in response.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                        if _data := await self._decrypt(chunk, cipher):
-                            _buffer += _data
-
+                        if not chunk:
+                            continue
+                        _buffer += await self._decrypt(chunk, cipher)
                         if _timer.has_elapsed(CONF_INTERVAL_GUI / 2):
                             num_bytes_downloaded = await self._update_counters(
                                 response.num_bytes_downloaded, num_bytes_downloaded)
@@ -1124,11 +1124,11 @@ class AsyncHLSDownloader:
                                     fileobj.write(_buffer),
                                     name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
                             _buffer = b""
-
-                        if _check := await self.event_handle(_premsg):
-                            if _ev := traverse_obj(_check, "event"):
+                        if (_check := await self.event_handle(_premsg)):
+                            if (_ev := traverse_obj(_check, "event")):
                                 if _tasks_chunks:
-                                    _tasks_chunks[-1].cancel()
+                                    # _tasks_chunks[-1].cancel()
+                                    await asyncio.wait(_tasks_chunks[-1:])
                                 raise AsyncHLSDLErrorFatal(_ev)
 
                             if traverse_obj(_check, "pause"):
@@ -1514,9 +1514,9 @@ class AsyncHLSDownloader:
 
         if self.status == "downloading":
 
-            return self._print_hookup_downloading(_pre)
+            return f"{_pre}: {self._print_hookup_downloading()}"
 
-    def _print_hookup_downloading(self, _pre):
+    def _print_hookup_downloading(self):
         _temp = self.upt.copy()
         _dsize = _temp.get("down_size", 0)
         _filesize = _temp.get("filesize")
@@ -1544,7 +1544,7 @@ class AsyncHLSDownloader:
                     self.count_msg = AsyncHLSDownloader._QUEUE[str(self.pos)].get_nowait()
         return "".join(
             [
-                f"{_pre}: WK[{self.count:2d}/{self.n_workers:2d}] ",
+                f"WK[{self.count:2d}/{self.n_workers:2d}] ",
                 f"FR{_prefr}",
                 f"PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]",
                 f"\n{self.count_msg}",
