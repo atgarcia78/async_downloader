@@ -505,7 +505,7 @@ class AsyncARIA2CDownloader:
 
             if traverse_obj(_res, ("condition", "event")):
                 return -1
-            if not (_temp := traverse_obj(_res, ("results", 0))):
+            if (_temp := traverse_obj(_res, ("results", 0))) is None:
                 raise AsyncARIA2CDLError("couldnt get index proxy")
 
             async with self._ALOCK():
@@ -765,7 +765,7 @@ class AsyncARIA2CDownloader:
                     return
 
                 finally:
-                    if all([self._mode != "noproxy", getattr(self, "_index_proxy", -1) != -1]):
+                    if all([self._mode != "noproxy", self._index_proxy != -1]):
                         async with self._ALOCK():
                             AsyncARIA2CDownloader._HOSTS_DL[self._host]["count"] -= 1
                             AsyncARIA2CDownloader._HOSTS_DL[self._host]["queue"].put_nowait(self._index_proxy)

@@ -806,7 +806,7 @@ class AsyncDL:
                     self.list_videos.append(self.info_videos[_url]["video_info"])
             else:
                 logger.warning(
-                    f"{_pre} {_url}: already in info_videos")
+                    f"{_pre} {_url}: already in info_videos, trying {entry.get('original_url')}\n{self.info_videos[_url]['video_info'].get('original_url')}")
 
         except Exception as e:
             logger.exception(
