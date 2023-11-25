@@ -140,15 +140,15 @@ class AsyncARIA2CDownloader:
             if value and key_text:
                 self.special_extr = True
                 limit = value["ratelimit"].ratelimit(key_text, delay=True)
-                maxplits = value["maxsplits"]
+                maxsplits = value["maxsplits"]
             else:
                 self.special_extr = False
                 limit = limiter_non.ratelimit("transp", delay=True)
-                maxplits = self.n_workers
+                maxsplits = self.n_workers
 
             _mode = "simple"
             _sph = False
-            if maxplits < 16:
+            if maxsplits < 16:
                 _sph = True
                 if name in CONF_ARIA2C_EXTR_GROUP:
                     _mode = "group"
@@ -157,7 +157,7 @@ class AsyncARIA2CDownloader:
                 self.auto_pasres = True
                 self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED // 2
 
-            return (_sph, _mode, limit, maxplits)
+            return (_sph, _mode, limit, maxsplits)
 
         self.auto_pasres = False
         self.special_extr = False
@@ -169,7 +169,7 @@ class AsyncARIA2CDownloader:
 
         if not (_proxy := self.args.proxy) and self.args.enproxy:
             with AsyncARIA2CDownloader._LOCK:
-                if not AsyncARIA2CDownloader._HOSTS_DL.get(self._host):
+                if self._host not in AsyncARIA2CDownloader._HOSTS_DL:
                     _seq = random.sample(range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST)
                     queue_ = put_sequence(asyncio.Queue(), _seq)
                     AsyncARIA2CDownloader._HOSTS_DL.update({self._host: {"count": 0, "queue": queue_}})
@@ -188,6 +188,11 @@ class AsyncARIA2CDownloader:
             if _res := self._get_filesize(self.uris, proxy=_proxy):
                 self.filesize, self.down_size = _res[0], _res[1]
         if self.filesize:
+            if (self.filename.exists() and not Path(str(self.filename) + ".aria2").exists() and
+                    ((self.filesize - 100) < (_dsize := self.filename.stat().st_size) < (self.filesize + 100))):
+                self.status = "done"
+                self.down_size = _dsize
+                return
             _nsplits = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
             if _nsplits < self.n_workers:
                 self.n_workers = _nsplits
@@ -363,9 +368,9 @@ class AsyncARIA2CDownloader:
             return await self._acall(dl_cont.update)
 
     def uptpremsg(self):
-        _upt = f"{self.premsg} host: {self._host}"
+        _upt = f"{self.premsg} host: {self._host} mode: {self._mode}"
         if self._mode != "noproxy":
-            _upt += f"proxy: {self._proxy} count: {AsyncARIA2CDownloader._HOSTS_DL[self._host]['count']}"
+            _upt += f" proxy: {self._proxy} index_pr: {self._index_proxy} count: {AsyncARIA2CDownloader._HOSTS_DL[self._host]['count']}"
         return _upt
 
     async def init(self):
@@ -399,7 +404,7 @@ class AsyncARIA2CDownloader:
                 params=self.ytdl.params, silent=True, proxy=_proxy, executor=self.ex_dl
             ) as proxy_ytdl:
                 proxy_info = get_format_id(
-                    proxy_ytdl.sanitize_info(await proxy_ytdl.async_extract_info(_init_url)),
+                    proxy_ytdl.sanitize_info(await proxy_ytdl.async_extract_info(_init_url, download=False)),
                     self.info_dict["format_id"])
 
             _url = cast(str, traverse_obj(proxy_info, ("url", {unquote})))
@@ -428,7 +433,7 @@ class AsyncARIA2CDownloader:
         async with myYTDL(
                 params=self.ytdl.params, silent=True, executor=self.ex_dl) as ytdl:
             if not (_info := get_format_id(
-                    ytdl.sanitize_info(await ytdl.async_extract_info(_init_url)),
+                    ytdl.sanitize_info(await ytdl.async_extract_info(_init_url, download=False)),
                     self.info_dict["format_id"])):
                 raise AsyncARIA2CDLError("couldnt get video url")
 
@@ -479,7 +484,7 @@ class AsyncARIA2CDownloader:
         ]
 
         _res = await async_waitfortasks(
-            _tasks, events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
+            fs=_tasks, events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
             background_tasks=self.background_tasks)
 
         logger.debug(f"{self.premsg} {_res}")
@@ -494,7 +499,7 @@ class AsyncARIA2CDownloader:
         async def _get_index_proxy(_host: str) -> int:
 
             _res = await async_waitfortasks(
-                AsyncARIA2CDownloader._HOSTS_DL[_host]["queue"].get(),
+                fs=AsyncARIA2CDownloader._HOSTS_DL[_host]["queue"].get(),
                 events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
                 background_tasks=self.background_tasks)
 
@@ -549,7 +554,7 @@ class AsyncARIA2CDownloader:
         try:
             while True:
                 _res = await async_waitfortasks(
-                    self._qspeed.get(), events=self._vid_dl.stop_event,
+                    fs=self._qspeed.get(), events=self._vid_dl.stop_event,
                     background_tasks=self.background_tasks)
 
                 if traverse_obj(_res, ("condition", "event")):

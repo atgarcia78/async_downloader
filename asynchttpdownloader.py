@@ -505,7 +505,7 @@ class AsyncHTTPDownloader:
 
             while True:
                 _res = await async_waitfortasks(
-                    self.parts_queue.get(),
+                    fs=self.parts_queue.get(),
                     events=(self.vid_dl.reset_event, self.vid_dl.stop_event),
                     background_tasks=self.background_tasks,
                 )

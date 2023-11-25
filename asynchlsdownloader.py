@@ -1020,7 +1020,7 @@ class AsyncHLSDownloader:
 
         if _tasks_all:
             await async_waitfortasks(
-                _tasks_all, events=self._vid_dl.stop_event,
+                fs=_tasks_all, events=self._vid_dl.stop_event,
                 background_tasks=self.background_tasks)
 
     async def _decrypt(self, data: bytes, cipher: Optional[CbcMode]) -> bytes:

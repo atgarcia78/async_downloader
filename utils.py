@@ -357,11 +357,11 @@ def nested_obj(d, *selectors, get_all=True, default=None, v=False):
         return res[0] if len(res) == 1 else res
 
 
-def put_sequence(q: Union[queue.Queue, asyncio.Queue], seq: Iterable) -> Union[queue.Queue, asyncio.Queue]:
+def put_sequence(queue: Union[queue.Queue, asyncio.Queue], seq: Iterable) -> Union[queue.Queue, asyncio.Queue]:
     if seq:
-        if queue_ := getattr(q, "queue", getattr(q, "_queue", None)):
-            queue_.extend(seq)
-    return q
+        for el in seq:
+            queue.put_nowait(el)
+    return queue
 
 
 def subnright(pattern, repl, text, n):
@@ -938,16 +938,16 @@ async def async_waitfortasks(
                     lambda x: x._state == "PENDING", _tasks)))
         else:
             _task_done = done.pop()
-            if "list_fs" in _task_done.get_name():
+            if "fs_list" in _task_done.get_name():
                 if _tasks_events:
-                    to_cancel.append(_tasks_events)
+                    to_cancel.extend(list(_tasks_events.keys()))
                 _done.extend(_tasks)
 
             else:
                 _condition["event"] = _task_done.get_name()
                 if _one_task_to_wait_tasks:
                     to_cancel.append(_one_task_to_wait_tasks)
-                to_cancel.extend(_tasks_events)
+                to_cancel.extend(list(_tasks_events.keys()))
                 if _tasks:
                     _done_before_condition.extend(list(filter(
                         lambda x: x._state == "FINISHED", _tasks)))
@@ -1502,7 +1502,7 @@ class TorGuardProxies:
         num=CONF_PROXIES_MAX_N_GR_HOST,
         size=CONF_PROXIES_N_GR_VIDEO,
         port=CONF_TORPROXIES_HTTPPORT,
-        timeout=5,
+        timeout=8,
         event=None,
     ) -> Tuple[List, Dict]:
         TorGuardProxies.logger.info("[init_proxies] start")
