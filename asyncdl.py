@@ -132,7 +132,7 @@ class WorkersRun(Workers):
                     self.logger.debug(f"[move_to_waiting_top] {list(self.waiting)}")
             elif dl_index not in self.running and dl_status in ("stop", "error"):
                 await dl.reinit()
-                await self.add_task(dl_index)
+                await self.add_task(task_index=dl_index)
 
     async def add_dl(self, dl, url_key):
         _pre = f"[add_dl]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
@@ -142,7 +142,7 @@ class WorkersRun(Workers):
         self.info_dl.update({dl.index: {"url": url_key, "dl": dl}})
         self.logger.debug(f"{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]")
         async with self.alock:
-            await self.add_task(dl.index, sortwaiting=True)
+            await self.add_task(task_index=dl.index, sortwaiting=True)
 
     async def _task(self, dl_index):
         url_key, dl = self.info_dl[dl_index]["url"], self.info_dl[dl_index]["dl"]
@@ -211,7 +211,7 @@ class WorkersInit(Workers):
             self.logger.warning(f"{_pre} already processed")
             return
         async with self.alock:
-            await self.add_task(url_key)
+            await self.add_task(task_index=url_key)
 
     async def _task(self, url_key):
         _pre = f"[_task]:[{url_key}]"
