@@ -138,7 +138,7 @@ CLIENT_CONFIG = {
     "headers": {
         "User-Agent": CONF_FIREFOX_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en,es-ES;q=0.5",
+        "Accept-Language": "en-US,en;q=0.5",
         "Sec-Fetch-Mode": "navigate",
     },
     "follow_redirects": True,
@@ -1597,7 +1597,7 @@ class TorGuardProxies:
         headers = {
             "User-Agent": CONF_FIREFOX_UA,
             "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Accept-Language": "en,es-ES;q=0.5",
+            "Accept-Language": "en-US,en;q=0.5",
             "Accept-Encoding": "gzip, deflate, br",
             "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
             "X-Requested-With": "XMLHttpRequest",
@@ -1653,7 +1653,7 @@ class TorGuardProxies:
             headersform = {
                 "User-Agent": CONF_FIREFOX_UA,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "en,es-ES;q=0.5",
+                "Accept-Language": "en-US,en;q=0.5",
                 "Accept-Encoding": "gzip, deflate, br",
                 "Origin": "https://torguard.net",
                 "Alt-Used": "torguard.net",
