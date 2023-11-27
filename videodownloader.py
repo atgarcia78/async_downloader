@@ -31,7 +31,6 @@ from utils import (
     MySyncAsyncEvent,
     Optional,
     Union,
-    async_lock,
     async_suppress,
     cast,
     get_xml,
@@ -65,8 +64,8 @@ class VideoDownloader:
 
     def __init__(self, video_dict, ytdl, nwsetup, args):
         self.background_tasks = set()
-        self.master_hosts_alock = partial(async_lock, VideoDownloader._LOCK)
-        self.master_hosts_lock = VideoDownloader._LOCK
+        # self.master_hosts_alock = partial(async_lock, VideoDownloader._LOCK)
+        # self.master_hosts_lock = VideoDownloader._LOCK
         self.args = args
 
         self._index = None  # for printing
@@ -77,14 +76,17 @@ class VideoDownloader:
 
         if not self.args.path:
 
-            _download_path = Path(Path.home(), "testing", _date_file, self.info_dict["id"])
+            _base = _date_file
             if self.args.use_path_pl:
-
-                _pltitle = self.info_dict.get("playlist") or self.info_dict.get("playlist_title")
+                _pltitle = try_get(
+                    self.info_dict.get("playlist") or self.info_dict.get("playlist_title"),
+                    lambda x: sanitize_filename(x, restricted=True))
                 _plid = self.info_dict.get('playlist_id')
                 if _pltitle and _plid:
-                    _base = f"{_plid}_{sanitize_filename(_pltitle, restricted=True)}_{self.info_dict.get('extractor_key')}"
-                    _download_path = Path(Path.home(), "testing", _base, self.info_dict["id"])
+                    _base = f"{_plid}_{_pltitle}_{self.info_dict.get('extractor_key')}"
+
+            _download_path = Path(Path.home(), "testing", _base, self.info_dict["id"])
+
         else:
             _download_path = Path(self.args.path, self.info_dict["id"])
 
@@ -96,11 +98,13 @@ class VideoDownloader:
         self.end_tasks = MySyncAsyncEvent("end_tasks")
         self.reset_event = MySyncAsyncEvent("reset")
 
-        self.alock = asyncio.Lock()
+        # self.alock = asyncio.Lock()
 
         self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
         self.sync_to_async = partial(
             sync_to_async, thread_sensitive=False, executor=self.ex_videodl)
+
+        _title = sanitize_filename(self.info_dict["title"], restricted=True)
 
         self.info_dl = {
             "id": self.info_dict["id"],
@@ -108,27 +112,18 @@ class VideoDownloader:
             "rpcport": self.args.rpcport,
             "auto_pasres": False,
             "webpage_url": self.info_dict.get("webpage_url"),
-            "title": self.info_dict.get("title"),
+            "title": _title,
             "ytdl": ytdl,
             "date_file": _date_file,
             "download_path": _download_path,
             "filename": Path(
-                _download_path.parent,
-                str(self.info_dict["id"])
-                + "_"
-                + sanitize_filename(self.info_dict["title"], restricted=True)
-                + "."
-                + self.info_dict.get("ext", "mp4"),
-            ),
+                _download_path.parent, f'{self.info_dict["id"]}_{_title}.{self.info_dict.get("ext", "mp4")}'),
             "error_message": "",
             "nwsetup": nwsetup
         }
 
         self._types = ""
         downloaders = []
-
-        _new_info_dict = self.info_dict | {"filename": self.info_dl["filename"],
-                                           "download_path": self.info_dl["download_path"]}
 
         self.total_sizes = {
             "filesize": 0,
@@ -138,21 +133,19 @@ class VideoDownloader:
             self.pause_event, self.resume_event, self.stop_event,
             self.end_tasks, self.reset_event, self.total_sizes, nwsetup)
 
-        dl = self._get_dl(_new_info_dict)
-        downloaders.extend(variadic(dl))
+        downloaders.extend(variadic(self._get_dl(self.info_dict | {
+            "filename": self.info_dl["filename"],
+            "download_path": self.info_dl["download_path"]})))
 
-        res = [dl.status for dl in downloaders]
-
-        if "error" in res:
+        _all_status = [dl.status for dl in downloaders]
+        if "error" in _all_status:
             _status = "error"
-        elif all(el in ("done", "init_manipulating") for el in res):
+        elif all(el in ("done", "init_manipulating") for el in _all_status):
             _status = "init_manipulating"
         else:
             _status = "init"
-
         _filesize = sum(getattr(dl, "filesize", 0) for dl in downloaders)
         _down_size = sum(getattr(dl, "down_size", 0) for dl in downloaders)
-
         self.total_sizes |= {"filesize": _filesize, "down_size": _down_size}
 
         self.info_dl |= {
@@ -183,13 +176,6 @@ class VideoDownloader:
         for dl in self.info_dl["downloaders"]:
             if hasattr(dl, "ex_dl"):
                 dl.ex_dl.shutdown(wait=False, cancel_futures=True)
-
-    def clear_events(self):
-        self.pause_event.clear()
-        self.resume_event.clear()
-        self.stop_event.clear()
-        self.end_tasks.clear()
-        self.reset_event.clear()
 
     @classmethod
     def create_drm_cdm(cls):  # sourcery skip: path-read
@@ -245,22 +231,28 @@ class VideoDownloader:
 
         def _determine_type(info):
             protocol = determine_protocol(info)
-            return "dash" if "dash" in info.get("container", "") else protocol
+            if "dash" in protocol or "dash" in info.get("container", ""):
+                return "dash"
+            if req_fmts := info.get('requested_formats'):
+                for fmt in req_fmts:
+                    if "dash" in fmt.get("container", ""):
+                        return "dash"
+            return protocol
+
+        _drm = try_get(
+            info_dict.get('_has_drm') or info_dict.get('has_drm'),
+            lambda x: False if x is None else x)
+        _dash = _determine_type(info_dict) == "dash"
+
+        if _drm or _dash or info_dict.get("extractor_key") == "Youtube":
+            dl = AsyncNativeDownloader(
+                self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
+            self._types = "NATIVE_DRM" if _drm else "NATIVE"
+            logger.debug(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
+            return dl
 
         if not (_info := info_dict.get("requested_formats")):
             _info = [info_dict]
-        elif info_dict.get("_has_drm") or self.info_dict.get("has_drm"):
-            dl = AsyncNativeDownloader(
-                self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=True)
-            self._types = "NATIVE_DRM"
-            logger.debug(f"{self.premsg}[get_dl] DL type DASH with DRM")
-            return dl
-        elif info_dict.get("extractor_key") == "Youtube":
-            dl = AsyncNativeDownloader(
-                self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=False)
-            self._types = "NATIVE"
-            logger.debug(f"{self.premsg}[get_dl] DL type youtue")
-            return dl
         else:
             for f in _info:
                 f.update({
@@ -275,45 +267,34 @@ class VideoDownloader:
 
         res_dl = []
         _types = []
-        for _, info in enumerate(_info):
+        for info in _info:
             try:
                 type_protocol = _determine_type(info)
-                # si uno de los dl tiene que ser dash, hacemos un sólo dl native
-                if type_protocol in ("http_dash_segments", "dash"):
-                    dl = AsyncNativeDownloader(
-                        self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=False)
-                    self._types = "NATIVE"
-                    logger.debug(f"{self.premsg}[get_dl] DL type youtue")
-                    return dl
-
-                elif type_protocol in ("http", "https"):
-                    if any([self.args.aria2c]):
+                if type_protocol in ("http", "https"):
+                    if self.args.aria2c:
                         dl = AsyncARIA2CDownloader(
                             self.info_dl["rpcport"], self.args, self.info_dl["ytdl"], info, self._infodl)
                         _types.append("ARIA2")
                         logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C")
-                        if dl.auto_pasres:
-                            self.info_dl.update({"auto_pasres": True})
+
                     else:
                         dl = AsyncHTTPDownloader(info, self)
                         _types.append("HTTP")
                         logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HTTP")
-                        if dl.auto_pasres:
-                            self.info_dl.update({"auto_pasres": True})
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
                     dl = AsyncHLSDownloader(
                         self.args, self.info_dl["ytdl"], info, self._infodl)  # self.args.enproxy,
                     _types.append("HLS")
                     logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
-                    if dl.auto_pasres:
-                        self.info_dl.update({"auto_pasres": True})
 
                 else:
                     logger.error(
                         f"{self.premsg}[{info['format_id']}]:protocol not supported")
                     raise NotImplementedError("protocol not supported")
 
+                if dl.auto_pasres:
+                    self.info_dl.update({"auto_pasres": True})
                 res_dl.append(dl)
 
             except Exception as e:
@@ -420,7 +401,7 @@ class VideoDownloader:
             await asyncio.sleep(0)
 
     async def reinit(self):
-        self.clear_events()
+        self._infodl.clear()
         self.info_dl["status"] = "init"
         await asyncio.sleep(0)
         for dl in self.info_dl["downloaders"]:
@@ -541,8 +522,6 @@ class VideoDownloader:
         blocking_tasks = []
 
         try:
-            if not self.alock:
-                self.alock = asyncio.Lock()
 
             self.info_dl["status"] = "manipulating"
             for dl in self.info_dl["downloaders"]:
@@ -550,31 +529,21 @@ class VideoDownloader:
                     dl.status = "manipulating"
 
             blocking_tasks = [
-                self.add_task(
-                    dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}'
-                )
+                self.add_task(dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}')
                 for dl in self.info_dl["downloaders"]
-                if all(
-                    _ not in str(type(dl)).lower()
-                    for _ in ("aria2", "ffmpeg", "saldownloader", "native")
-                )
-                and dl.status == "manipulating"
-            ]
+                if all(_ not in str(type(dl)).lower() for _ in ("aria2", "native"))
+                and dl.status == "manipulating"]
 
             if self.args.subt and self.info_dict.get("requested_subtitles"):
                 blocking_tasks += [self.add_task(aget_subts_files(), name='get_subts')]
 
             if blocking_tasks:
-
-                done, _ = await asyncio.wait(blocking_tasks)
-
-                for d in done:
-                    try:
-                        d.result()
-                    except Exception as e:
-                        logger.exception(
-                            f"{self.premsg}[run_manip] result de dl.ensamble_file: "
-                            + f"{repr(e)}")
+                if _excep := try_get(
+                        await asyncio.wait(blocking_tasks),
+                        lambda x: [d.exception() for d in x[0] if d.exception()] if x[0] else None):
+                    for e in _excep:
+                        logger.error(
+                            f"{self.premsg}[run_manip] result de ensamble: {repr(e)}")
 
             res = True
 
@@ -590,11 +559,12 @@ class VideoDownloader:
             if res:
                 temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
 
+                rc = -1
+
                 if self._types == "NATIVE_DRM":
-                    _video_file_temp = prepend_extension(
-                        (_video_file := str(self.info_dl["downloaders"][0].filename[0])), "temp")
-                    _audio_file_temp = prepend_extension(
-                        (_audio_file := str(self.info_dl["downloaders"][0].filename[1])), "temp")
+
+                    _crypt_files = list(map(str, self.info_dl["downloaders"][0]))
+                    _temp_files = list(map(lambda x: prepend_extension(x, "tmp"), _crypt_files))
 
                     _pssh = cast(str, try_get(
                         traverse_obj(self.info_dict, ("_drm", "pssh")),
@@ -603,49 +573,46 @@ class VideoDownloader:
 
                     _key = None
                     if not _pssh or not _licurl or not (_key := self.get_key_drm(_licurl, _pssh)):
-
                         raise AsyncDLError(
-                            f"{self.premsg}: error processing DRM info - licurl[{_licurl}] pssh[{_pssh}] key[{_key}]")
+                            f"{self.premsg}: error DRM info - licurl[{_licurl}] pssh[{_pssh}] key[{_key}]")
 
                     cmds = [
-                        f"mp4decrypt --key {_key} {_video_file} {_video_file_temp}",
-                        f"mp4decrypt --key {_key} {_audio_file} {_audio_file_temp}"]
+                        f"mp4decrypt --key {_key} {_crypt_file} {_temp_file}"
+                        for _crypt_file, _temp_file in zip(_crypt_files, _temp_files)]
 
                     procs = [await apostffmpeg(_cmd) for _cmd in cmds]
                     rcs = [proc.returncode for proc in procs]
                     logger.debug(
                         f"{self.premsg}: {cmds}\n[rc] {rcs}")
 
-                    rc = -1
                     if sum(rcs) == 0:
-                        cmd = (
-                            f'ffmpeg -y -loglevel repeat+info -i file:"{_video_file_temp}"'
-                            + f' -i file:"{_audio_file_temp}" -vcodec copy -acodec copy file:"{temp_filename}"')
-                        proc = await apostffmpeg(cmd)
-
-                        rc = proc.returncode
-
-                        logger.debug(
-                            f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                            + f"{proc.stdout}\n[stderr]{proc.stderr}")
+                        if len(_crypt_files) == 1:
+                            rc = 0
+                        else:
+                            cmd = "".join([
+                                f'ffmpeg -y -loglevel repeat+info -i file:"{_temp_files[0]}"',
+                                f' -i file:"{_temp_files[1]}" -vcodec copy -acodec copy file:"{temp_filename}"'])
+                            proc = await apostffmpeg(cmd)
+                            logger.debug(
+                                f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
+                                + f"{proc.stdout}\n[stderr]{proc.stderr}")
+                            rc = proc.returncode
 
                     if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
                         logger.debug(f"{self.premsg}: DL video file OK")
 
-                    async with async_suppress(OSError):
-                        await aiofiles.os.remove(_video_file_temp)
-                    async with async_suppress(OSError):
-                        await aiofiles.os.remove(_audio_file_temp)
+                    for _file in _temp_files:
+                        async with async_suppress(OSError):
+                            await aiofiles.os.remove(_file)
 
                 elif len(self.info_dl["downloaders"]) == 1:
-                    rc = -1
                     # usamos ffmpeg para cambiar contenedor
                     # ts del DL de HLS de un sólo stream a mp4
                     if "ts" in self.info_dl["downloaders"][0].filename.suffix:
-                        cmd = (
-                            "ffmpeg -y -probesize max -loglevel "
-                            + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
-                            + f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:"{temp_filename}"')
+                        cmd = "".join([
+                            "ffmpeg -y -probesize max -loglevel ",
+                            f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"",
+                            f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:"{temp_filename}"'])
 
                         proc = await apostffmpeg(cmd)
                         logger.debug(
@@ -655,12 +622,11 @@ class VideoDownloader:
                         rc = proc.returncode
 
                     else:
-                        rc = -1
                         try:
-                            res = await amove(self.info_dl["downloaders"][0].filename, temp_filename)
-                            if res == temp_filename:
+                            if await amove(
+                                    self.info_dl["downloaders"][0].filename,
+                                    temp_filename) == temp_filename:
                                 rc = 0
-
                         except Exception as e:
                             logger.exception(
                                 f"{self.premsg}: error when manipulating {repr(e)}")
@@ -674,27 +640,22 @@ class VideoDownloader:
                             f"{self.premsg}: error move file: {rc}")
 
                 else:
-                    cmd = (
-                        "ffmpeg -y -loglevel repeat+info -i file:"
-                        + f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:"
-                        + f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 "
-                        + "-map 1:a:0 -bsf:a:0 aac_adtstoasc "
-                        + f'-movflags +faststart file:"{temp_filename}"')
-
-                    logger.debug(f"{self.premsg}:{cmd}")
-
-                    rc = -1
+                    cmd = "".join([
+                        "ffmpeg -y -loglevel repeat+info -i file:",
+                        f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:",
+                        f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 ",
+                        "-map 1:a:0 -bsf:a:0 aac_adtstoasc ",
+                        f'-movflags +faststart file:"{temp_filename}"'])
 
                     proc = await apostffmpeg(cmd)
 
                     logger.debug(
-                        f"{self.premsg}"
+                        f"{self.premsg}:{cmd}"
                         + f": ffmpeg rc[{proc.returncode}]\n{proc.stdout}")
 
                     rc = proc.returncode
 
                     if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
-                        #  self.info_dl['status'] = "done"
                         for dl in self.info_dl["downloaders"]:
                             for _file in variadic(dl.filename):
                                 async with async_suppress(OSError):
@@ -713,7 +674,6 @@ class VideoDownloader:
 
                 if self.info_dl["downloaded_subtitles"]:
                     try:
-
                         maplang = {'en': 'eng', 'es': 'spa', 'ca': 'cat'}
                         subtfiles = []
                         subtlang = []
@@ -733,7 +693,8 @@ class VideoDownloader:
                         logger.debug(
                             f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                             + f"{proc.stdout}\n[stderr]{proc.stderr}")
-                        if proc.returncode == 0:
+                        rc = proc.returncode
+                        if rc == 0:
                             await aiofiles.os.replace(embed_filename, self.info_dl["filename"])
                             async with async_suppress(OSError):
                                 await aiofiles.os.remove(temp_filename)
@@ -762,18 +723,20 @@ class VideoDownloader:
                     if _meta := self.info_dict.get("meta_comment"):
                         temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
 
-                        cmd = (
-                            "ffmpeg -y -loglevel repeat+info -i "
-                            + f"file:\"{str(self.info_dl['filename'])}\" -map 0 -dn -ignore_unknown "
-                            + f"-c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart "
-                            + f'file:"{temp_filename}"')
+                        cmd = "".join([
+                            "ffmpeg -y -loglevel repeat+info -i ",
+                            f"file:\"{str(self.info_dl['filename'])}\" -map 0 -dn -ignore_unknown ",
+                            f"-c copy -write_id3v1 1 -metadata 'comment={_meta}' -movflags +faststart ",
+                            f'file:"{temp_filename}"'])
 
                         proc = await apostffmpeg(cmd)
                         logger.debug(
                             f"[{self.info_dict['id']}]"
                             + f"[{self.info_dict['title']}]: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                             + f"{proc.stdout}\n[stderr]{proc.stderr}")
-                        if proc.returncode == 0:
+
+                        rc = proc.returncode
+                        if rc == 0:
                             await aiofiles.os.replace(temp_filename, self.info_dl["filename"])
 
                         xattr.setxattr(

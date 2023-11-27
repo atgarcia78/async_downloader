@@ -68,20 +68,20 @@ class AsyncNativeDownloader:
             self.download_path.mkdir(parents=True, exist_ok=True)
             self._filename = self.info_dict.get(
                 "_filename", self.info_dict.get("filename"))
-            _formats = sorted(
-                self.info_dict["requested_formats"],
-                key=lambda x: (x.get("resolution", "") == "audio_only" or x.get("ext", "") == "m4a"))
 
             if drm:
-                #  1 video, 2 audio
-                self.filename = [
-                    Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
-                    for fdict in _formats]
+                if not (_req_fmts := self.info_dict.get("requested_formats")):
+                    _formats = [self.info_dict]
+                else:
+                    _formats = sorted(
+                        _req_fmts,
+                        key=lambda x: (x.get("resolution", "") == "audio_only" or x.get("ext", "") == "m4a"))
+                    self.filename = [
+                        Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
+                        for fdict in _formats]
             else:
                 self.filename = Path(
-                    self.download_path,
-                    f'{self._filename.stem}' +
-                    f'.{self.info_dict["ext"]}')
+                    self.download_path, f'{self._filename.stem}.{self.info_dict["ext"]}')
 
             self._host = get_host(unquote(_formats[0]["url"]))
             self.down_size = 0

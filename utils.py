@@ -741,7 +741,7 @@ class run_operation_in_executor_from_loop:
             _task = asyncio.create_task(
                 sync_to_async(
                     func, thread_sensitive=False,
-                    executor=ThreadPoolExecutor(thread_name_prefix=name)
+                    executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix=name)
                 )(*args, **kwargs),
                 name=name)
             return (stop_event, _task)
@@ -983,18 +983,12 @@ async def async_waitfortasks(
 @contextlib.asynccontextmanager
 async def async_lock(lock: Union[LockType, threading.Lock, contextlib.nullcontext, None] = None):
     if not lock or (isinstance(lock, contextlib.nullcontext)):
-        try:
-            yield
-        finally:
-            pass
+        yield
+
     else:
-        executor = ThreadPoolExecutor(thread_name_prefix="lock2async")
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(executor, lock.acquire)
-        try:
-            yield  # the lock is held
-        finally:
-            await loop.run_in_executor(executor, lock.release)
+        await asyncio.to_thread(lock.acquire)
+        yield  # the lock is held
+        await asyncio.to_thread(lock.release)
 
 
 async def async_wait_time(n: Union[int, float]):
@@ -1983,9 +1977,12 @@ if yt_dlp:
             self._close = kwargs.get("close", None)
             if self._close is None:
                 self._close = True
-            self.executor = kwargs.get("executor", None)
-            if self.executor is None:
-                self.executor = ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower())
+            if (executor := kwargs.get("executor", None)) is None:
+                executor = ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower())
+            self.sync_to_async = functools.partial(
+                sync_to_async,
+                thread_sensitive=False,
+                executor=executor)
             _silent = kwargs.get("silent")
             if _silent is None:
                 _silent = False
@@ -2009,10 +2006,10 @@ if yt_dlp:
                 self.close()
 
         async def __aenter__(self):
-            return await sync_to_async(super().__enter__, thread_sensitive=False, executor=self.executor)()
+            return await self.sync_to_async(super().__enter__)()
 
         async def __aexit__(self, *args):
-            return await sync_to_async(self.__exit__, thread_sensitive=False, executor=self.executor)(*args)
+            return await self.sync_to_async(self.__exit__)(*args)
 
         def get_extractor(self, el: str) -> Union[tuple, InfoExtractor]:
             if el.startswith('http'):
@@ -2057,15 +2054,12 @@ if yt_dlp:
         async def async_extract_info(self, *args, **kwargs) -> dict:
             return cast(
                 dict,
-                await sync_to_async(self.extract_info, thread_sensitive=False, executor=self.executor)(
-                    *args, **kwargs
-                ),
+                await self.sync_to_async(self.extract_info)(*args, **kwargs)
             )
 
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
-            return await sync_to_async(
-                self.process_ie_result, thread_sensitive=False, executor=self.executor
-            )(*args, **kwargs)
+            return await self.sync_to_async(
+                self.process_ie_result)(*args, **kwargs)
 
     def get_extractor_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL]) -> tuple:
         logger = logging.getLogger("asyncdl")
@@ -4079,12 +4073,9 @@ class NWSetUp:
         except Exception:
             pass
         finally:
-            await sync_to_async(
-                self.proc_aria2c.wait, thread_sensitive=False, executor=self.exe)()
+            await self.sync_to_async(self.proc_aria2c.wait)()
 
-        ainit_aria2c = sync_to_async(
-            init_aria2c, thread_sensitive=False, executor=self.exe)
-        _task_aria2c = [self.asyncdl.add_task(ainit_aria2c(self.asyncdl.args))]
+        _task_aria2c = [self.asyncdl.add_task(self.sync_to_async(init_aria2c)(self.asyncdl.args))]
         done, _ = await asyncio.wait(_task_aria2c)
         for task in done:
             self.proc_aria2c = task.result()
