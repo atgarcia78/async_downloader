@@ -372,6 +372,12 @@ def subnright(pattern, repl, text, n):
     return _text
 
 
+def upt_dict(info_dict: Union[dict, list], **kwargs) -> Union[dict, list]:
+    info_dict_list = [info_dict] if isinstance(info_dict, dict) else info_dict
+    for _el in info_dict_list:
+        _el.update(**kwargs)
+
+
 class classproperty(property):
 
     def __get__(self, owner_self, owner_cls):
