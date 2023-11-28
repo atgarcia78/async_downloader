@@ -14,7 +14,7 @@ from threading import Lock
 import aiofiles.os
 import xattr
 from pywidevine.cdm import Cdm
-from pywidevine.device import Device
+from pywidevine.device import Device, DeviceTypes
 from pywidevine.pssh import PSSH
 from yt_dlp.utils import determine_protocol, sanitize_filename
 
@@ -185,7 +185,7 @@ class VideoDownloader:
             _client_id = fpid.read()
 
         device = Device(
-            type_=Device.Types.ANDROID,
+            type_=DeviceTypes.ANDROID,
             security_level=3,
             flags={},
             client_id=_client_id,
@@ -563,7 +563,7 @@ class VideoDownloader:
 
                 if self._types == "NATIVE_DRM":
 
-                    _crypt_files = list(map(str, self.info_dl["downloaders"][0]))
+                    _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
                     _temp_files = list(map(lambda x: prepend_extension(x, "tmp"), _crypt_files))
 
                     _pssh = cast(str, try_get(
@@ -580,10 +580,12 @@ class VideoDownloader:
                         f"mp4decrypt --key {_key} {_crypt_file} {_temp_file}"
                         for _crypt_file, _temp_file in zip(_crypt_files, _temp_files)]
 
+                    logger.info(f"{self.premsg}: starting decryption files")
+                    logger.debug(f"{self.premsg}: {cmds}")
+
                     procs = [await apostffmpeg(_cmd) for _cmd in cmds]
                     rcs = [proc.returncode for proc in procs]
-                    logger.debug(
-                        f"{self.premsg}: {cmds}\n[rc] {rcs}")
+                    logger.info(f"{self.premsg}: end decryption files with result [{rcs}]")
 
                     if sum(rcs) == 0:
                         if len(_crypt_files) == 1:
