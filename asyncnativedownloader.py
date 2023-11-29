@@ -220,11 +220,11 @@ class AsyncNativeDownloader:
     def _parse_output(self, line):
 
         _line = line.decode("utf-8").strip(" \n")
-        # self._buffer.append(_line)
         if (_res := self._parse(_line)):
             if _fmt := _res.pop('fmt'):
                 if self._file:
                     self.dl_cont[self._file]["smooth_speed"] = "--"
+                    self.dl_cont[self._file]["speed"] = "--"
                 self.speedometer.reset()
                 self.down_size_old = 0
                 self._file = self._streams.get(_fmt)
@@ -312,7 +312,7 @@ class AsyncNativeDownloader:
                 _progress_str = []
                 _temps = [self.dl_cont[_file].copy() for _file in list(self._streams.values())]
                 for _temp in _temps:
-                    if (_speed_meter := _temp.get("smooth_speed", "--")) and _speed_meter != "--":
+                    if (_speed_meter := _temp.get("speed", "--")) and _speed_meter != "--":
                         _speed_str.append(f"{naturalsize(float(_speed_meter), binary=True)}ps")
                     else:
                         _speed_str.append("--")
