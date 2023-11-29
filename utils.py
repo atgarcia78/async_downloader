@@ -1816,6 +1816,7 @@ if yt_dlp:
     from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
     from yt_dlp.utils import (
         ExtractorError,
+        determine_protocol,
         find_available_port,
         get_domain,
         js_to_json,
@@ -2354,6 +2355,16 @@ if yt_dlp:
         logger.debug(f"ytdl opts:\n{ytdl.params}")
 
         return ytdl
+
+    def get_protocol(info):
+        protocol = determine_protocol(info)
+        if "dash" in protocol or "dash" in info.get("container", ""):
+            return "dash"
+        if req_fmts := info.get('requested_formats'):
+            for fmt in req_fmts:
+                if "dash" in fmt.get("container", ""):
+                    return "dash"
+        return protocol
 
     def get_format_id(info_dict, _formatid) -> dict:
         if not info_dict:

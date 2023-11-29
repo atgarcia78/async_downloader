@@ -16,7 +16,7 @@ import xattr
 from pywidevine.cdm import Cdm
 from pywidevine.device import Device, DeviceTypes
 from pywidevine.pssh import PSSH
-from yt_dlp.utils import determine_protocol, sanitize_filename
+from yt_dlp.utils import sanitize_filename
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asynchlsdownloader import AsyncHLSDownloader
@@ -33,6 +33,7 @@ from utils import (
     Union,
     async_suppress,
     cast,
+    get_protocol,
     get_xml,
     naturalsize,
     prepend_extension,
@@ -64,8 +65,6 @@ class VideoDownloader:
 
     def __init__(self, video_dict, ytdl, nwsetup, args):
         self.background_tasks = set()
-        # self.master_hosts_alock = partial(async_lock, VideoDownloader._LOCK)
-        # self.master_hosts_lock = VideoDownloader._LOCK
         self.args = args
 
         self._index = None  # for printing
@@ -229,20 +228,10 @@ class VideoDownloader:
 
     def _get_dl(self, info_dict):
 
-        def _determine_type(info):
-            protocol = determine_protocol(info)
-            if "dash" in protocol or "dash" in info.get("container", ""):
-                return "dash"
-            if req_fmts := info.get('requested_formats'):
-                for fmt in req_fmts:
-                    if "dash" in fmt.get("container", ""):
-                        return "dash"
-            return protocol
-
         _drm = try_get(
             info_dict.get('_has_drm') or info_dict.get('has_drm'),
             lambda x: False if x is None else x)
-        _dash = _determine_type(info_dict) == "dash"
+        _dash = get_protocol(info_dict) == "dash"
 
         if _drm or _dash or info_dict.get("extractor_key") == "Youtube":
             dl = AsyncNativeDownloader(
@@ -269,7 +258,7 @@ class VideoDownloader:
         _types = []
         for info in _info:
             try:
-                type_protocol = _determine_type(info)
+                type_protocol = get_protocol(info)
                 if type_protocol in ("http", "https"):
                     if self.args.aria2c:
                         dl = AsyncARIA2CDownloader(

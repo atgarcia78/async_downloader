@@ -128,7 +128,7 @@ class AsyncNativeDownloader:
             _output_progress = r" - ".join([
                 r"Progress:\s*(?P<progress>\d+\.\d+)%",
                 r"Downloaded:(?P<downloaded>\d+)",
-                r"Speed:(?P<speed>(?:\d+\.\d+|NA)"])
+                r"Speed:(?P<speed>(?:\d+\.\d+|NA))"])
 
             if len(_formats) == 1:
                 fmt = _formats[0]
