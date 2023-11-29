@@ -13,13 +13,11 @@ from urllib.parse import unquote
 from yt_dlp.utils import int_or_none, shell_quote
 
 from utils import (
-    CONF_AUTO_PASRES,
     CONF_INTERVAL_GUI,
     InfoDL,
     LockType,
     MySyncAsyncEvent,
     ProgressTimer,
-    SpeedometerMA,
     async_lock,
     get_host,
     getter_basic_config_extr,
@@ -111,8 +109,6 @@ class AsyncNativeDownloader:
             self._extractor = try_get(
                 self.info_dict.get("extractor_key"), lambda x: x.lower())
             self.auto_pasres = False
-            if self._extractor in CONF_AUTO_PASRES:
-                self.auto_pasres = True
 
             self._limit, self._conn = getter(self._extractor)
             if self._conn < 16:
@@ -129,24 +125,34 @@ class AsyncNativeDownloader:
             self.status = "init"
 
             # for parsing output ffmpeg
-            _output_progress = r"Total:(?P<total>(?:NA|\d+)) - Progress:\s*(?P<progress>\d+\.\d+)% - Downloaded:(?P<downloaded>\d+) - Speed:(?P<speed>\d+\.\d+)"
-            _prename = str(Path(self.download_path, self._filename.stem))
-            _file_start = rf"\[download\] Destination: {_prename}\.f(?P<fmt>[^\.]+)\.[^\.]+$"
-            progress_pattern = re.compile(rf"(?:{_output_progress}|{_file_start})")
-            self._parse = lambda x: try_get(
-                re.search(progress_pattern, x),
-                lambda x: x.groupdict() if x else None)
+            _output_progress = r" - ".join([
+                r"Progress:\s*(?P<progress>\d+\.\d+)%",
+                r"Downloaded:(?P<downloaded>\d+)",
+                r"Speed:(?P<speed>(?:\d+\.\d+|NA)"])
+
+            if len(_formats) == 1:
+                fmt = _formats[0]
+                _pat_fmt = rf"{fmt['format_id']}"
+                _pat_ext = rf"{fmt['ext']}"
+            else:
+                fmt0, fmt1 = _formats
+                _pat_fmt = rf"(?:{fmt0['format_id']}|{fmt1['format_id']})"
+                _pat_ext = rf"(?:{fmt0['ext']}|{fmt1['ext']})"
+
+            _file_start = rf"\[download\] Destination: .+\.f(?P<fmt>{_pat_fmt})\.{_pat_ext}$"
+
+            self.progress_pattern = re.compile(rf"(?:({_output_progress})|({_file_start}))")
+
             self._buffer = []
             self._file = None
-            self.dl_cont = {'video': {"total": "--", "progress": "--", "downloaded": "--", "speed": "--", "smooth_speed": "--"},
-                            'audio': {"total": "--", "progress": "--", "downloaded": "--", "speed": "--", "smooth_speed": "--"}}
+            self.dl_cont = {
+                'video': {"progress": "--", "downloaded": "--", "speed": "--"},
+                'audio': {"progress": "--", "downloaded": "--", "speed": "--"}}
 
             if (_filesize := (
                     self.info_dict.get('filesize') or self.info_dict.get('filesize_approx') or
                     self.info_dict.get('duration', 0) * self.info_dict.get('vbr', 0) * 1000 / 8)):
                 self.filesize = _filesize
-
-            self.speedometer = SpeedometerMA()
 
         except Exception as e:
             logger.exception(repr(e))
@@ -161,13 +167,13 @@ class AsyncNativeDownloader:
     def _make_cmd(self) -> str:
         cmd = [
             "yt-dlp", "-P", str(self.download_path), "-o", f"{self._filename.stem}.%(ext)s",
-            "-f", self.args.format, self.info_dict["webpage_url"], "-v", "-N", str(self.n_workers),
+            "-f", '+'.join(list(self._streams.keys())), self.info_dict["webpage_url"], "-v", "-N", str(self.n_workers),
             "--downloader", "native", "--newline", "--progress-template",
-            "download:Total:%(progress.total_bytes)s - Progress:%(progress._percent_str)s - Downloaded:%(progress.downloaded_bytes)s - Speed:%(progress.speed)s",
+            "Progress:%(progress._percent_str)s - Downloaded:%(progress.downloaded_bytes)s - Speed:%(progress.speed)s",
         ]
         if self.drm:
             cmd.append("--allow-unplayable-formats")
-        _cmd = shell_quote(cmd) + " | egrep 'Destination|Progress'"
+        _cmd = shell_quote(cmd) + ' | egrep "(Destination|Progress)"'
         logger.info(f"{self.premsg}[cmd] {_cmd}")
         return _cmd
 
@@ -186,7 +192,7 @@ class AsyncNativeDownloader:
         async with AsyncNativeDownloader._CLASSLOCK:
             async with self._limit:
                 proc = await asyncio.create_subprocess_shell(
-                    self._make_cmd(), shell=True, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+                    self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                 await asyncio.sleep(0)
                 self._proc[proc.pid] = proc
                 self._tasks[proc.pid] = [self.add_task(self.read_stream(proc)), self.add_task(proc.wait())]
@@ -217,25 +223,29 @@ class AsyncNativeDownloader:
 
         return _res
 
+    def _parse(self, line):
+        _line = line.decode("utf-8").strip(" \n")
+        _res = try_get(
+            re.search(self.progress_pattern, _line),
+            lambda x: x.groupdict() if x else None)
+        return _res
+
     def _parse_output(self, line):
 
-        _line = line.decode("utf-8").strip(" \n")
-        if (_res := self._parse(_line)):
-            if _fmt := _res.pop('fmt'):
-                if self._file:
-                    self.dl_cont[self._file]["smooth_speed"] = "--"
-                    self.dl_cont[self._file]["speed"] = "--"
-                self.speedometer.reset()
-                self.down_size_old = 0
-                self._file = self._streams.get(_fmt)
+        if not (_res := self._parse(line)):
+            return
+        if _fmt := _res.pop('fmt'):
+            if self._file:
+                self.dl_cont[self._file]["speed"] = "--"
+            self.down_size_old = 0
+            self._file = self._streams.get(_fmt)
 
-            elif self._file:
-                if (_dl_size := int_or_none(_res.get("downloaded"))) is not None:
-                    self.down_size += (_inc := _dl_size - self.down_size_old)
-                    self._vid_dl.total_sizes["down_size"] += _inc
-                    self.down_size_old = _dl_size
-                    _res['smooth_speed'] = self.speedometer(_dl_size)
-                    self.dl_cont[self._file] |= _res
+        elif self._file:
+            if (_dl_size := int_or_none(_res.get("downloaded"))) is not None:
+                self.down_size += (_inc := _dl_size - self.down_size_old)
+                self._vid_dl.total_sizes["down_size"] += _inc
+                self.down_size_old = _dl_size
+                self.dl_cont[self._file] |= _res
 
     async def read_stream(self, proc: asyncio.subprocess.Process):
 
@@ -249,8 +259,6 @@ class AsyncNativeDownloader:
                 try:
                     if line := await proc.stdout.readline():
                         self._parse_output(line)
-                    else:
-                        break
                 except (asyncio.LimitOverrunError, ValueError) as e:
                     logger.exception(f"{self.premsg}[read stream] {repr(e)}")
                 finally:
@@ -266,6 +274,7 @@ class AsyncNativeDownloader:
         self.status = "downloading"
         self._proc = {}
         self._tasks = {}
+        _pre = f"{self.premsg}[fetch_async]"
         progress_timer = ProgressTimer()
 
         while True:
@@ -279,14 +288,16 @@ class AsyncNativeDownloader:
                         if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
                             _res = await self.event_handle(pid)
                             if self.status in ("done", "stop", "error") or "status" in _res:
-                                logger.debug(f"{self.premsg}[fetch_async] status[{self.status}] event_handle[{_res}] buffer:\n{self._buffer}")
+                                logger.debug(
+                                    f"{_pre} status[{self.status}] event_handle[{_res}] "
+                                    + f"buffer:\n{self._buffer}")
                                 return
                             if "event" in _res:
-                                logger.debug(f"{self.premsg}[fetch_async] {_res['event']}")
+                                logger.debug(f"{_pre} {_res['event']}")
                                 break
                         await asyncio.sleep(0)
                 except Exception as e:
-                    logger.exception(f"{self.premsg}[fetch_async] inner error {repr(e)}")
+                    logger.exception(f"{_pre} inner error {repr(e)}")
                     self.status = "error"
                     return
                 finally:
