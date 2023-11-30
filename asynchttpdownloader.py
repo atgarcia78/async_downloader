@@ -708,17 +708,12 @@ class AsyncHTTPDownloader:
                 self.init_client.close()
 
     async def partsnotdl(self):
-        res = []
-        for part in self.parts:
-            if part["downloaded"] is False:
-                res.append(part["part"])
-        return res
+        return [part["part"] for part in self.parts if part["downloaded"] is False]
 
     def sync_clean_when_error(self):
         for f in self.parts:
-            if f["downloaded"] is False:
-                if f["filepath"].exists():
-                    f["filepath"].unlink()
+            if f["downloaded"] is False and f["filepath"].exists():
+                f["filepath"].unlink()
 
     async def clean_when_error(self):
         for f in self.parts:

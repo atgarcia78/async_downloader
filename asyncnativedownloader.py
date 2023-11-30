@@ -129,7 +129,6 @@ class AsyncNativeDownloader:
                 r"Progress:\s*(?P<progress>\d+\.\d+)%",
                 r"Downloaded:(?P<downloaded>\d+)",
                 r"Speed:(?P<speed>(?:\d+\.\d+|NA))"])
-
             if len(_formats) == 1:
                 fmt = _formats[0]
                 _pat_fmt = rf"{fmt['format_id']}"
@@ -173,7 +172,7 @@ class AsyncNativeDownloader:
         ]
         if self.drm:
             cmd.append("--allow-unplayable-formats")
-        _cmd = shell_quote(cmd) + ' | egrep "(Destination|Progress)"'
+        _cmd = f'{shell_quote(cmd)} | egrep "(Destination|Progress)"'
         logger.info(f"{self.premsg}[cmd] {_cmd}")
         return _cmd
 
@@ -225,10 +224,10 @@ class AsyncNativeDownloader:
 
     def _parse(self, line):
         _line = line.decode("utf-8").strip(" \n")
-        _res = try_get(
+        return try_get(
             re.search(self.progress_pattern, _line),
-            lambda x: x.groupdict() if x else None)
-        return _res
+            lambda x: x.groupdict() if x else None,
+        )
 
     def _parse_output(self, line):
 
@@ -328,7 +327,7 @@ class AsyncNativeDownloader:
                     else:
                         _speed_str.append("--")
                     if (_progress := _temp.get("progress", "--")) and _progress != "--":
-                        _progress_str.append(_progress + "%")
+                        _progress_str.append(f'{_progress}%"')
                     else:
                         _progress_str.append("--")
 

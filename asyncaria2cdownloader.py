@@ -76,7 +76,7 @@ def aqueue_loaded(n):
     def get_sample(j):
         return try_get(
             list(range(j)),
-            lambda x: x if not random.shuffle(x) else None)
+            lambda x: None if random.shuffle(x) else x)
 
     return put_sequence(asyncio.Queue(), get_sample(n))
 
