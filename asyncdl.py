@@ -6,7 +6,6 @@ import re
 import shutil
 import signal
 import time
-from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
@@ -44,199 +43,11 @@ from utils import (
     sanitize_filename,
     sync_to_async,
     traverse_obj,
-    try_call,
 )
 from videodownloader import VideoDownloader
+from workers import WorkersInit, WorkersRun
 
 logger = mylogger(logging.getLogger("asyncDL"))
-
-
-class Workers:
-    def __init__(self, asyncdl, name, max_workers):
-        self.asyncdl = asyncdl
-        self.logger = logging.getLogger(name)
-        self._max = max_workers
-        self.running = deque()
-        self.waiting = deque()
-        self.tasks = {}
-        self.info_dl = {}
-        self.alock = asyncio.Lock()
-        self.exit = MySyncAsyncEvent(f"{name}exit")
-
-    @property
-    def max_workers(self):
-        return self._max
-
-    @max_workers.setter
-    def max_workers(self, value):
-        self._max = value
-
-    async def add_task(self, task_index=None, sortwaiting=False):
-        # case there is room for one task to run
-
-        if len(self.running) < self.max_workers:
-            if not (task_index := try_call(lambda x: task_index or self.waiting.popleft())):
-                self.logger.debug(f"[add_task][{task_index}]  no candidates in waiting list")
-            else:
-                self.running.append(task_index)
-                self.tasks |= {self.asyncdl.add_task(self._task(task_index)): task_index}
-                self.logger.debug(f"[add_task][{task_index}] task ok {print_tasks(self.tasks)}")
-        elif task_index:
-            self.waiting.append(task_index)
-            if sortwaiting:
-                self.waiting = deque(sorted(self.waiting))
-            self.logger.debug(f"[add_task][{task_index}] task to waiting list")
-        else:
-            self.logger.debug(f"[add_task][{task_index}] running full, nione task was trasnfer")
-
-    async def remove_task(self, task_index):
-        async with self.alock:
-            self.running.remove(task_index)
-            await self.add_task()
-
-    async def has_tasks(self):
-        async with self.alock:
-            return bool(self.waiting or self.running)
-
-
-class WorkersRun(Workers):
-    def __init__(self, asyncdl):
-        super().__init__(asyncdl, "WorkersRun", asyncdl.workers)
-
-    async def add_worker(self):
-        async with self.alock:
-            self.max_workers += 1
-            await self.add_task()
-
-    async def del_worker(self):
-        async with self.alock:
-            if self.max_workers > 0:
-                self.max_workers -= 1
-
-    async def check_to_stop(self):
-        self.logger.debug(
-            f"[check_to_stop] running[{len(self.running)}] " +
-            f"waiting[{len(self.waiting)}]")
-        if not await self.has_tasks():
-            self.logger.debug("[check_to_stop] set exit")
-            self.exit.set()
-            self.asyncdl.end_dl.set()
-
-    async def move_to_waiting_top(self, dl_index):
-        async with self.alock:
-            dl = self.info_dl[dl_index]["dl"]
-            dl_status = dl.info_dl["status"]
-            if dl_index in self.waiting:
-                if self.waiting.index(dl_index) > 0:
-                    self.waiting.remove(dl_index)
-                    self.waiting.appendleft(dl_index)
-                    self.logger.debug(f"[move_to_waiting_top] {list(self.waiting)}")
-            elif dl_index not in self.running and dl_status in ("stop", "error"):
-                await dl.reinit()
-                await self.add_task(task_index=dl_index)
-
-    async def add_dl(self, dl, url_key):
-        _pre = f"[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]:[add_dl]"
-        if dl.index in self.info_dl:
-            self.logger.warning(f"{_pre} dl with index[{dl.index}] already processed")
-            return
-        self.info_dl.update({dl.index: {"url": url_key, "dl": dl}})
-        self.logger.debug(f"{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]")
-        async with self.alock:
-            await self.add_task(task_index=dl.index, sortwaiting=True)
-
-    async def _task(self, dl_index):
-        url_key, dl = self.info_dl[dl_index]["url"], self.info_dl[dl_index]["dl"]
-        _pre = f"[_task]:[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]"
-
-        try:
-            if dl.info_dl["status"] not in ("init_manipulating", "done"):
-                self.logger.debug(f"{_pre} DL init OK, ready to DL")
-                if dl.info_dl.get("auto_pasres"):
-                    self.asyncdl.list_pasres.add(dl.index)
-                    _msg = f", added this dl[{dl.index}] to auto_pasres{list(self.asyncdl.list_pasres)}"
-                    self.logger.debug(f"{_pre} pause-resume update{_msg}")
-
-                await dl.run_dl()
-
-            else:
-                self.logger.debug(f"{_pre} DL init OK, video parts DL OK")
-
-            await self.asyncdl.run_callback(dl, url_key)
-
-        except Exception as e:
-            self.logger.exception(f"{_pre} error {str(e)}")
-        finally:
-            self.logger.debug(f"{_pre} end task worker run")
-            await self.remove_task(dl_index)
-            if self.asyncdl.WorkersInit.exit.is_set():
-                self.logger.debug(f"{_pre} WorkersInit.exit is set")
-                if not await self.has_tasks():
-                    self.logger.debug(f"{_pre} no running no waiting, lets set exit")
-                    self.exit.set()
-                    self.asyncdl.end_dl.set()
-                    self.logger.debug("end_dl set")
-                else:
-                    self.logger.debug(f"{_pre} there are videos running or waiting, so lets exit")
-            else:
-                self.logger.debug(f"{_pre} WorkersInit.exit not set")
-                if await self.has_tasks():
-                    self.logger.debug(f"{_pre} there are videos running or waiting, so lets exit")
-                    return
-                self.logger.debug(
-                    f"{_pre} there are no videos running or waiting, " +
-                    "so lets wait for WorkersInit.exit")
-                await self.asyncdl.WorkersInit.exit.async_wait()
-                if not await self.has_tasks():
-                    self.logger.debug(
-                        f"{_pre} WorkersInit.exit is set after waiting, " +
-                        "no running no waiting, lets set exit")
-                    self.exit.set()
-                    self.asyncdl.end_dl.set()
-                    self.logger.info("end_dl set")
-                else:
-                    self.logger.debug(
-                        f"{_pre} WorkersInit.exit is set after waiting, " +
-                        "there are videos running or waiting, so lets exit")
-
-
-class WorkersInit(Workers):
-    def __init__(self, asyncdl):
-        super().__init__(asyncdl, "WorkersInit", asyncdl.init_nworkers)
-
-    async def add_init(self, url_key):
-        _pre = f"[add_init]:[{url_key}]"
-        self.logger.debug(
-            f"{_pre} running[{len(self.running)}] waiting[{len(self.waiting)}]")
-        if url_key in self.waiting or url_key in list(self.tasks.values()):
-            self.logger.warning(f"{_pre} already processed")
-            return
-        async with self.alock:
-            await self.add_task(task_index=url_key)
-
-    async def _task(self, url_key):
-        _pre = f"[_task]:[{url_key}]"
-
-        try:
-            if url_key == "KILL":
-                await self.remove_task(url_key)
-
-                while await self.has_tasks():
-                    await asyncio.sleep(0)
-
-                self.logger.debug(f"{_pre} end tasks worker init: exit")
-                self.asyncdl.t3.stop()
-                self.exit.set()
-                await self.asyncdl.WorkersRun.check_to_stop()
-
-            else:
-                try:
-                    await self.asyncdl.init_callback(url_key)
-                finally:
-                    await self.remove_task(url_key)
-
-        except Exception as e:
-            self.logger.exception(f"{_pre} error {str(e)}")
 
 
 class AsyncDL:
@@ -778,15 +589,17 @@ class AsyncDL:
                     await self._prepare_for_dl(_url)
                     self.list_videos.append(self.info_videos[_url]["video_info"])
             else:
-                self.info_videos[_url]['video_info'].get('original_url')
+
                 logger.warning(
-                    f"{_pre} {_url}: already in info_videos, trying {entry.get('original_url')}\n{)
+                    f"{_pre} {_url}: already in info_videos, trying {entry.get('original_url')}\n" +
+                    f"{self.info_videos[_url]['video_info'].get('original_url')}")
 
         except Exception as e:
             logger.exception(
                 f"{_pre} error {str(e)} with entry\n{entry}")
 
     async def get_dl(self, url_key):
+
         if self.args.nodl:
             return
 
