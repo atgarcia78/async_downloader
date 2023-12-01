@@ -476,10 +476,8 @@ class AsyncARIA2CDownloader:
         self.opts.set("split", self.n_workers)
 
         logger.debug(
-            "".join([
-                f"{self.premsg}enproxy[{self.args.enproxy}]mode[{self._mode}]",
-                f"proxy[{self._proxy}]_gr[{_gr}]n_workers[{self.n_workers}]"
-            ]))
+            f"{self.premsg}enproxy[{self.args.enproxy}]mode[{self._mode}]" +
+            f"proxy[{self._proxy}]_gr[{_gr}]n_workers[{self.n_workers}]")
 
         _tasks = [
             self.add_task(
@@ -547,7 +545,9 @@ class AsyncARIA2CDownloader:
 
         def _print_el(item: tuple) -> str:
             _secs = item[2].second + item[2].microsecond / 1000000
-            return f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, ['speed': {item[0]}, 'connec': {item[1]}])"
+            return (
+                f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, " +
+                f"['speed': {item[0]}, 'connec': {item[1]}])")
 
         _speed = []
 
@@ -583,10 +583,8 @@ class AsyncARIA2CDownloader:
                     ]):
 
                         logger.info(
-                            "".join([
-                                f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}] ",
-                                f"dl0[{_res_dl0}] ncon[{_res_ncon}]"
-                            ]))
+                            f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}] " +
+                            f"dl0[{_res_dl0}] ncon[{_res_ncon}]")
 
                         _str_speed = ", ".join([_print_el(el) for el in _speed[-_index:]])
                         logger.debug(f"{self.premsg}[check_speed]\n{_str_speed}")
@@ -780,18 +778,21 @@ class AsyncARIA2CDownloader:
     def print_hookup(self):
         msg = ""
         _pre = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}]'
-        _pre2 = "".join([
-            f'{naturalsize(self.down_size, format_=".2f")} ',
-            f'[{naturalsize(self.filesize, format_=".2f") if self.filesize else "NA"}]\n'])
+        _pre2 = (
+            f'{naturalsize(self.down_size, format_=".2f")} ' +
+            f'[{naturalsize(self.filesize, format_=".2f")}]'
+            if self.filesize else "NA")
 
         if self.status == "done":
             msg = f'{_pre} Completed\n'
         elif self.status == "init":
-            msg = f'{_pre} Waiting {_pre2}'
+            msg = f'{_pre} Waiting {_pre2}\n'
         elif self.status == "error":
-            msg = f'{_pre} ERROR {_pre2}'
+            msg = f'{_pre} ERROR {_pre2}\n'
         elif self.status == "stop":
-            msg = f'{_pre} STOPPED {_pre2}'
+            msg = f'{_pre} STOPPED {_pre2}\n'
+        elif self.status == "manipulating":
+            msg = f'{_pre} Ensambling {_pre2}\n'
         elif self.status == "downloading":
             if (all([not self.block_init, not self._vid_dl.reset_event.is_set(),
                      not self._vid_dl.stop_event.is_set(), not self._vid_dl.pause_event.is_set(),
@@ -812,9 +813,6 @@ class AsyncARIA2CDownloader:
 
                 msg = f'{_pre} {_substr} DL PR[{self.last_progress_str}]\n'
 
-        elif self.status == "manipulating":
-            msg = f'{_pre} Ensambling {_pre2}'
-
         return msg
 
     def _downloading_print_hookup(self, _pre):
@@ -824,8 +822,8 @@ class AsyncARIA2CDownloader:
         self.last_progress_str = _progress_str
         _connections = _temp.connections
         _eta_str = _temp.eta_string()
-        _pre_info = "".join([
-            f"CONN[{_connections:2d}/{self.n_workers:2d}] ",
-            f"DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n"])
+        _pre_info = (
+            f"CONN[{_connections:2d}/{self.n_workers:2d}] " +
+            f"DL[{_speed_str}] PR[{_progress_str}] ETA[{_eta_str}]\n")
 
         return f'{_pre} {_pre_info}'

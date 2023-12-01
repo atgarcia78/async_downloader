@@ -25,26 +25,29 @@ class Workers:
     def max_workers(self, value):
         self._max = value
 
-    async def add_task(self, task_index=None, sortwaiting=False):
+    async def add_task(self, **kwargs):
 
-        _pre = lambda: f"[add_task][{task_index}]"
+        task_index = kwargs.get('task_index')
+        sortwaiting = kwargs.get('sortwaiting')
+        _pre = lambda x: f"[add_task][{x}]"
 
         if len(self.running) < self.max_workers:
-            if not (task_index := try_call(
-                    lambda x: task_index or self.waiting.popleft())):
-                self.logger.debug(f"{_pre()} empty waiting list")
+            if not (task_index := (task_index or try_call(
+                    lambda: self.waiting.popleft()))):
+                self.logger.debug(f"{_pre(task_index)} empty waiting list")
             else:
                 self.running.append(task_index)
                 self.tasks |= {self.asyncdl.add_task(
                     self._task(task_index)): task_index}
-                self.logger.debug(f"{_pre()} task ok {print_tasks(self.tasks)}")
+                self.logger.debug(f"{_pre(task_index)} task ok {print_tasks(self.tasks)}")
         elif task_index:
             self.waiting.append(task_index)
             if sortwaiting:
                 self.waiting = deque(sorted(self.waiting))
             self.logger.debug(f"{_pre()} task to waiting list")
         else:
-            self.logger.debug(f"{_pre()} running full, no task was transfer")
+            self.logger.debug(
+                f"{_pre()} running full, no task added from waiting")
 
     async def remove_task(self, task_index):
         async with self.alock:
@@ -96,7 +99,8 @@ class WorkersRun(Workers):
     async def add_dl(self, dl, url_key):
         _pre = f"[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]:[add_dl]"
         if dl.index in self.info_dl:
-            self.logger.warning(f"{_pre} dl with index[{dl.index}] already processed")
+            self.logger.warning(
+                f"{_pre} dl with index[{dl.index}] already processed")
             return
         self.info_dl |= {dl.index: {"url": url_key, "dl": dl}}
         self.logger.debug(

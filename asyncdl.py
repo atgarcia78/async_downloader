@@ -74,7 +74,6 @@ class AsyncDL:
         self.list_urls_to_check = []
 
         self.list_dl = {}
-        self.videos_to_dl = []
 
         self.num_videos_to_check = 0
         self.num_videos_pending = 0
@@ -83,9 +82,6 @@ class AsyncDL:
 
         self.max_index_playlist = 0
 
-        # contadores sobre número de workers init, workers run y workers manip
-
-        self.totalbytes2dl = 0
         self.launch_time = datetime.now()
 
         self.ex_winit = ThreadPoolExecutor(thread_name_prefix="ex_wkinit")
@@ -170,7 +166,8 @@ class AsyncDL:
                         self.info_videos[_url] = self.build_info_video("file_cli", _vid)
                         if _same_video_url := await self.async_check_if_same_video(_url):
                             self.info_videos[_url].update({"samevideo": _same_video_url})
-                            logger.warning(f"{_url}: not added in vidlist, there is entry ssme video {_same_video_url}")
+                            logger.warning(
+                                f"{_url}: not added in vidlist, entry same video {_same_video_url}")
                             await self._prepare_for_dl(_url)
 
                         else:
@@ -424,14 +421,14 @@ class AsyncDL:
             logger.debug(f"{_pre} bye worker")
 
     def _check_if_aldl(self, info_dict, test=False):
-        if not (_id := info_dict.get("id")) or not (_title := info_dict.get("title")):
+
+        _id, _title = self.get_info(info_dict)
+        if not _id or not _title:
             return False
 
         _pre = f"[check_if_aldl][{_id}][{_title}]"
 
         try:
-            _title = sanitize_filename(_title[:MAXLEN_TITLE], restricted=True).upper()
-            _id = sanitize_filename(_id, restricted=True).replace("_", "").replace("-", "")
             vid_name = f"{_id}_{_title}"
 
             if vid_path_str := self.videos_cached.get(vid_name):
@@ -513,7 +510,7 @@ class AsyncDL:
         self.info_videos[url].update({"todl": True})
         video_info = self.info_videos[url]["video_info"]
 
-        _id, _title = self.get_inf(video_info)
+        _id, _title = self.get_info(video_info)
 
         if not video_info.get("filesize", None):
             video_info["filesize"] = 0
@@ -523,12 +520,12 @@ class AsyncDL:
             logger.debug(f"[prepare_for_dl] [{_id}][{_title}] already DL")
 
         if all([self.info_videos[url].get("todl"), not self.info_videos[url].get("aldl"),
-                not self.info_videos[url].get("samevideo"), self.info_videos[url].get("status") != "prenok"]):
+                not self.info_videos[url].get("samevideo"),
+                self.info_videos[url].get("status") != "prenok"]):
 
             if put:
                 await self.WorkersInit.add_init(url)
             async with self.alock:
-                self.videos_to_dl.append(url)
                 self.num_videos_to_check += 1
                 self.num_videos_pending += 1
             return True
@@ -624,8 +621,6 @@ class AsyncDL:
 
         if _filesize := dl.info_dl.get("filesize"):
             self.info_videos[url_key]["video_info"]["filesize"] = _filesize
-            async with self.alock:
-                self.totalbytes2dl += _filesize
 
         async with self.alock:
             self.getlistvid_first.set()
@@ -669,10 +664,9 @@ class AsyncDL:
         worker que lanza la creación de los objetos VideoDownloaders,
         uno por video
         """
-        async with self.alock:
-            _pending = self.num_videos_pending
-            _to_check = self.num_videos_to_check
-            _pre = f"[init_callback]:[{url_key}][{_pending}/{_to_check}]:"
+        _pending = self.num_videos_pending
+        _to_check = self.num_videos_to_check
+        _pre = f"[init_callback]:[{url_key}][{_pending}/{_to_check}]:"
 
         vid = self.info_videos[url_key]["video_info"]
 
@@ -816,7 +810,8 @@ class AsyncDL:
                 if traverse_obj(_res, ("condition", "event")) == "first":
                     self.FEgui = FrontEndGUI(self)
 
-                    tasks_to_wait |= {self.add_task(self.end_dl.async_wait()): "task_workers_run"}
+                    tasks_to_wait |= {
+                        self.add_task(self.end_dl.async_wait()): "task_workers_run"}
 
             if tasks_to_wait:
                 await asyncio.wait(tasks_to_wait)
@@ -998,8 +993,6 @@ class AsyncDL:
                         f"Same requests [{len(list_videossamevideo)}]"
                     ])
                 )
-
-                logger.info(f"Total bytes to DL: [{naturalsize(self.totalbytes2dl)}]")
 
                 _columns = ["URL"]
                 tab_tv = (
