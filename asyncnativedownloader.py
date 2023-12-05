@@ -305,6 +305,26 @@ class AsyncNativeDownloader:
     def print_hookup(self):
         msg = ""
         _now_str = datetime.now().strftime("%H:%M:%S")
+
+        def _print_downloading():
+            _speed_str = []
+            _progress_str = []
+            _temps = [self.dl_cont[_file].copy() for _file in list(self._streams.values())]
+            for _temp in _temps:
+                if (_speed_meter := _temp.get("speed", "--")) and _speed_meter != "--":
+                    _speed_str.append(f"{naturalsize(float(_speed_meter), binary=True)}ps")
+                else:
+                    _speed_str.append("--")
+                if (_progress := _temp.get("progress", "--")) and _progress != "--":
+                    _progress_str.append(f'{_progress}%"')
+                else:
+                    _progress_str.append("--")
+
+            _msg = f'[Native] HOST[{self._host.split(".")[0]}] Video DL [{_speed_str[0]}] PR [{_progress_str[0]}] {_now_str}\n'
+            if len(_temps) > 1:
+                _msg += f'   [Native] HOST[{self._host.split(".")[0]}] Audio DL [{_speed_str[1]}] PR [{_progress_str[1]}]\n'
+            return _msg
+
         try:
             if self.status == "done":
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] Completed {_now_str}\n'
@@ -318,22 +338,7 @@ class AsyncNativeDownloader:
                     + f'[{naturalsize(self.filesize, format_=".2f") if hasattr(self, "filesize") else "NA"}] {_now_str}\n'
                 )
             elif self.status == "downloading":
-                _speed_str = []
-                _progress_str = []
-                _temps = [self.dl_cont[_file].copy() for _file in list(self._streams.values())]
-                for _temp in _temps:
-                    if (_speed_meter := _temp.get("speed", "--")) and _speed_meter != "--":
-                        _speed_str.append(f"{naturalsize(float(_speed_meter), binary=True)}ps")
-                    else:
-                        _speed_str.append("--")
-                    if (_progress := _temp.get("progress", "--")) and _progress != "--":
-                        _progress_str.append(f'{_progress}%"')
-                    else:
-                        _progress_str.append("--")
-
-                msg = f'[Native] HOST[{self._host.split(".")[0]}] Video DL [{_speed_str[0]}] PR [{_progress_str[0]}] {_now_str}\n'
-                if len(_temps) > 1:
-                    msg += f'   [Native] HOST[{self._host.split(".")[0]}] Audio DL [{_speed_str[1]}] PR [{_progress_str[1]}]\n'
+                msg = _print_downloading()
 
             return msg
 
