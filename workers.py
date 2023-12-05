@@ -44,10 +44,10 @@ class Workers:
             self.waiting.append(task_index)
             if sortwaiting:
                 self.waiting = deque(sorted(self.waiting))
-            self.logger.debug(f"{_pre()} task to waiting list")
+            self.logger.debug(f"{_pre(task_index)} task to waiting list")
         else:
             self.logger.debug(
-                f"{_pre()} running full, no task added from waiting")
+                f"{_pre(task_index)} running full, no task added from waiting")
 
     async def remove_task(self, task_index):
         async with self.alock:
