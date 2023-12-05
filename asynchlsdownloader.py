@@ -1138,7 +1138,6 @@ class AsyncHLSDownloader:
                             if (_ev := traverse_obj(_check, "event")):
                                 if _tasks_chunks:
                                     await asyncio.wait(_tasks_chunks[-1:])
-                                await asyncio.wait(_tasks_chunks[-1:])
                                 raise AsyncHLSDLErrorFatal(_ev)
                             if traverse_obj(_check, "pause"):
                                 _timer.reset()

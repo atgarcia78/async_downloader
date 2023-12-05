@@ -778,8 +778,7 @@ class AsyncDL:
         signals = (signal.SIGTERM, signal.SIGINT)
         for s in signals:
             asyncio.get_running_loop().add_signal_handler(
-                s, lambda s=s: asyncio.create_task(self.shutdown(s))
-            )
+                s, lambda s=s: asyncio.create_task(self.shutdown(s)))
 
         try:
             self.STOP = MySyncAsyncEvent("MAINSTOP")

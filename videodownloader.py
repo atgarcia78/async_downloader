@@ -467,9 +467,9 @@ class VideoDownloader:
         for key, val in _subts.items():
             if key.startswith("es"):
                 _final_subts['es'] = val
-            if key.startswith("en"):
+            elif key.startswith("en"):
                 _final_subts['en'] = val
-            if key == "ca":
+            elif key == "ca":
                 _final_subts['ca'] = val
         if not _final_subts:
             return
@@ -577,8 +577,12 @@ class VideoDownloader:
                     logger.info(f"{self.premsg}: end decryption files with result [{rcs}]")
 
                     if sum(rcs) == 0:
-                        if len(_crypt_files) == 1:
-                            rc = 0
+                        if len(_temp_files) == 1:
+                            if await amove(
+                                    _temp_files[0],
+                                    temp_filename) == temp_filename:
+                                rc = 0
+
                         else:
                             cmd = "".join([
                                 f'ffmpeg -y -loglevel repeat+info -i file:"{_temp_files[0]}"',
