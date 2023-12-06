@@ -164,9 +164,12 @@ class AsyncNativeDownloader:
     def _make_cmd(self) -> str:
         cmd = [
             "yt-dlp", "-P", str(self.download_path), "-o", f"{self._filename.stem}.%(ext)s",
-            "-f", '+'.join(list(self._streams.keys())), self.info_dict["webpage_url"], "-v", "-N", str(self.n_workers),
-            "--downloader", "native", "--newline", "--progress-template",
-            "Progress:%(progress._percent_str)s - Downloaded:%(progress.downloaded_bytes)s - Speed:%(progress.speed)s",
+            "-f", '+'.join(list(self._streams.keys())), self.info_dict["webpage_url"],
+            "-v", "-N", str(self.n_workers), "--downloader", "native", "--newline", "--progress-template",
+            " - ".join([
+                "Progress:%(progress._percent_str)s",
+                "Downloaded:%(progress.downloaded_bytes)s",
+                "Speed:%(progress.speed)s"])
         ]
         if self.drm:
             cmd.append("--allow-unplayable-formats")
@@ -303,6 +306,7 @@ class AsyncNativeDownloader:
     def print_hookup(self):
         msg = ""
         _now_str = datetime.now().strftime("%H:%M:%S")
+        _fsize_str = f'[{naturalsize(self.filesize, format_=".2f") if hasattr(self, "filesize") else "NA"}]'
 
         def _print_downloading():
             _speed_str = []
@@ -317,10 +321,15 @@ class AsyncNativeDownloader:
                     _progress_str.append(f'{_progress}%')
                 else:
                     _progress_str.append("--")
-
-            _msg = f'[Native] HOST[{self._host.split(".")[0]}] Video DL [{_speed_str[0]}] PR [{_progress_str[0]}] {_now_str}\n'
+            _msg = (
+                f'[Native] HOST[{self._host.split(".")[0]}] Video DL [{_speed_str[0]}] '
+                + f'PR [{_progress_str[0]}] {_now_str}\n'
+            )
             if len(_temps) > 1:
-                _msg += f'   [Native] HOST[{self._host.split(".")[0]}] Audio DL [{_speed_str[1]}] PR [{_progress_str[1]}]\n'
+                _msg += (
+                    f'   [Native] HOST[{self._host.split(".")[0]}] Audio DL [{_speed_str[1]}] '
+                    + f'PR [{_progress_str[1]}]\n'
+                )
             return _msg
 
         try:
@@ -328,12 +337,12 @@ class AsyncNativeDownloader:
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] Completed {_now_str}\n'
             elif self.status == "init":
                 msg = f'[Native] HOST[{self._host.split(".")[0]}] Waiting '
-                msg += f'[{naturalsize(self.filesize, format_=".2f") if hasattr(self, "filesize") else "NA"}] {_now_str}\n'
+                msg += f'{_fsize_str} {_now_str}\n'
             elif self.status == "error":
                 msg = (
                     f'[Native] HOST[{self._host.split(".")[0]}] ERROR '
                     + f'{naturalsize(self.down_size, format_=".2f")} '
-                    + f'[{naturalsize(self.filesize, format_=".2f") if hasattr(self, "filesize") else "NA"}] {_now_str}\n'
+                    + f'{_fsize_str} {_now_str}\n'
                 )
             elif self.status == "downloading":
                 msg = _print_downloading()
