@@ -126,9 +126,9 @@ class AsyncNativeDownloader:
 
             # for parsing output ffmpeg
             _output_progress = r" - ".join([
-                r"Progress:\s*(?P<progress>\d+\.\d+)%",
-                r"Downloaded:(?P<downloaded>\d+)",
-                r"Speed:(?P<speed>(?:\d+\.\d+|NA))"])
+                r"Progress\:\s*(?P<progress>\d+\.\d+)%",
+                r"Downloaded\:\s*(?P<downloaded>\d+)",
+                r"Speed\:\s*(?P<speed>(?:\d+\.\d+|NA))"])
             if len(_formats) == 1:
                 fmt = _formats[0]
                 _pat_fmt = rf"{fmt['format_id']}"
@@ -138,7 +138,7 @@ class AsyncNativeDownloader:
                 _pat_fmt = rf"(?:{fmt0['format_id']}|{fmt1['format_id']})"
                 _pat_ext = rf"(?:{fmt0['ext']}|{fmt1['ext']})"
 
-            _file_start = rf"\[download\] Destination: .+\.f(?P<fmt>{_pat_fmt})\.{_pat_ext}$"
+            _file_start = rf"\[download\]\s*Destination\:\s*.+\.f(?P<fmt>{_pat_fmt})\.{_pat_ext}$"
 
             self.progress_pattern = re.compile(rf"(?:({_output_progress})|({_file_start}))")
 
@@ -316,7 +316,7 @@ class AsyncNativeDownloader:
                 else:
                     _speed_str.append("--")
                 if (_progress := _temp.get("progress", "--")) and _progress != "--":
-                    _progress_str.append(f'{_progress}%"')
+                    _progress_str.append(f'{_progress}%')
                 else:
                     _progress_str.append("--")
 
