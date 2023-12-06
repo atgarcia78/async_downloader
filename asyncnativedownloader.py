@@ -128,7 +128,7 @@ class AsyncNativeDownloader:
             _output_progress = r" - ".join([
                 r"Progress\:\s*(?P<progress>\d+\.\d+)%",
                 r"Downloaded\:\s*(?P<downloaded>\d+)",
-                r"Speed\:\s*(?P<speed>(?:\d+\.\d+|NA))"])
+                r"Speed\:\s*(?P<speed>(?:\d+(\.\d+)?|NA))"])
             if len(_formats) == 1:
                 fmt = _formats[0]
                 _pat_fmt = rf"{fmt['format_id']}"
@@ -137,9 +137,7 @@ class AsyncNativeDownloader:
                 fmt0, fmt1 = _formats
                 _pat_fmt = rf"(?:{fmt0['format_id']}|{fmt1['format_id']})"
                 _pat_ext = rf"(?:{fmt0['ext']}|{fmt1['ext']})"
-
             _file_start = rf"\[download\]\s*Destination\:\s*.+\.f(?P<fmt>{_pat_fmt})\.{_pat_ext}$"
-
             self.progress_pattern = re.compile(rf"(?:({_output_progress})|({_file_start}))")
 
             self._buffer = []
