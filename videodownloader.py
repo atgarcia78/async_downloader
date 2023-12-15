@@ -395,7 +395,7 @@ class VideoDownloader:
         await asyncio.sleep(0)
         for dl in self.info_dl["downloaders"]:
             dl.status = "init"
-            if hasattr(dl, "update_uri"):
+            if "aria2" not in str(type(dl)).lower() and hasattr(dl, "update_uri"):
                 await dl.update_uri()
             if "hls" in str(type(dl)).lower():
                 await self.sync_to_async(dl.init)()

@@ -75,6 +75,8 @@ class AsyncDL:
 
         self.list_dl = {}
 
+        self.task_run_manip = {}
+
         self.num_videos_to_check = 0
         self.num_videos_pending = 0
 
@@ -429,7 +431,7 @@ class AsyncDL:
         _pre = f"[check_if_aldl][{_id}][{_title}]"
 
         try:
-            vid_name = f"{_id}_{_title}"
+            vid_name = f"{_id}_{_title.upper()}"
 
             if vid_path_str := self.videos_cached.get(vid_name):
                 logger.debug(f"{_pre} already DL")  # video en local
@@ -496,11 +498,11 @@ class AsyncDL:
         return await self.sync_to_async(self._check_if_same_video)(url_to_check)
 
     def get_info(self, video_info):
-        if _id := video_info.get("id"):
+        if (_id := video_info.get("id")):
             video_info["id"] = sanitize_filename(
                 _id, restricted=True).replace("_", "").replace("-", "")
 
-        if _title := video_info.get("title"):
+        if (_title := video_info.get("title")):
             video_info["title"] = sanitize_filename(
                 _title[:MAXLEN_TITLE], restricted=True)
 
@@ -722,28 +724,7 @@ class AsyncDL:
             self.list_pasres.discard(dl.index)
             if dl.info_dl["status"] == "init_manipulating":
                 logger.debug(f"[run_callback] start to manip {dl.info_dl['title']}")
-                task_run_manip = self.add_task(dl.run_manip())
-
-                done, _ = await asyncio.wait([task_run_manip])
-
-                for d in done:
-                    try:
-                        d.result()
-                    except Exception as e:
-                        logger.exception(
-                            "".join([
-                                f"[run_callback] [{dl.info_dict['title']}]: ",
-                                f"Error with video manipulation - {str(e)}"
-                            ])
-                        )
-
-                        self.info_videos[url_key]["error"].append(
-                            f"\n error with video manipulation {str(e)}")
-
-                if dl.info_dl["status"] == "done":
-                    self.info_videos[url_key].update({"status": "done"})
-                else:
-                    self.info_videos[url_key].update({"status": "nok"})
+                self.task_run_manip[self.add_task(dl.run_manip())] = {"url": url_key, "dl": dl}
 
             elif dl.info_dl["status"] == "stop":
                 logger.debug(f"[run_callback][{url_key}]: STOPPED")
@@ -814,6 +795,26 @@ class AsyncDL:
 
             if tasks_to_wait:
                 await asyncio.wait(tasks_to_wait)
+                if self.task_run_manip:
+                    done, _ = await asyncio.wait(self.task_run_manip)
+
+                    for _task in done:
+                        url_key, dl = list(self.task_run_manip[_task].values())
+                        if e := _task.exception():
+                            logger.error(
+                                "".join([
+                                    f"[run_callback] [{dl.info_dict['title']}]: ",
+                                    f"Error with video manipulation - {str(e)}"
+                                ])
+                            )
+
+                            self.info_videos[url_key]["error"].append(
+                                f"\n error with video manipulation {str(e)}")
+
+                        if dl.info_dl["status"] == "done":
+                            self.info_videos[url_key].update({"status": "done"})
+                        else:
+                            self.info_videos[url_key].update({"status": "nok"})
 
         except BaseException as e:
             logger.error(f"[async_ex] {str(e)}")
