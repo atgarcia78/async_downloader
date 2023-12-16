@@ -181,7 +181,6 @@ class AsyncDL:
                     await self._prepare_entry_pl_for_dl(_vid)
 
         try:
-            url_list = []
             _url_list_caplinks = []
             _url_list_cli = []
             self.url_pl_list = {}
@@ -215,13 +214,12 @@ class AsyncDL:
                 _url_list["cli"] = _url_list_cli
 
             if self.args.collection_files:
-                await self.get_info_files()
+                await get_info_files()
 
             logger.debug(f"{_pre} list videos: \n{_for_print_videos(self.list_videos)}")
             logger.debug(
-                "".join([
-                    f"{_pre} Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\t",
-                    f"CAP[{len(_url_list_caplinks)}]"]))
+                f"{_pre} Initial # urls:\n\tCLI[{len(_url_list_cli )}]\n\t" +
+                f"CAP[{len(_url_list_caplinks)}]")
 
             if _url_list:
                 for _source, _ulist in _url_list.items():
@@ -243,10 +241,9 @@ class AsyncDL:
                             if not self.url_pl_list.get(_elurl):
                                 self.url_pl_list[_elurl] = {"source": _source}
 
-                url_list = list(self.info_videos.keys())
-
                 logger.debug(
-                    f"{_pre}[url_list] urls not pl [{len(url_list)}]\n{url_list}")
+                    f"{_pre}[url_list] urls not pl [{len(self.info_videos)}]\n" +
+                    f"{list(self.info_videos.keys())}")
 
                 if self.url_pl_list:
                     logger.debug(
@@ -385,11 +382,8 @@ class AsyncDL:
                                     if _ent.get("n_entries", 0) > 1:
                                         _ent.update({"webpage_url": f"{_wurl}?index={_ent['playlist_index']}"})
                                         logger.warning(
-                                            "".join([
-                                                f"{_pre}[{_ent['playlist_index']}]: nentries > 1, ",
-                                                f"webpage_url == original_url: {_wurl}"
-                                            ])
-                                        )
+                                            f"{_pre}[{_ent['playlist_index']}]: nentries > 1, " +
+                                            f"webpage_url == original_url: {_wurl}")
 
                                 await self._prepare_entry_pl_for_dl(_ent)
                                 async with self.alock:
@@ -470,10 +464,8 @@ class AsyncDL:
                         syncos.utime(file_aldl, (int(time.time()), mtime), follow_symlinks=False)
                     except Exception as e:
                         logger.debug(
-                            "".join([
-                                f"{_pre} [{str(file_aldl)}] -> ",
-                                f"[{str(vid_path)}] error when copying times {str(e)}"
-                            ]))
+                            f"{_pre} [{str(file_aldl)}] -> " +
+                            f"[{str(vid_path)}] error when copying times {str(e)}")
 
             return vid_path_str
 
@@ -578,9 +570,8 @@ class AsyncDL:
 
                     self.info_videos[_url] |= {"samevideo": _same_video_url}
                     logger.warning(
-                        "".join([
-                            f"{_pre} {_url}: has not been added",
-                            f" to video list because it gets same video than {_same_video_url}"]))
+                        f"{_pre} {_url}: has not been added" +
+                        f" to video list because it gets same video than {_same_video_url}")
 
                     await self._prepare_for_dl(_url)
 
@@ -611,10 +602,9 @@ class AsyncDL:
             self.info_videos[url_key]["video_info"], self.ytdl,
             self.nwsetup, self.args)
 
-        _pre = "".join([
-            f"[init_callback][get_dl]:[{dl.info_dict.get('id')}]",
-            f"[{dl.info_dict.get('title')}][{url_key}]:"
-        ])
+        _pre = (
+            f"[init_callback][get_dl]:[{dl.info_dict.get('id')}]" +
+            f"[{dl.info_dict.get('title')}][{url_key}]:")
 
         logger.debug(f"{_pre} {dl.info_dl}")
 
@@ -733,11 +723,8 @@ class AsyncDL:
 
             elif dl.info_dl["status"] == "error":
                 logger.error(
-                    "".join([
-                        f"[run_callback][{url_key}]: error when dl video, can't go",
-                        f"por manipulation - {dl.info_dl.get('error_message')}"
-                    ])
-                )
+                    f"[run_callback][{url_key}]: error when dl video, can't go" +
+                    f"por manipulation - {dl.info_dl.get('error_message')}")
 
                 self.info_videos[url_key]["error"].append(
                     f"error when dl video: {dl.info_dl.get('error_message')}"
@@ -802,11 +789,8 @@ class AsyncDL:
                         url_key, dl = list(self.task_run_manip[_task].values())
                         if e := _task.exception():
                             logger.error(
-                                "".join([
-                                    f"[run_callback] [{dl.info_dict['title']}]: ",
-                                    f"Error with video manipulation - {str(e)}"
-                                ])
-                            )
+                                f"[run_callback] [{dl.info_dict['title']}]: " +
+                                f"Error with video manipulation - {str(e)}")
 
                             self.info_videos[url_key]["error"].append(
                                 f"\n error with video manipulation {str(e)}")
@@ -987,12 +971,9 @@ class AsyncDL:
                 )
 
                 logger.info(
-                    "".join([
-                        f"Total videos [{len(list_videos)}]\nTo DL ",
-                        f"[{(_tv2dl := len(list_videos2dl))}]\nAlready DL [{len(list_videosaldl)}]\n",
-                        f"Same requests [{len(list_videossamevideo)}]"
-                    ])
-                )
+                    f"Total videos [{len(list_videos)}]\nTo DL " +
+                    f"[{(_tv2dl := len(list_videos2dl))}]\nAlready DL [{len(list_videosaldl)}]\n" +
+                    f"Same requests [{len(list_videossamevideo)}]")
 
                 _columns = ["URL"]
                 tab_tv = (

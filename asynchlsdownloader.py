@@ -705,10 +705,8 @@ class AsyncHLSDownloader:
             self.status = "init_manipulating"
         else:
             logger.debug(
-                "".join([
-                    f"{self.premsg}:RESET[{self.n_reset}]:prep_reset:OK ",
-                    f"{self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}"
-                ]))
+                f"{self.premsg}:RESET[{self.n_reset}]:prep_reset:OK " +
+                f"{self.frags_to_dl[0]} .. {self.frags_to_dl[-1]}")
 
     @retry
     def get_reset_info(self, _reset_url: str, plns=True, first=False) -> dict:
