@@ -522,7 +522,7 @@ class AsyncHLSDownloader:
 
     def calculate_filesize(self) -> Optional[int]:
         return (
-            int(self.totalduration * 1000 * _bitrate / 8)
+            int(self.totalduration * 1024 * _bitrate / 8)
             if (
                 _bitrate := cast(float, traverse_obj(self.info_dict, "tbr", "abr"))
             )
