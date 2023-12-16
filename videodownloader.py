@@ -97,7 +97,7 @@ class VideoDownloader:
         self.end_tasks = MySyncAsyncEvent("end_tasks")
         self.reset_event = MySyncAsyncEvent("reset")
 
-        # self.alock = asyncio.Lock()
+        self.alock = asyncio.Lock()
 
         self.ex_videodl = ThreadPoolExecutor(thread_name_prefix="ex_videodl")
         self.sync_to_async = partial(

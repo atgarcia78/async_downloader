@@ -122,7 +122,7 @@ CONF_ARIA2C_N_CHUNKS_CHECK_SPEED = _min // 4  # 60
 CONF_ARIA2C_TIMEOUT_INIT = 20
 CONF_INTERVAL_GUI = 0.2
 
-CONF_ARIA2C_EXTR_GROUP = ["doodstream", "tubeload", "redload", "highload", "embedo", "streamsb", "mixdrop"]
+CONF_ARIA2C_EXTR_GROUP = ["doodstream"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_URLS = [
     # "GVDBlogPlaylist",
@@ -1840,6 +1840,7 @@ if yt_dlp:
         my_dec_on_exception,
     )
     from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
+    from yt_dlp.networking import HEADRequest
     from yt_dlp.utils import (
         ExtractorError,
         determine_protocol,
@@ -1857,7 +1858,6 @@ if yt_dlp:
         variadic,
         write_string,
     )
-
     assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
@@ -1929,12 +1929,14 @@ if yt_dlp:
 
         _debug_phr = [
             "Falling back on generic information extractor",
-            "Extracting URL:",
+            "Extracting URL",
+            "Extracting cookies from:",
             "Media identified",
             "The information of all playlist entries will be held in memory",
             "Looking for video embeds",
             "Identified a HTML5 media",
             "Identified a KWS Player",
+            "Identified a KVS Player",
             " unable to extract",
             "Looking for embeds",
             "Looking for Brightcove embeds",
@@ -1948,7 +1950,9 @@ if yt_dlp:
             "Formats sorted by:",
             "No video formats found!",
             "Requested format is not available",
-            "You have asked for UNPLAYABLE formats to be listed/downloaded"
+            "You have asked for UNPLAYABLE formats to be listed/downloaded",
+            "in player engine - download may fail",
+            "cookies from firefox"
         ]
 
         _skip_phr = ["Downloading", "Extracting information", "Checking", "Logging"]
@@ -1961,6 +1965,12 @@ if yt_dlp:
 
         def error(self, msg, *args, **kwargs):
             self.log(logging.DEBUG, msg, *args, **kwargs)
+
+        def info(self, msg, *args, **kwargs):
+            if any(_ in msg for _ in self._debug_phr):
+                self.log(logging.DEBUG, msg, *args, **kwargs)
+            else:
+                self.log(logging.INFO, msg, *args, **kwargs)
 
         def warning(self, msg, *args, **kwargs):
             if any(_ in msg for _ in self._debug_phr):
@@ -1979,6 +1989,7 @@ if yt_dlp:
                     [
                         (mobj in ("[redirect]", "[download]", "[debug+]", "[info]")),
                         (mobj in ("[debug]") and any(_ in msg for _ in self._debug_phr)),
+                        "Extracting URL:" in msg,
                         any(_ in mobj2 for _ in self._skip_phr),
                     ]
                 ):
@@ -2081,8 +2092,29 @@ if yt_dlp:
                     _ev_stop_dl.set()
                     await asyncio.sleep(0)
 
-        def sanitize_info(self, *args, **kwargs) -> dict:
-            return cast(dict, super().sanitize_info(*args, **kwargs))
+        def _get_filesize(self, info) -> dict:
+            try:
+                if _res := self.urlopen(HEADRequest(info['url'], headers=info.get('http_headers', {}))):
+                    _filesize_str = _res.get_header('Content-Length')
+                    _accept_ranges = any([
+                        _res.get_header('Accept-Ranges'), _res.get_header('Content-Range')])
+                    return {
+                        'filesize': int_or_none(_filesize_str),
+                        'accept_ranges': _accept_ranges}
+            except Exception as e:
+                logger = logging.getLogger("asyncdl")
+                logger.exception(f"[myytdl_getfilesize] fail {repr(e)}\n{info}")
+                return {}
+
+        def sanitize_info(self, info: dict, **kwargs) -> dict:
+
+            if (
+                    info['extractor'] == 'generic' and not info.get('filesize') and
+                    get_protocol(info) in ('http', 'https')
+            ):
+                info |= self._get_filesize(info)
+
+            return cast(dict, super().sanitize_info(info, **kwargs))
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
             return cast(

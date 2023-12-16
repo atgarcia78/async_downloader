@@ -213,6 +213,8 @@ class AsyncARIA2CDownloader:
             "dry-run": "false",
         }
 
+        # logger.info(f"{self.premsg}[init]\n{opts_dict}\n{self._mode}, {self._nsplits}")
+
         if _proxy:
             opts_dict["all-proxy"] = _proxy
 
@@ -245,7 +247,7 @@ class AsyncARIA2CDownloader:
         return _task
 
     def add_init_task(self):
-        if self._mode == "group" and not self.init_task:
+        if not self.init_task:
             self.init_task.add(
                 self.add_task(self.update_uri(), name=f"{self.premsg}[add_init_task]"))
 
@@ -728,6 +730,26 @@ class AsyncARIA2CDownloader:
 
     async def fetch_async(self):
 
+        async def _handle_init_task():
+            self.add_init_task()
+            _res = await async_waitfortasks(
+                fs=list(self.init_task),
+                events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
+                background_tasks=self.background_tasks)
+            self.init_task.clear()
+            logger.debug(f"{self.premsg} {_res}")
+            if _res["errors"]:
+                raise _res["errors"][0]
+
+        def _setup():
+            self.n_rounds += 1
+            self.dl_cont = None
+            self.block_init = True
+            self._index_proxy = -1
+            if self._mode != "noproxy":
+                self._proxy = None
+
+        self.status = "downloading"
         self.progress_timer.reset()
         check_task = None
         if self.args.check_speed:
@@ -735,23 +757,9 @@ class AsyncARIA2CDownloader:
                 self.check_speed(), name=f"{self.premsg}[check_task]")
         try:
             while True:
-                self.n_rounds += 1
-                self.dl_cont = None
-                self.block_init = True
-                self._index_proxy = -1
-                if self._mode != "noproxy":
-                    self._proxy = None
-                self.status = "downloading"
+                _setup()
                 try:
-                    self.add_init_task()
-                    _res = await async_waitfortasks(
-                        fs=list(self.init_task),
-                        events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
-                        background_tasks=self.background_tasks)
-                    self.init_task.clear()
-                    logger.debug(f"{self.premsg} {_res}")
-                    if _res["errors"]:
-                        raise _res["errors"][0]
+                    await _handle_init_task()
                     async with async_lock(self.sem):
                         await self.fetch()
                     if self.status in {"done", "error", "stop"}:

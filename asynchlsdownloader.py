@@ -881,7 +881,8 @@ class AsyncHLSDownloader:
                         f"{_pre()} waits for rest scenes in [{self.fromplns}] to start DL "
                         + f"[{_inreset}]")
                     wait_for_either(
-                        [AsyncHLSDownloader._PLNS[self.fromplns]["reset"], self._vid_dl.stop_event], timeout=300)
+                        [AsyncHLSDownloader._PLNS[self.fromplns]["reset"],
+                         self._vid_dl.stop_event], timeout=300)
 
                 with AsyncHLSDownloader._CLASSLOCK:
                     try_call(lambda: AsyncHLSDownloader._PLNS["ALL"]["in_reset"].remove(self.fromplns))
