@@ -244,9 +244,10 @@ class AsyncARIA2CDownloader:
         _task.add_done_callback(self.background_tasks.discard)
         return _task
 
-    def add_init_task(self, debug=True):
+    def add_init_task(self):
         if self._mode == "group" and not self.init_task:
-            self.init_task.add(self.add_task(self.update_uri(debug=debug), name=f"{self.premsg}[add_init_task]"))
+            self.init_task.add(
+                self.add_task(self.update_uri(), name=f"{self.premsg}[add_init_task]"))
 
     def config_client(self, opts_dict):
         self.opts = AsyncARIA2CDownloader.aria2_API.get_global_options()
@@ -256,10 +257,9 @@ class AsyncARIA2CDownloader:
                     logger.warning(f"{self.premsg} couldnt set [{key}] to [{value}]")
 
     def _get_filesize(self, uris, proxy=None) -> Optional[tuple]:
-        logger.debug(f"{self.premsg}[get_filesize] start aria2dl dry-run")
-
         opts_dict = {
-            "header": "\n".join([f"{key}: {value}" for key, value in self.headers.items()]),
+            "header": "\n".join(
+                [f"{key}: {value}" for key, value in self.headers.items()]),
             "dry-run": "true",
             "dir": str(self.download_path),
             "out": self.filename.name,
@@ -370,7 +370,9 @@ class AsyncARIA2CDownloader:
     def uptpremsg(self):
         _upt = f"{self.premsg} host: {self._host} mode: {self._mode}"
         if self._mode != "noproxy":
-            _upt += f" proxy: {self._proxy} index_pr: {self._index_proxy} count: {AsyncARIA2CDownloader._HOSTS_DL[self._host]['count']}"
+            _upt += (
+                f" proxy: {self._proxy} index_pr: {self._index_proxy}" +
+                f" count: {AsyncARIA2CDownloader._HOSTS_DL[self._host]['count']}")
         return _upt
 
     async def init(self):
@@ -379,9 +381,7 @@ class AsyncARIA2CDownloader:
                 if resupt := await self.aupdate(dl_cont):
                     if any(_ in resupt for _ in ("error", "reset")):
                         raise AsyncARIA2CDLError("init: error update dl_cont")
-
             self.dl_cont = dl_cont
-
         except BaseException as e:
             if isinstance(e, KeyboardInterrupt):
                 raise
@@ -498,7 +498,7 @@ class AsyncARIA2CDownloader:
             raise AsyncARIA2CDLError(f"{self.premsg} couldnt get uris")
         return cast(list[str], variadic(_temp))
 
-    async def update_uri(self, debug=True):
+    async def update_uri(self):
 
         async def _get_index_proxy(_host: str) -> int:
 
@@ -517,8 +517,7 @@ class AsyncARIA2CDownloader:
 
             return cast(int, _temp)
 
-        if not debug:
-            logger.info(f"{self.premsg}[update_uri] start")
+        logger.debug(f"{self.premsg}[update_uri] start")
 
         _init_url = self.info_dict.get("webpage_url")
         if self.special_extr:
@@ -540,7 +539,7 @@ class AsyncARIA2CDownloader:
             elif self._mode == "group":
                 if (_temp := await self._update_uri_proxy_group(_init_url)) is not None:
                     self.uris = _temp
-        logger.debug(f"{self.premsg}[update_uri] uris:\n{self.uris}")
+        logger.debug(f"{self.premsg}[update_uri] end with uris:\n{self.uris}")
 
     async def check_speed(self):
 
@@ -698,7 +697,8 @@ class AsyncARIA2CDownloader:
                         await _update_counters(self.dl_cont.completed_length)
                         if self.args.check_speed:
                             self._qspeed.put_nowait(
-                                (self.dl_cont.download_speed, self.dl_cont.connections, datetime.now(), self.dl_cont.progress))
+                                (self.dl_cont.download_speed, self.dl_cont.connections,
+                                 datetime.now(), self.dl_cont.progress))
 
                 await asyncio.sleep(0)
 
@@ -745,7 +745,8 @@ class AsyncARIA2CDownloader:
                 try:
                     self.add_init_task()
                     _res = await async_waitfortasks(
-                        fs=list(self.init_task), events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
+                        fs=list(self.init_task),
+                        events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
                         background_tasks=self.background_tasks)
                     self.init_task.clear()
                     logger.debug(f"{self.premsg} {_res}")

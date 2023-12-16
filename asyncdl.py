@@ -719,7 +719,7 @@ class AsyncDL:
             async with self.alock:
                 self.num_videos_pending -= 1
 
-    async def run_callback(self, dl, url_key):
+    def run_callback(self, dl, url_key):
         try:
             self.list_pasres.discard(dl.index)
             if dl.info_dl["status"] == "init_manipulating":

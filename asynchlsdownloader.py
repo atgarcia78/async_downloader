@@ -411,13 +411,19 @@ class AsyncHLSDownloader:
             self.frags_to_dl.append(i + 1)
 
     def _get_init_section(self, _initfrag):
-        if not self.info_init_section or not self.info_init_section['downloaded'] or not self.info_init_section['file'].exists():
+        if (
+            not self.info_init_section or not self.info_init_section['downloaded'] or
+            not self.info_init_section['file'].exists()
+        ):
             _file_path = Path(f"{str(self.fragments_base_path)}.Frag0")
             _url = _initfrag.absolute_uri
             if "&hash=" in _url and _url.endswith("&="):
                 _url += "&="
             _cipher = None
-            if hasattr(_initfrag, 'key') and _initfrag.key.method == "AES-128" and _initfrag.key.iv:
+            if (
+                hasattr(_initfrag, 'key') and _initfrag.key.method == "AES-128" and
+                _initfrag.key.iv
+            ):
                 if (_key := self.download_key(cast(str, _initfrag.key.absolute_uri))):
                     _cipher = AES.new(_key, AES.MODE_CBC, binascii.unhexlify(_initfrag.key.iv[2:]))
             self.info_init_section |= (
@@ -426,7 +432,7 @@ class AsyncHLSDownloader:
         if not self.info_init_section['downloaded']:
             self.get_init_section()
 
-    def init(self):  # sourcery skip: assign-if-exp, extract-method
+    def init(self):
 
         self.n_reset = 0
         self.frags_to_dl = []
@@ -907,7 +913,10 @@ class AsyncHLSDownloader:
     async def upt_status(self):
         _timer = ProgressTimer()
         while not self._vid_dl.end_tasks.is_set():
-            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2) and (self.down_size and not self.check_any_event_is_set()):
+            if (
+                _timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2) and
+                self.down_size and not self.check_any_event_is_set()
+            ):
                 async with self._asynclock:
                     _down_size = self.down_size
                     _n_dl_frag = self.n_dl_fragments
@@ -1107,11 +1116,10 @@ class AsyncHLSDownloader:
                     raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
 
                 async with (
-                        aiofiles.open(filename, mode="ab") as fileobj,
-                        client.stream("GET", url, headers=headers) as response):
-
+                    aiofiles.open(filename, mode="ab") as fileobj,
+                    client.stream("GET", url, headers=headers) as response
+                ):
                     await prepare_iter(response, fileobj)
-
                     self.num_bytes_downloaded = response.num_bytes_downloaded
                     _timer = ProgressTimer()
                     _timer2 = ProgressTimer()
@@ -1162,7 +1170,10 @@ class AsyncHLSDownloader:
                 logger.error(f"{_premsg}: Error: {repr(e)}")
                 await self._clean_frag(info_frag, e)
                 raise e
-            except (asyncio.CancelledError, RuntimeError, AsyncHLSDLErrorFatal, httpx.ReadTimeout) as e:
+            except (
+                asyncio.CancelledError, RuntimeError,
+                AsyncHLSDLErrorFatal, httpx.ReadTimeout
+            ) as e:
                 logger.debug(f"{_premsg}: Error: {repr(e)}")
                 await self._clean_frag(info_frag, e)
                 raise e
