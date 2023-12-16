@@ -1122,45 +1122,33 @@ class AsyncHLSDownloader:
                     await prepare_iter(response, fileobj)
                     self.num_bytes_downloaded = response.num_bytes_downloaded
                     _timer = ProgressTimer()
-                    _timer2 = ProgressTimer()
-                    _buffer = []
                     _tasks_chunks = []
 
-                    async def _write_to_file():
+                    async def _write_to_file(data):
                         if _tasks_chunks:
                             await asyncio.wait(_tasks_chunks[-1:])
-                        if _buffer:
-                            _tasks_chunks.append(
-                                self.add_task(
-                                    fileobj.write(b''.join(_buffer)),
-                                    name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
-                            _buffer.clear()
+                        _tasks_chunks.append(
+                            self.add_task(
+                                fileobj.write(data),
+                                name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
 
-                    async def _handle_iter():
+                    async def _handle_iter(chunk):
                         if _timer.has_elapsed(CONF_INTERVAL_GUI / 2):
                             self.num_bytes_downloaded = await self._update_counters(
                                 response.num_bytes_downloaded, self.num_bytes_downloaded)
-                        if _timer2.has_elapsed(5 * CONF_INTERVAL_GUI):
-                            await _write_to_file()
+                        await _write_to_file(await self._decrypt(chunk, cipher))
                         if (_check := await self.event_handle(_premsg)):
-                            if (_ev := traverse_obj(_check, "event")):
-                                if _tasks_chunks:
-                                    await asyncio.wait(_tasks_chunks[-1:])
-                                raise AsyncHLSDLErrorFatal(_ev)
-                            if traverse_obj(_check, "pause"):
+                            if "pause" in _check:
                                 _timer.reset()
-                                _timer2.reset()
 
                     async for chunk in response.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                        if not chunk:
-                            continue
-                        _buffer.append(await self._decrypt(chunk, cipher))
-                        await _handle_iter()
-                        await asyncio.sleep(0)
+                        if chunk:
+                            await _handle_iter(chunk)
+                        else:
+                            await asyncio.sleep(0)
 
-                    await self._update_counters(
+                    self.num_bytes_downloaded = await self._update_counters(
                         response.num_bytes_downloaded, self.num_bytes_downloaded)
-                    await _write_to_file()
                     if _tasks_chunks:
                         await asyncio.wait(_tasks_chunks[-1:])
 
@@ -1295,10 +1283,6 @@ class AsyncHLSDownloader:
                                         return
                                 _cause = self._vid_dl.reset_event.is_set()
                                 logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
-
-                            elif _cause == "manual":  # change num workers
-                                logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
-                                continue
 
                             try:
                                 async with self._limit_reset:

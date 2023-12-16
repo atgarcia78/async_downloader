@@ -312,18 +312,19 @@ class VideoDownloader:
                 if "aria2" in str(type(dl)).lower():
                     dl.opts.set("split", dl.n_workers)
 
-            await self.reset("manual")
+            await self.reset(cause="hard")
 
             logger.info(f"{self.premsg}: workers set to {n}")
 
     async def reset_from_console(self):
-        await self.reset("hard")
+        await self.reset(cause="hard")
 
     async def reset(self, cause: Union[str, None] = None, wait=True):
         if self.info_dl["status"] != "downloading":
             return
         _wait_tasks = []
         if not self.reset_event.is_set():
+            logger.info(f"{self.premsg}[reset] {cause}")
             self.reset_event.set(cause)
             await asyncio.sleep(0)
             for dl in self.info_dl["downloaders"]:
@@ -349,7 +350,7 @@ class VideoDownloader:
             return
 
         try:
-
+            logger.debug(f"{self.premsg}[stop]")
             self.info_dl["status"] = "stop"
             for dl in self.info_dl["downloaders"]:
                 dl.status = "stop"
