@@ -94,6 +94,7 @@ class AsyncARIA2CDownloader:
         self.background_tasks = set()
         self.info_dict = video_dict
         self._vid_dl = info_dl
+        self._vid_dl_events = [self._vid_dl.reset_event, self._vid_dl.stop_event]
         self.args = args
         self._pos = None
 
@@ -126,7 +127,6 @@ class AsyncARIA2CDownloader:
             f'{_filename.stem}.{self.info_dict["format_id"]}.aria2c.{self.info_dict["ext"]}')
 
         self.dl_cont = None
-
         self.status = "init"
         self.block_init = True
         self.init_task = set()
@@ -151,19 +151,16 @@ class AsyncARIA2CDownloader:
                 self.special_extr = False
                 limit = limiter_non.ratelimit("transp", delay=True)
                 maxsplits = self.n_workers
-
             _mode = "simple"
             _sph = False
             if maxsplits < 16:
                 _sph = True
                 if name in CONF_ARIA2C_EXTR_GROUP:
                     _mode = "group"
-
             if name in CONF_AUTO_PASRES:
                 self.auto_pasres = True
                 self._min_check_speed = CONF_ARIA2C_MIN_N_CHUNKS_DOWNLOADED_TO_CHECK_SPEED // 2
                 self._n_check_speed = CONF_ARIA2C_N_CHUNKS_CHECK_SPEED // 2
-
             return (_sph, _mode, limit, maxsplits)
 
         self.auto_pasres = False
@@ -178,14 +175,20 @@ class AsyncARIA2CDownloader:
             with AsyncARIA2CDownloader._LOCK:
                 if self._host not in AsyncARIA2CDownloader._HOSTS_DL:
                     AsyncARIA2CDownloader._HOSTS_DL |= {
-                        self._host: {"count": 0, "queue": aqueue_loaded(CONF_PROXIES_MAX_N_GR_HOST)}}
+                        self._host: {
+                            "count": 0,
+                            "queue": aqueue_loaded(CONF_PROXIES_MAX_N_GR_HOST)
+                        }
+                    }
         else:
             self._mode = "noproxy"
             if _sem:
                 with self.ytdl.params.setdefault("lock", Lock()):
                     self.ytdl.params.setdefault("sem", {})
-                    self.sem = cast(LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
-            self._proxy = _proxy
+                    self.sem = cast(
+                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
+
+        self._proxy = _proxy
 
         self.n_workers = self._nsplits
         self.down_size = 0
@@ -194,14 +197,15 @@ class AsyncARIA2CDownloader:
             if _res := self._get_filesize(self.uris, proxy=_proxy):
                 self.filesize, self.down_size = _res[0], _res[1]
         if self.filesize:
-            if (self.filename.exists() and not Path(f"{str(self.filename)}.aria2").exists() and
-                    ((self.filesize - 100) < (_dsize := self.filename.stat().st_size) < (self.filesize + 100))):
+            if (
+                self.filename.exists() and not Path(f"{str(self.filename)}.aria2").exists() and
+                ((self.filesize - 100) < (_dsize := self.filename.stat().st_size) < (self.filesize + 100))
+            ):
                 self.status = "done"
                 self.down_size = _dsize
                 return
-            _nsplits = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
-            if _nsplits < self.n_workers:
-                self.n_workers = _nsplits
+
+            self.n_workers = min(self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1, self.n_workers)
 
         opts_dict = {
             "split": self.n_workers,
@@ -211,15 +215,13 @@ class AsyncARIA2CDownloader:
             "uri-selector": "inorder",
             "min-split-size": CONF_ARIA2C_MIN_SIZE_SPLIT,
             "dry-run": "false",
+            "all-proxy": self._proxy or ""
         }
 
-        # logger.info(f"{self.premsg}[init]\n{opts_dict}\n{self._mode}, {self._nsplits}")
-
-        if _proxy:
-            opts_dict["all-proxy"] = _proxy
+        # if _proxy:
+        #     opts_dict["all-proxy"] = _proxy
 
         self.config_client(opts_dict)
-
         self.progress_timer = ProgressTimer()
         self._qspeed = asyncio.Queue()
         self.n_rounds = 0
@@ -384,48 +386,49 @@ class AsyncARIA2CDownloader:
                     if any(_ in resupt for _ in ("error", "reset")):
                         raise AsyncARIA2CDLError("init: error update dl_cont")
             self.dl_cont = dl_cont
-        except BaseException as e:
-            if isinstance(e, KeyboardInterrupt):
-                raise
+        except Exception as e:
+            _msg_error = str(e)
             if dl_cont and dl_cont.status == "error":
-                _msg_error = f"{str(e)} - {dl_cont.error_message}"
-            else:
-                _msg_error = str(e)
+                _msg_error += f" - {dl_cont.error_message}"
             self.error_message = _msg_error
             logger.exception(f"{self.uptpremsg()}[init] error: {_msg_error}")
             self.status = "error"
         finally:
             self.block_init = False
-            await asyncio.sleep(0)
+            # await asyncio.sleep(0)
 
-    async def get_uri(self, _init_url, _proxy_port: int, n: int = 0, simple=False):
+    async def _get_info(self, pytdl, url):
+        return get_format_id(
+            pytdl.sanitize_info(
+                await pytdl.async_extract_info(url, download=False)),
+            self.info_dict["format_id"])
+
+    async def get_uri(self, _init_url, _proxy_port: int, n: int = 0):
+
+        def _get_url_proxy(url, port) -> str:
+            _url_as_dict = urlparse(url)._asdict()
+            _dom = re.sub(r"^(www.)", "", f"{_url_as_dict['netloc']}")
+            _url_as_dict["netloc"] = f"asyncdlrouting{port}.{_dom}"
+            return urlunparse(list(_url_as_dict.values()))
 
         _proxy = f"http://127.0.0.1:{_proxy_port}"
         logger.debug(f"{self.premsg} proxy ip{n} {_proxy}")
 
-        get_info = lambda pytdl, info: get_format_id(
-            pytdl.sanitize_info(info),
-            self.info_dict["format_id"])
-
         try:
-            async with myYTDL(params=self.ytdl.params, silent=True, proxy=_proxy) as proxy_ytdl:
-                proxy_info = get_info(
-                    proxy_ytdl, await proxy_ytdl.async_extract_info(_init_url, download=False))
+            async with myYTDL(
+                params=self.ytdl.params, silent=True, proxy=_proxy
+            ) as proxy_ytdl:
+                proxy_info = await self._get_info(proxy_ytdl, _init_url)
 
             _url = cast(str, traverse_obj(proxy_info, ("url", {unquote})))
-
             logger.debug(f"{self.premsg} ip{n}{_proxy} uri{n} {_url}")
-
             if not _url:
                 raise AsyncARIA2CDLError("couldnt get video url")
 
-            if simple:
+            if self._mode == "simple":
                 return _url
-
-            _url_as_dict = urlparse(_url)._asdict()
-            _dom = re.sub(r"^(www.)", "", f"{_url_as_dict['netloc']}")
-            _url_as_dict["netloc"] = f"asyncdlrouting{_proxy_port}.{_dom}"
-            return cast(str, urlunparse(list(_url_as_dict.values())))
+            else:
+                return _get_url_proxy(_url, _proxy_port)
 
         except Exception as e:
             _msg = f"host[{self._host}]pr[{n}:{_proxy}]{str(e)}"
@@ -436,13 +439,8 @@ class AsyncARIA2CDownloader:
 
     async def _update_uri_noproxy(self, _init_url):
 
-        get_info = lambda pytdl, info: get_format_id(
-            pytdl.sanitize_info(info),
-            self.info_dict["format_id"])
-
         async with myYTDL(params=self.ytdl.params, silent=True) as ytdl:
-            if not (_info := get_info(
-                    ytdl, await ytdl.async_extract_info(_init_url, download=False))):
+            if not (_info := await self._get_info(ytdl, _init_url)):
                 raise AsyncARIA2CDLError("couldnt get video url")
 
         video_url = unquote(_info["url"])
@@ -463,7 +461,7 @@ class AsyncARIA2CDownloader:
         _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
         self._proxy = f"http://127.0.0.1:{_proxy_port}"
         self.opts.set("all-proxy", self._proxy)
-        return await self.get_uri(_init_url, _proxy_port, simple=True)
+        return await self.get_uri(_init_url, _proxy_port)
 
     async def _update_uri_proxy_group(self, _init_url):
         self._proxy = "http://127.0.0.1:8899"
@@ -482,16 +480,17 @@ class AsyncARIA2CDownloader:
             f"{self.premsg}enproxy[{self.args.enproxy}]mode[{self._mode}]" +
             f"proxy[{self._proxy}]_gr[{_gr}]n_workers[{self.n_workers}]")
 
+        _base_proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
         _tasks = [
             self.add_task(
-                self.get_uri(_init_url, CONF_PROXIES_BASE_PORT + self._index_proxy * 100 + j, n=j),
+                self.get_uri(_init_url, _base_proxy_port + j, n=j),
                 name=f"{self.premsg}[update_uri][{j}]")
             for j in range(1, _gr + 1)
         ]
 
         _res = await async_waitfortasks(
-            fs=_tasks, events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
-            get_results=True, background_tasks=self.background_tasks)
+            fs=_tasks, events=self._vid_dl_events,
+            get_results=True)
 
         logger.debug(f"{self.premsg} {_res}")
         if traverse_obj(_res, ("condition", "event")):
@@ -503,11 +502,9 @@ class AsyncARIA2CDownloader:
     async def update_uri(self):
 
         async def _get_index_proxy(_host: str) -> int:
-
             _res = await async_waitfortasks(
                 fs=AsyncARIA2CDownloader._HOSTS_DL[_host]["queue"].get(),
-                events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
-                background_tasks=self.background_tasks)
+                events=self._vid_dl_events)
 
             if traverse_obj(_res, ("condition", "event")):
                 return -1
@@ -531,8 +528,7 @@ class AsyncARIA2CDownloader:
         else:
             if (_temp := await _get_index_proxy(self._host)) < 0:
                 return
-            else:
-                self._index_proxy = _temp
+            self._index_proxy = _temp
 
             if self._mode == "simple":
                 if _proxy_info_url := await self._update_uri_proxy_simple(_init_url):
@@ -541,6 +537,7 @@ class AsyncARIA2CDownloader:
             elif self._mode == "group":
                 if (_temp := await self._update_uri_proxy_group(_init_url)) is not None:
                     self.uris = _temp
+
         logger.debug(f"{self.premsg}[update_uri] end with uris:\n{self.uris}")
 
     async def check_speed(self):
@@ -563,8 +560,7 @@ class AsyncARIA2CDownloader:
         try:
             while True:
                 _res = await async_waitfortasks(
-                    fs=self._qspeed.get(), events=self._vid_dl.stop_event,
-                    background_tasks=self.background_tasks)
+                    fs=self._qspeed.get(), events=self._vid_dl.stop_event)
 
                 if traverse_obj(_res, ("condition", "event")):
                     return
@@ -611,7 +607,7 @@ class AsyncARIA2CDownloader:
             logger.debug(f"{self.premsg}[check_speed] bye")
 
     def check_any_event_is_set(self, incpause=True):
-        _events = [self._vid_dl.reset_event, self._vid_dl.stop_event]
+        _events = self._vid_dl_events
         if incpause:
             _events.append(self._vid_dl.pause_event)
         return [_ev.name for _ev in _events if _ev.is_set()]
@@ -656,7 +652,7 @@ class AsyncARIA2CDownloader:
         elif error == "403":
             tout = 60
         _res = await async_wait_for_any(
-            [self._vid_dl.stop_event, self._vid_dl.reset_event], timeout=tout)
+            self._vid_dl_events, timeout=tout)
         if _event := _res.get("event"):
             if "stop" in _event:
                 self.status = "stop"
@@ -676,7 +672,10 @@ class AsyncARIA2CDownloader:
                 self._vid_dl.total_sizes["down_size"] += _iter_bytes
 
         try:
-            if self.status in ("done", "error", "stop") or "event" in await self.event_handle():
+            if (
+                self.status in ("done", "error", "stop") or
+                "event" in await self.event_handle()
+            ):
                 return
             await self.init()
             if self.status in ("done", "error", "stop"):
@@ -689,7 +688,6 @@ class AsyncARIA2CDownloader:
                 if self.progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
                     if "event" in await self.event_handle():
                         return
-
                     if _result := await self.aupdate(self.dl_cont):
                         if "error" in _result:
                             raise AsyncARIA2CDLError("fetch error: error update dl_cont")
@@ -730,17 +728,6 @@ class AsyncARIA2CDownloader:
 
     async def fetch_async(self):
 
-        async def _handle_init_task():
-            self.add_init_task()
-            _res = await async_waitfortasks(
-                fs=list(self.init_task),
-                events=(self._vid_dl.reset_event, self._vid_dl.stop_event),
-                background_tasks=self.background_tasks)
-            self.init_task.clear()
-            logger.debug(f"{self.premsg} {_res}")
-            if _res["errors"]:
-                raise _res["errors"][0]
-
         def _setup():
             self.n_rounds += 1
             self.dl_cont = None
@@ -749,12 +736,22 @@ class AsyncARIA2CDownloader:
             if self._mode != "noproxy":
                 self._proxy = None
 
+        async def _handle_init_task():
+            self.add_init_task()
+            _res = await async_waitfortasks(
+                fs=list(self.init_task), events=self._vid_dl_events)
+            self.init_task.clear()
+            logger.debug(f"{self.premsg} {_res}")
+            if _res["errors"]:
+                raise _res["errors"][0]
+
         self.status = "downloading"
         self.progress_timer.reset()
         check_task = None
         if self.args.check_speed:
             check_task = self.add_task(
-                self.check_speed(), name=f"{self.premsg}[check_task]")
+                self.check_speed(),
+                name=f"{self.premsg}[check_task]")
         try:
             while True:
                 _setup()
