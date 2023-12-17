@@ -2025,7 +2025,7 @@ if yt_dlp:
                 thread_sensitive=False,
                 executor=executor)
             opts = {}
-            if _proxy := kwargs.pop("proxy"):
+            if _proxy := kwargs.get("proxy"):
                 opts["proxy"] = _proxy
             if kwargs.get("silent"):
                 opts["quiet"] = True
@@ -2363,7 +2363,9 @@ if yt_dlp:
             "allowed_extractors": ["default"],
             "http_headers": headers,
             "proxy": args.proxy,
-            "logger": MyYTLogger(logger, quiet=args.quiet, verbose=args.verbose, superverbose=args.vv),
+            "logger": MyYTLogger(
+                logger, quiet=args.quiet, verbose=args.verbose,
+                superverbose=args.vv),
             "verbose": args.verbose,
             "quiet": args.quiet,
             "format": args.format,
@@ -2382,7 +2384,10 @@ if yt_dlp:
             "usenetrc": True,
             "skip_download": True,
             "writesubtitles": True,
-            "postprocessors": [{"key": "FFmpegSubtitlesConvertor", "format": "srt", "when": "before_dl"}],
+            "postprocessors": [
+                {"key": "FFmpegSubtitlesConvertor",
+                 "format": "srt",
+                 "when": "before_dl"}],
             "concurrent_fragment_downloads": 64,
             "restrictfilenames": True,
             "user_agent": args.useragent,
@@ -2501,20 +2506,64 @@ if yt_dlp:
         """
         raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
         """
-        _kwargs = kwargs.copy()
-        new_e = _kwargs.pop("new_e", Exception)
-        _client = None
-        if 'client' not in _kwargs:
-            _kwargs['client'] = (_client := httpx.Client(**CLIENT_CONFIG))
+        new_e = kwargs.pop("new_e", Exception)
         try:
-            return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
+            return _send_http_request(url, **kwargs)
         except ExtractorError as e:
             raise new_e(str(e)) from e
         except (ConnectError, httpx.HTTPStatusError) as e:
             return {"error": str(e)}
+
+    def raise_extractor_error(msg, expected=True, _from=None):
+        raise ExtractorError(msg, expected=expected) from _from
+
+    def raise_reextract_info(msg, expected=True, _from=None):
+        raise ReExtractInfo(msg, expected=expected) from _from
+
+    def _send_http_request(url, **kwargs) -> Optional[httpx.Response]:
+        _type = kwargs.pop('_type', "GET")
+        fatal = kwargs.pop('fatal', True)
+        _logger = kwargs.pop('logger', print)
+        _client_cl = False
+        if not (client := kwargs.pop('client', None)):
+            client = httpx.Client(**CLIENT_CONFIG)
+            _client_cl = True
+        res = None
+        req = None
+        _msg_err = ""
+
+        try:
+            req = client.build_request(_type, url, **kwargs)
+            if not (res := client.send(req)):
+                return None
+            if fatal:
+                res.raise_for_status()
+            return res
+        except ConnectError as e:
+            _msg_err = str(e)
+            if 'errno 61' in _msg_err.lower():
+                raise
+            else:
+                raise_extractor_error(_msg_err)
+        except HTTPStatusError as e:
+            e.args = (e.args[0].split('\nFor more')[0],)
+            _msg_err = str(e)
+            if e.response.status_code == 403:
+                raise_reextract_info(_msg_err)
+            elif e.response.status_code == 503:
+                raise StatusError503(_msg_err) from None
+            else:
+                raise
+        except Exception as e:
+            _msg_err = str(e)
+            if not res:
+                raise TimeoutError(_msg_err) from None
+            else:
+                raise_extractor_error(_msg_err)
         finally:
-            if _client:
-                _client.close()
+            _logger(f"[send_http_req] {_msg_err} {req}:{req.headers}:{res}")
+            if _client_cl:
+                client.close()
 
     def get_xml(mpd_url, **kwargs):
         import defusedxml.ElementTree as etree

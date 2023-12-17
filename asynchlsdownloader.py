@@ -344,6 +344,7 @@ class AsyncHLSDownloader:
         self, coro: Union[Coroutine, asyncio.Task], *,
         name: Optional[str] = None
     ) -> asyncio.Task:
+
         _task = coro
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
@@ -355,7 +356,9 @@ class AsyncHLSDownloader:
     @on_exception
     def download_key(self, key_uri: str) -> Optional[bytes]:
         return try_get(
-            send_http_request(key_uri, client=self.init_client, new_e=AsyncHLSDLError),
+            send_http_request(
+                key_uri, client=self.init_client,
+                logger=logger.debug, new_e=AsyncHLSDLError),
             lambda x: x.content if x else None)
 
     @on_503
@@ -365,6 +368,7 @@ class AsyncHLSDownloader:
             res := send_http_request(
                 self.info_dict["url"],
                 client=self.init_client,
+                logger=logger.debug,
                 new_e=AsyncHLSDLError,
             )
         ):
@@ -640,7 +644,10 @@ class AsyncHLSDownloader:
             raise AsyncHLSDLError(f"{self.premsg}:[get_init_section] not url or file")
         cipher: Optional[CbcMode] = cast(Optional[CbcMode], _res[2])
         try:
-            if (res := send_http_request(uri, client=self.init_client, new_e=AsyncHLSDLError)):
+            if (
+                res := send_http_request(
+                    uri, client=self.init_client, logger=logger.debug, new_e=AsyncHLSDLError)
+            ):
                 if isinstance(res, dict):
                     raise AsyncHLSDLError(
                         f"{self.premsg}:[get_init_section] {res['error']}")
