@@ -324,7 +324,7 @@ class VideoDownloader:
             return
         _wait_tasks = []
         if not self.reset_event.is_set():
-            logger.info(f"{self.premsg}[reset] {cause}")
+            logger.debug(f"{self.premsg}[reset] {cause}")
             self.reset_event.set(cause)
             await asyncio.sleep(0)
             for dl in self.info_dl["downloaders"]:
