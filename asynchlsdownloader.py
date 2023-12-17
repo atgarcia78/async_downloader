@@ -31,7 +31,6 @@ from utils import (
     CountDowns,
     FrontEndGUI,
     InfoDL,
-    LimitContextDecorator,
     List,
     MySyncAsyncEvent,
     Optional,
@@ -156,7 +155,11 @@ class AsyncHLSDownloader:
     _INRESET_403 = InReset403()
     _qproxies = None
 
-    def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL) -> None:
+    def __init__(
+            self, args: Namespace, ytdl: myYTDL,
+            video_dict: dict, info_dl: InfoDL
+    ) -> None:
+
         try:
             self.background_tasks = set()
             self.tasks = []
@@ -172,7 +175,8 @@ class AsyncHLSDownloader:
                 self.base_download_path, self.info_dict["format_id"])
             self.download_path.mkdir(parents=True, exist_ok=True)
             self.config_file = Path(
-                self.base_download_path, f"config_file.{self.info_dict['format_id']}")
+                self.base_download_path,
+                f"config_file.{self.info_dict['format_id']}")
             _filename = Path(
                 self.info_dict.get("_filename", self.info_dict.get("filename")))
             self.fragments_base_path = Path(
@@ -200,8 +204,8 @@ class AsyncHLSDownloader:
                 sync_to_async, thread_sensitive=False, executor=self.ex_dl)
 
             self.totalduration = cast(int, self.info_dict.get("duration", 0))
-            self.filesize = cast(
-                int, traverse_obj(self.info_dict, "filesize", "filesize_approx", default=0))  # type: ignore
+            self.filesize = cast(int, traverse_obj(
+                self.info_dict, "filesize", "filesize_approx", default=0))
 
             self._proxy = {}
             if _proxy := cast(str, self.args.proxy):
@@ -231,9 +235,11 @@ class AsyncHLSDownloader:
             self.auto_pasres = False
             self.fromplns = None
             self._extractor = cast(
-                str, try_get(self.info_dict.get("extractor_key"), lambda x: x.lower()))
+                str, try_get(
+                    self.info_dict.get("extractor_key"),
+                    lambda x: x.lower()))
 
-            def getter(name: Union[str, None]) -> tuple[int, Union[int, float], LimitContextDecorator]:
+            def getter(name: Union[str, None]) -> tuple:
                 if not name:
                     self.special_extr = False
                     return (self.n_workers, 0, limiter_non.ratelimit("transp", delay=True))
@@ -269,7 +275,10 @@ class AsyncHLSDownloader:
             self.info_init_section = {}
             self.n_dl_fragments = 0
 
-            if self.filename.exists() and (_dsize := self.filename.stat().st_size) > 0:
+            if (
+                self.filename.exists() and
+                (_dsize := self.filename.stat().st_size) > 0
+            ):
                 self.status = "done"
                 self.down_size = _dsize
                 return
@@ -284,9 +293,11 @@ class AsyncHLSDownloader:
             if not AsyncHLSDownloader._qproxies:
                 _seq = zip(
                     random.sample(
-                        range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST),
+                        range(CONF_PROXIES_MAX_N_GR_HOST),
+                        CONF_PROXIES_MAX_N_GR_HOST),
                     random.sample(
-                        range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST))
+                        range(CONF_PROXIES_MAX_N_GR_HOST),
+                        CONF_PROXIES_MAX_N_GR_HOST))
 
                 AsyncHLSDownloader._qproxies = put_sequence(Queue(), _seq)
 
@@ -329,7 +340,10 @@ class AsyncHLSDownloader:
         if self.fromplns:
             self.upt_plns()
 
-    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+    def add_task(
+        self, coro: Union[Coroutine, asyncio.Task], *,
+        name: Optional[str] = None
+    ) -> asyncio.Task:
         _task = coro
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
