@@ -86,7 +86,9 @@ def check_is_dl(filepath, hsize):
     if filepath.exists():
         size = filepath.stat().st_size
         is_dl = True
-        if not size or (hsize and not hsize - 100 <= size <= hsize + 100):
+        if not size or (
+            hsize and not (hsize - 100 <= size <= hsize + 100)
+        ):
             is_dl = False
             filepath.unlink()
             dec_size = size
@@ -1019,8 +1021,7 @@ class AsyncHLSDownloader:
 
         if _tasks_all:
             await async_waitfortasks(
-                fs=_tasks_all, events=self._vid_dl.stop_event,
-                background_tasks=self.background_tasks)
+                fs=_tasks_all, events=self._vid_dl.stop_event)
 
     async def _decrypt(self, data: bytes, cipher: Optional[CbcMode]) -> bytes:
         return await self.sync_to_async(cipher.decrypt)(data) if cipher else data

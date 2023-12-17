@@ -707,7 +707,7 @@ class AsyncARIA2CDownloader:
 
             elif self.dl_cont.status == "error":
                 error_code = try_get(
-                    re.findall(r"(?:status|estado)=(\d\d\d)", cast(str, self.dl_cont.error_message)),
+                    re.findall(r"(?:status|estado)=(\d\d\d)", self.dl_cont.error_message),
                     lambda x: x[0] if x else None)
                 if error_code and error_code in ("471", "403"):
                     logger.warning(f"{self.uptpremsg()}[fetch] error handle: {error_code}")
@@ -745,6 +745,12 @@ class AsyncARIA2CDownloader:
             if _res["errors"]:
                 raise _res["errors"][0]
 
+        async def _return_index():
+            _host_info = AsyncARIA2CDownloader._HOSTS_DL[self._host]
+            async with AsyncARIA2CDownloader._ALOCK():
+                _host_info["count"] -= 1
+                _host_info["queue"].put_nowait(self._index_proxy)
+
         self.status = "downloading"
         self.progress_timer.reset()
         check_task = None
@@ -776,9 +782,7 @@ class AsyncARIA2CDownloader:
 
                 finally:
                     if all([self._mode != "noproxy", self._index_proxy != -1]):
-                        async with AsyncARIA2CDownloader._ALOCK():
-                            AsyncARIA2CDownloader._HOSTS_DL[self._host]["count"] -= 1
-                            AsyncARIA2CDownloader._HOSTS_DL[self._host]["queue"].put_nowait(self._index_proxy)
+                        await _return_index()
                     await asyncio.sleep(0)
 
         except BaseException as e:
@@ -811,10 +815,10 @@ class AsyncARIA2CDownloader:
         elif self.status == "manipulating":
             msg = f'{_pre} Ensambling {_pre2}\n'
         elif self.status == "downloading":
-            if (all([not self.block_init, not self._vid_dl.reset_event.is_set(),
-                     not self._vid_dl.stop_event.is_set(), not self._vid_dl.pause_event.is_set(),
-                    self.dl_cont])):
-
+            if all([
+                self.dl_cont, not self.block_init,
+                not self.check_any_event_is_set()]
+            ):
                 msg = self._downloading_print_hookup(_pre)
             else:
                 if self.block_init:
