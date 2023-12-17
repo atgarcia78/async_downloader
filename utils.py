@@ -133,8 +133,7 @@ CONF_PLAYLIST_INTERL_URLS = [
 
 CLIENT_CONFIG = {
     "timeout": httpx.Timeout(timeout=20),
-    "limits": httpx.Limits(
-        max_connections=None, max_keepalive_connections=None, keepalive_expiry=5.0),
+    "limits": httpx.Limits(),
     "headers": {
         "User-Agent": CONF_FIREFOX_UA,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -2018,29 +2017,24 @@ if yt_dlp:
 
     class myYTDL(YoutubeDL):
         def __init__(self, params: Optional[dict] = None, auto_init: Union[bool, str] = True, **kwargs):
-            self._close = kwargs.get("close", None)
-            if self._close is None:
-                self._close = True
-            if (executor := kwargs.get("executor", None)) is None:
-                executor = ThreadPoolExecutor(thread_name_prefix=self.__class__.__name__.lower())
+            self._close = kwargs.get("close") or True
+            if not (executor := kwargs.get("executor")):
+                executor = ThreadPoolExecutor(
+                    thread_name_prefix=self.__class__.__name__.lower())
             self.sync_to_async = functools.partial(
                 sync_to_async,
                 thread_sensitive=False,
                 executor=executor)
-            _silent = kwargs.get("silent")
-            if _silent is None:
-                _silent = False
-            _proxy = kwargs.pop("proxy", None)
             opts = {}
-            if _proxy:
+            if _proxy := kwargs.pop("proxy"):
                 opts["proxy"] = _proxy
-            if _silent:
+            if kwargs.get("silent"):
                 opts["quiet"] = True
                 opts["verbose"] = False
                 opts["verboseplus"] = False
                 opts["logger"] = MyYTLogger(
-                    logging.getLogger("yt_dlp_s"), quiet=True, verbose=False, superverbose=False
-                )
+                    logging.getLogger("yt_dlp_s"),
+                    quiet=True, verbose=False, superverbose=False)
 
             super().__init__(params=(params or {}) | opts, auto_init=auto_init)  # type: ignore
 
@@ -2094,7 +2088,10 @@ if yt_dlp:
 
         def _get_filesize(self, info) -> dict:
             try:
-                if _res := self.urlopen(HEADRequest(info['url'], headers=info.get('http_headers', {}))):
+                if (
+                    _res := self.urlopen(HEADRequest(
+                        info['url'], headers=info.get('http_headers', {})))
+                ):
                     _filesize_str = _res.get_header('Content-Length')
                     _accept_ranges = any([
                         _res.get_header('Accept-Ranges'), _res.get_header('Content-Range')])
@@ -2117,10 +2114,8 @@ if yt_dlp:
             return cast(dict, super().sanitize_info(info, **kwargs))
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
-            return cast(
-                dict,
-                await self.sync_to_async(self.extract_info)(*args, **kwargs)
-            )
+            return await self.sync_to_async(
+                self.extract_info)(*args, **kwargs)
 
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
             return await self.sync_to_async(
@@ -2509,14 +2504,18 @@ if yt_dlp:
         """
         _kwargs = kwargs.copy()
         new_e = _kwargs.pop("new_e", Exception)
+        _client = None
         if 'client' not in _kwargs:
-            _kwargs['client'] = httpx.Client(**CLIENT_CONFIG)
+            _kwargs['client'] = (_client := httpx.Client(**CLIENT_CONFIG))
         try:
             return SeleniumInfoExtractor._send_http_request(url, **_kwargs)
         except ExtractorError as e:
             raise new_e(str(e)) from e
         except (ConnectError, httpx.HTTPStatusError) as e:
-            return {"error": repr(e)}
+            return {"error": str(e)}
+        finally:
+            if _client:
+                _client.close()
 
     def get_xml(mpd_url, **kwargs):
         import defusedxml.ElementTree as etree

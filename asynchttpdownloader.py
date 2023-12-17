@@ -83,7 +83,7 @@ class AsyncHTTPDownloader:
         self.verifycert = False
         self.timeout = httpx.Timeout(20, connect=20)
 
-        self.limits = httpx.Limits(max_keepalive_connections=None, max_connections=None)
+        self.limits = httpx.Limits()
 
         self.headers = self.info_dict.get("http_headers")
 

@@ -20,7 +20,6 @@ import m3u8
 from aiofiles import os
 from Cryptodome.Cipher import AES
 from Cryptodome.Cipher._mode_cbc import CbcMode
-from httpx._types import ProxiesTypes
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 from utils import (
@@ -218,7 +217,7 @@ class AsyncHLSDownloader:
             self.areset = self.sync_to_async(self.resetdl)
 
             self.config_httpx = lambda: {
-                'proxies': cast(ProxiesTypes, self._proxy),
+                'proxies': self._proxy,
                 'limits': httpx.Limits(keepalive_expiry=30),
                 'follow_redirects': True,
                 'timeout': httpx.Timeout(15),
@@ -525,11 +524,8 @@ class AsyncHLSDownloader:
     def calculate_filesize(self) -> Optional[int]:
         return (
             int(self.totalduration * 1024 * _bitrate / 8)
-            if (
-                _bitrate := cast(float, traverse_obj(self.info_dict, "tbr", "abr"))
-            )
-            else None
-        )
+            if (_bitrate := traverse_obj(self.info_dict, "tbr", "abr"))
+            else None)
 
     def get_info_fragments(self) -> Union[list, m3u8.SegmentList]:
 
