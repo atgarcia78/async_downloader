@@ -12,20 +12,22 @@ import json
 import logging
 import os
 import zlib
-from datetime import datetime
-from datetime import timezone
+from datetime import datetime, timezone
 
-from mitmproxy import connection
-from mitmproxy import ctx
-from mitmproxy import version
+from mitmproxy import connection, ctx, version
 from mitmproxy.net.http import cookies
 from mitmproxy.utils import strutils
+
+logger = logging.getLogger('hardump')
 
 HAR: dict = {}
 
 # A list of server seen till now is maintained so we can avoid
 # using 'connect' time for entries that use an existing connection.
 SERVERS_SEEN: set[connection.Server] = set()
+
+_filedump = os.path.expanduser(ctx.options.hardump)
+_fileurls = _filedump.replace('.har', '_urls.txt')
 
 
 def load(l):
@@ -173,10 +175,10 @@ def flow_entry(flow) -> dict:
     HAR["log"]["entries"].append(entry)
 
     try:
-        with open(os.path.expanduser(ctx.options.hardump).replace('.har', '_urls.txt'), "a") as f:
+        with open(_fileurls, "a") as f:
             f.write(entry["request"]["url"] + '\n')
-    except Exception:
-        pass
+    except Exception as e:
+        logger.exception(repr(e))
 
     return entry
 
@@ -215,20 +217,20 @@ def done():
     """
     Called once on script shutdown, after any other events.
     """
-    if ctx.options.hardump:
+    if _filedump:
         json_dump: str = json.dumps(HAR, indent=2)
 
-        if ctx.options.hardump == "-":
+        if _filedump == "-":
             print(json_dump)
         else:
             raw: bytes = json_dump.encode()
-            if ctx.options.hardump.endswith(".zhar"):
+            if _filedump.endswith(".zhar"):
                 raw = zlib.compress(raw, 9)
 
-            with open(os.path.expanduser(ctx.options.hardump), "wb") as f:
+            with open(os.path.expanduser(_filedump), "wb") as f:
                 f.write(raw)
 
-            logging.info("HAR dump finished (wrote %s bytes to file)" % len(json_dump))
+            logger.info("HAR dump finished (wrote %s bytes to file)" % len(json_dump))
 
 
 def format_cookies(cookie_list):

@@ -1437,27 +1437,8 @@ class TorGuardProxies:
 
     @classmethod
     def _init_gost(cls, cmd_gost: list) -> list:
-        # def _cmd_proc(_cmd):
-        #     _proc = subprocess.Popen(shlex.split(_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-        #     _proc.poll()
-        #     time.sleep(0.05)
-        #     _proc.poll()
-        #     if _proc.returncode:
-        #         cls.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{_cmd}]")
-        #         raise ConnectError("init proxies error")
-        #     return _proc
 
         proc_gost = []
-        # try:
-        #     with ThreadPoolExecutor(thread_name_prefix="testinitgost") as exe:
-        #         futures = {
-        #             exe.submit(_cmd_proc, cmd): cmd for cmd in cmd_gost}
-
-        #     for fut in list(futures.keys()):
-        #         proc_gost.append(fut.result())
-        # except ConnectError:
-        #     sanitize_killproc(proc_gost)
-        #     proc_gost = []
 
         for cmd in cmd_gost:
             try:
@@ -1468,7 +1449,6 @@ class TorGuardProxies:
                     raise ConnectError("init proxies error")
                 else:
                     proc_gost.append(_proc)
-                # time.sleep(0.05)
             except ConnectError:
                 sanitize_killproc(proc_gost)
                 proc_gost = []
