@@ -27,7 +27,7 @@ HAR: dict = {}
 SERVERS_SEEN: set[connection.Server] = set()
 
 _filedump = os.path.expanduser(ctx.options.hardump)
-_fileurls = _filedump.replace('.har', '_urls.txt')
+# _fileurls = _filedump.replace('.har', '_urls.txt')
 
 
 def load(l):
@@ -56,24 +56,23 @@ def configure(updated):
     )
 
 
-# def request(flow):
-#     flow.request.headers["user-agent"] = "value"
-
 def flow_entry(flow) -> dict:
     # -1 indicates that these values do not apply to current request
     ssl_time = -1
     connect_time = -1
 
-    if flow.server_conn and flow.server_conn not in SERVERS_SEEN and flow.server_conn.timestamp_tcp_setup and flow.server_conn.timestamp_start:
+    if (
+        flow.server_conn and flow.server_conn not in SERVERS_SEEN and
+        flow.server_conn.timestamp_tcp_setup and flow.server_conn.timestamp_start
+    ):
         connect_time = (
-            flow.server_conn.timestamp_tcp_setup - flow.server_conn.timestamp_start
-        )
+            flow.server_conn.timestamp_tcp_setup -
+            flow.server_conn.timestamp_start)
 
         if flow.server_conn.timestamp_tls_setup is not None:
             ssl_time = (
-                flow.server_conn.timestamp_tls_setup
-                - flow.server_conn.timestamp_tcp_setup
-            )
+                flow.server_conn.timestamp_tls_setup -
+                flow.server_conn.timestamp_tcp_setup)
 
         SERVERS_SEEN.add(flow.server_conn)
 
@@ -174,11 +173,11 @@ def flow_entry(flow) -> dict:
 
     HAR["log"]["entries"].append(entry)
 
-    try:
-        with open(_fileurls, "a") as f:
-            f.write(entry["request"]["url"] + '\n')
-    except Exception as e:
-        logger.exception(repr(e))
+    # try:
+    #     with open(_fileurls, "a") as f:
+    #         f.write(entry["request"]["url"] + '\n')
+    # except Exception as e:
+    #     logger.exception(repr(e))
 
     return entry
 
