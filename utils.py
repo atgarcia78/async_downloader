@@ -2576,9 +2576,22 @@ if yt_dlp:
         with httpx.Client(**CLIENT_CONFIG) as client:
             return client.post(lic_url, content=challenge).content
 
-    def get_drm_keys(lic_url, mpd_url):
+    def get_drm_keys(lic_url, pssh=None, mpd_url=None):
         from videodownloader import VideoDownloader as vd
-        return vd._get_key_drm(lic_url, mpd_url=mpd_url)
+        return vd._get_key_drm(lic_url, pssh=pssh, mpd_url=mpd_url)
+
+    def get_drm_xml(lic_url, file_dest, pssh=None, mpd_url=None):
+        if (_res := get_drm_keys(lic_url, pssh=pssh, mpd_url=mpd_url)):
+            _keys = _res.split(':')
+            _drm_manifest = f'''<?xml version="1.0" encoding="UTF-8" />
+<GPACDRM type="CENC AES-CTR">
+<CrypTrack IV_size="16" first_IV="0xedef8ba979d64acea3c827dcd51d21ed">
+<key KID="0x{_keys[0]}" value="0x{_keys[1]}"/>
+</CrypTrack>
+</GPACDRM>'''
+            with open(file_dest, 'w') as f:
+                f.write(_drm_manifest)
+            return file_dest
 
     def get_files_same_id():
         config_folders = {

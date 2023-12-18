@@ -569,6 +569,13 @@ class VideoDownloader:
                     cmds = [
                         f"mp4decrypt --key {_key} {_crypt_file} {_temp_file}"
                         for _crypt_file, _temp_file in zip(_crypt_files, _temp_files)]
+                    '''
+                    from utils import get_drm_xml
+                    _path_drm_xml = get_drm_xml(_licurl, str(Path(self.info_dl['download_path'], 'drm.xml')), pssh=_pssh)
+                    cmds = [
+                        f"gpac -i {_crypt_file} cdcrypt:cfile={_path_drm_xml} -o {_temp_file}"
+                        for _crypt_file, _temp_file in zip(_crypt_files, _temp_files)]
+                    '''
 
                     logger.info(f"{self.premsg}: starting decryption files")
                     logger.debug(f"{self.premsg}: {cmds}")
@@ -597,6 +604,9 @@ class VideoDownloader:
                     if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
                         logger.debug(f"{self.premsg}: DL video file OK")
 
+                    '''
+                    _temp_files.append(_path_drm_xml)
+                    '''
                     for _file in _temp_files:
                         async with async_suppress(OSError):
                             await aiofiles.os.remove(_file)
