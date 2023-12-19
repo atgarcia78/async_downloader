@@ -554,7 +554,6 @@ class VideoDownloader:
                 if self._types == "NATIVE_DRM":
 
                     _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
-                    _temp_files = list(map(lambda x: prepend_extension(x, "tmp"), _crypt_files))
 
                     _pssh = cast(str, try_get(
                         traverse_obj(self.info_dict, ("_drm", "pssh")),
@@ -566,16 +565,10 @@ class VideoDownloader:
                         raise AsyncDLError(
                             f"{self.premsg}: error DRM info - licurl[{_licurl}] pssh[{_pssh}] key[{_key}]")
 
-                    cmds = [
-                        f"mp4decrypt --key {_key} {_crypt_file} {_temp_file}"
-                        for _crypt_file, _temp_file in zip(_crypt_files, _temp_files)]
-                    '''
                     from utils import get_drm_xml
                     _path_drm_xml = get_drm_xml(_licurl, str(Path(self.info_dl['download_path'], 'drm.xml')), pssh=_pssh)
-                    cmds = [
-                        f"gpac -i {_crypt_file} cdcrypt:cfile={_path_drm_xml} -o {_temp_file}"
-                        for _crypt_file, _temp_file in zip(_crypt_files, _temp_files)]
-                    '''
+
+                    cmds = [f"gpac -i {' -i '.join(_crypt_files)} cdcrypt:cfile={_path_drm_xml} -o {temp_filename}"]
 
                     logger.info(f"{self.premsg}: starting decryption files")
                     logger.debug(f"{self.premsg}: {cmds}")
@@ -584,30 +577,14 @@ class VideoDownloader:
                     rcs = [proc.returncode for proc in procs]
                     logger.info(f"{self.premsg}: end decryption files with result [{rcs}]")
 
-                    if sum(rcs) == 0:
-                        if len(_temp_files) == 1:
-                            if await amove(
-                                    _temp_files[0],
-                                    temp_filename) == temp_filename:
-                                rc = 0
-
-                        else:
-                            cmd = "".join([
-                                f'ffmpeg -y -loglevel repeat+info -i file:"{_temp_files[0]}"',
-                                f' -i file:"{_temp_files[1]}" -vcodec copy -acodec copy file:"{temp_filename}"'])
-                            proc = await apostffmpeg(cmd)
-                            logger.debug(
-                                f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                                + f"{proc.stdout}\n[stderr]{proc.stderr}")
-                            rc = proc.returncode
-
-                    if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
+                    if sum(rcs) == 0 and (await aiofiles.os.path.exists(temp_filename)):
                         logger.debug(f"{self.premsg}: DL video file OK")
+                        rc = 0
 
                     '''
                     _temp_files.append(_path_drm_xml)
                     '''
-                    for _file in _temp_files:
+                    for _file in _crypt_files:
                         async with async_suppress(OSError):
                             await aiofiles.os.remove(_file)
 
