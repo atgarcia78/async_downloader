@@ -49,7 +49,6 @@ from typing import (
 from urllib.parse import urlparse
 from xml.etree.ElementTree import Element
 
-import defusedxml.ElementTree as etree
 import httpx
 from asgiref.sync import sync_to_async
 from selenium.webdriver import Firefox
@@ -2551,6 +2550,8 @@ if yt_dlp:
                 client.close()
 
     def get_xml(mpd_url, **kwargs) -> Optional[Element]:
+        import defusedxml.ElementTree as etree
+
         with httpx.Client(**CLIENT_CONFIG) as client:
             if (_doc := try_get(
                 client.get(mpd_url, **kwargs),
