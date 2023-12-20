@@ -9,7 +9,6 @@ from datetime import datetime
 from functools import partial
 from pathlib import Path
 from queue import Queue
-from threading import Lock
 
 import aiofiles.os
 import xattr
@@ -54,8 +53,6 @@ class AsyncErrorDownloader:
 class VideoDownloader:
     _DIC_DL = {}
     _QUEUE = Queue()
-    _LOCK = Lock()
-    _CDM = None
 
     def __init__(self, video_dict, ytdl, nwsetup, args):
         self.background_tasks = set()
@@ -356,21 +353,23 @@ class VideoDownloader:
                 self.info_dl["status"] = "downloading"
                 logger.debug(
                     f"{self.premsg}[run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
-                tasks_run = [
+                tasks_run = {
                     self.add_task(dl.fetch_async(), name=f'fetch_async_{i}')
                     for i, dl in enumerate(self.info_dl["downloaders"])
-                    if dl.status not in ("init_manipulating", "done")]
+                    if dl.status not in ("init_manipulating", "done")}
 
                 logger.debug(f"{self.premsg}[run_dl] tasks run {len(tasks_run)}")
 
-                done, _ = await asyncio.wait(tasks_run)
-
-                if done:
-                    for d in done:
-                        try:
-                            d.result()
-                        except Exception as e:
-                            logger.exception(f"{self.premsg}[run_dl] error fetch_async: {repr(e)}")
+                if tasks_run and (_excep := try_get(
+                    await asyncio.wait(tasks_run),
+                    lambda x: {
+                        d.exception(): d._name
+                        for d in x[0] if d.exception()
+                    } if x[0] else None)
+                ):
+                    for error, label in _excep.items():
+                        logger.error(
+                            f"{self.premsg}[run_dl] task[{label}]: {repr(error)}")
 
                 if self.stop_event.is_set():
                     logger.debug(f"{self.premsg}[run_dl] salida tasks with stop event - {self.info_dl['status']}")
@@ -402,8 +401,7 @@ class VideoDownloader:
             cmd = [
                 "yt-dlp", "-P", self.info_dl['filename'].absolute().parent,
                 "-o", f"{self.info_dl['filename'].stem}.%(ext)s",
-                "--no-download", self.info_dict["webpage_url"]]
-
+                "--no-download", "--write-subs", self.info_dict["webpage_url"]]
             return subprocess.run(cmd, encoding="utf-8", capture_output=True)
 
         if not (_subts := self.info_dict.get("requested_subtitles")):
@@ -501,18 +499,18 @@ class VideoDownloader:
             if self.args.subt and self.info_dict.get("requested_subtitles"):
                 blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
 
-            if blocking_tasks:
-                if _excep := try_get(
-                        await asyncio.wait(blocking_tasks),
-                        lambda x: {
-                            d.exception(): blocking_tasks[d]
-                            for d in x[0] if d.exception()
-                        } if x[0] else None):
-                    for error, label in _excep.items():
-                        logger.error(
-                            f"{self.premsg}[run_manip] result de task[{label}]: {repr(error)}")
+            if blocking_tasks and (_excep := try_get(
+                await asyncio.wait(blocking_tasks),
+                lambda x: {
+                    d.exception(): blocking_tasks[d]
+                    for d in x[0] if d.exception()
+                } if x[0] else None)
+            ):
+                for error, label in _excep.items():
+                    logger.error(
+                        f"{self.premsg}[run_manip] task[{label}]: {repr(error)}")
 
-            rc = False
+            rc = True
             for dl in self.info_dl["downloaders"]:
                 _exists = all([
                     await aiofiles.os.path.exists(_file)
@@ -531,16 +529,21 @@ class VideoDownloader:
             rc = -1
             if self._types == "NATIVE_DRM":
                 _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
-                _path_drm_xml = self._get_drm_xml()
-                cmds = [f"gpac -i {' -i '.join(_crypt_files)} cdcrypt:cfile={_path_drm_xml} -o {temp_filename}"]
+                _drm_xml = self._get_drm_xml()
+                cmd = f"MP4Box -quiet -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {temp_filename}"
 
                 logger.info(f"{self.premsg}: starting decryption files")
-                logger.debug(f"{self.premsg}: {cmds}")
+                logger.debug(f"{self.premsg}: {cmd}")
 
-                procs = [await arunproc(_cmd) for _cmd in cmds]
-                logger.info(f"{self.premsg}: end decryption files with result [{''.join(map(str, procs))}]")
+                proc = await arunproc(cmd)
+                logger.info(
+                    f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
+                    + f"{proc.stdout}\n[stderr]{proc.stderr}")
 
-                if sum([proc.returncode for proc in procs]) == 0 and (await aiofiles.os.path.exists(temp_filename)):
+                if (
+                    proc.returncode == 0 and
+                    (await aiofiles.os.path.exists(temp_filename))
+                ):
                     logger.debug(f"{self.premsg}: DL video file OK")
                     rc = 0
                     '''
@@ -549,7 +552,7 @@ class VideoDownloader:
                     for _file in _crypt_files:
                         async with async_suppress(OSError):
                             await aiofiles.os.remove(_file)
-                if rc == 0:
+                if rc != 0:
                     logger.error(f"{self.premsg}: error decryption files")
                     self.info_dl["status"] = "error"
                     raise AsyncDLError(
@@ -638,9 +641,14 @@ class VideoDownloader:
                             f"-map 0 -dn -ignore_unknown -c copy -c:s mov_text -map -0:s {' '.join(subtlang)} " +
                             f"-movflags +faststart {embed_filename}")
 
-                    proc = await arunproc(cmd := _make_embed_cmd())
-                    logger.debug(
-                        f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
+                    def _make_embed_gpac_cmd():
+                        _part_cmd = ' -add '.join([f'{_file}:lang={_lang}:hdlr=sbtl' for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
+                        return f"MP4Box -quiet -add {_part_cmd} -add {temp_filename} -new {embed_filename}"
+
+                    cmd = _make_embed_gpac_cmd()
+                    proc = await arunproc(cmd)
+                    logger.info(
+                        f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                         + f"{proc.stdout}\n[stderr]{proc.stderr}")
                     if (rc := proc.returncode) == 0 and (await aiofiles.os.path.exists(embed_filename)):
                         for _file in self.info_dl["downloaded_subtitles"].values():
@@ -696,7 +704,7 @@ class VideoDownloader:
             except Exception as e:
                 logger.exception(f"{self.premsg} error replacing {repr(e)}")
 
-            if self.info_dl["filename"].exist():
+            if self.info_dl["filename"].exists():
                 self.info_dl["status"] = "done"
             else:
                 self.info_dl["status"] = "error"

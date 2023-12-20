@@ -54,8 +54,6 @@ import httpx
 from asgiref.sync import sync_to_async
 from selenium.webdriver import Firefox
 
-from mydrm import myDRM
-
 FileLock = None
 try:
     from filelock import FileLock
@@ -2563,6 +2561,7 @@ if yt_dlp:
     def get_drm_keys(
             lic_url: str, pssh: Optional[str] = None,
             func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None, **kwargs):
+        from mydrm import myDRM
 
         return myDRM.get_drm_keys(
             lic_url, pssh=pssh, func_validate=func_validate, mpd_url=mpd_url, **kwargs)
@@ -2571,6 +2570,7 @@ if yt_dlp:
             lic_url: str, file_dest: [str | Path],
             pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
             mpd_url: Optional[str] = None, **kwargs):
+        from mydrm import myDRM
 
         return myDRM.get_drm_xml(
             lic_url, file_dest, pssh=pssh, func_validate=func_validate,

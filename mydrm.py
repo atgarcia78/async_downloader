@@ -19,7 +19,7 @@ CONF_DRM = {
 }
 
 CONF_DRM_XML_TEMPLATE = '''\
-<?xml version="1.0" encoding="UTF-8" />
+<?xml version="1.0" encoding="UTF-8"?>
 <GPACDRM type="CENC AES-CTR">
 <CrypTrack IV_size="16" first_IV="0xedef8ba979d64acea3c827dcd51d21ed">
 <key KID="0x%s" value="0x%s"/>
@@ -32,7 +32,7 @@ class myDRM:
     _CDM = None
 
     @classmethod
-    def create_drm_cdm(cls):  # sourcery skip: path-read
+    def create_drm_cdm(cls):
         with open(CONF_DRM['private_key']) as fpriv:
             _private_key = fpriv.read()
         with open(CONF_DRM['client_id'], "rb") as fpid:
@@ -49,13 +49,16 @@ class myDRM:
 
     @classmethod
     def get_drm_keys(
-            cls, lic_url: str, pssh: Optional[str] = None,
-            func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None, **kwargs):
+        cls, lic_url: str, pssh: Optional[str] = None,
+        func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None, **kwargs
+    ) -> Optional[str]:
+
+        _reduce = lambda x: list(set(map(lambda y: y.text, list(x))))
 
         if not pssh and mpd_url:
             if (mpd_xml := get_xml(mpd_url, **kwargs)):
-                if (_list_pssh := list(set(list(map(
-                        lambda x: x.text, list(mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh'))))))):
+                if (_list_pssh := _reduce(
+                        mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh'))):
                     pssh = sorted(_list_pssh, key=len)[0]
         if pssh:
             with cls._LOCK:
