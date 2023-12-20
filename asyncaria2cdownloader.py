@@ -444,12 +444,12 @@ class AsyncARIA2CDownloader:
     async def _update_uri_proxy_simple(self, _init_url):
         _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
         self._proxy = f"http://127.0.0.1:{_proxy_port}"
-        self.opts.set |= {"all-proxy": self._proxy}
+        self.opts |= {"all-proxy": self._proxy}
         return await self.get_uri(_init_url, _proxy_port)
 
     async def _update_uri_proxy_group(self, _init_url):
         self._proxy = "http://127.0.0.1:8899"
-        self.opts.set |= {"all-proxy": self._proxy}
+        self.opts |= {"all-proxy": self._proxy}
 
         if self.filesize:
             _n = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1

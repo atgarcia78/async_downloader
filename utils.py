@@ -47,10 +47,14 @@ from typing import (
     cast,
 )
 from urllib.parse import urlparse
+from xml.etree.ElementTree import Element
 
+import defusedxml.ElementTree as etree
 import httpx
 from asgiref.sync import sync_to_async
 from selenium.webdriver import Firefox
+
+from mydrm import myDRM
 
 FileLock = None
 try:
@@ -766,7 +770,10 @@ class async_suppress(contextlib.AbstractAsyncContextManager):
         pass
 
     async def __aexit__(self, exctype, excinst, exctb):
-        return exctype is not None and issubclass(exctype, self._exceptions)
+        if exctype is not None and issubclass(exctype, self._exceptions):
+            logger = logging.getLogger('utils.asyncsuppres')
+            logger.warning(f'Exception supressed: {exctype}, {excinst}')
+            return True
 
 
 def add_task(coro, bktasks=None, name=None):
@@ -2545,33 +2552,29 @@ if yt_dlp:
             if _client_cl:
                 client.close()
 
-    def get_xml(mpd_url, **kwargs):
-        import defusedxml.ElementTree as etree
-
+    def get_xml(mpd_url, **kwargs) -> Optional[Element]:
         with httpx.Client(**CLIENT_CONFIG) as client:
-            if (_doc := try_get(client.get(mpd_url, **kwargs), lambda x: x.content.decode('utf-8', 'replace') if x else None)):
+            if (_doc := try_get(
+                client.get(mpd_url, **kwargs),
+                lambda x: x.content.decode('utf-8', 'replace') if x else None
+            )):
                 return etree.XML(_doc)
 
-    def validate_drm_lic(lic_url, challenge):
-        with httpx.Client(**CLIENT_CONFIG) as client:
-            return client.post(lic_url, content=challenge).content
+    def get_drm_keys(
+            lic_url: str, pssh: Optional[str] = None,
+            func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None, **kwargs):
 
-    def get_drm_keys(lic_url, pssh=None, mpd_url=None):
-        from videodownloader import VideoDownloader as vd
-        return vd._get_key_drm(lic_url, pssh=pssh, mpd_url=mpd_url)
+        return myDRM.get_drm_keys(
+            lic_url, pssh=pssh, func_validate=func_validate, mpd_url=mpd_url, **kwargs)
 
-    def get_drm_xml(lic_url, file_dest, pssh=None, mpd_url=None):
-        if (_res := get_drm_keys(lic_url, pssh=pssh, mpd_url=mpd_url)):
-            _keys = _res.split(':')
-            _drm_manifest = f'''<?xml version="1.0" encoding="UTF-8" />
-<GPACDRM type="CENC AES-CTR">
-<CrypTrack IV_size="16" first_IV="0xedef8ba979d64acea3c827dcd51d21ed">
-<key KID="0x{_keys[0]}" value="0x{_keys[1]}"/>
-</CrypTrack>
-</GPACDRM>'''
-            with open(file_dest, 'w') as f:
-                f.write(_drm_manifest)
-            return file_dest
+    def get_drm_xml(
+            lic_url: str, file_dest: [str | Path],
+            pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
+            mpd_url: Optional[str] = None, **kwargs):
+
+        return myDRM.get_drm_xml(
+            lic_url, file_dest, pssh=pssh, func_validate=func_validate,
+            mpd_url=mpd_url, **kwargs)
 
     def get_files_same_id():
         config_folders = {
