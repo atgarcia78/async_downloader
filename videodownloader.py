@@ -112,9 +112,6 @@ class VideoDownloader:
             "nwsetup": nwsetup
         }
 
-        self._types = ""
-        downloaders = []
-
         self.total_sizes = {
             "filesize": 0,
             "down_size": 0}
@@ -122,6 +119,9 @@ class VideoDownloader:
         self._infodl = InfoDL(
             self.pause_event, self.resume_event, self.stop_event,
             self.end_tasks, self.reset_event, self.total_sizes, nwsetup)
+
+        self._types = ""
+        downloaders = []
 
         downloaders.extend(variadic(self._get_dl(self.info_dict | {
             "filename": self.info_dl["filename"],
@@ -235,7 +235,9 @@ class VideoDownloader:
         return res_dl
 
     def add_task(
-            self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+        self, coro: Union[Coroutine, asyncio.Task], *,
+        name: Optional[str] = None
+    ) -> asyncio.Task:
 
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
@@ -372,7 +374,7 @@ class VideoDownloader:
                             f"{self.premsg}[run_dl] task[{label}]: {repr(error)}")
 
                 if self.stop_event.is_set():
-                    logger.debug(f"{self.premsg}[run_dl] salida tasks with stop event - {self.info_dl['status']}")
+                    logger.debug(f"{self.premsg}[run_dl] end run with stop - {self.info_dl['status']}")
                     self.info_dl["status"] = "stop"
 
                 else:
@@ -418,8 +420,9 @@ class VideoDownloader:
             return
 
         res = _dl_subt()
-
-        logger.info(f"{self.premsg}: subs dl and converted to srt, rc[{res.returncode}]")
+        logger.info(f"{self.premsg}[get_subts] res  proc[{res.returncode}]")
+        if res.returncode != 0:
+            return
 
         for _lang, _ in _final_subts.items():
             try:
@@ -645,8 +648,7 @@ class VideoDownloader:
                         _part_cmd = ' -add '.join([f'{_file}:lang={_lang}:hdlr=sbtl' for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
                         return f"MP4Box -quiet -add {_part_cmd} -add {temp_filename} -new {embed_filename}"
 
-                    cmd = _make_embed_gpac_cmd()
-                    proc = await arunproc(cmd)
+                    proc = await arunproc(cmd := _make_embed_gpac_cmd())
                     logger.info(
                         f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                         + f"{proc.stdout}\n[stderr]{proc.stderr}")
