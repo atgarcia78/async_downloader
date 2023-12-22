@@ -365,8 +365,8 @@ class AsyncARIA2CDownloader:
 
     async def init(self):
         try:
-            if dl_cont := await self.add_uris(self.uris):
-                if resupt := await self.aupdate(dl_cont):
+            if (dl_cont := await self.add_uris(self.uris)):
+                if (resupt := await self.aupdate(dl_cont)):
                     if any(_ in resupt for _ in ("error", "reset")):
                         raise AsyncARIA2CDLError("init: error update dl_cont")
             self.dl_cont = dl_cont
@@ -386,6 +386,26 @@ class AsyncARIA2CDownloader:
             pytdl.sanitize_info(
                 await pytdl.async_extract_info(url, download=False)),
             self.info_dict["format_id"])
+
+    async def _update_uri_noproxy(self, _init_url):
+
+        async with myYTDL(params=self.ytdl.params, silent=True) as ytdl:
+            if not (_info := await self._get_info(ytdl, _init_url)):
+                raise AsyncARIA2CDLError("couldnt get video url")
+
+        video_url = unquote(_info["url"])
+        self.uris = [video_url]
+        if _cookie := _info.get("cookies"):
+            self.headers.update({"Cookie": _cookie})
+            self.opts |= {"header": "\n".join(
+                [f"{key}: {value}" for key, value in self.headers.items()])}
+
+        if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
+            self._host = _host
+            if isinstance(self.sem, LockType):
+                async with async_lock(self.ytdl.params["lock"]):
+                    self.sem = cast(
+                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
 
     async def get_uri(self, _init_url, _proxy_port: int, n: int = 0):
 
@@ -420,26 +440,6 @@ class AsyncARIA2CDownloader:
                 f"{self.premsg}[{self.info_dict.get('original_url')}] " +
                 f"ERROR init uris {_msg}")
             raise
-
-    async def _update_uri_noproxy(self, _init_url):
-
-        async with myYTDL(params=self.ytdl.params, silent=True) as ytdl:
-            if not (_info := await self._get_info(ytdl, _init_url)):
-                raise AsyncARIA2CDLError("couldnt get video url")
-
-        video_url = unquote(_info["url"])
-        self.uris = [video_url]
-        if _cookie := _info.get("cookies"):
-            self.headers.update({"Cookie": _cookie})
-            self.opts |= {"header": "\n".join(
-                [f"{key}: {value}" for key, value in self.headers.items()])}
-
-        if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
-            self._host = _host
-            if isinstance(self.sem, LockType):
-                async with async_lock(self.ytdl.params["lock"]):
-                    self.sem = cast(
-                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
 
     async def _update_uri_proxy_simple(self, _init_url):
         _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
@@ -515,11 +515,11 @@ class AsyncARIA2CDownloader:
             self._index_proxy = _temp
 
             if self._mode == "simple":
-                if _proxy_info_url := await self._update_uri_proxy_simple(_init_url):
+                if (_proxy_info_url := await self._update_uri_proxy_simple(_init_url)):
                     self.uris = [_proxy_info_url]
 
             elif self._mode == "group":
-                if (_temp := await self._update_uri_proxy_group(_init_url)) is not None:
+                if (_temp := await self._update_uri_proxy_group(_init_url)):
                     self.uris = _temp
 
         logger.debug(f"{self.premsg}[update_uri] end with uris:\n{self.uris}")
@@ -650,7 +650,7 @@ class AsyncARIA2CDownloader:
 
     async def fetch(self):
 
-        async def _update_counters(_bytes_dl: int):
+        def _update_counters(_bytes_dl: int):
             if (_iter_bytes := _bytes_dl - self.down_size) > 0:
                 self.down_size += _iter_bytes
                 self._vid_dl.total_sizes["down_size"] += _iter_bytes
@@ -662,7 +662,10 @@ class AsyncARIA2CDownloader:
             ):
                 return
             await self.init()
-            if self.status in ("done", "error", "stop"):
+            if (
+                self.status in ("done", "error", "stop") or
+                "event" in await self.event_handle()
+            ):
                 return
 
             if not self.dl_cont:
@@ -672,13 +675,13 @@ class AsyncARIA2CDownloader:
                 if self.progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI / 2):
                     if "event" in await self.event_handle():
                         return
-                    if _result := await self.aupdate(self.dl_cont):
+                    if (_result := await self.aupdate(self.dl_cont)):
                         if "error" in _result:
                             raise AsyncARIA2CDLError("fetch error: error update dl_cont")
                         if "reset" in _result:
                             await self._reset()
                     else:
-                        await _update_counters(self.dl_cont.completed_length)
+                        _update_counters(self.dl_cont.completed_length)
                         if self.args.check_speed:
                             self._qspeed.put_nowait(
                                 (self.dl_cont.download_speed, self.dl_cont.connections,
@@ -755,20 +758,16 @@ class AsyncARIA2CDownloader:
                     _msg_error = str(e)
                     if self.dl_cont and self.dl_cont.status == "error":
                         _msg_error += f" - {self.dl_cont.error_message}"
-
                     logger.exception(
                         f"{self.uptpremsg()}[fetch_async] error: {_msg_error}")
                     self.status = "error"
                     self.error_message = _msg_error
                     if isinstance(e, KeyboardInterrupt):
                         raise
-                    return
-
                 finally:
                     if all([self._mode != "noproxy", self._index_proxy != -1]):
                         await _return_index()
                     await asyncio.sleep(0)
-
         except BaseException as e:
             logger.exception(f"{self.premsg}[fetch_async] {str(e)}")
             if isinstance(e, KeyboardInterrupt):
