@@ -4,7 +4,6 @@ import copy
 import logging
 import random
 import re
-import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -82,7 +81,6 @@ def aqueue_loaded(n):
 
 class AsyncARIA2CDownloader:
     _CONFIG = load_config_extractors()
-    _CLASSALOCK = asyncio.Lock()
     _LOCK = Lock()
     _ALOCK = partial(async_lock, _LOCK)
     _INIT = False
@@ -245,40 +243,42 @@ class AsyncARIA2CDownloader:
         return _task
 
     def add_init_task(self):
-        if not self.init_task:
-            self.init_task.add(self.add_task(
-                self.update_uri(), name=f"{self.premsg}[add_init_task]"))
+        with AsyncARIA2CDownloader._LOCK:
+            if not self.init_task:
+                self.init_task.add(self.add_task(
+                    self.update_uri(), name=f"{self.premsg}[add_init_task]"))
 
     def set_opts(self, opts_dict):
-        _opts = AsyncARIA2CDownloader.aria2_API.get_global_options()._struct.copy()
-        return _opts | opts_dict
+        opts = AsyncARIA2CDownloader.aria2_API.get_global_options()
+        for key, value in opts_dict.items():
+            for _value in variadic(value):
+                if not opts.set(key, _value):
+                    logger.warning(f"{self.premsg} couldnt set [{key}] to [{value}]")
+        return opts
 
     def _get_filesize(self, uris, proxy=None) -> Optional[tuple]:
         opts_dict = {
             "header": "\n".join(
                 [f"{key}: {value}" for key, value in self.headers.items()]),
             "dry-run": "true",
-            "split": 1}
-        if proxy:
-            opts_dict["all-proxy"] = proxy
+            "split": 1,
+            "all-proxy": proxy or ""}
+        _callback = lambda x, _: x.stop_listening()
 
-        filesize = None
-        downsize = None
         try:
             with self._decor:
-                _res = self.aria2_API.add_uris(
+                _dl = self.aria2_API.add_uris(
                     uris, options=self.set_opts(opts_dict))
-                start = time.monotonic()
-                while time.monotonic() - start < 10:
-                    time.sleep(0.1)
-                    _res.update()
-                    if filesize := int(_res.total_length):
-                        downsize = int(_res.completed_length)
-                        break
-                AsyncARIA2CDownloader.aria2_API.remove([_res])
-                logger.debug(f"{self.premsg}[get_filesize] {filesize} {downsize}")
-                if filesize:
-                    return (filesize, downsize)
+                try:
+                    self.aria2_API.listen_to_notifications(
+                        on_download_complete=_callback, on_download_error=_callback)
+                    _dl.update()
+                    if _dl.status == "complete":
+                        return (_dl.total_length, _dl.completed_length)
+                except Exception as e:
+                    logger.exception(f"{self.premsg}[get_filesize] error: {str(e)}")
+                finally:
+                    _dl.remove()
         except Exception as e:
             logger.exception(f"{self.premsg}[get_filesize] error: {str(e)}")
 
@@ -306,7 +306,7 @@ class AsyncARIA2CDownloader:
             return {"error": e}
 
     async def reset_aria2c(self):
-        async with AsyncARIA2CDownloader._CLASSALOCK:
+        async with AsyncARIA2CDownloader._ALOCK:
             try:
                 AsyncARIA2CDownloader.aria2_API.get_stats()
                 logger.info(f"{self.premsg}[reset_aria2c] test conn ok")
@@ -397,8 +397,8 @@ class AsyncARIA2CDownloader:
         self.uris = [video_url]
         if _cookie := _info.get("cookies"):
             self.headers.update({"Cookie": _cookie})
-            self.opts |= {"header": "\n".join(
-                [f"{key}: {value}" for key, value in self.headers.items()])}
+            self.opts.set("header", "\n".join(
+                [f"{key}: {value}" for key, value in self.headers.items()]))
 
         if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
             self._host = _host
@@ -444,12 +444,12 @@ class AsyncARIA2CDownloader:
     async def _update_uri_proxy_simple(self, _init_url):
         _proxy_port = CONF_PROXIES_BASE_PORT + self._index_proxy * 100
         self._proxy = f"http://127.0.0.1:{_proxy_port}"
-        self.opts |= {"all-proxy": self._proxy}
+        self.opts.set("all-proxy", self._proxy)
         return await self.get_uri(_init_url, _proxy_port)
 
     async def _update_uri_proxy_group(self, _init_url):
         self._proxy = "http://127.0.0.1:8899"
-        self.opts |= {"all-proxy": self._proxy}
+        self.opts.set("all-proxy", self._proxy)
 
         if self.filesize:
             _n = self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1
@@ -458,7 +458,7 @@ class AsyncARIA2CDownloader:
             _gr = CONF_PROXIES_N_GR_VIDEO
 
         self.n_workers = _gr * self._nsplits
-        self.opts |= {"split": self.n_workers}
+        self.opts.set("split", self.n_workers)
 
         logger.debug(
             f"{self.premsg}enproxy[{self.args.enproxy}]mode[{self._mode}]" +

@@ -1221,8 +1221,7 @@ def get_listening_tcp() -> dict:
             return {trans(k): v for k, v in x.items()}
 
     printout = subprocess.run(["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout
-    final_list = json.loads(printout, object_hook=jsonKeys2int)
-    return final_list
+    return json.loads(printout, object_hook=jsonKeys2int)
 
 
 def find_in_ps(pattern, value=None):
@@ -1248,13 +1247,13 @@ def init_aria2c(args):
     _cmd = f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc "
     _cmd += "--rpc-max-request-size=2M --rpc-listen-all --quiet=true"
     _proc = subprocess.Popen(
-        shlex.split(_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE, shell=False
-    )
+        shlex.split(_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
 
-    time.sleep(1)
-    _proc.poll()
-    time.sleep(1)
-    _proc.poll()
+    while _proc.poll() is None:
+        if args.rpcport in traverse_obj(
+                get_listening_tcp(), ("aria2c", ..., "port")):
+            break
+        time.sleep(1)
 
     if _proc.returncode is not None or args.rpcport not in traverse_obj(
         get_listening_tcp(), ("aria2c", ..., "port")
