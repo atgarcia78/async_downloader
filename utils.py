@@ -305,6 +305,10 @@ def load_module(name, path: str):
 def upartial(f, *args, **kwargs):
     """
     An upgraded version of partial which accepts not named parameters
+    def test(arg1, arg2, kwarg1=None):
+        ---
+    _test = upartial(arg1='1', kwarg1='k1')
+    _test(arg2='2')
     """
     params = f.__code__.co_varnames[1:]
     kwargs = dict(zip(params, args)) | kwargs
@@ -3305,7 +3309,7 @@ class SimpleCountDown:
         self.timeout = timeout
         self.indexdl = indexdl
 
-        self.inputq = inputqueue if queue else None
+        self.inputq = inputqueue
         self.logger = logger or logging.getLogger("asyncdl")
 
     def enable_echo(self, enable):
@@ -4334,7 +4338,7 @@ if FileLock and xattr:
             self._last_time_sync = {}
 
     def getxattr(x):
-        return upartial(xattr.getxattr, attr="user.dublincore.description")(x).decode()
+        return xattr.getxattr(x, attr="user.dublincore.description").decode()
 
     def _getxattr(f):
         with contextlib.suppress(OSError):
