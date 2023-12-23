@@ -840,13 +840,17 @@ async def async_wait_for_any(events, timeout: Optional[float] = None) -> dict[st
         return False if _n is None else time.monotonic() - _st >= _n
 
     start = time.monotonic()
-    while True:
-        if _res := [cast(str, getattr(_ev, "name", "noname"))
-                    for _ev in _events if _ev and _ev.is_set()]:
-            return {"event": _res}
-        elif check_timeout(start, timeout):
-            return {"timeout": [str(timeout)]}
-        await asyncio.sleep(CONF_INTERVAL_GUI / 2)
+    try:
+        while True:
+            if _res := [cast(str, getattr(_ev, "name", "noname"))
+                        for _ev in _events if _ev and _ev.is_set()]:
+                return {"event": _res}
+            elif check_timeout(start, timeout):
+                return {"timeout": [str(timeout)]}
+            await asyncio.sleep(CONF_INTERVAL_GUI / 2)
+    except Exception as e:
+        logger = logging.getLogger('waitforany')
+        logger.error(repr(e))
 
 
 async def async_waitfortasks(
@@ -934,9 +938,17 @@ async def async_waitfortasks(
     _errors = []
     _cancelled = []
 
-    done, pending = await asyncio.wait(
-        _final_wait, timeout=timeout,
-        return_when=asyncio.FIRST_COMPLETED)
+    done = None
+
+    try:
+
+        done, pending = await asyncio.wait(
+            _final_wait, timeout=timeout,
+            return_when=asyncio.FIRST_COMPLETED)
+
+    except Exception as e:
+        logger = logging.getLogger('waitfortask')
+        logger.error(repr(e))
 
     # aux task created and has to be cancelled
     to_cancel = []
@@ -1220,7 +1232,8 @@ def get_listening_tcp() -> dict:
         if isinstance(x, dict):
             return {trans(k): v for k, v in x.items()}
 
-    printout = subprocess.run(["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout
+    printout = subprocess.run(
+        ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout
     return json.loads(printout, object_hook=jsonKeys2int)
 
 
@@ -3476,6 +3489,9 @@ if PySimpleGUI:
             try:
                 if "kill" in event or event == sg.WIN_CLOSED:
                     return "break"
+                elif event in ["CtrlC"]:
+                    print(event, values)
+                    await self.asyncdl.cancel_all_dl()
                 elif event == "nwmon":
                     self.window_root["ST"].update(values["nwmon"])
                 elif event == "all":
@@ -3627,6 +3643,9 @@ if PySimpleGUI:
             sg.cprint(event, values)
             if event == sg.WIN_CLOSED:
                 return "break"
+            elif event in ["CtrlC"]:
+                print('console', event, values)
+                await self.asyncdl.cancel_all_dl()
             elif event in ["Exit"]:
                 self.logger.debug("[gui_console] event Exit")
                 await self.asyncdl.cancel_all_dl()
@@ -3661,7 +3680,8 @@ if PySimpleGUI:
                 await asyncio.sleep(0)
                 while not self.stop.is_set():
                     try:
-                        window, event, values = sg.read_all_windows(timeout=0)
+                        window, event, values = sg.read_all_windows(timeout=100)
+
                         if not window or not event or event == sg.TIMEOUT_KEY:
                             await asyncio.sleep(0)
                             continue
@@ -3703,6 +3723,8 @@ if PySimpleGUI:
                     window[key].expand(True, True, True)
             if to_front:
                 window.bring_to_front()
+
+            window.bind("<Control-KeyPress-c>", "CtrlC")
             return window
 
         def init_gui_root(self):
@@ -3796,22 +3818,6 @@ if PySimpleGUI:
 
             return self.get_window(
                 "async_downloader", layout_root, ml_keys=[f"-ML{i}-" for i in range(4)])
-            # sg.Window(
-            #     "async_downloader",
-            #     layout_root,
-            #     alpha_channel=0.99,
-            #     location=(0, 0),
-            #     finalize=True,
-            #     resizable=True)
-
-            # window_root.set_min_size(window_root.size)
-
-            # window_root["-ML0-"].expand(True, True, True)
-            # window_root["-ML1-"].expand(True, True, True)
-            # window_root["-ML2-"].expand(True, True, True)
-            # window_root["-ML3-"].expand(True, True, True)
-
-            # return window_root
 
         def init_gui_console(self):
             sg.theme("SystemDefaultForReal")
@@ -3867,19 +3873,6 @@ if PySimpleGUI:
 
             return self.get_window(
                 "Console", layout_pygui, location=(0, 500), ml_keys=["-ML-"], to_front=True)
-            # window_console = sg.Window(
-            #     "Console",
-            #     layout_pygui,
-            #     alpha_channel=0.99,
-            #     location=(0, 500),
-            #     finalize=True,
-            #     resizable=True)
-
-            # window_console.set_min_size(window_console.size)
-            # window_console["-ML-"].expand(True, True, True)
-            # window_console.bring_to_front()
-
-            # return window_console
 
         def _upt_status(self, st, _copy_list_dl, _waiting, _running):
             self.list_upt[st] = {}
@@ -4133,7 +4126,7 @@ class NWSetUp:
                 try:
                     self.logger.debug(p.flags)
                     stop_event.wait()
-                except BaseException:
+                except Exception:
                     self.logger.error("context manager proxy")
         finally:
             self.shutdown_proxy.set()
@@ -4178,7 +4171,10 @@ class NWSetUp:
             except Exception:
                 pass
             finally:
-                await self.sync_to_async(self.proc_aria2c.wait)()
+                try:
+                    self.proc_aria2c.wait()
+                except Exception as e:
+                    self.logger.error(f"[close] {repr(e)}")
 
     async def reset_aria2c(self):
         if not self.proc_aria2c:

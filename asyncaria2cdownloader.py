@@ -83,7 +83,6 @@ class AsyncARIA2CDownloader:
     _CONFIG = load_config_extractors()
     _LOCK = Lock()
     _ALOCK = partial(async_lock, _LOCK)
-    _INIT = False
     _HOSTS_DL = {}
     aria2_API: aria2p.API
 
@@ -100,10 +99,9 @@ class AsyncARIA2CDownloader:
         self.ytdl = ytdl
 
         with AsyncARIA2CDownloader._LOCK:
-            if not AsyncARIA2CDownloader._INIT:
+            if not hasattr(AsyncARIA2CDownloader, 'aria2_API'):
                 AsyncARIA2CDownloader.aria2_API = aria2p.API(
                     aria2p.Client(port=port, timeout=2))
-                AsyncARIA2CDownloader._INIT = True
 
         video_url = unquote(self.info_dict["url"])
         self.uris = [video_url]
@@ -702,7 +700,7 @@ class AsyncARIA2CDownloader:
                 else:
                     raise AsyncARIA2CDLError("fetch error")
 
-        except BaseException as e:
+        except Exception as e:
             _msg_error = str(e)
             if self.dl_cont and self.dl_cont.status == "error":
                 _msg_error += f" - {self.dl_cont.error_message}"
@@ -710,8 +708,6 @@ class AsyncARIA2CDownloader:
             logger.exception(f"{self.uptpremsg()}[fetch] error: {_msg_error}")
             self.status = "error"
             self.error_message = _msg_error
-            if isinstance(e, KeyboardInterrupt):
-                raise
 
     async def fetch_async(self):
 
@@ -754,7 +750,7 @@ class AsyncARIA2CDownloader:
                         await self.fetch()
                     if self.status in {"done", "error", "stop"}:
                         return
-                except BaseException as e:
+                except Exception as e:
                     _msg_error = str(e)
                     if self.dl_cont and self.dl_cont.status == "error":
                         _msg_error += f" - {self.dl_cont.error_message}"
@@ -762,16 +758,14 @@ class AsyncARIA2CDownloader:
                         f"{self.uptpremsg()}[fetch_async] error: {_msg_error}")
                     self.status = "error"
                     self.error_message = _msg_error
-                    if isinstance(e, KeyboardInterrupt):
-                        raise
+
                 finally:
                     if all([self._mode != "noproxy", self._index_proxy != -1]):
                         await _return_index()
                     await asyncio.sleep(0)
-        except BaseException as e:
+        except Exception as e:
             logger.exception(f"{self.premsg}[fetch_async] {str(e)}")
-            if isinstance(e, KeyboardInterrupt):
-                raise
+
         finally:
             if check_task:
                 self._qspeed.put_nowait(kill_token)

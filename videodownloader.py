@@ -175,11 +175,15 @@ class VideoDownloader:
         _dash = get_protocol(info_dict) == "dash"
 
         if _drm or _dash or info_dict.get("extractor_key") == "Youtube":
-            dl = AsyncNativeDownloader(
-                self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
-            self._types = "NATIVE_DRM" if _drm else "NATIVE"
-            logger.debug(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
-            return dl
+            try:
+                dl = AsyncNativeDownloader(
+                    self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
+                self._types = "NATIVE_DRM" if _drm else "NATIVE"
+                logger.debug(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
+                return dl
+            except Exception as e:
+                logger.error(f"{self.premsg}[{info_dict['format_id']}] Error in init DL")
+                return AsyncErrorDownloader(info_dict, repr(e))
 
         if not (_info := info_dict.get("requested_formats")):
             _info = [info_dict]
@@ -228,7 +232,7 @@ class VideoDownloader:
                 res_dl.append(dl)
 
             except Exception as e:
-                logger.exception(f"{self.premsg}[{info['format_id']}] {repr(e)}")
+                logger.error(f"{self.premsg}[{info['format_id']}] Error in init DL")
                 res_dl.append(AsyncErrorDownloader(info, repr(e)))
 
         self._types = " - ".join(_types)

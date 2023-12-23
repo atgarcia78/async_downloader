@@ -118,7 +118,7 @@ class AsyncDL:
             pending_tasks = asyncio.all_tasks()
             logger.debug(f"[pending_all_tasks] {pending_tasks}\n{print_tasks(pending_tasks)}")
         except Exception as e:
-            logger.exception(f"[print_pending_tasks]: error: {str(e)}")
+            logger.error(f"[print_pending_tasks]: error: {str(e)}")
 
     def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
         if not isinstance(coro, asyncio.Task):
@@ -294,7 +294,7 @@ class AsyncDL:
                     logger.debug(f"{_pre}\n{_for_print_videos(self._url_pl_entries)}")
 
         except Exception as e:
-            logger.exception(f"{_pre}: Error {str(e)}")
+            logger.error(f"{_pre}: Error {repr(e)}")
         finally:
             await self.WorkersInit.add_init("KILL")
             if not self.STOP.is_set():
@@ -409,10 +409,10 @@ class AsyncDL:
                                         f"{_pre} {_ent['url']} no video entries - {str(e)}")
 
                 except Exception as e:
-                    logger.exception(f"{_pre} {str(e)}")
+                    logger.error(f"{_pre} {str(e)}")
 
         except Exception as e:
-            logger.exception(f"{_pre} outer exception {str(e)}")
+            logger.error(f"{_pre} outer exception {str(e)}")
         finally:
             logger.debug(f"{_pre} bye worker")
 
@@ -585,7 +585,7 @@ class AsyncDL:
                     f"{self.info_videos[_url]['video_info'].get('original_url')}")
 
         except Exception as e:
-            logger.exception(
+            logger.error(
                 f"{_pre} error {str(e)} with entry\n{entry}")
 
     async def get_dl(self, url_key):
@@ -740,16 +740,17 @@ class AsyncDL:
                 self.info_videos[url_key]["status"] = "nok"
 
         except Exception as e:
-            logger.exception(f"[run_callback][{url_key}]: error {str(e)}")
+            logger.error(f"[run_callback][{url_key}]: error {str(e)}")
 
     async def async_ex(self):
         signals = (signal.SIGTERM, signal.SIGINT)
         for s in signals:
             asyncio.get_running_loop().add_signal_handler(
-                s, lambda s=s: asyncio.create_task(self.shutdown(s)))
+                s, lambda s=s: asyncio.create_task(self.shutdown(sig=s)))
 
         try:
             self.STOP = MySyncAsyncEvent("MAINSTOP")
+            self.in_shutdown = MySyncAsyncEvent("SHUTDOWN")
             self.getlistvid_first = MySyncAsyncEvent("first")
             self.end_dl = MySyncAsyncEvent("enddl")
             self.alock = asyncio.Lock()
@@ -800,46 +801,55 @@ class AsyncDL:
                         else:
                             self.info_videos[url_key].update({"status": "nok"})
 
-        except BaseException as e:
+        except Exception as e:
             logger.error(f"[async_ex] {str(e)}")
-            raise
         finally:
             await self.shutdown()
-            self.get_results_info()
             logger.info("[async_ex] BYE")
 
-    async def shutdown(self, signal=None):
+    async def shutdown(self, sig=None):
+        async with self.alock:
+            if self.in_shutdown.is_set():
+                return
+            self.in_shutdown.set()
+
         try:
-            logger.info(f"[shutdown] signal {signal}")
+            logger.info(f"[shutdown] signal {sig}")
 
             self.print_pending_tasks()
 
             if not self.STOP.is_set():
+                self.STOP.set()
                 self.t2.stop()
+                await asyncio.sleep(2)
                 if hasattr(self, "FEgui"):
                     logger.info(f"[shutdown] {self.FEgui.get_dl_media()}")
-                self.STOP.set()
                 await self.ytdl.stop()
-                await asyncio.sleep(0)
+                await asyncio.sleep(2)
                 if self.list_dl:
                     for _, dl in self.list_dl.items():
                         await dl.stop("exit")
                         await asyncio.sleep(0)
+            await asyncio.sleep(2)
+            try:
+                await self.close()
+            except Exception as e:
+                logger.error(f"[shutdown] close {str(e)}")
 
-            await self.close()
-            await asyncio.sleep(0)
             self.print_pending_tasks()
             if _pending_tasks := [
                 task
                 for task in asyncio.all_tasks()
                 if task is not asyncio.current_task()
-                and "async_ex" not in repr(task.get_coro())
+                and not any(_ in repr(task.get_coro()) for _ in ["async_ex"])
             ]:
                 list(map(lambda task: task.cancel(), _pending_tasks))
                 await asyncio.wait(_pending_tasks)
 
         except Exception as e:
-            logger.exception(f"[shutdown] {str(e)}")
+            logger.error(f"[shutdown] {str(e)}")
+        finally:
+            self.get_results_info()
 
     async def close(self):
         try:
@@ -852,14 +862,14 @@ class AsyncDL:
                 if AsyncHLSDownloader._COUNTDOWNS:
                     AsyncHLSDownloader._COUNTDOWNS.clean()
             except Exception as e:
-                logger.exception(f"[close] asyncdlhls countdown {str(e)}")
+                logger.error(f"[close] asyncdlhls countdown {str(e)}")
 
             try:
                 if hasattr(self, "FEgui"):
                     logger.debug("[close] start to close fegui")
                     await self.FEgui.close()
-            except BaseException as e:
-                logger.exception(f"[close] {str(e)}")
+            except Exception as e:
+                logger.error(f"[close] {str(e)}")
 
             try:
                 if hasattr(self, "nwsetup"):
@@ -867,25 +877,25 @@ class AsyncDL:
                     if not self.nwsetup.init_ready.is_set():
                         await self.nwsetup.init_ready.async_wait()
                     await self.nwsetup.close()
-            except BaseException as e:
-                logger.exception(f"[close] {str(e)}")
+            except Exception as e:
+                logger.error(f"[close] {str(e)}")
 
             try:
                 self.ytdl.close()
-            except BaseException as e:
-                logger.exception(f"[close] {str(e)}")
+            except Exception as e:
+                logger.error(f"[close] {str(e)}")
 
             if self.list_dl:
                 for _, vdl in self.list_dl.items():
                     try:
                         vdl.close()
                     except Exception as e:
-                        logger.exception(f"[close] {str(e)}")
+                        logger.error(f"[close] {str(e)}")
 
             # waits for upt local
             await self.localstorage.aready()
 
-        except BaseException as e:
+        except Exception as e:
             logger.error(f"[close] error {str(e)}. Lets kill processes")
             kill_processes(logger=logger, rpcport=self.args.rpcport)
 
@@ -1009,7 +1019,7 @@ class AsyncDL:
                         logger.info("Videos to DL: []")
 
                 except Exception as e:
-                    logger.exception(f"[print_videos] {str(e)}")
+                    logger.error(f"[print_videos] {str(e)}")
 
                 return {
                     "videos": {"urls": list_videos, "str": list_videos_str},
@@ -1021,7 +1031,7 @@ class AsyncDL:
                     },
                 }
             except Exception as e:
-                logger.exception(str(e))
+                logger.error(str(e))
                 return {}
 
         _videos_url_notsupported = self.list_unsup_urls
@@ -1156,7 +1166,7 @@ class AsyncDL:
             logger.info("****************************************************")
             logger.info("****************************************************")
         except Exception as e:
-            logger.exception(f"[get_results] {str(e)}")
+            logger.error(f"[get_results] {str(e)}")
 
         logger.debug(f"[info_videos]\n{_for_print_videos(self.info_videos)}")
 

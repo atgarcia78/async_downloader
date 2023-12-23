@@ -1053,7 +1053,7 @@ class AsyncHLSDownloader:
                     self._vid_dl.total_sizes["filesize"] += _dif
         return _bytes_dl
 
-    async def _clean_frag(self, _info_frag: dict, _exc: BaseException) -> None:
+    async def _clean_frag(self, _info_frag: dict, _exc: Exception) -> None:
         _info_frag["error"].append(repr(_exc))
         _info_frag["downloaded"] = False
         _fpath = Path(_info_frag["file"])
@@ -1367,10 +1367,9 @@ class AsyncHLSDownloader:
 
                 except AsyncHLSDLErrorFatal:
                     raise
-                except BaseException as e:
+                except Exception as e:
                     logger.exception(f"{_premsg} error {repr(e)}")
-                    if isinstance(e, KeyboardInterrupt):
-                        raise
+
                 finally:
                     await asyncio.wait(upt_task)
                     await asyncio.sleep(0)
