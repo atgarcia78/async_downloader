@@ -666,11 +666,14 @@ class SmoothETA:
 
 class SignalHandler:
     def __init__(self):
-        signal.signal(signal.SIGINT, self.exit_gracefully)
-        signal.signal(signal.SIGTERM, self.exit_gracefully)
+        self.KEEP_PROCESSING = True
+        signals = (signal.SIGTERM, signal.SIGINT)
+        for s in signals:
+            signal.signal(
+                s, self.exit_gracefully)
 
-    def exit_gracefully(self, signum, frame):
-        print(signum)
+    def exit_gracefully(self, sig, frame):
+        print(sig, frame)
         print("Exiting gracefully")
         self.KEEP_PROCESSING = False
 
@@ -764,16 +767,17 @@ class run_operation_in_executor_from_loop:
 
 
 class async_suppress(contextlib.AbstractAsyncContextManager):
-    def __init__(self, *exceptions):
+    def __init__(self, *exceptions, logger=None, msg=None):
         self._exceptions = exceptions
+        self.logger = logger or logging.getLogger('utils.asyncsuppres').warning
+        self.msg = f'{msg} ' if msg else ''
 
     async def __aenter__(self):
         pass
 
     async def __aexit__(self, exctype, excinst, exctb):
         if exctype is not None and issubclass(exctype, self._exceptions):
-            logger = logging.getLogger('utils.asyncsuppres')
-            logger.warning(f'Exception supressed: {exctype}, {excinst}')
+            self.logger(f'{self.msg}Exception supressed: {exctype}, {excinst}')
             return True
 
 
@@ -938,17 +942,9 @@ async def async_waitfortasks(
     _errors = []
     _cancelled = []
 
-    done = None
-
-    try:
-
-        done, pending = await asyncio.wait(
-            _final_wait, timeout=timeout,
-            return_when=asyncio.FIRST_COMPLETED)
-
-    except Exception as e:
-        logger = logging.getLogger('waitfortask')
-        logger.error(repr(e))
+    done, pending = await asyncio.wait(
+        list(_final_wait.keys()), timeout=timeout,
+        return_when=asyncio.FIRST_COMPLETED)
 
     # aux task created and has to be cancelled
     to_cancel = []
@@ -1066,750 +1062,10 @@ def wait_until(timeout, statement, args, kwargs, interv=CONF_INTERVAL_GUI):
         else:
             time.sleep(interv)
 
-
-############################################################
-# """                     INIT                     """
-############################################################
-
-
-def init_logging(file_path=None, test=False):
-    if not file_path:
-        config_file = Path(Path.home(), "Projects/common/logging.json")
-    else:
-        config_file = Path(file_path)
-
-    with open(config_file) as f:
-        config = json.loads(f.read())
-
-    config["handlers"]["info_file_handler"]["filename"] = config[
-        "handlers"]["info_file_handler"]["filename"].format(path_logs=str(PATH_LOGS))
-
-    logging.config.dictConfig(config)
-
-    for log_name, _ in logging.Logger.manager.loggerDict.items():
-        if log_name.startswith("proxy"):
-            logger = logging.getLogger(log_name)
-            logger.setLevel(logging.INFO)
-
-    logger = logging.getLogger("proxy.http.proxy.server")
-    logger.setLevel(logging.ERROR)
-    logger = logging.getLogger("proxy.core.base.tcp_server")
-    logger.setLevel(logging.ERROR)
-    logger = logging.getLogger("proxy.http.handler")
-    logger.setLevel(logging.ERROR)
-    logger = logging.getLogger("plugins.proxy_pool_by_host")
-    logger.setLevel(logging.ERROR)
-
-    if test:
-        return logging.getLogger("test")
-
-
-class ActionNoYes(argparse.Action):
-    def __init__(self, option_strings, dest, default=None, required=False, help=None):
-        if len(option_strings) != 1:
-            raise ValueError("Only single argument is allowed with YesNo action")
-        opt = option_strings[0]
-        if not opt.startswith("--"):
-            raise ValueError("Yes/No arguments must be prefixed with --")
-        opt = opt[2:]
-        opts = [f"--{opt}", f"--no-{opt}"]
-        super(ActionNoYes, self).__init__(
-            opts, dest, nargs="?", const=None, default=default,
-            required=required, help=help)
-
-    def __call__(self, parser, namespace, values, option_strings=None):
-        if option_strings:
-            if option_strings.startswith("--no-"):
-                setattr(namespace, self.dest, False)
-            else:
-                _val = values or True
-                setattr(namespace, self.dest, _val)
-
-
-def init_argparser():
-    parser = argparse.ArgumentParser(
-        description="Async downloader videos / playlist videos HLS / HTTP")
-    parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
-    parser.add_argument(
-        "--winit",
-        help="Number of init workers, default is same number for DL workers",
-        default="10",
-        type=int,
-    )
-    parser.add_argument(
-        "-p", "--parts", help="Number of workers for each DL", default="16", type=int)
-    parser.add_argument(
-        "--format", help="Format preferred of the video in youtube-dl format",
-        default="bv*+ba/b", type=str
-    )
-    parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str)
-    parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
-    parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
-    parser.add_argument("--checkcert", help="checkcertificate", action="store_true", default=False)
-    parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
-    parser.add_argument("--proxy", action=ActionNoYes, default=None)
-    parser.add_argument("--useragent", default=CONF_FIREFOX_UA, type=str)
-    parser.add_argument("--first", default=None, type=int)
-    parser.add_argument("--last", default=None, type=int)
-    parser.add_argument("--nodl", help="not download", action="store_true", default=False)
-    parser.add_argument("--headers", default="", type=str)
-    parser.add_argument("-u", action="append", dest="collection", default=[])
-    parser.add_argument(
-        "--dlcaching",
-        help="whether to force to check external storage or not",
-        action=ActionNoYes,
-        default=False,
-    )
-    parser.add_argument("--path", default=None, type=str)
-    parser.add_argument("--caplinks", action="store_true", default=False)
-    parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
-    parser.add_argument("--vv", help="verbose plus", action=ActionNoYes, default=False)
-    parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
-    parser.add_argument(
-        "--aria2c",
-        action=ActionNoYes,
-        default="6800",
-        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
-    )
-    parser.add_argument("--subt", action=ActionNoYes, default=True)
-    parser.add_argument("--nosymlinks", action="store_true", default=False)
-    parser.add_argument("--check-speed", action=ActionNoYes, default=True)
-    parser.add_argument(
-        "--deep-aldl",
-        help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'",
-        action=ActionNoYes,
-        default=False)
-    parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"], default="aria2c")
-    parser.add_argument("--use-path-pl", action="store_true", default=False)
-    parser.add_argument("--use-cookies", action="store_true", default=True)
-    parser.add_argument("--no-embed", action="store_true", default=False)
-    parser.add_argument("--rep-pause", action="store_true", default=False)
-
-    args = parser.parse_args()
-
-    if args.winit == 0:
-        args.winit = args.w
-
-    if args.aria2c is False:
-        args.rpcport = None
-
-    elif args.aria2c is True:
-        args.rpcport = 6800
-    else:
-        args.rpcport = int(args.aria2c)
-        args.aria2c = True
-
-    if args.path and len(args.path.split("/")) == 1:
-        args.path = str(Path(Path.home(), "testing", args.path))
-
-    if args.vv:
-        args.verbose = True
-
-    if args.quiet:
-        args.verbose = False
-        args.vv = False
-
-    args.enproxy = True
-    if args.proxy is False:
-        args.enproxy = False
-        args.proxy = None
-    elif args.proxy is True:
-        args.proxy = None
-
-    args.nocheckcert = not args.checkcert
-    return args
-
-
-def get_listening_tcp() -> dict:
-    """
-    dict of result executing 'listening' in shell with keys:
-        tcp port,
-        command
-    """
-
-    def jsonKeys2int(x):
-        trans = lambda x: int(x) if x.isdigit() else x
-        if isinstance(x, dict):
-            return {trans(k): v for k, v in x.items()}
-
-    printout = subprocess.run(
-        ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout
-    return json.loads(printout, object_hook=jsonKeys2int)
-
-
-def find_in_ps(pattern, value=None):
-    res = subprocess.run(
-        ["ps", "-u", "501", "-x", "-o", "pid,tty,command"], encoding="utf-8", capture_output=True
-    ).stdout
-    mobj = re.findall(pattern, res)
-    if not value or str(value) in mobj:
-        return mobj
-
-
-def init_aria2c(args):
-    logger = logging.getLogger("asyncDL")
-
-    _info = get_listening_tcp()
-    _in_use_aria2c_ports = cast(list, traverse_obj(_info, ("aria2c", ..., "port")) or [None])
-    if args.rpcport in _info:
-        _port = _in_use_aria2c_ports[-1] or args.rpcport
-        for n in range(10):
-            args.rpcport = _port + (n + 1) * 100
-            if args.rpcport not in _info:
-                break
-    _cmd = f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc "
-    _cmd += "--rpc-max-request-size=2M --rpc-listen-all --quiet=true"
-    _proc = subprocess.Popen(
-        shlex.split(_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
-
-    while _proc.poll() is None:
-        if args.rpcport in traverse_obj(
-                get_listening_tcp(), ("aria2c", ..., "port")):
-            break
-        time.sleep(1)
-
-    if _proc.returncode is not None or args.rpcport not in traverse_obj(
-        get_listening_tcp(), ("aria2c", ..., "port")
-    ):
-        raise ValueError(f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
-
-    logger.info(f"[init_aria2c] running on port: {args.rpcport}")
-
-    return _proc
-
-
-def get_httpx_client(config: Optional[dict] = None) -> httpx.Client:
-    if not config:
-        config = {}
-    return httpx.Client(**(CLIENT_CONFIG | config))
-
-
-def get_httpx_async_client(config: Optional[dict] = None) -> httpx.AsyncClient:
-    if not config:
-        config = {}
-    return httpx.AsyncClient(**(CLIENT_CONFIG | config))
-
-
-def get_driver(**kwargs) -> Optional[Firefox]:
-    if kwargs.get("noheadless") is None:
-        kwargs["noheadless"] = True
-    if _driver := try_get(
-            SeleniumInfoExtractor._get_driver(**kwargs),
-            lambda x: x[0] if x else None):
-        return _driver
-
-
-############################################################
-# """                     IP/TORGUARD                    """
-############################################################
-
-
-def is_ipaddr(res):
-    try:
-        ip_address(res)
-        return True
-    except Exception:
-        return False
-
-
-class myIP:
-    URLS_API_GETMYIP = {
-        "httpbin": {"url": "https://httpbin.org/get", "key": "origin"},
-        "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
-        "ipapi": {"url": "http://ip-api.com/json", "key": "query"},
-    }
-    # CONFIG = {}
-    # CLIENT = None
-
-    @classmethod
-    def _set_config(cls, key, timeout=1):
-        _proxies = {"all://": f"http://127.0.0.1:{key}"} if key else None
-        _timeout = httpx.Timeout(timeout=timeout)
-        # cls.CONFIG.update({"proxies": _proxies, "timeout": _timeout})
-        # cls.CLIENT = get_httpx_client(config=cls.CONFIG)
-        return get_httpx_client(config={"proxies": _proxies, "timeout": _timeout})
-
-    @staticmethod
-    def _get_rtt(ip):
-        res = subprocess.run(
-            ["ping", "-c", "10", "-q", "-S", "192.168.1.128", ip],
-            encoding="utf-8",
-            capture_output=True,
-        ).stdout
-        _tavg = try_get(re.findall(r"= [^\/]+\/([^\/]+)\/", res), lambda x: float(x[0]))
-        return {"ip": ip, "time": _tavg}
-
-    @classmethod
-    def get_ip(cls, client, api="ipify"):
-        if api not in cls.URLS_API_GETMYIP:
-            raise ValueError("[get_ip] api not supported")
-
-        _urlapi = cls.URLS_API_GETMYIP[api]["url"]
-        _keyapi = cls.URLS_API_GETMYIP[api]["key"]
-        return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
-
-    @classmethod
-    def get_myiptryall(cls, client):
-        exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
-        try:
-            futures = [exe.submit(cls.get_ip, client, api=api) for api in cls.URLS_API_GETMYIP]
-            for el in as_completed(futures):
-                if not el.exception() and is_ipaddr(_ip := el.result()):
-                    return _ip
-        finally:
-            exe.shutdown(wait=False)
-
-    @classmethod
-    def get_myip(cls, key=None, timeout=1, tryall=True, api=None):
-        """
-        class method which is entry for the functionality.
-
-        _myip = myIP.get_myip(key=12408, timeout=8)
-
-        key is the port of the 127.0.0.1:{key} proxy. Dont set it to not use proxy
-        """
-        client = cls._set_config(key, timeout=timeout)
-        try:
-            if tryall:
-                return cls.get_myiptryall(client)
-            if not api:
-                api = random.choice(list(cls.URLS_API_GETMYIP))
-            return cls.get_ip(client, api=api)
-        finally:
-            if client:
-                client.close()
-
-
-def getmyip(key=None, timeout=1):
-    return myIP.get_myip(key=key, timeout=timeout)
-
-
-def sanitize_killproc(proc_gost):
-    for proc in variadic(proc_gost):
-        proc.terminate()
-        try:
-            if proc.stdout:
-                proc.stdout.close()
-            if proc.stderr:
-                proc.stderr.close()
-            if proc.stdin:
-                proc.stdin.close()
-        except Exception:
-            pass
-        finally:
-            proc.wait()
-
-
-class TorGuardProxies:
-    CONF_TORPROXIES_LIST_HTTPPORTS = [489, 23, 7070, 465, 993, 282, 778, 592]
-    CONF_TORPROXIES_COUNTRIES = [
-        "fn",
-        "no",
-        "bg",
-        "pg",
-        "it",
-        "fr",
-        "sp",
-        "ire",
-        "ice",
-        "cz",
-        "aus",
-        "ger",
-        "uk",
-        "uk.man",
-        "ro",
-        "slk",
-        "nl",
-        "hg",
-        "bul",
-    ]
-    CONF_TORPROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_TORPROXIES_COUNTRIES]
-    CONF_TORPROXIES_NOK = Path(PATH_LOGS, "bad_proxies.txt")
-
-    EVENT = MySyncAsyncEvent("dummy")
-
-    IPS_SSL = []
-
-    logger = logging.getLogger("torguardprx")
-
-    @classmethod
-    def mytest_proxies_rt(cls, routing_table, timeout=2):
-        cls.logger.info("[init_proxies] starting test proxies")
-        bad_pr = []
-        exe = ThreadPoolExecutor(thread_name_prefix="testproxrt")
-        try:
-            futures = {
-                exe.submit(getmyip, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())}
-
-            for fut in as_completed(list(futures.keys())):
-                if cls.EVENT.is_set():
-                    break
-                if not fut.exception() and is_ipaddr(_ip := fut.result()):
-                    if _ip != routing_table[futures[fut]]:
-                        cls.logger.debug(
-                            f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}")
-                        bad_pr.append(routing_table[futures[fut]])
-                else:
-                    bad_pr.append(routing_table[futures[fut]])
-            return bad_pr
-        finally:
-            exe.shutdown(wait=False, cancel_futures=True)
-
-    @classmethod
-    def _init_gost(cls, cmd_gost: list) -> list:
-
-        proc_gost = []
-
-        for cmd in cmd_gost:
-            try:
-                _proc = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=False)
-                _proc.poll()
-                if _proc.returncode:
-                    cls.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{cmd}]")
-                    raise ConnectError("init proxies error")
-                else:
-                    proc_gost.append(_proc)
-            except ConnectError:
-                sanitize_killproc(proc_gost)
-                proc_gost = []
-                break
-        return proc_gost
-
-    @classmethod
-    def mytest_proxies_raw(cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2):
-        cmd_gost = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} " +
-            f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
-            for i, ip in enumerate(list_ips)]
-        routing_table = {CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)}
-
-        if not (proc_gost := cls._init_gost(cmd_gost)):
-            cls.logger.error("[init_proxies] error with gost commands")
-            return False
-        try:
-            _res_bad = None
-            if not cls.EVENT.is_set():
-                _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
-                cls.logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
-
-                _res_bad = cls.mytest_proxies_rt(routing_table, timeout=timeout)
-                _line_ps_pr = []
-                for _ip in _res_bad:
-                    if _temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None):
-                        _line_ps_pr.append(_temp)
-                cls.logger.info(
-                    f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] "
-                    + f"ps_print [{len(_line_ps_pr)}]")
-
-            if _res_bad:
-                cached_res = cls.CONF_TORPROXIES_NOK
-                with open(cached_res, "w") as f:
-                    _test = "\n".join(_res_bad)
-                    f.write(_test)
-            return _res_bad or True
-
-        finally:
-            sanitize_killproc(proc_gost)
-
-    @classmethod
-    def get_ips(cls, name):
-        res = subprocess.run(
-            f"dscacheutil -q host -a name {name}".split(" "),
-            encoding="utf-8",
-            capture_output=True,
-        ).stdout
-        return re.findall(r"ip_address: (.+)", res)
-
-    @classmethod
-    def init_proxies(
-        cls,
-        num=CONF_PROXIES_MAX_N_GR_HOST,
-        size=CONF_PROXIES_N_GR_VIDEO,
-        port=CONF_TORPROXIES_HTTPPORT,
-        timeout=8,
-        event=None,
-    ) -> Tuple[List, Dict]:
-        cls.logger.info("[init_proxies] start")
-
-        try:
-            if event:
-                cls.EVENT = event
-
-            cls.IPS_SSL = []
-
-            if cls.EVENT.is_set():
-                return [], {}
-
-            for domain in cls.CONF_TORPROXIES_DOMAINS:
-                cls.IPS_SSL += cls.get_ips(domain)
-
-            _bad_ips = None
-            cached_res = cls.CONF_TORPROXIES_NOK
-            if cached_res.exists() and (
-                    (datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds < 7200):  # every 2h we check the proxies
-                with open(cached_res, "r") as f:
-                    if (_content := f.read()):
-                        _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
-            else:
-                if cls.EVENT.is_set():
-                    return [], {}
-                if _bad_ips := cls.mytest_proxies_raw(cls.IPS_SSL, port=port, timeout=timeout):
-
-                    if isinstance(_bad_ips, list):
-                        for _ip in _bad_ips:
-                            if _ip in cls.IPS_SSL:
-                                cls.IPS_SSL.remove(_ip)
-                else:
-                    cls.logger.error("[init_proxies] test failed")
-                    return [], {}
-
-            _ip_main = random.choice(cls.IPS_SSL)
-
-            cls.IPS_SSL.remove(_ip_main)
-
-            if len(cls.IPS_SSL) < num * (size + 1):
-                cls.logger.warning("[init_proxies] not enough IPs to generate sample")
-                return [], {}
-
-            _ips = random.sample(cls.IPS_SSL, num * (size + 1))
-
-            def grouper(iterable, n, *, incomplete="fill", fillvalue=None):
-                from itertools import zip_longest
-
-                args = [iter(iterable)] * n
-                if incomplete == "fill":
-                    return zip_longest(*args, fillvalue=fillvalue)
-                if incomplete == "strict":
-                    return zip(*args, strict=True)  # type: ignore
-                if incomplete == "ignore":
-                    return zip(*args)
-                else:
-                    raise ValueError("Expected fill, strict, or ignore")
-
-            FINAL_IPS = list(grouper(_ips, (size + 1)))
-            cmd_gost_s = []
-            routing_table = {}
-            cmd_gost_s = [
-                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} " +
-                f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
-                for j in range(size + 1) for i, ip in enumerate(FINAL_IPS)]
-            routing_table = {(CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j] for j in range(size + 1) for i, ip in enumerate(FINAL_IPS)}
-
-            cmd_gost_main = [
-                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} " +
-                f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"]
-            routing_table[CONF_PROXIES_BASE_PORT + 100 * num + 99] = _ip_main
-
-            cmd_gost = cmd_gost_s + cmd_gost_main
-
-            if cls.EVENT.is_set():
-                return [], {}
-
-            cls.logger.debug(f"[init_proxies] {cmd_gost}")
-            cls.logger.debug(f"[init_proxies] {routing_table}")
-
-            if not (proc_gost := cls._init_gost(cmd_gost)):
-                cls.logger.debug("[init_proxies] error with gost commands")
-                return [], {}
-
-            return proc_gost, routing_table
-
-        finally:
-            cls.logger.info("[init_proxies] done")
-
-    def genwgconf(self, host, **kwargs):
-        headers = {
-            "User-Agent": CONF_FIREFOX_UA,
-            "Accept": "application/json, text/javascript, */*; q=0.01",
-            "Accept-Language": "en-US,en;q=0.5",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Origin": "https://torguard.net",
-            "Alt-Used": "torguard.net",
-            "Connection": "keep-alive",
-            "Referer": "https://torguard.net/tgconf.php?action=vpn-openvpnconfig",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
-            "Pragma": "no-cache",
-            "Cache-Control": "no-cache",
-            "TE": "trailers",
-        }
-        data = {
-            "token": "7cb788d89a93f49b54a91b3517e75a9fda7b7d55",
-            "tokk": "ad97fcbd2c6d",
-            "device": "",
-            "tunnel": "wireguard",
-            "oserver[]": "",
-            "server": "",
-            "protocol": "udp",
-            "cipher": "1912|SHA256",
-            "Ecipher": "AES-128-CBC",
-            "build": "2.6",
-            "username": "atgarcia",
-            "password": "",
-            "privkey": "",
-            "pubkey": "",
-            "wgport": "1443",
-            "mtu": "1390",
-        }
-        if is_ipaddr(host):
-            data["server"] = host
-        elif "torguard.com" in host:
-            data["oserver[]"] = host
-        else:
-            TorGuardProxies.logger.error(f"[gen_wg_conf] {host} is not a torguard domain: xx.torguard.com")
-
-        cl = get_httpx_client()
-
-        if ckies := kwargs.get("cookies"):
-            reqckies = ckies.get("Request Cookies", ckies)
-            for name, value in reqckies.items():
-                cl.cookies.set(name, value, "torguard.net")
-        else:
-            for cookie in extract_cookies_from_browser("firefox"):
-                if "torguard.net" in cookie.domain:
-                    cl.cookies.set(name=cookie.name, value=cookie.value, domain=cookie.domain)  # type: ignore
-        if info := kwargs.get("info"):
-            data |= info
-        else:
-            headersform = {
-                "User-Agent": CONF_FIREFOX_UA,
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-US,en;q=0.5",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Origin": "https://torguard.net",
-                "Alt-Used": "torguard.net",
-                "Connection": "keep-alive",
-                "Referer": "https://torguard.net/clientarea.php",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "same-origin",
-                "Pragma": "no-cache",
-                "Cache-Control": "no-cache",
-                "TE": "trailers",
-            }
-            with limiter_0_1.ratelimit("torguardconf", delay=True):
-                resform = cl.get(
-                    "https://torguard.net/tgconf.php?action=vpn-openvpnconfig", headers=headersform
-                )
-            token, tokk = re.findall(r'"(?:token|tokk)" value="([^"]+)"', resform.text) or ["", ""]
-            if token and tokk:
-                data["token"] = token
-                data["tokk"] = tokk
-        urlpost = "https://torguard.net/generateconfig.php"
-        with limiter_0_1.ratelimit("torguardconf", delay=True):
-            respost = try_get(cl.post(urlpost, headers=headers, data=data), lambda x: x.json())
-        if respost and respost.get("success") == "true" and (_config := respost.get("config")):
-            allips = [
-                "1.0.0.0/8",
-                "2.0.0.0/8",
-                "3.0.0.0/8",
-                "4.0.0.0/6",
-                "8.0.0.0/7",
-                "11.0.0.0/8",
-                "12.0.0.0/6",
-                "16.0.0.0/4",
-                "32.0.0.0/3",
-                "64.0.0.0/2",
-                "128.0.0.0/3",
-                "160.0.0.0/5",
-                "168.0.0.0/6",
-                "172.0.0.0/12",
-                "172.32.0.0/11",
-                "172.64.0.0/10",
-                "172.128.0.0/9",
-                "173.0.0.0/8",
-                "174.0.0.0/7",
-                "176.0.0.0/4",
-                "192.0.0.0/9",
-                "192.128.0.0/11",
-                "192.160.0.0/13",
-                "192.169.0.0/16",
-                "192.170.0.0/15",
-                "192.172.0.0/14",
-                "192.176.0.0/12",
-                "192.192.0.0/10",
-                "193.0.0.0/8",
-                "194.0.0.0/7",
-                "196.0.0.0/6",
-                "200.0.0.0/5",
-                "208.0.0.0/4",
-                "10.26.0.1/32",
-            ]
-            allowedips = "AllowedIPs = " + ", ".join(allips)
-            _config = _config.replace("DNS = 1.1.1.1", "DNS = 10.26.0.1").replace(
-                "AllowedIPs = 0.0.0.0/0", allowedips
-            )
-            if not data["server"]:
-                _ip = (
-                    try_get(
-                        re.search(r"Endpoint = (?P<ip>[^\:]+)\:", _config), lambda x: x.groupdict().get("ip")
-                    )
-                    or ""
-                )
-                _file = data["oserver[]"].split(".")[0].upper() + _ip.replace(".", "_") + ".conf"
-            else:
-                _file = (kwargs.get("pre", "") or "") + data["server"].replace(".", "_") + ".conf"
-            with open(f"/Users/antoniotorres/testing/{_file}", "w") as f:
-                f.write(_config)
-        else:
-            TorGuardProxies.logger.error(
-                f"[gen_wg_conf] {respost.get('error') if respost else 'error with host[{host}]: check cookies and tokens'}"
-            )
-
-
-def get_all_wd_conf(name=None):
-    if name and "torguard.com" in name:
-        ips = TorGuardProxies.get_ips(name)
-        if ips:
-            init_logging()
-            total = len(ips)
-            _pre = name.split(".")[0].upper()
-            proxies = TorGuardProxies()
-
-            with ProgressBar(None, total) as pb:
-
-                def getconf(_ip):
-                    with contextlib.suppress(Exception):
-                        proxies.genwgconf(_ip, pre=_pre)
-                    with pb._lock:
-                        pb.update()
-                        pb.print("")
-
-                with ThreadPoolExecutor(thread_name_prefix="tgconf", max_workers=5) as exe:
-                    _ = [
-                        exe.submit(
-                            getconf,
-                            ip,
-                        )
-                        for ip in ips
-                    ]
-
-                time.sleep(1)
-                pb.print("")
-        else:
-            print(f"{name} doesnt get any ip when dns resolving")
-    else:
-        print("Missing domain torguard: xx.torguard.com")
-
-
-def get_wd_conf(name=None, pre=None):
-    if name:
-        try:
-            proxies = TorGuardProxies()
-            proxies.genwgconf(name, pre=pre)
-        except Exception as e:
-            logger = logging.getLogger("wdconf")
-            logger.exception(repr(e))
-    else:
-        print("Use ip or torguard domain xx.torguard.com")
-
-
 ############################################################
 # """                     YTDLP                           """
 ############################################################
+
 
 if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
@@ -2798,6 +2054,745 @@ if yt_dlp:
         print("", file=sys.stderr, flush=True)
         return entries_final
 
+############################################################
+# """                     INIT                     """
+############################################################
+
+
+def init_logging(file_path=None, test=False):
+    if not file_path:
+        config_file = Path(Path.home(), "Projects/common/logging.json")
+    else:
+        config_file = Path(file_path)
+
+    with open(config_file) as f:
+        config = json.loads(f.read())
+
+    config["handlers"]["info_file_handler"]["filename"] = config[
+        "handlers"]["info_file_handler"]["filename"].format(path_logs=str(PATH_LOGS))
+
+    logging.config.dictConfig(config)
+
+    for log_name, _ in logging.Logger.manager.loggerDict.items():
+        if log_name.startswith("proxy"):
+            logger = logging.getLogger(log_name)
+            logger.setLevel(logging.ERROR)
+
+    logger = logging.getLogger("plugins.proxy_pool_by_host")
+    logger.setLevel(logging.ERROR)
+
+    if test:
+        return logging.getLogger("test")
+
+
+class ActionNoYes(argparse.Action):
+    def __init__(self, option_strings, dest, default=None, required=False, help=None):
+        if len(option_strings) != 1:
+            raise ValueError("Only single argument is allowed with YesNo action")
+        opt = option_strings[0]
+        if not opt.startswith("--"):
+            raise ValueError("Yes/No arguments must be prefixed with --")
+        opt = opt[2:]
+        opts = [f"--{opt}", f"--no-{opt}"]
+        super(ActionNoYes, self).__init__(
+            opts, dest, nargs="?", const=None, default=default,
+            required=required, help=help)
+
+    def __call__(self, parser, namespace, values, option_strings=None):
+        if option_strings:
+            if option_strings.startswith("--no-"):
+                setattr(namespace, self.dest, False)
+            else:
+                _val = values or True
+                setattr(namespace, self.dest, _val)
+
+
+def init_argparser():
+    parser = argparse.ArgumentParser(
+        description="Async downloader videos / playlist videos HLS / HTTP")
+    parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
+    parser.add_argument(
+        "--winit",
+        help="Number of init workers, default is same number for DL workers",
+        default="10",
+        type=int,
+    )
+    parser.add_argument(
+        "-p", "--parts", help="Number of workers for each DL", default="16", type=int)
+    parser.add_argument(
+        "--format", help="Format preferred of the video in youtube-dl format",
+        default="bv*+ba/b", type=str
+    )
+    parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str)
+    parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
+    parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
+    parser.add_argument("--checkcert", help="checkcertificate", action="store_true", default=False)
+    parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
+    parser.add_argument("--proxy", action=ActionNoYes, default=None)
+    parser.add_argument("--useragent", default=CONF_FIREFOX_UA, type=str)
+    parser.add_argument("--first", default=None, type=int)
+    parser.add_argument("--last", default=None, type=int)
+    parser.add_argument("--nodl", help="not download", action="store_true", default=False)
+    parser.add_argument("--headers", default="", type=str)
+    parser.add_argument("-u", action="append", dest="collection", default=[])
+    parser.add_argument(
+        "--dlcaching",
+        help="whether to force to check external storage or not",
+        action=ActionNoYes,
+        default=False,
+    )
+    parser.add_argument("--path", default=None, type=str)
+    parser.add_argument("--caplinks", action="store_true", default=False)
+    parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
+    parser.add_argument("--vv", help="verbose plus", action=ActionNoYes, default=False)
+    parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
+    parser.add_argument(
+        "--aria2c",
+        action=ActionNoYes,
+        default="6800",
+        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
+    )
+    parser.add_argument("--subt", action=ActionNoYes, default=True)
+    parser.add_argument("--xattr", action=ActionNoYes, default=True)
+    parser.add_argument("--nosymlinks", action="store_true", default=False)
+    parser.add_argument("--check-speed", action=ActionNoYes, default=True)
+    parser.add_argument(
+        "--deep-aldl",
+        help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'",
+        action=ActionNoYes,
+        default=False)
+    parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"], default="aria2c")
+    parser.add_argument("--use-path-pl", action="store_true", default=False)
+    parser.add_argument("--use-cookies", action="store_true", default=True)
+    parser.add_argument("--no-embed", action="store_true", default=False)
+    parser.add_argument("--rep-pause", action="store_true", default=False)
+
+    args = parser.parse_args()
+
+    if args.winit == 0:
+        args.winit = args.w
+
+    if args.aria2c is False:
+        args.rpcport = None
+
+    elif args.aria2c is True:
+        args.rpcport = 6800
+    else:
+        args.rpcport = int(args.aria2c)
+        args.aria2c = True
+
+    if args.path and len(args.path.split("/")) == 1:
+        args.path = str(Path(Path.home(), "testing", args.path))
+
+    if args.vv:
+        args.verbose = True
+
+    if args.quiet:
+        args.verbose = False
+        args.vv = False
+
+    args.enproxy = True
+    if args.proxy is False:
+        args.enproxy = False
+        args.proxy = None
+    elif args.proxy is True:
+        args.proxy = None
+
+    args.nocheckcert = not args.checkcert
+    return args
+
+
+@my_dec_on_exception(Exception, max_tries=3, raise_on_giveup=True, interval=0.5)
+def get_listening_tcp() -> dict:
+    """
+    dict of result executing 'listening' in shell with keys:
+        tcp port,
+        command
+    """
+
+    def jsonKeys2int(x):
+        trans = lambda x: int(x) if x.isdigit() else x
+        if isinstance(x, dict):
+            return {trans(k): v for k, v in x.items()}
+
+    if (printout := subprocess.run(
+            ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout):
+        return json.loads(printout, object_hook=jsonKeys2int)
+    else:
+        raise ValueError('no info about tcp ports in use')
+
+
+def find_in_ps(pattern, value=None):
+    res = subprocess.run(
+        ["ps", "-u", "501", "-x", "-o", "pid,tty,command"], encoding="utf-8", capture_output=True
+    ).stdout
+    mobj = re.findall(pattern, res)
+    if not value or str(value) in mobj:
+        return mobj
+
+
+def init_aria2c(args):
+    logger = logging.getLogger("asyncDL")
+    _info = get_listening_tcp()
+    _in_use_aria2c_ports = sorted(traverse_obj(_info, ("aria2c", ..., "port")))
+    if args.rpcport in _in_use_aria2c_ports:
+        _port = _in_use_aria2c_ports[-1]
+        for n in range(10):
+            args.rpcport = _port + (n + 1) * 100
+            if args.rpcport not in _info:
+                break
+
+    _cmd = f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc "
+    _cmd += "--rpc-max-request-size=2M --rpc-listen-all --quiet=true"
+    _proc = subprocess.Popen(
+        shlex.split(_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+
+    while _proc.poll() is None:
+        if args.rpcport in traverse_obj(
+                get_listening_tcp(), ("aria2c", ..., "port"), default=[]):
+            break
+        time.sleep(1)
+
+    if _proc.poll() is not None:
+        raise ValueError(f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
+
+    logger.info(f"[init_aria2c] running on port: {args.rpcport}")
+
+    return _proc
+
+
+def get_httpx_client(config: Optional[dict] = None) -> httpx.Client:
+    if not config:
+        config = {}
+    return httpx.Client(**(CLIENT_CONFIG | config))
+
+
+def get_httpx_async_client(config: Optional[dict] = None) -> httpx.AsyncClient:
+    if not config:
+        config = {}
+    return httpx.AsyncClient(**(CLIENT_CONFIG | config))
+
+
+def get_driver(**kwargs) -> Optional[Firefox]:
+    if kwargs.get("noheadless") is None:
+        kwargs["noheadless"] = True
+    if _driver := try_get(
+            SeleniumInfoExtractor._get_driver(**kwargs),
+            lambda x: x[0] if x else None):
+        return _driver
+
+
+############################################################
+# """                     IP/TORGUARD                    """
+############################################################
+
+
+def is_ipaddr(res):
+    try:
+        ip_address(res)
+        return True
+    except Exception:
+        return False
+
+
+class myIP:
+    URLS_API_GETMYIP = {
+        "httpbin": {"url": "https://httpbin.org/get", "key": "origin"},
+        "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
+        "ipapi": {"url": "http://ip-api.com/json", "key": "query"},
+    }
+    # CONFIG = {}
+    # CLIENT = None
+
+    @classmethod
+    def _set_config(cls, key, timeout=1):
+        _proxies = {"all://": f"http://127.0.0.1:{key}"} if key else None
+        _timeout = httpx.Timeout(timeout=timeout)
+        # cls.CONFIG.update({"proxies": _proxies, "timeout": _timeout})
+        # cls.CLIENT = get_httpx_client(config=cls.CONFIG)
+        return get_httpx_client(config={"proxies": _proxies, "timeout": _timeout})
+
+    @staticmethod
+    def _get_rtt(ip):
+        res = subprocess.run(
+            ["ping", "-c", "10", "-q", "-S", "192.168.1.128", ip],
+            encoding="utf-8",
+            capture_output=True,
+        ).stdout
+        _tavg = try_get(re.findall(r"= [^\/]+\/([^\/]+)\/", res), lambda x: float(x[0]))
+        return {"ip": ip, "time": _tavg}
+
+    @classmethod
+    def get_ip(cls, client, api="ipify"):
+        if api not in cls.URLS_API_GETMYIP:
+            raise ValueError("[get_ip] api not supported")
+
+        _urlapi = cls.URLS_API_GETMYIP[api]["url"]
+        _keyapi = cls.URLS_API_GETMYIP[api]["key"]
+        return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
+
+    @classmethod
+    def get_myiptryall(cls, client):
+        exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
+        try:
+            futures = [exe.submit(cls.get_ip, client, api=api) for api in cls.URLS_API_GETMYIP]
+            for el in as_completed(futures):
+                if not el.exception() and is_ipaddr(_ip := el.result()):
+                    return _ip
+        finally:
+            exe.shutdown(wait=False)
+
+    @classmethod
+    def get_myip(cls, key=None, timeout=1, tryall=True, api=None):
+        """
+        class method which is entry for the functionality.
+
+        _myip = myIP.get_myip(key=12408, timeout=8)
+
+        key is the port of the 127.0.0.1:{key} proxy. Dont set it to not use proxy
+        """
+        client = cls._set_config(key, timeout=timeout)
+        try:
+            if tryall:
+                return cls.get_myiptryall(client)
+            if not api:
+                api = random.choice(list(cls.URLS_API_GETMYIP))
+            return cls.get_ip(client, api=api)
+        finally:
+            if client:
+                client.close()
+
+
+def getmyip(key=None, timeout=1):
+    return myIP.get_myip(key=key, timeout=timeout)
+
+
+def sanitize_killproc(proc_gost):
+    for proc in variadic(proc_gost):
+        proc.terminate()
+        try:
+            if proc.stdout:
+                proc.stdout.close()
+            if proc.stderr:
+                proc.stderr.close()
+            if proc.stdin:
+                proc.stdin.close()
+        except Exception:
+            pass
+        finally:
+            proc.wait()
+
+
+class TorGuardProxies:
+    CONF_TORPROXIES_LIST_HTTPPORTS = [489, 23, 7070, 465, 993, 282, 778, 592]
+    CONF_TORPROXIES_COUNTRIES = [
+        "fn",
+        "no",
+        "bg",
+        "pg",
+        "it",
+        "fr",
+        "sp",
+        "ire",
+        "ice",
+        "cz",
+        "aus",
+        "ger",
+        "uk",
+        "uk.man",
+        "ro",
+        "slk",
+        "nl",
+        "hg",
+        "bul",
+    ]
+    CONF_TORPROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_TORPROXIES_COUNTRIES]
+    CONF_TORPROXIES_NOK = Path(PATH_LOGS, "bad_proxies.txt")
+
+    EVENT = MySyncAsyncEvent("dummy")
+
+    IPS_SSL = []
+
+    logger = logging.getLogger("torguardprx")
+
+    @classmethod
+    def mytest_proxies_rt(cls, routing_table, timeout=2):
+        cls.logger.info("[init_proxies] starting test proxies")
+        bad_pr = []
+        exe = ThreadPoolExecutor(thread_name_prefix="testproxrt")
+        try:
+            futures = {
+                exe.submit(getmyip, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())}
+
+            for fut in as_completed(list(futures.keys())):
+                if cls.EVENT.is_set():
+                    break
+                if not fut.exception() and is_ipaddr(_ip := fut.result()):
+                    if _ip != routing_table[futures[fut]]:
+                        cls.logger.debug(
+                            f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}")
+                        bad_pr.append(routing_table[futures[fut]])
+                else:
+                    bad_pr.append(routing_table[futures[fut]])
+            return bad_pr
+        finally:
+            exe.shutdown(wait=False, cancel_futures=True)
+
+    @classmethod
+    def _init_gost(cls, cmd_gost: list) -> list:
+
+        proc_gost = []
+
+        for cmd in cmd_gost:
+            try:
+                _proc = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                _proc.poll()
+                if _proc.returncode:
+                    cls.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{cmd}]")
+                    raise ConnectError("init proxies error")
+                else:
+                    proc_gost.append(_proc)
+            except ConnectError:
+                sanitize_killproc(proc_gost)
+                proc_gost = []
+                break
+        return proc_gost
+
+    @classmethod
+    def mytest_proxies_raw(cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2):
+        cmd_gost = [
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} " +
+            f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
+            for i, ip in enumerate(list_ips)]
+        routing_table = {CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)}
+
+        if not (proc_gost := cls._init_gost(cmd_gost)):
+            cls.logger.error("[init_proxies] error with gost commands")
+            return False
+        try:
+            _res_bad = None
+            if not cls.EVENT.is_set():
+                _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
+                cls.logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
+
+                _res_bad = cls.mytest_proxies_rt(routing_table, timeout=timeout)
+                _line_ps_pr = []
+                for _ip in _res_bad:
+                    if _temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None):
+                        _line_ps_pr.append(_temp)
+                cls.logger.info(
+                    f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] "
+                    + f"ps_print [{len(_line_ps_pr)}]")
+
+            if _res_bad:
+                cached_res = cls.CONF_TORPROXIES_NOK
+                with open(cached_res, "w") as f:
+                    _test = "\n".join(_res_bad)
+                    f.write(_test)
+            return _res_bad or True
+
+        finally:
+            sanitize_killproc(proc_gost)
+
+    @classmethod
+    def get_ips(cls, name):
+        res = subprocess.run(
+            f"dscacheutil -q host -a name {name}".split(" "),
+            encoding="utf-8",
+            capture_output=True,
+        ).stdout
+        return re.findall(r"ip_address: (.+)", res)
+
+    @classmethod
+    def init_proxies(
+        cls,
+        num=CONF_PROXIES_MAX_N_GR_HOST,
+        size=CONF_PROXIES_N_GR_VIDEO,
+        port=CONF_TORPROXIES_HTTPPORT,
+        timeout=8,
+        event=None,
+    ) -> Tuple[List, Dict]:
+        cls.logger.info("[init_proxies] start")
+
+        try:
+            if event:
+                cls.EVENT = event
+
+            cls.IPS_SSL = []
+
+            if cls.EVENT.is_set():
+                return [], {}
+
+            for domain in cls.CONF_TORPROXIES_DOMAINS:
+                cls.IPS_SSL += cls.get_ips(domain)
+
+            _bad_ips = None
+            cached_res = cls.CONF_TORPROXIES_NOK
+            if cached_res.exists() and (
+                    (datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds < 7200):  # every 2h we check the proxies
+                with open(cached_res, "r") as f:
+                    if (_content := f.read()):
+                        _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
+            else:
+                if cls.EVENT.is_set():
+                    return [], {}
+                if _bad_ips := cls.mytest_proxies_raw(cls.IPS_SSL, port=port, timeout=timeout):
+
+                    if isinstance(_bad_ips, list):
+                        for _ip in _bad_ips:
+                            if _ip in cls.IPS_SSL:
+                                cls.IPS_SSL.remove(_ip)
+                else:
+                    cls.logger.error("[init_proxies] test failed")
+                    return [], {}
+
+            _ip_main = random.choice(cls.IPS_SSL)
+
+            cls.IPS_SSL.remove(_ip_main)
+
+            if len(cls.IPS_SSL) < num * (size + 1):
+                cls.logger.warning("[init_proxies] not enough IPs to generate sample")
+                return [], {}
+
+            _ips = random.sample(cls.IPS_SSL, num * (size + 1))
+
+            def grouper(iterable, n, *, incomplete="fill", fillvalue=None):
+                from itertools import zip_longest
+
+                args = [iter(iterable)] * n
+                if incomplete == "fill":
+                    return zip_longest(*args, fillvalue=fillvalue)
+                if incomplete == "strict":
+                    return zip(*args, strict=True)  # type: ignore
+                if incomplete == "ignore":
+                    return zip(*args)
+                else:
+                    raise ValueError("Expected fill, strict, or ignore")
+
+            FINAL_IPS = list(grouper(_ips, (size + 1)))
+            cmd_gost_s = []
+            routing_table = {}
+            cmd_gost_s = [
+                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} " +
+                f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
+                for j in range(size + 1) for i, ip in enumerate(FINAL_IPS)]
+            routing_table = {(CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j] for j in range(size + 1) for i, ip in enumerate(FINAL_IPS)}
+
+            cmd_gost_main = [
+                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} " +
+                f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"]
+            routing_table[CONF_PROXIES_BASE_PORT + 100 * num + 99] = _ip_main
+
+            cmd_gost = cmd_gost_s + cmd_gost_main
+
+            if cls.EVENT.is_set():
+                return [], {}
+
+            cls.logger.debug(f"[init_proxies] {cmd_gost}")
+            cls.logger.debug(f"[init_proxies] {routing_table}")
+
+            if not (proc_gost := cls._init_gost(cmd_gost)):
+                cls.logger.debug("[init_proxies] error with gost commands")
+                return [], {}
+
+            return proc_gost, routing_table
+
+        finally:
+            cls.logger.info("[init_proxies] done")
+
+    def genwgconf(self, host, **kwargs):
+        headers = {
+            "User-Agent": CONF_FIREFOX_UA,
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            "Origin": "https://torguard.net",
+            "Alt-Used": "torguard.net",
+            "Connection": "keep-alive",
+            "Referer": "https://torguard.net/tgconf.php?action=vpn-openvpnconfig",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Pragma": "no-cache",
+            "Cache-Control": "no-cache",
+            "TE": "trailers",
+        }
+        data = {
+            "token": "7cb788d89a93f49b54a91b3517e75a9fda7b7d55",
+            "tokk": "ad97fcbd2c6d",
+            "device": "",
+            "tunnel": "wireguard",
+            "oserver[]": "",
+            "server": "",
+            "protocol": "udp",
+            "cipher": "1912|SHA256",
+            "Ecipher": "AES-128-CBC",
+            "build": "2.6",
+            "username": "atgarcia",
+            "password": "",
+            "privkey": "",
+            "pubkey": "",
+            "wgport": "1443",
+            "mtu": "1390",
+        }
+        if is_ipaddr(host):
+            data["server"] = host
+        elif "torguard.com" in host:
+            data["oserver[]"] = host
+        else:
+            TorGuardProxies.logger.error(f"[gen_wg_conf] {host} is not a torguard domain: xx.torguard.com")
+
+        cl = get_httpx_client()
+
+        if ckies := kwargs.get("cookies"):
+            reqckies = ckies.get("Request Cookies", ckies)
+            for name, value in reqckies.items():
+                cl.cookies.set(name, value, "torguard.net")
+        else:
+            for cookie in extract_cookies_from_browser("firefox"):
+                if "torguard.net" in cookie.domain:
+                    cl.cookies.set(name=cookie.name, value=cookie.value, domain=cookie.domain)  # type: ignore
+        if info := kwargs.get("info"):
+            data |= info
+        else:
+            headersform = {
+                "User-Agent": CONF_FIREFOX_UA,
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Origin": "https://torguard.net",
+                "Alt-Used": "torguard.net",
+                "Connection": "keep-alive",
+                "Referer": "https://torguard.net/clientarea.php",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "same-origin",
+                "Pragma": "no-cache",
+                "Cache-Control": "no-cache",
+                "TE": "trailers",
+            }
+            with limiter_0_1.ratelimit("torguardconf", delay=True):
+                resform = cl.get(
+                    "https://torguard.net/tgconf.php?action=vpn-openvpnconfig", headers=headersform
+                )
+            token, tokk = re.findall(r'"(?:token|tokk)" value="([^"]+)"', resform.text) or ["", ""]
+            if token and tokk:
+                data["token"] = token
+                data["tokk"] = tokk
+        urlpost = "https://torguard.net/generateconfig.php"
+        with limiter_0_1.ratelimit("torguardconf", delay=True):
+            respost = try_get(cl.post(urlpost, headers=headers, data=data), lambda x: x.json())
+        if respost and respost.get("success") == "true" and (_config := respost.get("config")):
+            allips = [
+                "1.0.0.0/8",
+                "2.0.0.0/8",
+                "3.0.0.0/8",
+                "4.0.0.0/6",
+                "8.0.0.0/7",
+                "11.0.0.0/8",
+                "12.0.0.0/6",
+                "16.0.0.0/4",
+                "32.0.0.0/3",
+                "64.0.0.0/2",
+                "128.0.0.0/3",
+                "160.0.0.0/5",
+                "168.0.0.0/6",
+                "172.0.0.0/12",
+                "172.32.0.0/11",
+                "172.64.0.0/10",
+                "172.128.0.0/9",
+                "173.0.0.0/8",
+                "174.0.0.0/7",
+                "176.0.0.0/4",
+                "192.0.0.0/9",
+                "192.128.0.0/11",
+                "192.160.0.0/13",
+                "192.169.0.0/16",
+                "192.170.0.0/15",
+                "192.172.0.0/14",
+                "192.176.0.0/12",
+                "192.192.0.0/10",
+                "193.0.0.0/8",
+                "194.0.0.0/7",
+                "196.0.0.0/6",
+                "200.0.0.0/5",
+                "208.0.0.0/4",
+                "10.26.0.1/32",
+            ]
+            allowedips = "AllowedIPs = " + ", ".join(allips)
+            _config = _config.replace("DNS = 1.1.1.1", "DNS = 10.26.0.1").replace(
+                "AllowedIPs = 0.0.0.0/0", allowedips
+            )
+            if not data["server"]:
+                _ip = (
+                    try_get(
+                        re.search(r"Endpoint = (?P<ip>[^\:]+)\:", _config), lambda x: x.groupdict().get("ip")
+                    )
+                    or ""
+                )
+                _file = data["oserver[]"].split(".")[0].upper() + _ip.replace(".", "_") + ".conf"
+            else:
+                _file = (kwargs.get("pre", "") or "") + data["server"].replace(".", "_") + ".conf"
+            with open(f"/Users/antoniotorres/testing/{_file}", "w") as f:
+                f.write(_config)
+        else:
+            TorGuardProxies.logger.error(
+                f"[gen_wg_conf] {respost.get('error') if respost else 'error with host[{host}]: check cookies and tokens'}"
+            )
+
+
+def get_all_wd_conf(name=None):
+    if name and "torguard.com" in name:
+        ips = TorGuardProxies.get_ips(name)
+        if ips:
+            init_logging()
+            total = len(ips)
+            _pre = name.split(".")[0].upper()
+            proxies = TorGuardProxies()
+
+            with ProgressBar(None, total) as pb:
+
+                def getconf(_ip):
+                    with contextlib.suppress(Exception):
+                        proxies.genwgconf(_ip, pre=_pre)
+                    with pb._lock:
+                        pb.update()
+                        pb.print("")
+
+                with ThreadPoolExecutor(thread_name_prefix="tgconf", max_workers=5) as exe:
+                    _ = [
+                        exe.submit(
+                            getconf,
+                            ip,
+                        )
+                        for ip in ips
+                    ]
+
+                time.sleep(1)
+                pb.print("")
+        else:
+            print(f"{name} doesnt get any ip when dns resolving")
+    else:
+        print("Missing domain torguard: xx.torguard.com")
+
+
+def get_wd_conf(name=None, pre=None):
+    if name:
+        try:
+            proxies = TorGuardProxies()
+            proxies.genwgconf(name, pre=pre)
+        except Exception as e:
+            logger = logging.getLogger("wdconf")
+            logger.exception(repr(e))
+    else:
+        print("Use ip or torguard domain xx.torguard.com")
+
+
+############################################################
+# """                     various                           """
+############################################################
 
 class SentenceTranslator(object):
     def __init__(self, src, dst, patience=-1, timeout=30, error_messages_callback=None):
@@ -2910,10 +2905,6 @@ def translate_srt(filesrt, srclang, dstlang):
         sub.content = fut.result()
 
     return srt.compose(_list_srt)
-
-############################################################
-# """                     various                           """
-############################################################
 
 
 def print_delta_seconds(seconds):
@@ -4108,6 +4099,7 @@ class NWSetUp:
                     self.asyncdl.ytdl.params["routing_table"] = self.routing_table
             except Exception as e:
                 self.logger.exception(f"[init] {repr(e)}")
+                self.asyncdl.STOP.set()
         self.init_ready.set()
 
     @run_operation_in_executor_from_loop(name="proxythr")
@@ -4216,6 +4208,26 @@ class InfoDL:
         self.stop_event.clear()
         self.end_tasks.clear()
         self.reset_event.clear()
+
+
+def run_proc(cmd):
+
+    try:
+        _cmd = shlex.split(cmd)
+        return subprocess.run(
+            _cmd,
+            encoding="utf-8",
+            capture_output=True,
+            timeout=120,
+        )
+    except Exception:
+        pass
+
+
+def get_metadata_video(path):
+    cmd = f"ffprobe -hide_banner -show_streams -show_format -print_format json {str(path)}"
+    if (proc := run_proc(cmd)):
+        return json.loads(proc.stdout)
 
 
 if FileLock and xattr:

@@ -6,6 +6,7 @@ import uvloop
 from asyncdl import AsyncDL
 from utils import init_argparser, init_config
 
+init_config()
 logger = logging.getLogger("async_all")
 
 
@@ -17,7 +18,6 @@ def main():
 
 if __name__ == "__main__":
     try:
-        init_config()
         main()
     except Exception as e:
         logger.error(f"[main] {repr(e)}")

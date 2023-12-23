@@ -487,7 +487,6 @@ class AsyncARIA2CDownloader:
             _res = await async_waitfortasks(
                 fs=AsyncARIA2CDownloader._HOSTS_DL[_host]["queue"].get(),
                 events=self._vid_dl_events)
-
             if traverse_obj(_res, ("condition", "event")):
                 return -1
             if (_temp := traverse_obj(_res, ("results", 0))) is None:
@@ -495,7 +494,6 @@ class AsyncARIA2CDownloader:
 
             async with AsyncARIA2CDownloader._ALOCK():
                 AsyncARIA2CDownloader._HOSTS_DL[_host]["count"] += 1
-
             return cast(int, _temp)
 
         logger.debug(f"{self.premsg}[update_uri] start")
@@ -541,13 +539,9 @@ class AsyncARIA2CDownloader:
 
         try:
             while True:
-                _res = await async_waitfortasks(
-                    fs=self._qspeed.get(), events=self._vid_dl.stop_event)
 
-                if traverse_obj(_res, ("condition", "event")):
-                    return
-                if (_input_speed := traverse_obj(_res, ("results", 0))) is None:
-                    raise AsyncARIA2CDLError(f"error when get from qspeed: {_res}")
+                _input_speed = await self._qspeed.get()
+
                 if _input_speed == kill_token:
                     logger.debug(f"{self.premsg}[check_speed] {kill_token} from queue")
                     return
@@ -681,9 +675,10 @@ class AsyncARIA2CDownloader:
                     else:
                         _update_counters(self.dl_cont.completed_length)
                         if self.args.check_speed:
-                            self._qspeed.put_nowait(
-                                (self.dl_cont.download_speed, self.dl_cont.connections,
-                                 datetime.now(), self.dl_cont.progress))
+                            _data = (
+                                self.dl_cont.download_speed, self.dl_cont.connections,
+                                datetime.now(), self.dl_cont.progress)
+                            self._qspeed.put_nowait(_data)
 
                 await asyncio.sleep(0)
 
@@ -748,7 +743,7 @@ class AsyncARIA2CDownloader:
                     await _handle_init_task()
                     async with async_lock(self.sem):
                         await self.fetch()
-                    if self.status in {"done", "error", "stop"}:
+                    if self.status in ("done", "error", "stop"):
                         return
                 except Exception as e:
                     _msg_error = str(e)

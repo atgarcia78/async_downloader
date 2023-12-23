@@ -29,7 +29,7 @@ from utils import (
     Union,
     _for_print,
     _for_print_videos,
-    async_waitfortasks,
+    async_wait_for_any,
     cast,
     get_list_interl,
     init_ytdl,
@@ -596,19 +596,20 @@ class AsyncDL:
         async def async_videodl_init(*args, **kwargs) -> VideoDownloader:
             if not self.is_ready_to_dl.is_set():
                 await self.is_ready_to_dl.async_wait()
-            return await self.sync_to_async(VideoDownloader)(*args, **kwargs)
+            if not self.STOP.is_set():
+                return await self.sync_to_async(VideoDownloader)(*args, **kwargs)
 
         dl = await async_videodl_init(
             self.info_videos[url_key]["video_info"], self.ytdl,
             self.nwsetup, self.args)
 
         _pre = (
-            f"[init_callback][get_dl]:[{dl.info_dict.get('id')}]" +
-            f"[{dl.info_dict.get('title')}][{url_key}]:")
+            f"[init_callback][get_dl]:[{self.info_videos[url_key]['video_info'].get('id')}]" +
+            f"[{self.info_videos[url_key]['video_info'].get('title')}][{url_key}]:")
 
-        logger.debug(f"{_pre} {dl.info_dl}")
+        logger.debug(f"{_pre} {dl.info_dl if dl else 'No dl'}")
 
-        if dl.info_dl.get("status", "") == "error":
+        if not dl or dl.info_dl.get("status", "") == "error":
             raise AsyncDLError(f"{_pre} no DL init")
 
         if _filesize := dl.info_dl.get("filesize"):
@@ -771,18 +772,17 @@ class AsyncDL:
             tasks_to_wait = {self.add_task(self.get_list_videos()): "task_get_videos"}
 
             if not self.args.nodl:
-                _res = await async_waitfortasks(
-                    events=(self.getlistvid_first, self.end_dl, self.STOP),
-                    background_tasks=self.background_tasks)
-
-                if traverse_obj(_res, ("condition", "event")) == "first":
+                _res = await async_wait_for_any([self.getlistvid_first, self.end_dl, self.STOP])
+                if self.STOP.is_set():
+                    raise AsyncDLSTOP()
+                if "first" in _res.get("event"):
                     self.FEgui = FrontEndGUI(self)
 
                     tasks_to_wait |= {
                         self.add_task(self.end_dl.async_wait()): "task_workers_run"}
 
             if tasks_to_wait:
-                await asyncio.wait(tasks_to_wait)
+                await asyncio.wait(list(tasks_to_wait.keys()))
                 if self.task_run_manip:
                     done, _ = await asyncio.wait(self.task_run_manip)
 
@@ -815,8 +815,6 @@ class AsyncDL:
 
         try:
             logger.info(f"[shutdown] signal {sig}")
-
-            self.print_pending_tasks()
 
             if not self.STOP.is_set():
                 self.STOP.set()
