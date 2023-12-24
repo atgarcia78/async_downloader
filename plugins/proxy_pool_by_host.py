@@ -15,8 +15,11 @@ import random
 import re
 from typing import Any, Dict, List, Optional
 
-from proxy.common.constants import (ANY_INTERFACE_HOSTNAMES, COLON,
-                                    LOCAL_INTERFACE_HOSTNAMES)
+from proxy.common.constants import (
+    ANY_INTERFACE_HOSTNAMES,
+    COLON,
+    LOCAL_INTERFACE_HOSTNAMES,
+)
 from proxy.common.utils import bytes_, text_
 from proxy.core.base import TcpUpstreamConnectionHandler
 from proxy.http import Url, httpHeaders, httpMethods
@@ -75,14 +78,14 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         except ValueError:
             pass
 
-        key = re.findall(r'asyncdlrouting(\d+).', str(request.host))
+        key = re.findall(r'asyncdlrouting(\d+)\.', str(request.host))
 
         if key:
             # logger.info(f"Key is {key[0]}")
             _proxy = f'http://127.0.0.1:{key[0]}'
             self._endpoint = Url.from_bytes(bytes_(_proxy))
 
-            _host = bytes_(re.sub(r'(asyncdlrouting(\d+).)', '', text_(request.host)))
+            _host = bytes_(re.sub(r'(asyncdlrouting(\d+)\.)', '', text_(request.host)))
             request.host = _host
             if request.has_header(b'host'):
                 request.del_header(b'host')
