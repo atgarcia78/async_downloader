@@ -669,7 +669,7 @@ class VideoDownloader:
                 try:
                     _metadata = f"title={self.info_dict.get('title')}:online_info={self.info_dict.get('webpage_url')}"
                     if (_meta := self.info_dict.get('meta_comment')):
-                        _metadata += f":{_meta}"
+                        _metadata += f":comment={_meta}"
                         async with async_suppress(Exception, logger=logger.warning, msg=f'{self.premsg}: error setxattr'):
                             xattr.setxattr(
                                 str(temp_filename), "user.dublincore.description", _meta.encode())

@@ -607,8 +607,6 @@ class AsyncDL:
             f"[init_callback][get_dl]:[{self.info_videos[url_key]['video_info'].get('id')}]" +
             f"[{self.info_videos[url_key]['video_info'].get('title')}][{url_key}]:")
 
-        logger.debug(f"{_pre} {dl.info_dl if dl else 'No dl'}")
-
         if not dl or dl.info_dl.get("status", "") == "error":
             raise AsyncDLError(f"{_pre} no DL init")
 
@@ -775,6 +773,7 @@ class AsyncDL:
                 _res = await async_wait_for_any([self.getlistvid_first, self.end_dl, self.STOP])
                 if self.STOP.is_set():
                     raise AsyncDLSTOP()
+                logger.info(f'[async_ex] {_res}\n')
                 if "first" in _res.get("event"):
                     self.FEgui = FrontEndGUI(self)
 

@@ -112,7 +112,7 @@ CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
 CONF_PROXIES_MAX_N_GR_HOST = 10  # 10
-CONF_PROXIES_N_GR_VIDEO = 8  # 8
+CONF_PROXIES_N_GR_VIDEO = 3  # 8
 CONF_PROXIES_BASE_PORT = 12000
 
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
@@ -880,7 +880,7 @@ async def async_waitfortasks(
     _background_tasks = kwargs.get("background_tasks", set())
 
     if fs:
-        listfs = cast(Iterable, variadic(fs))
+        listfs = variadic(fs)
 
         for _fs in listfs:
             if not isinstance(_fs, asyncio.Task):
@@ -901,7 +901,7 @@ async def async_waitfortasks(
         _final_wait[_one_task_to_wait_tasks] = "tasks"
 
     if events:
-        _events = cast(Iterable, variadic(events))
+        _events = variadic(events)
 
         def getter(ev):
             return getattr(ev, "name", "noname")
@@ -954,15 +954,15 @@ async def async_waitfortasks(
             _condition["timeout"] = True
             if _tasks:
                 _done_before_condition.extend(list(filter(
-                    lambda x: x._state == "FINISHED", _tasks)))
+                    lambda x: x._state == "FINISHED", list(_tasks.keys()))))
                 _pending.extend(list(filter(
-                    lambda x: x._state == "PENDING", _tasks)))
+                    lambda x: x._state == "PENDING", list(_tasks.keys()))))
         else:
             _task_done = done.pop()
             if "fs_list" in _task_done.get_name():
                 if _tasks_events:
                     to_cancel.extend(list(_tasks_events.keys()))
-                _done.extend(_tasks)
+                _done.extend(list(_tasks.keys()))
 
             else:
                 _condition["event"] = _task_done.get_name()
@@ -971,9 +971,9 @@ async def async_waitfortasks(
                 to_cancel.extend(list(_tasks_events.keys()))
                 if _tasks:
                     _done_before_condition.extend(list(filter(
-                        lambda x: x._state == "FINISHED", _tasks)))
+                        lambda x: x._state == "FINISHED", list(_tasks.keys()))))
                     _pending.extend(list(filter(
-                        lambda x: x._state == "PENDING", _tasks)))
+                        lambda x: x._state == "PENDING", list(_tasks.keys()))))
 
         if to_cancel:
             list(map(lambda x: x.cancel(), to_cancel))
@@ -2202,24 +2202,26 @@ def init_argparser():
     return args
 
 
-@my_dec_on_exception(Exception, max_tries=3, raise_on_giveup=True, interval=0.5)
-def get_listening_tcp() -> dict:
-    """
-    dict of result executing 'listening' in shell with keys:
-        tcp port,
-        command
-    """
+if yt_dlp:
 
-    def jsonKeys2int(x):
-        trans = lambda x: int(x) if x.isdigit() else x
-        if isinstance(x, dict):
-            return {trans(k): v for k, v in x.items()}
+    @my_dec_on_exception(Exception, max_tries=3, raise_on_giveup=True, interval=0.5)
+    def get_listening_tcp() -> dict:
+        """
+        dict of result executing 'listening' in shell with keys:
+            tcp port,
+            command
+        """
 
-    if (printout := subprocess.run(
-            ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout):
-        return json.loads(printout, object_hook=jsonKeys2int)
-    else:
-        raise ValueError('no info about tcp ports in use')
+        def jsonKeys2int(x):
+            trans = lambda x: int(x) if x.isdigit() else x
+            if isinstance(x, dict):
+                return {trans(k): v for k, v in x.items()}
+
+        if (printout := subprocess.run(
+                ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout):
+            return json.loads(printout, object_hook=jsonKeys2int)
+        else:
+            raise ValueError('no info about tcp ports in use')
 
 
 def find_in_ps(pattern, value=None):
@@ -3906,11 +3908,7 @@ if PySimpleGUI:
             if self.list_upt and getattr(self, "window_root", None):
                 self.window_root.write_event_value("all", self.list_upt)
 
-            for st, val in self.list_all_old.items():
-                if st not in self.list_res:
-                    self.list_res[st] = val
-
-            self.list_all_old = self.list_res.copy()
+                self.list_all_old |= self.list_upt.copy()
 
         @run_operation_in_executor_from_loop(name="uptwinthr")
         def upt_window_periodic(self, *args, **kwargs):
@@ -4101,6 +4099,7 @@ class NWSetUp:
                 self.logger.exception(f"[init] {repr(e)}")
                 self.asyncdl.STOP.set()
         self.init_ready.set()
+        self.logger.debug(f"[init] init done, init_ready set {self.init_ready}")
 
     @run_operation_in_executor_from_loop(name="proxythr")
     def run_proxy_http(self, *args, **kwargs):
