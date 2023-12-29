@@ -3410,9 +3410,6 @@ if PySimpleGUI:
             self.reset_repeat = False
             self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
 
-            self.stop = MySyncAsyncEvent("stopfegui")
-            self.exit_gui = MySyncAsyncEvent("exitgui")
-
             self.list_upt = {}
             self.list_res = {}
             self.stop_upt_window, self.fut_upt_window = self.upt_window_periodic()
@@ -3671,7 +3668,7 @@ if PySimpleGUI:
                 self.window_console = self.init_gui_console()
                 self.window_root = self.init_gui_root()
                 await asyncio.sleep(0)
-                while not self.stop.is_set():
+                while True:
                     try:
                         window, event, values = sg.read_all_windows(timeout=100)
 
@@ -3687,7 +3684,7 @@ if PySimpleGUI:
                             break
                         await asyncio.sleep(0)
                     except asyncio.CancelledError as e:
-                        self.logger.warning(f"[gui] inner exception {repr(e)}")
+                        self.logger.debug(f"[gui] inner exception {repr(e)}")
                         raise
                     except Exception as e:
                         self.logger.exception(f"[gui] inner exception {repr(e)}")
@@ -3695,7 +3692,6 @@ if PySimpleGUI:
             except Exception as e:
                 self.logger.warning(f"[gui] outer exception {repr(e)}")
             finally:
-                self.exit_gui.set()
                 self.logger.debug("[gui] BYE")
 
         def get_window(self, name, layout, location=None, ml_keys=None, to_front=False):
@@ -4025,27 +4021,34 @@ if PySimpleGUI:
                 self.logger.debug("[pasres_periodic] BYE")
 
         async def close(self):
-            self.stop_pasres.set()
-            await asyncio.sleep(0)
-            self.stop_upt_window.set()
-            await asyncio.sleep(0)
-            self.logger.debug("[close] start to wait for uptwindows and pasres")
+            self.logger.debug("[close] start")
+            try:
+                self.stop_pasres.set()
+                self.stop_upt_window.set()
+                self.fut_upt_window.cancel()
+                self.fut_pasres.cancel()
+                await asyncio.sleep(0)
+                self.logger.debug("[close] start to wait for uptwindows and pasres")
 
-            await asyncio.wait([self.fut_upt_window, self.fut_pasres])
+                await asyncio.wait([self.fut_upt_window, self.fut_pasres])
 
-            self.logger.debug("[close] end to wait for uptwindows and pasres")
+                self.logger.debug("[close] end to wait for uptwindows and pasres")
 
-            self.stop.set()
-            await asyncio.sleep(0)
-            self.logger.debug("[close] start to wait for exit_gui")
-            await self.exit_gui.async_wait()
-            self.logger.debug("[close] end to wait for exit_gui")
-            if hasattr(self, "window_console") and self.window_console:
-                self.window_console.close()
-                del self.window_console
-            if hasattr(self, "window_root") and self.window_root:
-                self.window_root.close()
-                del self.window_root
+                self.task_gui.cancel()
+                await asyncio.sleep(0)
+                self.logger.debug("[close] start to wait for task gui")
+                await asyncio.wait([self.task_gui])
+                self.logger.debug("[close] end to wait for task gui")
+                if hasattr(self, "window_console") and self.window_console:
+                    self.window_console.close()
+                    del self.window_console
+                if hasattr(self, "window_root") and self.window_root:
+                    self.window_root.close()
+                    del self.window_root
+            except Exception as e:
+                self.logger.error(f"[close] error - {repr(e)}")
+            finally:
+                self.logger.debug("[close] bye")
 
 
 class NWSetUp:
@@ -4123,34 +4126,36 @@ class NWSetUp:
             self.shutdown_proxy.set()
 
     async def close(self):
+        if not self.init_ready.is_set():
+            await self.init_ready.async_wait()
         if self.asyncdl.args.enproxy:
             self.logger.debug("[close] proxy")
             self.stop_proxy.set()
             await asyncio.sleep(0)
-            self.shutdown_proxy.wait()
+            # self.shutdown_proxy.wait()
+            await asyncio.wait([self.fut_proxy])
             self.logger.debug("[close] OK shutdown")
-
-            await asyncio.gather()
 
             if self.proc_gost:
                 self.logger.debug("[close] gost")
-                for proc in self.proc_gost:
-                    proc.terminate()
-                    try:
-                        if proc.stdout:
-                            proc.stdout.close()
-                        if proc.stderr:
-                            proc.stderr.close()
-                        if proc.stdin:
-                            proc.stdin.close()
-                    except Exception:
-                        pass
-                    finally:
-                        await self.sync_to_async(proc.wait)()
-                        await asyncio.sleep(0)
+                # for proc in self.proc_gost:
+                #     proc.terminate()
+                #     try:
+                #         if proc.stdout:
+                #             proc.stdout.close()
+                #         if proc.stderr:
+                #             proc.stderr.close()
+                #         if proc.stdin:
+                #             proc.stdin.close()
+                #     except Exception:
+                #         pass
+                #     finally:
+                #         await self.sync_to_async(proc.wait)()
+                #         await asyncio.sleep(0)
+                await self.sync_to_async(sanitize_killproc)(self.proc_gost)
 
         if self.proc_aria2c:
-            self.logger.debug("[close] aria2c")
+            self.logger.debug("[close] start close aria2c")
             self.proc_aria2c.terminate()
             try:
                 if self.proc_aria2c.stdout:
@@ -4159,13 +4164,18 @@ class NWSetUp:
                     self.proc_aria2c.stderr.close()
                 if self.proc_aria2c.stdin:
                     self.proc_aria2c.stdin.close()
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.error(f"[close] aria2c {repr(e)}")
             finally:
                 try:
-                    self.proc_aria2c.wait()
+                    await asyncio.sleep(1.01)
+                    if self.proc_aria2c.poll() is None:
+                        self.logger.debug("[close] wait aria2c")
+                        await self.sync_to_async(self.proc_aria2c.wait)()
                 except Exception as e:
-                    self.logger.error(f"[close] {repr(e)}")
+                    self.logger.error(f"[close] aria2c {repr(e)}")
+                finally:
+                    self.logger.debug("[close] close aria2c done")
 
     async def reset_aria2c(self):
         if not self.proc_aria2c:

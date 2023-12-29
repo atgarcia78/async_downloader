@@ -102,16 +102,18 @@ class AsyncDL:
         self.localstorage = LocalVideos(self)
 
     async def cancel_all_dl(self):
-        self.WorkersRun.max = 0
-        self.WorkersRun.waiting.clear()
         self.STOP.set()
         await asyncio.sleep(0)
         await self.ytdl.stop()
-        if self.list_dl:
-            for _, dl in self.list_dl.items():
-                await dl.stop("exit")
-        await asyncio.sleep(0)
-        await self.WorkersRun.check_to_stop()
+        if not self.end_dl.is_set():
+            self.WorkersRun.max_workers = 0
+            self.WorkersRun.waiting.clear()
+            if self.list_dl:
+                for _, dl in self.list_dl.items():
+                    await dl.stop("exit")
+                    await asyncio.sleep(0)
+                await asyncio.sleep(2)
+            await self.WorkersRun.check_to_stop()
 
     def print_pending_tasks(self):
         try:
@@ -431,11 +433,11 @@ class AsyncDL:
             vid_name = f"{_id}_{_title.upper()}"
 
             if vid_path_str := self.videos_cached.get(vid_name):
-                logger.debug(f"{_pre} already DL")  # video en local
+                logger.info(f"{_pre} already DL")  # video en local
 
             elif _legacy_title and (vid_path_str := self.videos_cached.get((vid_name := f"{_id}_{_legacy_title.upper()}"))):
                 _pre += f'[{_legacy_title}]'
-                logger.debug(f"{_pre} already DL with legacy title")  # video en local
+                logger.info(f"{_pre} already DL with legacy title")  # video en local
 
             elif self.args.deep_aldl:
                 if not (vid_path_str := self.videos_cached.get(_id)):
@@ -470,7 +472,7 @@ class AsyncDL:
                         mtime = int(vid_path.stat().st_mtime)
                         syncos.utime(file_aldl, (int(time.time()), mtime), follow_symlinks=False)
                     except Exception as e:
-                        logger.debug(
+                        logger.warning(
                             f"{_pre} [{str(file_aldl)}] -> " +
                             f"[{str(vid_path)}] error when copying times {str(e)}")
 
@@ -827,22 +829,27 @@ class AsyncDL:
             logger.info(f"[shutdown] signal {sig}")
 
             if not self.STOP.is_set():
-                self.STOP.set()
                 self.t2.stop()
-                await asyncio.sleep(2)
-                if hasattr(self, "FEgui"):
-                    logger.info(f"[shutdown] {self.FEgui.get_dl_media()}")
+                self.STOP.set()
+                await asyncio.sleep(0)
                 await self.ytdl.stop()
-                await asyncio.sleep(2)
-                if self.list_dl:
-                    for _, dl in self.list_dl.items():
-                        await dl.stop("exit")
-                        await asyncio.sleep(0)
-            await asyncio.sleep(2)
+                if not self.end_dl.is_set():
+                    self.WorkersRun.max_workers = 0
+                    self.WorkersRun.waiting.clear()
+                    if self.list_dl:
+                        for _, dl in self.list_dl.items():
+                            await dl.stop("exit")
+                            await asyncio.sleep(0)
+                        await asyncio.sleep(2)
+
+            if hasattr(self, "FEgui"):
+                logger.info(f"[shutdown] {self.FEgui.get_dl_media()}")
+
+            # await asyncio.sleep(2)
             try:
                 await self.close()
             except Exception as e:
-                logger.error(f"[shutdown] close {str(e)}")
+                logger.error(f"[shutdown] close - {repr(e)}")
 
             self.print_pending_tasks()
             if _pending_tasks := [
@@ -860,8 +867,8 @@ class AsyncDL:
             self.get_results_info()
 
     async def close(self):
+        logger.info("[close] start to close")
         try:
-            logger.debug("[close] start to close")
 
             try:
                 logger.debug("[close] start to close countdowns")
@@ -872,26 +879,38 @@ class AsyncDL:
             except Exception as e:
                 logger.error(f"[close] asyncdlhls countdown {str(e)}")
 
-            try:
-                if hasattr(self, "FEgui"):
-                    logger.debug("[close] start to close fegui")
-                    await self.FEgui.close()
-            except Exception as e:
-                logger.error(f"[close] {str(e)}")
+            _task_to_wait = []
+
+            # try:
+            #     if hasattr(self, "FEgui"):
+            #         logger.info("[close] start to close fegui")
+            #         await self.FEgui.close()
+            # except Exception as e:
+            #     logger.error(f"[close] fegui - {repr(e)}")
+            # logger.info("[close] close fegui done")
+
+            # try:
+            #     if hasattr(self, "nwsetup"):
+            #         logger.info("[close] start to close nw")
+            #         if not self.nwsetup.init_ready.is_set():
+            #             await self.nwsetup.init_ready.async_wait()
+            #         await self.nwsetup.close()
+            # except Exception as e:
+            #     logger.error(f"[close] {str(e)}")
+            # logger.info("[close] close nw done")
+            if hasattr(self, "nwsetup"):
+                _task_to_wait.append(self.add_task(self.nwsetup.close()))
+            if hasattr(self, "FEgui"):
+                _task_to_wait.append(self.add_task(self.FEgui.close()))
+            if _task_to_wait:
+                await asyncio.wait(_task_to_wait)
 
             try:
-                if hasattr(self, "nwsetup"):
-                    logger.debug("[close] start to close nw")
-                    if not self.nwsetup.init_ready.is_set():
-                        await self.nwsetup.init_ready.async_wait()
-                    await self.nwsetup.close()
-            except Exception as e:
-                logger.error(f"[close] {str(e)}")
-
-            try:
+                logger.debug("[close] start to close ytdl")
                 self.ytdl.close()
             except Exception as e:
-                logger.error(f"[close] {str(e)}")
+                logger.error(f"[close] ytdl - {repr(e)}")
+            logger.debug("[close] close ytdl done")
 
             if self.list_dl:
                 for _, vdl in self.list_dl.items():
@@ -906,6 +925,8 @@ class AsyncDL:
         except Exception as e:
             logger.error(f"[close] error {str(e)}. Lets kill processes")
             kill_processes(logger=logger, rpcport=self.args.rpcport)
+        finally:
+            logger.info("[close] bye")
 
     def get_results_info(self):
         _DOMAINS_CONF_PRINT = ["nakedsword.com", "onlyfans.com", "pornhub"]
