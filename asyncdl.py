@@ -421,7 +421,7 @@ class AsyncDL:
 
     def _check_if_aldl(self, info_dict, test=False):
 
-        _id, _title = self.get_info(info_dict)
+        _id, _title, _legacy_title = self.get_info(info_dict)
         if not _id or not _title:
             return False
 
@@ -432,6 +432,10 @@ class AsyncDL:
 
             if vid_path_str := self.videos_cached.get(vid_name):
                 logger.debug(f"{_pre} already DL")  # video en local
+
+            elif _legacy_title and (vid_path_str := self.videos_cached.get((vid_name := f"{_id}_{_legacy_title.upper()}"))):
+                _pre += f'[{_legacy_title}]'
+                logger.debug(f"{_pre} already DL with legacy title")  # video en local
 
             elif self.args.deep_aldl:
                 if not (vid_path_str := self.videos_cached.get(_id)):
@@ -459,7 +463,7 @@ class AsyncDL:
                             _folderpath = Path(Path.home(), "testing", _base)
 
                 _folderpath.mkdir(parents=True, exist_ok=True)
-                file_aldl = Path(_folderpath, vid_path.name)
+                file_aldl = Path(_folderpath, vid_path.name if not _legacy_title else vid_path.name.replace(_legacy_title, _title))
                 if file_aldl not in _folderpath.iterdir():
                     file_aldl.symlink_to(vid_path)
                     try:
@@ -501,13 +505,17 @@ class AsyncDL:
             video_info["title"] = sanitize_filename(
                 _title[:MAXLEN_TITLE], restricted=True)
 
-        return (_id, _title)
+        if (_legacy_title := video_info.get("_legacy_title")):
+            video_info["_legacy_title"] = sanitize_filename(
+                _legacy_title[:MAXLEN_TITLE], restricted=True)
+
+        return (_id, _title, _legacy_title)
 
     async def _prepare_for_dl(self, url: str, put: bool = True) -> bool:
         self.info_videos[url].update({"todl": True})
         video_info = self.info_videos[url]["video_info"]
 
-        _id, _title = self.get_info(video_info)
+        _id, _title, _ = self.get_info(video_info)
 
         if not video_info.get("filesize", None):
             video_info["filesize"] = 0
