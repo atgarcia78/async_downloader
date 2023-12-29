@@ -16,6 +16,7 @@ import aiofiles.os as os
 import httpx
 
 from utils import (
+    CONF_AUTO_PASRES,
     CONF_INTERVAL_GUI,
     ProgressTimer,
     SmoothETA,
@@ -154,12 +155,12 @@ class AsyncHTTPDownloader:
                 else:
                     return (limiter_non.ratelimit("transp", delay=True), self.n_parts)
 
-            _extractor = self.info_dict.get("extractor_key").lower()
+            _extractor = self.info_dict.get("extractor_key", "").lower()
             self.auto_pasres = False
             _sem = False
-            if _extractor and _extractor.lower() != "generic":
+            if _extractor and _extractor != "generic":
                 self._decor, self.n_parts = getter(_extractor)
-                if _extractor in ["doodstream", "vidoza"]:
+                if _extractor in CONF_AUTO_PASRES:
                     self.auto_pasres = True
                 if self.n_parts < 16:
                     _sem = True

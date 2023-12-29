@@ -125,10 +125,10 @@ CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ["doodstream"]
 CONF_AUTO_PASRES = ["doodstream"]
-CONF_PLAYLIST_INTERL_URLS = [
-    "MyVidsterChannelPlaylistIE",
-    "MyVidsterSearchPlaylistIE",
-    "MyVidsterRSSPlaylistIE",
+CONF_PLAYLIST_INTERL_IES = [
+    "MyVidsterChannelPlaylist",
+    "MyVidsterSearchPlaylist",
+    "MyVidsterRSSPlaylist",
 ]
 
 CLIENT_CONFIG = {
@@ -3212,15 +3212,14 @@ class CountDowns:
                 _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}"
                 self.klass._QUEUE[index].put_nowait(_msg)
 
-        _res = None
         _events = self.outer_events + [self.countdowns[index]["stop"]]
         if event:
             _events += list(variadic(event))
 
+        _res = None
         for i in range(self.N_PER_SECOND * n, 0, -1):
             send_queue(i)
-            _res = [getattr(ev, "name", "noname") for ev in _events if ev.is_set()]
-            if _res:
+            if (_res := [getattr(ev, "name", "noname") for ev in _events if ev.is_set()]):
                 break
             time.sleep(self.INTERV_TIME)
 
@@ -3232,13 +3231,16 @@ class CountDowns:
         self.logger.debug(f"{self.countdowns[index]['premsg']} return Count: {_res}")
         return _res
 
-    def add(self, n=None, index=None, event=None, msg=None):
+    def add(self, n: Optional[int] = None, index: Optional[str] = None, event=None, msg=None):
         _premsg = f"{self._pre}"
         if msg:
             _premsg += msg
 
         if index in self.countdowns:
             self.logger.error(f"{_premsg} error: already in countdown")
+            return ["ERROR"]
+        if index is None:
+            self.logger.error(f"{_premsg} error: index is None")
             return ["ERROR"]
 
         if n is not None and isinstance(n, int) and n > 3:

@@ -15,7 +15,7 @@ from threading import Lock
 from codetiming import Timer
 
 from utils import (
-    CONF_PLAYLIST_INTERL_URLS,
+    CONF_PLAYLIST_INTERL_IES,
     MAXLEN_TITLE,
     PATH_LOGS,
     AsyncDLError,
@@ -174,14 +174,15 @@ class AsyncDL:
                         if _same_video_url := await self.async_check_if_same_video(_url):
                             self.info_videos[_url].update({"samevideo": _same_video_url})
                             logger.warning(
-                                f"{_url}: not added in vidlist, entry same video {_same_video_url}")
+                                f"{_pre} {_url}: not added in vidlist, entry same video {_same_video_url}")
                             await self._prepare_for_dl(_url)
 
                         else:
                             await self._prepare_for_dl(_url)
                             self.list_videos.append(self.info_videos[_url]["video_info"])
                     else:
-                        logger.warning(f"{_url}: already in info_videos")
+                        logger.warning(
+                            f"{_pre} {_url}: already in info_videos:\n{self.info_videos[_url]}")
                 else:
                     await self._prepare_entry_pl_for_dl(_vid)
 
@@ -242,6 +243,9 @@ class AsyncDL:
                                 self.info_videos[_elurl] = self.build_info_video(
                                     _source, _entry) | {"extractor_key": ie_key}
                                 await self.WorkersInit.add_init(_elurl)
+                            else:
+                                logger.warning(
+                                    f"{_pre} {_url}: already in info_videos:\n{self.info_videos[_url]}")
                         else:
                             if not self.url_pl_list.get(_elurl):
                                 self.url_pl_list[_elurl] = {"source": _source}
@@ -363,7 +367,7 @@ class AsyncDL:
 
                             _info["entries"] = _entries_ok
 
-                            if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_URLS:
+                            if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_IES:
                                 _info["entries"] = get_list_interl(_info["entries"], self, _pre)
 
                         for _ent in _info["entries"]:
@@ -594,8 +598,7 @@ class AsyncDL:
             else:
 
                 logger.warning(
-                    f"{_pre} {_url}: already in info_videos, trying {entry.get('original_url')}\n" +
-                    f"{self.info_videos[_url]['video_info'].get('original_url')}")
+                    f"{_pre} {_url}: already in info_videos:\n{self.info_videos[_url]}")
 
         except Exception as e:
             logger.error(
@@ -629,7 +632,7 @@ class AsyncDL:
         async with self.alock:
             self.getlistvid_first.set()
             if (_index := dl.info_dict.get("__interl_index")):
-                dl.index = _index
+                dl.index = int(_index)
             else:
                 _index = max(self.max_index_playlist, max(list(self.list_dl.keys()) or [0]))
                 dl.index = _index + 1

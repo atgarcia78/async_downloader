@@ -760,7 +760,11 @@ class AsyncHLSDownloader:
             elif _info := self.multi_extract_info(
                 _reset_url, proxy=_proxy, msg=_pre()
             ):
-                if _info.get("entries") and (_pl_index := self.info_dict["playlist_index"]):
+                if _len_entries := len(_info.get("entries", [])):
+                    if _len_entries == 1:
+                        _pl_index = 1
+                    else:
+                        _pl_index = self.info_dict.get("playlist_index") or self.info_dict.get("playlist_autonumber") or 1
                     _info = _info["entries"][_pl_index - 1]
                 info_reset = get_format_id(_info, self.info_dict["format_id"])
 
@@ -809,7 +813,7 @@ class AsyncHLSDownloader:
                         f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
 
             AsyncHLSDownloader._COUNTDOWNS.add(
-                CONF_HLS_RESET_403_TIME,
+                n=CONF_HLS_RESET_403_TIME,
                 index=str(self.pos),
                 event=self._vid_dl.stop_event,
                 msg=self.premsg)
