@@ -4684,7 +4684,7 @@ def move_gvd_files_same_meta(date):
 
 
 args = argparse.Namespace(
-    w=8,
+    w=5,
     winit=10,
     parts=16,
     format="bv*+ba/b",
@@ -4708,7 +4708,10 @@ args = argparse.Namespace(
     quiet=False,
     aria2c=True,
     subt=True,
+    xattr=True,
     nosymlinks=False,
+    check_speed=True,
+    deep_aldl=False,
     http_downloader="aria2c",
     use_path_pl=False,
     use_cookies=True,
