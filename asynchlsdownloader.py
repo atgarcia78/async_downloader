@@ -155,10 +155,7 @@ class AsyncHLSDownloader:
     _INRESET_403 = InReset403()
     _qproxies = None
 
-    def __init__(
-            self, args: Namespace, ytdl: myYTDL,
-            video_dict: dict, info_dl: InfoDL
-    ) -> None:
+    def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL):
 
         try:
             self.background_tasks = set()
@@ -340,10 +337,7 @@ class AsyncHLSDownloader:
         if self.fromplns:
             self.upt_plns()
 
-    def add_task(
-        self, coro: Union[Coroutine, asyncio.Task], *,
-        name: Optional[str] = None
-    ) -> asyncio.Task:
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
 
         _task = coro
         if not isinstance(coro, asyncio.Task):

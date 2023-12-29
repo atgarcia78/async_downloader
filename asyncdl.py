@@ -116,11 +116,14 @@ class AsyncDL:
     def print_pending_tasks(self):
         try:
             pending_tasks = asyncio.all_tasks()
-            logger.debug(f"[pending_all_tasks] {pending_tasks}\n{print_tasks(pending_tasks)}")
+            logger.debug(
+                f"[pending_all_tasks] {pending_tasks}\n{print_tasks(pending_tasks)}")
         except Exception as e:
             logger.error(f"[print_pending_tasks]: error: {str(e)}")
 
-    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+    def add_task(
+            self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
         else:
