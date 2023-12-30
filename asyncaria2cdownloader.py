@@ -321,7 +321,7 @@ class AsyncARIA2CDownloader:
         self._pos = value
 
     def add_task(
-            self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+            self, coro: [Coroutine | asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
 
         _task = coro
         if not isinstance(coro, asyncio.Task):
