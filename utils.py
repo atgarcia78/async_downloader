@@ -112,7 +112,7 @@ CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
 CONF_PROXIES_MAX_N_GR_HOST = 10  # 10
-CONF_PROXIES_N_GR_VIDEO = 3  # 8
+CONF_PROXIES_N_GR_VIDEO = 8  # 8
 CONF_PROXIES_BASE_PORT = 12000
 
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
@@ -1085,6 +1085,7 @@ if yt_dlp:
         dec_retry_error,
         ec,
         getter_basic_config_extr,
+        limiter_0_01,
         limiter_0_1,
         limiter_1,
         limiter_5,
@@ -1109,6 +1110,7 @@ if yt_dlp:
         try_call,
         try_get,
         unsmuggle_url,
+        update_url,
         variadic,
         write_string,
     )
@@ -1116,6 +1118,7 @@ if yt_dlp:
     assert LimitContextDecorator
     assert find_available_port
     assert unsmuggle_url
+    assert update_url
     assert smuggle_url
     assert prepend_extension
     assert get_domain
@@ -2331,7 +2334,8 @@ class myIP:
 
         _urlapi = cls.URLS_API_GETMYIP[api]["url"]
         _keyapi = cls.URLS_API_GETMYIP[api]["key"]
-        return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
+        with limiter_0_01.ratelimit(api, delay=True):
+            return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
 
     @classmethod
     def get_myiptryall(cls, client):
@@ -2359,7 +2363,7 @@ class myIP:
                 return cls.get_myiptryall(client)
             if not api:
                 api = random.choice(list(cls.URLS_API_GETMYIP))
-            return cls.get_ip(client, api=api)
+                return cls.get_ip(client, api=api)
         finally:
             if client:
                 client.close()
@@ -4124,6 +4128,10 @@ class NWSetUp:
                     stop_event.wait()
                 except Exception:
                     self.logger.error("context manager proxy")
+                    raise
+        except Exception as e:
+            self.logger.exception(f'[run_proxy] error - {repr(e)}')
+            self.asyncdl.STOP.set()
         finally:
             self.shutdown_proxy.set()
 

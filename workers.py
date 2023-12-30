@@ -47,13 +47,13 @@ class Workers:
                     for _index in list(self.waiting)[:1]:
                         for _dl in self.info_dl[_index]['dl'].info_dl["downloaders"]:
                             if "aria2" in str(type(_dl)).lower() and _dl._mode == "group":
-                                _dl.add_init_task()
+                                await _dl.add_init_task()
 
         elif task_index:
             if dl and not self.waiting:
                 for _dl in self.info_dl[task_index]['dl'].info_dl["downloaders"]:
                     if "aria2" in str(type(_dl)).lower() and _dl._mode == "group":
-                        _dl.add_init_task()
+                        await _dl.add_init_task()
 
             self.waiting.append(task_index)
             if sortwaiting:

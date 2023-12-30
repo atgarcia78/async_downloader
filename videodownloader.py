@@ -274,6 +274,8 @@ class VideoDownloader:
             logger.debug(f"{self.premsg}[reset] {cause}")
             self.reset_event.set(cause)
             await asyncio.sleep(0)
+            if self.pause_event.is_set():
+                await asyncio.sleep(0)
             for dl in self.info_dl["downloaders"]:
                 if "asynchls" in str(type(dl)).lower() and getattr(dl, "tasks", None):
                     if _tasks := [
@@ -327,7 +329,7 @@ class VideoDownloader:
             logger.exception(f"{self.premsg}: " + f"{repr(e)}")
 
     async def pause(self):
-        if self.info_dl["status"] == "downloading" and not self.pause_event.is_set():
+        if self.info_dl["status"] == "downloading" and not self.pause_event.is_set() and not self.reset_event.is_set():
             self.pause_event.set()
             self.resume_event.clear()
             await asyncio.sleep(0)
@@ -736,7 +738,7 @@ class VideoDownloader:
             return msg
 
         def _filesize_str():
-            return f"[{naturalsize(self.total_sizes['filesize'], format_='.2f')}]"
+            return f"{naturalsize(self.total_sizes['filesize'], format_='.2f')}"
 
         def _progress_dl():
             return f"{naturalsize(self.total_sizes['down_size'], format_='.2f')} {_filesize_str()}"
