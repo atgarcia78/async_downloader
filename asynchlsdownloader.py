@@ -478,7 +478,7 @@ class AsyncHLSDownloader:
             logger.debug(
                 f"{self.premsg}: Frags already DL: {len(self.fragsdl())}, " +
                 f"Frags not DL: {len(self.fragsnotdl())}, " +
-                f"Frags to request: {len(self.frags_to_dl)}")
+                f"Frags to request: {len(self.frags_to_dl)}\n{self.info_frag}")
 
             if not self.filesize:
                 _est_size = "NA"
@@ -591,9 +591,12 @@ class AsyncHLSDownloader:
                 fragment.__dict__['url'] = _url
                 fragment.__dict__['byte_range'] = byte_range
 
+            return _list_segments
+
         try:
             if not self.m3u8_doc:
                 self.m3u8_doc = self.get_m3u8_doc()
+                logger.info(self.m3u8_doc)
 
             m3u8_obj = m3u8.loads(self.m3u8_doc, uri=self.info_dict["url"])
 
@@ -610,9 +613,7 @@ class AsyncHLSDownloader:
             if m3u8_obj.keys:
                 _load_keys(m3u8_obj.keys)
 
-            _prepare_segments(m3u8_obj.segments)
-
-            return m3u8_obj.segments
+            return _prepare_segments(m3u8_obj.segments)
 
         except Exception as e:
             logger.error(f"{self.premsg}[get_info_fragments] - {repr(e)}")

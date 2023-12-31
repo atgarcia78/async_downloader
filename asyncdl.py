@@ -368,7 +368,7 @@ class AsyncDL:
                             _info["entries"] = _entries_ok
 
                             if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_IES:
-                                _info["entries"] = get_list_interl(_info["entries"], self, _pre)
+                                _info["entries"] = await get_list_interl(_info["entries"], self, _pre)
 
                         for _ent in _info["entries"]:
                             if self.STOP.is_set():
