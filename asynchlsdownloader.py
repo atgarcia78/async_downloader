@@ -1432,7 +1432,7 @@ class AsyncHLSDownloader:
 
             proc = _concat_files()
 
-            logger.info(f"{self.premsg}[ensamble] proc [rc] {proc.returncode}")
+            logger.debug(f"{self.premsg}[ensamble] proc [rc] {proc.returncode}")
             if proc.returncode:
                 raise AsyncHLSDLError(f"{self.premsg}[ensamble_file] proc [stdout]\n{proc.stdout}\nproc [stderr]\n{proc.stderr}")
         except Exception as e:
@@ -1443,13 +1443,13 @@ class AsyncHLSDownloader:
             await self.clean_when_error()
             raise
         finally:
-            logger.info(f"{self.premsg}: [ensamble_file] finally")
+            logger.debug(f"{self.premsg}: [ensamble_file] finally")
             if await aiofiles.os.path.exists(self.filename):
                 logger.info(f"{self.premsg}: [ensamble_file] exists {self.filename}")
                 armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
                 await armtree(str(self.download_path))
                 self.status = "done"
-                logger.info(f"{self.premsg}: [ensamble_file] file ensambled")
+                logger.debug(f"{self.premsg}: [ensamble_file] file ensambled")
                 if _skipped:
                     logger.warning(f"{self.premsg}: [ensamble_file] skipped frags [{_skipped}]")
             else:

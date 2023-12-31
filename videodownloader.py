@@ -673,40 +673,45 @@ class VideoDownloader:
             rc = -1
             if self.args.xattr:
                 try:
+                    meta_filename = prepend_extension(temp_filename, "meta")
                     _metadata = f"title={self.info_dict.get('title')}:online_info={self.info_dict.get('webpage_url')}"
                     if (_meta := self.info_dict.get('meta_comment')):
                         _metadata += f":comment={_meta}"
-                        async with async_suppress(Exception, logger=logger.warning, msg=f'{self.premsg}: error setxattr'):
-                            xattr.setxattr(
-                                str(temp_filename), "user.dublincore.description", _meta.encode())
 
-                    cmd = f"MP4Box -tags {_metadata} {temp_filename}"
+                    cmd = f"MP4Box -tags {_metadata} -add {temp_filename} -new {meta_filename}"
 
                     proc = await arunproc(cmd)
                     logger.debug(
                         f"{self.premsg} embed metadata\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                         + f"{proc.stdout}\n[stderr]{proc.stderr}")
 
-                    if (rc := proc.returncode) != 0:
+                    if not (
+                        (rc := proc.returncode) == 0 and (await aiofiles.os.path.exists(meta_filename)) and
+                        (await amove(meta_filename, temp_filename)) == 0
+                    ):
                         logger.warning(f"{self.premsg}: error embedding metadata")
+                        async with async_suppress(OSError):
+                            await aiofiles.os.remove(meta_filename)
+                    if _meta:
+                        async with async_suppress(Exception, logger=logger.warning, msg=f'{self.premsg}: error setxattr'):
+                            xattr.setxattr(str(temp_filename), "user.dublincore.description", _meta.encode())
 
                 except Exception as e:
                     logger.exception(
                         f"{self.premsg}: error in xattr area {repr(e)}")
 
-            if (mtime := self.info_dict.get("release_timestamp")):
-                try:
-                    await autime(
-                        temp_filename, (int(datetime.now().timestamp()), mtime))
-                except Exception as e:
-                    logger.exception(f"{self.premsg} error mtime {repr(e)}")
-
-            await amove(temp_filename, self.info_dl["filename"])
-
-            if self.info_dl["filename"].exists():
+            if (await amove(temp_filename, self.info_dl["filename"])) == 0 and self.info_dl["filename"].exists():
                 self.info_dl["status"] = "done"
+                if (mtime := self.info_dict.get("release_timestamp")):
+                    try:
+                        await autime(
+                            self.info_dl["filename"], (int(datetime.now().timestamp()), mtime))
+                    except Exception as e:
+                        logger.exception(f"{self.premsg} error mtime {repr(e)}")
             else:
                 self.info_dl["status"] = "error"
+                async with async_suppress(OSError):
+                    await aiofiles.os.remove(temp_filename)
                 raise AsyncDLError(
                     f"{self.premsg}[{str(self.info_dl['filename'])}] doesn't exist")
 
