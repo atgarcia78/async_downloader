@@ -206,7 +206,7 @@ class AsyncARIA2CDownloader:
             "_filename", self.info_dict.get("filename"))
         self.filename = Path(
             self.download_path,
-            f'{_filename.stem}.{self.info_dict["format_id"]}.aria2c.{self.info_dict["ext"]}')
+            f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
 
         self.dl_cont = None
         self.upt = None
