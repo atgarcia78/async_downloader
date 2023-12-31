@@ -1048,9 +1048,9 @@ class AsyncHLSDownloader:
             async with self._asynclock:
                 self.down_size += _iter_bytes
                 self._vid_dl.total_sizes["down_size"] += _iter_bytes
-                if self.filesize and (_dif := self.down_size - self.filesize) > 0:
-                    self.filesize += _dif
-                    self._vid_dl.total_sizes["filesize"] += _dif
+                # if self.filesize and (_dif := self.down_size - self.filesize) > 0:
+                #     self.filesize += _dif
+                #     self._vid_dl.total_sizes["filesize"] += _dif
         return _bytes_dl
 
     async def _clean_frag(self, _info_frag: dict, _exc: Exception) -> None:
@@ -1136,38 +1136,37 @@ class AsyncHLSDownloader:
                     aiofiles.open(filename, mode="ab") as fileobj,
                     client.stream("GET", url, headers=headers) as response
                 ):
+                    logger.debug(f"{_premsg}: {response} : {response.request} : {response.headers}")
                     await prepare_iter(response, fileobj)
                     self.num_bytes_downloaded = response.num_bytes_downloaded
-                    _timer = ProgressTimer()
-                    _tasks_chunks = []
+                    self._timer = ProgressTimer()
+                    # _tasks_chunks = []
 
-                    async def _write_to_file(data):
-                        if _tasks_chunks:
-                            await asyncio.wait(_tasks_chunks[-1:])
-                        _tasks_chunks.append(
-                            self.add_task(
-                                fileobj.write(data),
-                                name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
+                    # async def _write_to_file(data):
+                    #     if _tasks_chunks:
+                    #         await asyncio.wait(_tasks_chunks[-1:])
+                    #     _tasks_chunks.append(
+                    #         self.add_task(
+                    #             fileobj.write(data),
+                    #             name=f"{_premsg}[write_chunks][{len(_tasks_chunks)}]"))
 
                     async def _handle_iter(chunk):
-                        if _timer.has_elapsed(CONF_INTERVAL_GUI / 2):
+                        if self._timer.has_elapsed(CONF_INTERVAL_GUI / 2):
                             self.num_bytes_downloaded = await self._update_counters(
                                 response.num_bytes_downloaded, self.num_bytes_downloaded)
-                        await _write_to_file(await self._decrypt(chunk, cipher))
-                        if (_check := await self.event_handle(_premsg)):
-                            if "pause" in _check:
-                                _timer.reset()
+                            if (_check := await self.event_handle(_premsg)):
+                                if "pause" in _check:
+                                    self._timer.reset()
+                        await fileobj.write(await self._decrypt(chunk, cipher))
 
                     async for chunk in response.aiter_bytes(chunk_size=self._CHUNK_SIZE):
                         if chunk:
                             await _handle_iter(chunk)
-                        else:
-                            await asyncio.sleep(0)
 
                     self.num_bytes_downloaded = await self._update_counters(
                         response.num_bytes_downloaded, self.num_bytes_downloaded)
-                    if _tasks_chunks:
-                        await asyncio.wait(_tasks_chunks[-1:])
+                    # if _tasks_chunks:
+                    #     await asyncio.wait(_tasks_chunks[-1:])
 
                 return await _check_frag()
 
