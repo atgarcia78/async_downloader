@@ -5,19 +5,20 @@ import json
 import logging
 import math
 import random
+import shutil
+import subprocess
 import time
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 from queue import Queue
-from shutil import rmtree
 from threading import BoundedSemaphore, Lock
 
 import aiofiles
+import aiofiles.os
 import httpx
 import m3u8
-from aiofiles import os
 from Cryptodome.Cipher import AES
 from Cryptodome.Cipher._mode_cbc import CbcMode
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
@@ -1055,9 +1056,9 @@ class AsyncHLSDownloader:
         _info_frag["error"].append(repr(_exc))
         _info_frag["downloaded"] = False
         _fpath = Path(_info_frag["file"])
-        if await os.path.exists(_fpath):
-            _sizefile = (await os.stat(_fpath)).st_size
-            await os.remove(_fpath)
+        if await aiofiles.os.path.exists(_fpath):
+            _sizefile = (await aiofiles.os.stat(_fpath)).st_size
+            await aiofiles.os.remove(_fpath)
             async with self._asynclock:
                 self.down_size -= _sizefile
                 self._vid_dl.total_sizes["down_size"] -= _sizefile
@@ -1094,7 +1095,7 @@ class AsyncHLSDownloader:
                     response.headers.get("content-length"))
 
             if info_frag["downloaded"]:
-                _size = info_frag["size"] = (await os.stat(filename)).st_size
+                _size = info_frag["size"] = (await aiofiles.os.stat(filename)).st_size
                 if not _hsize or (_hsize - 100 <= _size <= _hsize + 100):
                     return True
 
@@ -1107,7 +1108,7 @@ class AsyncHLSDownloader:
                     self._vid_dl.total_sizes["down_size"] -= _size
 
         async def _check_frag():
-            _nsize = (await os.stat(filename)).st_size
+            _nsize = (await aiofiles.os.stat(filename)).st_size
             _nhsize = info_frag["headersize"]
             if (_nhsize and _nhsize - 100 <= _nsize <= _nhsize + 100) or not _nhsize:
                 info_frag["downloaded"] = True
@@ -1401,40 +1402,54 @@ class AsyncHLSDownloader:
 
     async def clean_when_error(self):
         for frag in self.info_frag:
-            if frag["downloaded"] is False and await os.path.exists(frag["file"]):
-                await os.remove(frag["file"])
+            if frag["downloaded"] is False and await aiofiles.os.path.exists(frag["file"]):
+                await aiofiles.os.remove(frag["file"])
 
     async def ensamble_file(self):
+
+        def _concat_files():
+            _glob = str(Path(self.download_path, "*.Frag*"))
+            cmd = (
+                f'files=(); for file in $(eza -1 {_glob}); do files+=("$file"); done; ' +
+                f'cat "${{files[@]}}" > {str(self.filename)}'
+            )
+            return subprocess.run(cmd, capture_output=True, shell=True, encoding='utf-8')
+
         self.status = "manipulating"
         _skipped = 0
+
         try:
-            async with aiofiles.open(self.filename, mode="wb") as dest:
-                for frag in self.info_frag:
-                    if frag.get("skipped", False):
-                        _skipped += 1
-                        continue
-                    if not frag["size"] and await os.path.exists(frag["file"]):
-                        frag["size"] = (await os.stat(frag["file"])).st_size
+            for frag in self.info_frag:
+                if frag.get("skipped", False):
+                    _skipped += 1
+                    continue
+                if not frag["size"] and await aiofiles.os.path.exists(frag["file"]):
+                    frag["size"] = (await aiofiles.os.stat(frag["file"])).st_size
 
-                    if not frag["size"] or not frag["headersize"] or not (
-                            frag["headersize"] - 100 <= frag["size"] <= frag["headersize"] + 100):
-                        raise AsyncHLSDLError(f"{self.premsg}: error when ensambling: {frag}")
+                if not frag["size"] or not frag["headersize"] or not (
+                        frag["headersize"] - 100 <= frag["size"] <= frag["headersize"] + 100):
+                    raise AsyncHLSDLError(f"{self.premsg}: error when ensambling: {frag}")
 
-                    async with aiofiles.open(frag["file"], mode="rb") as source:
-                        await dest.write(await source.read())
+            proc = _concat_files()
+
+            logger.info(f"{self.premsg}[ensamble] proc [rc] {proc.returncode}")
+            if proc.returncode:
+                raise AsyncHLSDLError(f"{self.premsg}[ensamble_file] proc [stdout]\n{proc.stdout}\nproc [stderr]\n{proc.stderr}")
         except Exception as e:
-            if await os.path.exists(self.filename):
-                await os.remove(self.filename)
+            if await aiofiles.os.path.exists(self.filename):
+                await aiofiles.os.remove(self.filename)
             logger.exception(f"{self.premsg} Error {str(e)}")
             self.status = "error"
             await self.clean_when_error()
             raise
         finally:
-            if await os.path.exists(self.filename):
-                armtree = self.sync_to_async(partial(rmtree, ignore_errors=True))
+            logger.info(f"{self.premsg}: [ensamble_file] finally")
+            if await aiofiles.os.path.exists(self.filename):
+                logger.info(f"{self.premsg}: [ensamble_file] exists {self.filename}")
+                armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
                 await armtree(str(self.download_path))
                 self.status = "done"
-                logger.debug(f"{self.premsg}: [ensamble_file] file ensambled")
+                logger.info(f"{self.premsg}: [ensamble_file] file ensambled")
                 if _skipped:
                     logger.warning(f"{self.premsg}: [ensamble_file] skipped frags [{_skipped}]")
             else:

@@ -426,7 +426,7 @@ class VideoDownloader:
             return
 
         res = _dl_subt()
-        logger.info(f"{self.premsg}[get_subts] res  proc[{res.returncode}]")
+        logger.debug(f"{self.premsg}[get_subts] res  proc[{res.returncode}]")
         if res.returncode != 0:
             return
 
@@ -436,7 +436,7 @@ class VideoDownloader:
                     self.info_dl["filename"].absolute().parent,
                     f"{self.info_dl['filename'].stem}.{_lang}.srt")
 
-                logger.info(f"{self.premsg}: {str(_subts_file)} exists[{_subts_file.exists()}]")
+                logger.debug(f"{self.premsg}: {str(_subts_file)} exists[{_subts_file.exists()}]")
                 if _subts_file.exists():
                     self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
 
@@ -444,14 +444,14 @@ class VideoDownloader:
                 logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
 
         if 'ca' in self.info_dl["downloaded_subtitles"] and 'es' not in self.info_dl["downloaded_subtitles"]:
-            logger.info(f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]")
+            logger.debug(f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]")
             _subs_file = Path(
                 self.info_dl["filename"].absolute().parent,
                 f"{self.info_dl['filename'].stem}.es.srt")
             with open(_subs_file, 'w') as f:
                 f.write(translate_srt(self.info_dl["downloaded_subtitles"]['ca'], 'ca', 'es'))
             self.info_dl["downloaded_subtitles"]['es'] = _subs_file
-            logger.info(f"{self.premsg}: subs file [es, srt] ready")
+            logger.debug(f"{self.premsg}: subs file [es, srt] ready")
 
     def _get_drm_xml(self) -> str:
         _pssh = try_get(
@@ -521,8 +521,10 @@ class VideoDownloader:
             if self.args.subt and self.info_dict.get("requested_subtitles"):
                 blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
 
+            logger.debug(f"{self.premsg}[run_manip] blocking tasks\n{blocking_tasks}")
+
             if blocking_tasks and (_excep := try_get(
-                await asyncio.wait(blocking_tasks),
+                await asyncio.wait(list(blocking_tasks.keys())),
                 lambda x: {
                     d.exception(): blocking_tasks[d]
                     for d in x[0] if d.exception()
@@ -531,6 +533,8 @@ class VideoDownloader:
                 for error, label in _excep.items():
                     logger.error(
                         f"{self.premsg}[run_manip] task[{label}]: {repr(error)}")
+
+            logger.debug(f"{self.premsg}[run_manip] done blocking tasks")
 
             rc = True
             for dl in self.info_dl["downloaders"]:
