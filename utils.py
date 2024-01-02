@@ -3468,13 +3468,6 @@ if PySimpleGUI:
                             f"\n\n-------STATUS DL----------------\n\n{upt}"
                             + "\n\n-------END STATUS DL------------\n\n")
                         self.console_dl_status = False
-                if "manipulating" in values["all"]:
-                    _text = []
-                    if list_manipulating := values["all"]["manipulating"]:
-                        _text.extend(["\n\n-------CREATING FILE------------\n\n"])
-                        _text.extend(list(list_manipulating.values()))
-                    upt = "".join(_text) if _text else ""
-                    self.window_root["-ML3-"].update(value=upt)
                 if "finish" in values["all"]:
                     self.list_finish = values["all"]["finish"]
                     if self.list_finish:
@@ -3713,7 +3706,7 @@ if PySimpleGUI:
                 finalize=True,
                 resizable=True)
 
-            window.set_min_size(window.size)
+            # window.set_min_size(window.size)
             if ml_keys:
                 for key in ml_keys:
                     window[key].expand(True, True, True)
@@ -3728,16 +3721,25 @@ if PySimpleGUI:
 
             col_0 = sg.Column(
                 [
-                    [sg.Text("WAITING TO DL", font="Any 14")],
+                    [
+                        sg.Text(
+                            "WAITING TO DL",
+                            font="Any 14",
+                            expand_x=True,
+                            expand_y=True
+                        )
+                    ],
                     [
                         sg.Multiline(
                             default_text="Waiting for info",
-                            size=(70, 40),
+                            size=(60, 40),
                             font=("Courier New Bold", 10),
                             write_only=True,
                             key="-ML0-",
                             autoscroll=True,
                             auto_refresh=True,
+                            expand_x=True,
+                            expand_y=True
                         )
                     ],
                 ],
@@ -3751,61 +3753,72 @@ if PySimpleGUI:
                     [
                         sg.Text(
                             "Waiting for info",
-                            size=(80, 2),
+                            size=(180, 2),
                             font=("Courier New Bold", 12),
                             key="ST",
+                            expand_x=True,
+                            expand_y=True
                         )
                     ]
-                ]
+                ],
+                expand_x=True,
+                expand_y=True
             )
 
             col_1 = sg.Column(
                 [
-                    [sg.Text("NOW DOWNLOADING/CREATING FILE", font="Any 14")],
+                    [
+                        sg.Text(
+                            "NOW DOWNLOADING/CREATING FILE",
+                            font="Any 14",
+                            expand_x=True,
+                            expand_y=True
+                        )
+                    ],
                     [
                         sg.Multiline(
                             default_text="Waiting for info",
-                            size=(90, 35),
-                            font=("Courier New Bold", 11),
+                            size=(90, 40),
+                            font=("Courier New Bold", 10),
                             write_only=True,
                             key="-ML1-",
                             autoscroll=True,
                             auto_refresh=True,
-                        )
-                    ],
-                    [
-                        sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(90, 5),
-                            font=("Courier New Bold", 10),
-                            write_only=True,
-                            key="-ML3-",
-                            autoscroll=True,
-                            auto_refresh=True,
+                            expand_x=True,
+                            expand_y=True
                         )
                     ],
                 ],
-                element_justification="c",
+                element_justification="l",
                 expand_x=True,
                 expand_y=True,
             )
 
             col_2 = sg.Column(
                 [
-                    [sg.Text("DOWNLOADED/STOPPED/ERRORS", font="Any 14")],
+                    [
+                        sg.Text(
+                            "DOWNLOADED/STOPPED/ERRORS",
+                            font="Any 14",
+                            expand_x=True,
+                            expand_y=True
+                        )
+                    ],
                     [
                         sg.Multiline(
                             default_text="Waiting for info",
-                            size=(70, 40),
+                            size=(30, 40),
                             font=("Courier New Bold", 10),
                             write_only=True,
                             key="-ML2-",
                             autoscroll=True,
                             auto_refresh=True,
+                            expand_x=True,
+                            expand_y=True
                         )
                     ],
                 ],
-                element_justification="r",
+                element_justification="l",
                 expand_x=True,
                 expand_y=True,
             )
@@ -3813,7 +3826,7 @@ if PySimpleGUI:
             layout_root = [[col_00], [col_0, col_1, col_2]]
 
             return self.get_window(
-                "async_downloader", layout_root, ml_keys=[f"-ML{i}-" for i in range(4)])
+                "async_downloader", layout_root, ml_keys=[f"-ML{i}-" for i in range(3)])
 
         def init_gui_console(self):
             sg.theme("SystemDefaultForReal")

@@ -1459,13 +1459,15 @@ class AsyncHLSDownloader:
         ]
 
     def print_hookup(self):
-        _pre = f"[HLS][{self.info_dict['format_id']}]: HOST[{self._host.split('.')[0]}]"
+        _pre = f"[HLS][{self.info_dict['format_id']}]"
+
+        _pre_with_host = f"{_pre}: HOST[{self._host.split('.')[0]}]"
 
         if self.status == "done":
-            return f"{_pre}: Completed\n"
+            return f"{_pre_with_host}: Completed\n"
 
         if self.status == "init_manipulating":
-            return f"{_pre}: Waiting for Ensambling\n"
+            return f"{_pre_with_host}: Waiting for Ensambling\n"
 
         if self.status == "manipulating":
             _size = self.filename.stat().st_size if self.filename.exists() else 0
@@ -1473,23 +1475,23 @@ class AsyncHLSDownloader:
                 f"[{naturalsize(_size)}/{naturalsize(self.filesize)}]({(_size/self.filesize)*100:.2f}%)"
                 if self.filesize
                 else f"[{naturalsize(_size)}]")
-            return f"{_pre}: Ensambling {_str}\n"
+            return f"{_pre_with_host}: Ensambling {_str}\n"
 
         if self.status in ("init", "error", "stop"):
             _filesize_str = naturalsize(self.filesize) if self.filesize else "--"
             _rel_size_str = (
                 f"{naturalsize(self.down_size)}/{naturalsize(self.filesize)}"
                 if self.filesize else "--")
-            _prefr = f"[{self.n_dl_fragments:{self.format_frags}}/{self.n_total_fragments}]"
+            _prefr = f"[{self.n_dl_fragments:{self.format_frags}}/{self.n_total_fragments:{self.format_frags}}]"
 
             if self.status == "init":
-                return f"{_pre}: Waiting to DL [{_filesize_str}] {_prefr}\n"
+                return f"{_pre_with_host}: Waiting to DL [{_filesize_str}] {_prefr}\n"
 
             if self.status == "error":
-                return f"{_pre}: ERROR [{_rel_size_str}] {_prefr}\n"
+                return f"{_pre_with_host}: ERROR [{_rel_size_str}] {_prefr}\n"
 
             if self.status == "stop":
-                return f"{_pre}: STOPPED [{_rel_size_str}] {_prefr}\n"
+                return f"{_pre_with_host}: STOPPED [{_rel_size_str}] {_prefr}\n"
 
         if self.status == "downloading":
             return f"{_pre}: {self._print_hookup_downloading()}"
@@ -1498,7 +1500,7 @@ class AsyncHLSDownloader:
         _temp = self.upt.copy()
         _dsize = _temp.get("down_size", 0)
         _n_dl_frag = _temp.get("n_dl_frag", 0)
-        _prefr = f"[{_n_dl_frag:{self.format_frags}}/{self.n_total_fragments}]"
+        _prefr = f"[{_n_dl_frag:{self.format_frags}}/{self.n_total_fragments:{self.format_frags}}]"
         _progress_str = (
             f"{_dsize / self.filesize * 100:5.2f}%"
             if self.filesize else "-----")
@@ -1521,6 +1523,6 @@ class AsyncHLSDownloader:
                     self.count_msg = AsyncHLSDownloader._QUEUE[str(self.pos)].get_nowait()
         return (
             f"WK[{self.count:2d}/{self.n_workers:2d}] " +
-            f"FR{_prefr}" +
+            f"FR{_prefr} " +
             f"PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]" +
             f"\n{self.count_msg}")
