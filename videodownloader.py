@@ -693,7 +693,7 @@ class VideoDownloader:
                         async with async_suppress(OSError):
                             await aiofiles.os.remove(meta_filename)
                     if _meta:
-                        async with async_suppress(Exception, logger=logger.warning, msg=f'{self.premsg}: error setxattr'):
+                        async with async_suppress(Exception, level=logging.WARNING, logger=logger, msg=f'{self.premsg}: error setxattr'):
                             xattr.setxattr(str(temp_filename), "user.dublincore.description", _meta.encode())
 
                 except Exception as e:

@@ -767,9 +767,10 @@ class run_operation_in_executor_from_loop:
 
 
 class async_suppress(contextlib.AbstractAsyncContextManager):
-    def __init__(self, *exceptions, logger=None, msg=None):
+    def __init__(self, *exceptions, level=logging.DEBUG, logger=None, msg=None):
         self._exceptions = exceptions
-        self.logger = logger or logging.getLogger('utils.asyncsuppres').warning
+        self.logger = logger or logging.getLogger('utils.asyncsuppres')
+        self.level = level if isinstance(level, int) else logging.getLevelName(level)
         self.msg = f'{msg} ' if msg else ''
 
     async def __aenter__(self):
@@ -777,7 +778,7 @@ class async_suppress(contextlib.AbstractAsyncContextManager):
 
     async def __aexit__(self, exctype, excinst, exctb):
         if exctype is not None and issubclass(exctype, self._exceptions):
-            self.logger(f'{self.msg}Exception supressed: {exctype}, {excinst}')
+            self.logger.log(self.level, f'{self.msg}Exception supressed: {exctype}, {excinst}')
             return True
 
 
