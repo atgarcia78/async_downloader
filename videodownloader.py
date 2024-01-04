@@ -295,7 +295,8 @@ class VideoDownloader:
         return _wait_tasks
 
     async def stop(self, cause=None, wait=True):
-        if self.info_dl["status"] in ("done", "error") or self.stop_event.is_set() == "exit":
+        if (self.info_dl["status"] in ("done", "error") or
+                self.stop_event.is_set() == "exit"):
             return
 
         try:
@@ -313,7 +314,8 @@ class VideoDownloader:
                     await asyncio.sleep(0)
                 _wait_tasks = []
                 for dl in self.info_dl["downloaders"]:
-                    if "asynchls" in str(type(dl)).lower() and getattr(dl, "tasks", None):
+                    if ("asynchls" in str(type(dl)).lower() and
+                            getattr(dl, "tasks", None)):
                         if _tasks := [
                             _task for _task in dl.tasks
                             if not _task.done() and not _task.cancelled()
@@ -322,6 +324,7 @@ class VideoDownloader:
                             for _t in _tasks:
                                 _t.cancel()
                             _wait_tasks.extend(_tasks)
+
                 if wait and _wait_tasks:
                     await asyncio.wait(_wait_tasks)
 
@@ -329,13 +332,17 @@ class VideoDownloader:
             logger.exception(f"{self.premsg}: " + f"{repr(e)}")
 
     async def pause(self):
-        if self.info_dl["status"] == "downloading" and not self.pause_event.is_set() and not self.reset_event.is_set():
+        if self.info_dl["status"] == (
+            "downloading" and not self.pause_event.is_set()
+                and not self.reset_event.is_set()):
             self.pause_event.set()
             self.resume_event.clear()
             await asyncio.sleep(0)
 
     async def resume(self):
-        if self.info_dl["status"] == "downloading" and not self.resume_event.is_set():
+        if self.info_dl["status"] == (
+            "downloading" and not self.resume_event.is_set()
+        ):
             self.resume_event.set()
             await asyncio.sleep(0)
 
@@ -345,10 +352,13 @@ class VideoDownloader:
         await asyncio.sleep(0)
         for dl in self.info_dl["downloaders"]:
             dl.status = "init"
-            if "aria2" not in str(type(dl)).lower() and hasattr(dl, "update_uri"):
+            if (
+                "aria2" not in str(type(dl)).lower()
+                and hasattr(dl, "update_uri")
+            ):
                 await dl.update_uri()
-            if "hls" in str(type(dl)).lower():
-                await self.sync_to_async(dl.init)()
+                if "hls" in str(type(dl)).lower():
+                    await self.sync_to_async(dl.init)()
 
     async def run_dl(self):
         self.info_dl["ytdl"].params["stop_dl"][str(self.index)] = self.stop_event
@@ -360,7 +370,8 @@ class VideoDownloader:
             if self.info_dl["status"] != "stop":
                 self.info_dl["status"] = "downloading"
                 logger.debug(
-                    f"{self.premsg}[run_dl] status {[dl.status for dl in self.info_dl['downloaders']]}")
+                    f"{self.premsg}[run_dl] status" +
+                    f"{[dl.status for dl in self.info_dl['downloaders']]}")
                 tasks_run = {
                     self.add_task(dl.fetch_async(), name=f'fetch_async_{i}')
                     for i, dl in enumerate(self.info_dl["downloaders"])
@@ -487,7 +498,8 @@ class VideoDownloader:
     async def run_manip(self):
         aget_subts_files = self.sync_to_async(self._get_subts_files)
         arunproc = self.sync_to_async(self.run_proc)
-        armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
+        armtree = self.sync_to_async(
+            partial(shutil.rmtree, ignore_errors=True))
         _amove = self.sync_to_async(shutil.move)
         autime = self.sync_to_async(os.utime)
 
@@ -495,13 +507,17 @@ class VideoDownloader:
             rc = -1
             msg_error = ''
             try:
-                rc = try_get(await _amove(orig, dst), lambda x: 0 if (x == dst) else -1)
+                rc = try_get(
+                    await _amove(orig, dst),
+                    lambda x: 0 if (x == dst) else -1)
                 if rc == -1:
                     msg_error = 'result of move incorrect'
             except Exception as e:
                 msg_error = {str(e)}
             if rc == -1:
-                logger.error(f"{self.premsg}: error move {orig} to {dst} - {msg_error}")
+                logger.error(
+                    f"{self.premsg}: error move " +
+                    f"{orig} to {dst} - {msg_error}")
             return rc
 
         self.info_dl["status"] = "manipulating"
@@ -513,11 +529,12 @@ class VideoDownloader:
 
         try:
             blocking_tasks = {
-                self.add_task(dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}'): f'ensamble_file_{dl.premsg}'
+                self.add_task(
+                    dl.ensamble_file(),
+                    name=f'ensamble_file_{dl.premsg}'): f'ensamble_file_{dl.premsg}'
                 for dl in self.info_dl["downloaders"]
                 if all(_ not in str(type(dl)).lower() for _ in ("aria2", "native"))
-                and dl.status == "manipulating"
-            }
+                and dl.status == "manipulating"}
             if self.args.subt and self.info_dict.get("requested_subtitles"):
                 blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
 
@@ -650,7 +667,9 @@ class VideoDownloader:
                     embed_filename = prepend_extension(temp_filename, "embed")
 
                     def _make_embed_gpac_cmd():
-                        _part_cmd = ' -add '.join([f'{_file}:lang={_lang}:hdlr=sbtl' for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
+                        _part_cmd = ' -add '.join([
+                            f'{_file}:lang={_lang}:hdlr=sbtl'
+                            for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
                         return f"MP4Box -add {_part_cmd} -add {temp_filename} -new {embed_filename}"
 
                     proc = await arunproc(cmd := _make_embed_gpac_cmd())
@@ -674,7 +693,9 @@ class VideoDownloader:
             if self.args.xattr:
                 try:
                     meta_filename = prepend_extension(temp_filename, "meta")
-                    _metadata = f"title={self.info_dict.get('title')}:online_info={self.info_dict.get('webpage_url')}"
+                    _metadata = (
+                        f"title={self.info_dict.get('title')}:" +
+                        f"online_info={self.info_dict.get('webpage_url')}")
                     if (_meta := self.info_dict.get('meta_comment')):
                         _metadata += f":comment={_meta}"
 
@@ -700,7 +721,8 @@ class VideoDownloader:
                     logger.exception(
                         f"{self.premsg}: error in xattr area {repr(e)}")
 
-            if (await amove(temp_filename, self.info_dl["filename"])) == 0 and self.info_dl["filename"].exists():
+            if ((await amove(temp_filename, self.info_dl["filename"])) == 0
+                    and self.info_dl["filename"].exists()):
                 self.info_dl["status"] = "done"
                 if (mtime := self.info_dict.get("release_timestamp")):
                     try:
@@ -724,10 +746,8 @@ class VideoDownloader:
                 await asyncio.wait(blocking_tasks)
             raise
         finally:
-            try:
+            async with async_suppress(OSError):
                 await armtree(self.info_dl["download_path"])
-            except Exception as e:
-                logger.exception(f"{self.premsg} error rmtree {repr(e)}")
             await asyncio.sleep(0)
 
     def print_hookup(self):

@@ -153,8 +153,7 @@ retry = my_dec_on_exception(
 
 on_exception = my_dec_on_exception(
     (TimeoutError, AsyncHLSDLError, ReExtractInfo),
-    max_tries=5, raise_on_giveup=False, interval=5
-)
+    max_tries=5, raise_on_giveup=False, interval=5)
 
 on_503 = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=False, interval=20)
@@ -173,7 +172,9 @@ class AsyncHLSDownloader:
     _INRESET_403 = InReset403()
     _qproxies = None
 
-    def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL):
+    def __init__(
+            self, args: Namespace, ytdl: myYTDL,
+            video_dict: dict, info_dl: InfoDL):
 
         try:
             self.background_tasks = set()
