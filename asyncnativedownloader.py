@@ -231,7 +231,7 @@ class AsyncNativeDownloader:
         )
 
     def _parse_output(self, line):
-
+        print(line)
         if not (_res := self._parse(line)):
             return
         if _fmt := _res.pop('fmt'):
