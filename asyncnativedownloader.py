@@ -173,7 +173,11 @@ class AsyncNativeDownloader:
         ]
         if self.drm:
             cmd.append("--allow-unplayable-formats")
-        _cmd = f'{shell_quote(cmd)} | egrep "(Destination|Progress)"'
+
+        _cmd = f'{shell_quote(cmd)}'
+
+        # _cmd = f'{shell_quote(cmd)} | egrep "(Destination|Progress)"'
+
         logger.info(f"{self.premsg}[cmd] {_cmd}")
         return _cmd
 
@@ -191,11 +195,14 @@ class AsyncNativeDownloader:
     async def async_start(self, msg=None):
         async with AsyncNativeDownloader._CLASSLOCK:
             async with self._limit:
+                # proc = await asyncio.create_subprocess_shell(
+                #     self._make_cmd())
                 proc = await asyncio.create_subprocess_shell(
                     self._make_cmd(), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
                 await asyncio.sleep(0)
                 self._proc[proc.pid] = proc
                 self._tasks[proc.pid] = [self.add_task(self.read_stream(proc)), self.add_task(proc.wait())]
+                # self._tasks[proc.pid] = [self.add_task(proc.wait())]
                 return proc.pid
 
     async def event_handle(self, pid) -> dict:
@@ -231,7 +238,7 @@ class AsyncNativeDownloader:
         )
 
     def _parse_output(self, line):
-        print(line)
+        # print(line)
         if not (_res := self._parse(line)):
             return
         if _fmt := _res.pop('fmt'):
