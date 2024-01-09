@@ -1366,7 +1366,7 @@ if yt_dlp:
 
             if (
                     info['extractor'] == 'generic' and not info.get('filesize') and
-                    get_protocol(info)in ('http', 'https')
+                    get_protocol(info) in ('http', 'https')
             ):
                 info |= self._get_filesize(info)
 
