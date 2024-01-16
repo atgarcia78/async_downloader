@@ -50,7 +50,6 @@ class AsyncNativeDownloader:
         try:
             self.args = args
             self.drm = drm
-            self.background_tasks = set()
             self.info_dict = video_dict.copy()
             self._vid_dl = info_dl
             self.ytdl = ytdl
@@ -132,12 +131,6 @@ class AsyncNativeDownloader:
             logger.exception(repr(e))
             raise
 
-    def add_task(self, coro):
-        _task = asyncio.create_task(coro)
-        self.background_tasks.add(_task)
-        _task.add_done_callback(self.background_tasks.discard)
-        return _task
-
     def fetch(self, **kwargs):
         try:
             def my_hook(d):
@@ -172,8 +165,6 @@ class AsyncNativeDownloader:
 
     async def fetch_async(self):
         self.status = "downloading"
-        self._proc = {}
-        self._tasks = {}
         _pre = f"{self.premsg}[fetch_async]"
 
         try:
