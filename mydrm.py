@@ -32,7 +32,7 @@ class myDRM:
     _CDM = None
 
     @classmethod
-    def create_drm_cdm(cls):
+    def create_drm_cdm(cls) -> Cdm:
         with open(CONF_DRM['private_key']) as fpriv:
             _private_key = fpriv.read()
         with open(CONF_DRM['client_id'], "rb") as fpid:
@@ -76,9 +76,10 @@ class myDRM:
 
     @classmethod
     def get_drm_xml(
-            cls, lic_url: str, file_dest: [str | Path],
-            pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
-            mpd_url: Optional[str] = None, **kwargs) -> Optional[str]:
+        cls, lic_url: str, file_dest: [str | Path],
+        pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
+        mpd_url: Optional[str] = None, **kwargs
+    ) -> Optional[str]:
 
         if (_keys := cls.get_drm_keys(
                 lic_url, pssh=pssh, func_validate=func_validate,
@@ -88,6 +89,6 @@ class myDRM:
             return _keys
 
     @classmethod
-    def validate_drm_lic(self, lic_url: str, challenge: bytes) -> Optional[bytes]:
+    def validate_drm_lic(cls, lic_url: str, challenge: bytes, **kwargs) -> Optional[bytes]:
         with Client(**CLIENT_CONFIG) as client:
-            return client.post(lic_url, content=challenge).content
+            return client.post(lic_url, content=challenge, **kwargs).content

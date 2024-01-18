@@ -4,6 +4,7 @@ import logging
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import cast
@@ -20,6 +21,7 @@ from utils import (
     myYTDL,
     naturalsize,
     sync_to_async,
+    try_call,
     try_get,
 )
 
@@ -84,6 +86,9 @@ class AsyncNativeDownloader:
 
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_natdl")
 
+            self.sync_to_async = partial(
+                sync_to_async, thread_sensitive=False, executor=self.ex_dl)
+
             self.special_extr = False
 
             def getter(x):
@@ -131,21 +136,26 @@ class AsyncNativeDownloader:
             logger.exception(repr(e))
             raise
 
-    def fetch(self, **kwargs):
-        try:
-            def my_hook(d):
-                try:
-                    if d['status'] == 'downloading':
-                        if self._file == 'video' and len(self._formats) > 1 and list(self._streams.keys())[1] in d['filename']:
-                            self._file = 'audio'
-                            self.down_size_old = 0
-                        self.down_size += (_inc := d['downloaded_bytes'] - self.down_size_old)
-                        self._vid_dl.total_sizes["down_size"] += _inc
-                        self.down_size_old = d['downloaded_bytes']
-                        self.dl_cont[self._file] |= {'downloaded': d['downloaded_bytes'], 'speed': d['_speed_str'], 'progress': d['_percent_str']}
-                except Exception as e:
-                    logger.exception(f"{self.premsg}[fetch] {repr(e)}")
+    def fetch(self):
 
+        def my_hook(d):
+            try:
+                if d['status'] == 'downloading':
+                    if self._file == 'video' and try_call(lambda: list(self._streams.keys())[1] in d['filename']):
+                        self._file = 'audio'
+                        self.down_size_old = 0
+                    self.down_size += (_inc := d['downloaded_bytes'] - self.down_size_old)
+                    self._vid_dl.total_sizes["down_size"] += _inc
+                    self.down_size_old = d['downloaded_bytes']
+                    self.dl_cont[self._file] |= {
+                        'downloaded': d['downloaded_bytes'],
+                        'speed': d['_speed_str'],
+                        'progress': d['_percent_str']
+                    }
+            except Exception as e:
+                logger.exception(f"{self.premsg}[fetch] {repr(e)}")
+
+        try:
             opts_upt = {
                 'allow_unplayable_formats': True,
                 'skip_download': False,
@@ -156,9 +166,6 @@ class AsyncNativeDownloader:
 
             with myYTDL(params=(self.ytdl.params | opts_upt), silent=True) as pytdl:
                 pytdl.download(self.info_dict["webpage_url"])
-
-            self.status = "done"
-
         except Exception as e:
             logger.exception(f"{self.premsg}[fetch] {repr(e)}")
             self.status = "error"
@@ -168,10 +175,10 @@ class AsyncNativeDownloader:
         _pre = f"{self.premsg}[fetch_async]"
 
         try:
-
             async with async_lock(self.sem):
-                await sync_to_async(self.fetch, thread_sensitive=False, executor=self.ex_dl)()
+                await self.sync_to_async(self.fetch)()
 
+            self.status = "done"
         except Exception as e:
             logger.exception(f"{_pre} {repr(e)}")
             self.status = "error"

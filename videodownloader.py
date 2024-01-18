@@ -167,7 +167,7 @@ class VideoDownloader:
             if hasattr(dl, "ex_dl"):
                 dl.ex_dl.shutdown(wait=False, cancel_futures=True)
 
-    def _get_dl(self, info_dict):
+    def _get_dl(self, info_dict: dict):
 
         _drm = try_get(
             info_dict.get('_has_drm') or info_dict.get('has_drm'),
@@ -252,7 +252,7 @@ class VideoDownloader:
         _task.add_done_callback(self.background_tasks.discard)
         return _task
 
-    async def change_numvidworkers(self, n):
+    async def change_numvidworkers(self, n: int):
         if self.info_dl["status"] in ("downloading", "init"):
             for dl in self.info_dl["downloaders"]:
                 dl.n_workers = n
@@ -266,7 +266,7 @@ class VideoDownloader:
     async def reset_from_console(self):
         await self.reset(cause="hard")
 
-    async def reset(self, cause: Union[str, None] = None, wait=True):
+    async def reset(self, cause: Optional[str] = None, wait=True):
         if self.info_dl["status"] != "downloading":
             return
         _wait_tasks = []
@@ -294,7 +294,7 @@ class VideoDownloader:
 
         return _wait_tasks
 
-    async def stop(self, cause=None, wait=True):
+    async def stop(self, cause: Optional[str] = None, wait=True):
         if (self.info_dl["status"] in ("done", "error") or
                 self.stop_event.is_set() == "exit"):
             return
