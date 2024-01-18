@@ -11,7 +11,7 @@ from datetime import datetime
 from functools import partial
 from pathlib import Path
 from threading import Lock
-from typing import Callable, Coroutine, Optional, Union, cast
+from typing import Callable, Coroutine, Optional, cast
 from urllib.parse import unquote, urlparse, urlunparse
 
 import aria2p
@@ -321,7 +321,8 @@ class AsyncARIA2CDownloader:
         self._pos = value
 
     def add_task(
-            self, coro: [Coroutine | asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
+        self, coro: [Coroutine | asyncio.Task], *, name: Optional[str] = None
+    ) -> asyncio.Task:
 
         _task = coro
         if not isinstance(coro, asyncio.Task):
@@ -423,14 +424,16 @@ class AsyncARIA2CDownloader:
                     logger.info(f"{self.premsg}[reset_aria2c]  test conn no ok")
 
     async def async_pause(
-            self, list_dl: list[aria2p.Download | None]) -> Optional[list[OperationResult]]:
+        self, list_dl: list[aria2p.Download | None]
+    ) -> Optional[list[OperationResult]]:
 
         if list_dl and all(x is not None for x in list_dl):
             return cast(list[OperationResult], await self._acall(
                 AsyncARIA2CDownloader.aria2_API.pause, list_dl))
 
     async def async_resume(
-            self, list_dl: list[aria2p.Download | None]) -> Optional[list[OperationResult]]:
+        self, list_dl: list[aria2p.Download | None]
+    ) -> Optional[list[OperationResult]]:
 
         if list_dl and all(x is not None for x in list_dl):
             async with self._decor:
@@ -438,7 +441,8 @@ class AsyncARIA2CDownloader:
                     AsyncARIA2CDownloader.aria2_API.resume, list_dl))
 
     async def async_remove(
-            self, list_dl: list[aria2p.Download | None]) -> Optional[list[OperationResult]]:
+        self, list_dl: list[aria2p.Download | None]
+    ) -> Optional[list[OperationResult]]:
 
         if list_dl and all(x is not None for x in list_dl):
             return cast(list[OperationResult], await self._acall(
@@ -624,68 +628,6 @@ class AsyncARIA2CDownloader:
 
         logger.debug(f"{self.premsg}[update_uri] end with uris:\n{self.uris}")
 
-    # async def check_speed(self):
-
-    #     def len_ap_list(_list, _eltoap):
-    #         _list.append(_eltoap)
-    #         return len(_list)
-
-    #     def _print_el(item: tuple) -> str:
-    #         _secs = item[2].second + item[2].microsecond / 1000000
-    #         return (
-    #             f"({item[2].strftime('%H:%M:')}{_secs:06.3f}, " +
-    #             f"['speed': {item[0]}, 'connec': {item[1]}])")
-
-    #     _speed = []
-
-    #     _index = self._n_check_speed
-    #     _min_check = self._min_check_speed
-
-    #     try:
-    #         while True:
-
-    #             _input_speed = await self._qspeed.get()
-
-    #             if _input_speed == kill_token:
-    #                 logger.debug(f"{self.premsg}[check_speed] {kill_token} from queue")
-    #                 return
-    #             if any([self.block_init, self.check_any_event_is_set()]):
-    #                 await asyncio.sleep(0)
-    #                 continue
-    #             if len_ap_list(_speed, _input_speed) > _min_check:
-    #                 _res_dl0 = False
-    #                 _res_ncon = False
-
-    #                 if (
-    #                         (_res_dl0 := (sum([el[0] for el in _speed[-_index:]]) / len(_speed[-_index:]) < 250000)) or
-    #                         (_res_ncon := all([
-    #                             self.n_workers > 1,
-    #                             all(el[3] < 95 and (el[1] < (self.n_workers - 1)) for el in _speed[-_index:])
-    #                         ]))
-    #                 ):
-
-    #                     logger.info(
-    #                         f"{self.premsg}[check_speed] speed reset: n_el_speed[{len(_speed)}] " +
-    #                         f"dl0[{_res_dl0}] ncon[{_res_ncon}]")
-
-    #                     _str_speed = ", ".join([_print_el(el) for el in _speed[-_index:]])
-    #                     logger.debug(f"{self.premsg}[check_speed]\n{_str_speed}")
-
-    #                     await self._reset()
-    #                     _speed = []
-    #                     await asyncio.sleep(0)
-
-    #                 else:
-    #                     _speed[:_min_check - _index // 2 + 1] = ()
-    #                     await asyncio.sleep(0)
-    #             else:
-    #                 await asyncio.sleep(0)
-
-    #     except Exception as e:
-    #         logger.exception(f"{self.premsg}[check_speed] {str(e)}")
-    #     finally:
-    #         logger.debug(f"{self.premsg}[check_speed] bye")
-
     def check_any_event_is_set(self, incpause=True):
         _events = self._vid_dl_events
         if incpause:
@@ -740,7 +682,7 @@ class AsyncARIA2CDownloader:
                 self._vid_dl.reset_event.clear()
         await asyncio.sleep(0)
 
-    async def _reset(self, cause: Union[str, None] = None):
+    async def _reset(self, cause: Optional[str] = None):
         if self.status == "downloading":
             self._vid_dl.reset_event.set(cause)
 
@@ -878,6 +820,14 @@ class AsyncARIA2CDownloader:
             logger.debug(f"{self.premsg}[fetch_async] exiting")
 
     def print_hookup(self):
+
+        def _downloading_print_hookup(premsg):
+            self.last_progress_str = self.upt.progress_str
+            _pre_info = (
+                f"CONN[{self.upt.connections:2d}/{self.n_workers:2d}] " +
+                f"DL[{self.upt.speed_str}] PR[{self.upt.progress_str}] ETA[{self.upt.eta_str}]\n")
+            return f'{premsg} {_pre_info}'
+
         msg = ""
         _pre = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}]'
         _pre2 = (
@@ -900,7 +850,7 @@ class AsyncARIA2CDownloader:
                 self.dl_cont, self.upt, not self.block_init,
                 not self.check_any_event_is_set()]
             ):
-                msg = self._downloading_print_hookup(_pre)
+                msg = _downloading_print_hookup(_pre)
             else:
                 if self.block_init:
                     _substr = "INIT"
@@ -916,11 +866,3 @@ class AsyncARIA2CDownloader:
                 msg = f'{_pre} {_substr} DL PR[{self.last_progress_str}]\n'
 
         return msg
-
-    def _downloading_print_hookup(self, _pre):
-        self.last_progress_str = self.upt.progress_str
-        _pre_info = (
-            f"CONN[{self.upt.connections:2d}/{self.n_workers:2d}] " +
-            f"DL[{self.upt.speed_str}] PR[{self.upt.progress_str}] ETA[{self.upt.eta_str}]\n")
-
-        return f'{_pre} {_pre_info}'
