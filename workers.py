@@ -180,7 +180,7 @@ class WorkersInit(Workers):
                 while await self.has_tasks():
                     await asyncio.sleep(0)
                 self.logger.debug(f"{_pre} end tasks worker init: exit")
-                self.asyncdl.t3.stop()
+                self.asyncdl.timers.t3.stop()
                 self.exit.set()
                 await self.asyncdl.WorkersRun.check_to_stop()
             else:

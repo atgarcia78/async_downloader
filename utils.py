@@ -1210,7 +1210,8 @@ if yt_dlp:
             "Requested format is not available",
             "You have asked for UNPLAYABLE formats to be listed/downloaded",
             "in player engine - download may fail",
-            "cookies from firefox"
+            "cookies from firefox",
+            "Ignoring subtitle tracks found in the HLS manifest"
         ]
 
         _skip_phr = ["Downloading", "Extracting information", "Checking", "Logging"]
@@ -4156,26 +4157,11 @@ class NWSetUp:
             self.logger.debug("[close] proxy")
             self.stop_proxy.set()
             await asyncio.sleep(0)
-            # self.shutdown_proxy.wait()
             await asyncio.wait([self.fut_proxy])
             self.logger.debug("[close] OK shutdown")
 
             if self.proc_gost:
                 self.logger.debug("[close] gost")
-                # for proc in self.proc_gost:
-                #     proc.terminate()
-                #     try:
-                #         if proc.stdout:
-                #             proc.stdout.close()
-                #         if proc.stderr:
-                #             proc.stderr.close()
-                #         if proc.stdin:
-                #             proc.stdin.close()
-                #     except Exception:
-                #         pass
-                #     finally:
-                #         await self.sync_to_async(proc.wait)()
-                #         await asyncio.sleep(0)
                 await self.sync_to_async(sanitize_killproc)(self.proc_gost)
 
         if self.proc_aria2c:
@@ -4541,7 +4527,7 @@ if FileLock and xattr:
                     if not force_local:
                         try:
                             if self._repeated:
-                                self.logger.warning("[videos_cached] Please check vid rep in logs")
+                                self.logger.warning("[videos_cached] Please check vid repeated in logs")
                                 self.logger.debug(f"[videos_cached] videos repeated: \n {self._repeated}")
 
                             if self._dont_exist:
@@ -4549,7 +4535,7 @@ if FileLock and xattr:
                                 self.logger.debug(f"[videos_cached] videos dont exist: \n{self._dont_exist}")
 
                             if self._repeated_by_xattr:
-                                self.logger.warning("[videos_cached] Pls check vid repeated by xattr)")
+                                self.logger.warning("[videos_cached] Please check vid repeated by xattr")
                                 self.logger.debug(
                                     f"[videos_cached] videos repeated by xattr: \n{self._repeated_by_xattr}"
                                 )
