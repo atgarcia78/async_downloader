@@ -226,8 +226,8 @@ class AsyncHLSDownloader:
             self._proxy = {}
             if (_proxy := self.args.proxy):
                 self._proxy = {"http://": _proxy, "https://": _proxy}
-            elif self.args.enproxy:
-                self.prepare_proxy()
+            # elif self.args.enproxy:
+            #     self.prepare_proxy()
 
             self.smooth_eta = SmoothETA()
             self.progress_timer = ProgressTimer()

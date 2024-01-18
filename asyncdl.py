@@ -469,7 +469,7 @@ class AsyncDL:
                             _folderpath = Path(Path.home(), "testing", _base)
 
                 _folderpath.mkdir(parents=True, exist_ok=True)
-                file_aldl = Path(_folderpath, vid_path.name if not _legacy_title else vid_path.name.replace(_legacy_title, _title))
+                file_aldl = Path(_folderpath, vid_path.name)
                 if file_aldl not in _folderpath.iterdir():
                     file_aldl.symlink_to(vid_path)
                     try:
