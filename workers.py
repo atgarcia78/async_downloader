@@ -26,7 +26,6 @@ class Workers:
         self._max = value
 
     async def add_task(self, **kwargs):
-
         task_index = kwargs.get('task_index')
         sortwaiting = kwargs.get('sortwaiting')
         dl = kwargs.get('dl')
