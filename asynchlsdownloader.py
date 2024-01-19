@@ -1494,7 +1494,7 @@ class AsyncHLSDownloader:
             return f"{_pre}: {self._print_hookup_downloading()}"
 
     def _print_hookup_downloading(self):
-        _temp = self.upt.copy()
+        _temp = self.upt
         _dsize = _temp.get("down_size", 0)
         _n_dl_frag = _temp.get("n_dl_frag", 0)
         _prefr = f"[{_n_dl_frag:{self.format_frags}}/{self.n_total_fragments:{self.format_frags}}]"
