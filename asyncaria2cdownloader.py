@@ -124,7 +124,7 @@ class CheckSpeed:
                     await asyncio.sleep(0)
 
                 else:
-                    self._speed[:self._min_check - self._index // 2 + 1] = ()
+                    # self._speed[:self._min_check - self._index // 2 + 1] = ()
                     await asyncio.sleep(0)
 
         except asyncio.CancelledError as e:

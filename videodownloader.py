@@ -332,17 +332,15 @@ class VideoDownloader:
             logger.exception(f"{self.premsg}: " + f"{repr(e)}")
 
     async def pause(self):
-        if self.info_dl["status"] == (
-            "downloading" and not self.pause_event.is_set()
+        if (
+            self.info_dl["status"] == "downloading" and not self.pause_event.is_set()
                 and not self.reset_event.is_set()):
             self.pause_event.set()
             self.resume_event.clear()
             await asyncio.sleep(0)
 
     async def resume(self):
-        if self.info_dl["status"] == (
-            "downloading" and not self.resume_event.is_set()
-        ):
+        if self.info_dl["status"] == "downloading":
             self.resume_event.set()
             await asyncio.sleep(0)
 
