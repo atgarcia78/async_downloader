@@ -58,7 +58,7 @@ class VideoDownloader:
         self.background_tasks = set()
         self.args = args
 
-        self._index = None  # for printing
+        self._index = None
 
         self.info_dict = video_dict
 
@@ -218,7 +218,7 @@ class VideoDownloader:
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
                     dl = AsyncHLSDownloader(
-                        self.args, self.info_dl["ytdl"], info, self._infodl)  # self.args.enproxy,
+                        self.args, self.info_dl["ytdl"], info, self._infodl)
                     _types.append("HLS")
                     logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
 
@@ -630,14 +630,13 @@ class VideoDownloader:
                     "ffmpeg -y -loglevel repeat+info -i file:",
                     f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:",
                     f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 ",
-                    "-map 1:a:0 -bsf:a:0 aac_adtstoasc ",
-                    f'-movflags +faststart file:"{temp_filename}"'])
+                    f"-map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:\"{temp_filename}\""])
 
                 proc = await arunproc(cmd)
 
                 logger.debug(
                     f"{self.premsg}:{cmd}"
-                    + f": ffmpeg rc[{proc.returncode}]\n{proc.stdout}")
+                    + f": proc rc[{proc.returncode}]\n{proc.stdout}")
 
                 rc = proc.returncode
 
@@ -661,7 +660,6 @@ class VideoDownloader:
             rc = -1
             if self.info_dl["downloaded_subtitles"]:
                 try:
-
                     embed_filename = prepend_extension(temp_filename, "embed")
 
                     def _make_embed_gpac_cmd():
