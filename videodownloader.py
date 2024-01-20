@@ -668,7 +668,7 @@ class VideoDownloader:
                         _part_cmd = ' -add '.join([
                             f'{_file}:lang={_lang}:hdlr=sbtl'
                             for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
-                        return f"MP4Box -add {_part_cmd} -add {temp_filename} -new {embed_filename}"
+                        return f"MP4Box -add {_part_cmd} {temp_filename} -out {embed_filename}"
 
                     proc = await arunproc(cmd := _make_embed_gpac_cmd())
                     logger.debug(
@@ -697,7 +697,7 @@ class VideoDownloader:
                     if (_meta := self.info_dict.get('meta_comment')):
                         _metadata += f":comment={_meta}"
 
-                    cmd = f"MP4Box -tags {_metadata} -add {temp_filename} -new {meta_filename}"
+                    cmd = f"MP4Box -itags {_metadata} {temp_filename} -out {meta_filename}"
 
                     proc = await arunproc(cmd)
                     logger.debug(
