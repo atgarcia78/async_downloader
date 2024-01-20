@@ -126,9 +126,9 @@ CONF_INTERVAL_GUI = 0.2
 CONF_ARIA2C_EXTR_GROUP = ["doodstream"]
 CONF_AUTO_PASRES = ["doodstream"]
 CONF_PLAYLIST_INTERL_IES = [
-    "MyVidsterChannelPlaylist",
-    "MyVidsterSearchPlaylist",
-    "MyVidsterRSSPlaylist",
+    # "MyVidsterChannelPlaylist",
+    # "MyVidsterSearchPlaylist",
+    # "MyVidsterRSSPlaylist",
 ]
 
 CLIENT_CONFIG = {

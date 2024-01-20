@@ -44,6 +44,7 @@ from utils import (
     sanitize_filename,
     sync_to_async,
     traverse_obj,
+    try_get,
 )
 from videodownloader import VideoDownloader
 from workers import WorkersInit, WorkersRun
@@ -169,7 +170,7 @@ class AsyncDL:
                     with open(file, "r") as f:
                         return json.loads(js_to_json(f.read()))
                 except Exception as e:
-                    logger.error(f"{_pre} Error:{str(e)}")
+                    logger.error(f"{_pre} Error:{repr(e)}")
                     return {}
 
             _file_list_videos = []
@@ -333,8 +334,8 @@ class AsyncDL:
                         await self.ytdl.async_extract_info(_url, download=False))):
                     raise AsyncDLError(f"{_pre} no info")
             except Exception as e:
-                logger.warning(f"{_pre} {str(e)}")
-                _info = {"_type": "error", "url": _url, "error": str(e)}
+                logger.warning(f"{_pre} {repr(e)}")
+                _info = {"_type": "error", "url": _url, "error": repr(e)}
                 await self._prepare_entry_pl_for_dl(_info)
                 async with self.alock:
                     self._url_pl_entries += [_info]
@@ -415,9 +416,10 @@ class AsyncDL:
 
                             else:
                                 try:
-                                    is_pl, _ = self.ytdl.is_playlist(_ent["url"])
-                                    _error = _ent.get("error")
-                                    if not is_pl or _error:
+                                    if (
+                                        _error := (_ent.get("error") or not _ent.get("url")) or
+                                        not try_get(self.ytdl.is_playlist(_ent.get("url")), lambda x: x[0])
+                                    ):
                                         if not _ent.get("original_url"):
                                             _ent.update({"original_url": _url})
                                         if _error:
@@ -430,13 +432,13 @@ class AsyncDL:
                                             self.url_pl_list2.append(_ent["url"])
                                 except Exception as e:
                                     logger.error(
-                                        f"{_pre} {_ent['url']} no video entries - {str(e)}")
+                                        f"{_pre} {_ent['url']} no video entries - {repr(e)}")
 
                 except Exception as e:
-                    logger.error(f"{_pre} {str(e)}")
+                    logger.exception(f"{_pre} {repr(e)}")
 
         except Exception as e:
-            logger.error(f"{_pre} outer exception {str(e)}")
+            logger.error(f"{_pre} outer exception {repr(e)}")
         finally:
             logger.debug(f"{_pre} bye worker")
 
@@ -493,12 +495,12 @@ class AsyncDL:
                     except Exception as e:
                         logger.warning(
                             f"{_pre} [{str(file_aldl)}] -> " +
-                            f"[{str(vid_path)}] error when copying times {str(e)}")
+                            f"[{str(vid_path)}] error when copying times {repr(e)}")
 
             return vid_path_str
 
         except Exception as e:
-            logger.warning(f"{_pre} error {str(e)}")
+            logger.warning(f"{_pre} error {repr(e)}")
 
     async def async_check_if_aldl(self, info_dict, test=False):
         return await self.sync_to_async(self._check_if_aldl)(info_dict, test=test)
@@ -617,7 +619,7 @@ class AsyncDL:
 
         except Exception as e:
             logger.error(
-                f"{_pre} error {str(e)} with entry\n{entry}")
+                f"{_pre} error {repr(e)} with entry\n{entry}")
 
     async def get_dl(self, url_key):
 
@@ -710,7 +712,7 @@ class AsyncDL:
                     logger.debug(f"{_pre} info extracted\n{_for_print(info)}")
 
                 except Exception as e:
-                    _error = self._handle_error(url_key, str(e))
+                    _error = self._handle_error(url_key, repr(e))
                     logger.error(f"{_pre} init nok - {_error}")
                     return
 
@@ -727,10 +729,10 @@ class AsyncDL:
                 logger.warning(f"{_pre} playlist en worker_init")
 
         except Exception as e:
-            self.list_initnok.append((vid, f"Error:{str(e)}"))
-            logger.debug(f"{_pre} init nok - Error:{str(e)}")
-            self.list_urls_to_check.append((url_key, str(e)))
-            self.info_videos[url_key]["error"].append(f"DL constructor error:{str(e)}")
+            self.list_initnok.append((vid, f"Error:{repr(e)}"))
+            logger.debug(f"{_pre} init nok - Error:{repr(e)}")
+            self.list_urls_to_check.append((url_key, repr(e)))
+            self.info_videos[url_key]["error"].append(f"DL constructor error:{repr(e)}")
             self.info_videos[url_key]["status"] = "initnok"
         finally:
             async with self.alock:
@@ -767,7 +769,7 @@ class AsyncDL:
                 self.info_videos[url_key]["status"] = "nok"
 
         except Exception as e:
-            logger.error(f"[run_callback][{url_key}]: error {str(e)}")
+            logger.error(f"[run_callback][{url_key}]: error {repr(e)}")
 
     async def async_ex(self):
         signals = (signal.SIGTERM, signal.SIGINT)
@@ -809,10 +811,10 @@ class AsyncDL:
                         if e := _task.exception():
                             logger.error(
                                 f"[run_callback] [{dl.info_dict['title']}]: " +
-                                f"Error with video manipulation - {str(e)}")
+                                f"Error with video manipulation - {repr(e)}")
 
                             self.info_videos[url_key]["error"].append(
-                                f"\n error with video manipulation {str(e)}")
+                                f"\n error with video manipulation {repr(e)}")
 
                         if dl.info_dl["status"] == "done":
                             self.info_videos[url_key].update({"status": "done"})
@@ -863,7 +865,7 @@ class AsyncDL:
                 await asyncio.wait(_pending_tasks)
 
         except Exception as e:
-            logger.error(f"[shutdown] {str(e)}")
+            logger.error(f"[shutdown] {repr(e)}")
         finally:
             self.get_results_info()
 
@@ -1027,7 +1029,7 @@ class AsyncDL:
                         logger.info("Videos to DL: []")
 
                 except Exception as e:
-                    logger.error(f"[print_videos] {str(e)}")
+                    logger.error(f"[print_videos] {repr(e)}")
 
                 return {
                     "videos": {"urls": list_videos, "str": list_videos_str},
@@ -1039,7 +1041,7 @@ class AsyncDL:
                     },
                 }
             except Exception as e:
-                logger.error(str(e))
+                logger.error(repr(e))
                 return {}
 
         _videos_url_notsupported = self.list_unsup_urls
@@ -1174,7 +1176,7 @@ class AsyncDL:
             logger.info("****************************************************")
             logger.info("****************************************************")
         except Exception as e:
-            logger.error(f"[get_results] {str(e)}")
+            logger.error(f"[get_results] {repr(e)}")
 
         logger.debug(f"[info_videos]\n{_for_print_videos(self.info_videos)}")
 
