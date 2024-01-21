@@ -171,13 +171,11 @@ class AsyncARIA2CDownloader:
     _HOSTS_DL = {}
     aria2_API: aria2p.API
 
-    def __init__(self, port, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL):
+    def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL):
         self.background_tasks = set()
         self.info_dict = video_dict
         self._vid_dl = info_dl
-        self._vid_dl_events = [
-            self._vid_dl.reset_event,
-            self._vid_dl.stop_event]
+        self._vid_dl_events = [self._vid_dl.reset_event, self._vid_dl.stop_event]
         self.args = args
         self._pos = None
 
@@ -186,7 +184,7 @@ class AsyncARIA2CDownloader:
         with AsyncARIA2CDownloader._LOCK:
             if not hasattr(AsyncARIA2CDownloader, 'aria2_API'):
                 AsyncARIA2CDownloader.aria2_API = aria2p.API(
-                    aria2p.Client(port=port, timeout=2))
+                    aria2p.Client(port=self.args.rpcport, timeout=2))
 
         video_url = unquote(self.info_dict["url"])
         self.uris = [video_url]
@@ -202,8 +200,7 @@ class AsyncARIA2CDownloader:
         self.download_path = self.info_dict["download_path"]
         self.download_path.mkdir(parents=True, exist_ok=True)
 
-        _filename = self.info_dict.get(
-            "_filename", self.info_dict.get("filename"))
+        _filename = Path(self.info_dict.get("filename"))
         self.filename = Path(
             self.download_path,
             f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')

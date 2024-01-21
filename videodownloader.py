@@ -169,9 +169,7 @@ class VideoDownloader:
 
     def _get_dl(self, info_dict: dict):
 
-        _drm = try_get(
-            info_dict.get('_has_drm') or info_dict.get('has_drm'),
-            lambda x: False if x is None else x)
+        _drm = bool(info_dict.get('_has_drm')) or bool(info_dict.get('has_drm'))
         _dash = get_protocol(info_dict) == "dash"
 
         if _drm or _dash or info_dict.get("extractor_key") == "Youtube":
@@ -192,7 +190,7 @@ class VideoDownloader:
                 f.update({
                     "id": info_dict["id"],
                     "title": info_dict["title"],
-                    "_filename": info_dict["filename"],
+                    "filename": info_dict["filename"],
                     "download_path": info_dict["download_path"],
                     "original_url": info_dict.get("original_url"),
                     "webpage_url": info_dict.get("webpage_url"),
@@ -206,8 +204,7 @@ class VideoDownloader:
                 type_protocol = get_protocol(info)
                 if type_protocol in ("http", "https"):
                     if self.args.aria2c:
-                        dl = AsyncARIA2CDownloader(
-                            self.info_dl["rpcport"], self.args, self.info_dl["ytdl"], info, self._infodl)
+                        dl = AsyncARIA2CDownloader(self.args, self.info_dl["ytdl"], info, self._infodl)
                         _types.append("ARIA2")
                         logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C")
 
@@ -217,8 +214,7 @@ class VideoDownloader:
                         logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HTTP")
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
-                    dl = AsyncHLSDownloader(
-                        self.args, self.info_dl["ytdl"], info, self._infodl)
+                    dl = AsyncHLSDownloader(self.args, self.info_dl["ytdl"], info, self._infodl)
                     _types.append("HLS")
                     logger.debug(f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
 
@@ -365,7 +361,7 @@ class VideoDownloader:
             + f"[stop_dl] {self.info_dl['ytdl'].params['stop_dl']}")
 
         try:
-            if self.info_dl["status"] != "stop":
+            if self.info_dl["status"] == "init":
                 self.info_dl["status"] = "downloading"
                 logger.debug(
                     f"{self.premsg}[run_dl] status" +
@@ -519,9 +515,6 @@ class VideoDownloader:
             return rc
 
         self.info_dl["status"] = "manipulating"
-        for dl in self.info_dl["downloaders"]:
-            if dl.status == "init_manipulating":
-                dl.status = "manipulating"
 
         blocking_tasks = {}
 
@@ -531,8 +524,7 @@ class VideoDownloader:
                     dl.ensamble_file(),
                     name=f'ensamble_file_{dl.premsg}'): f'ensamble_file_{dl.premsg}'
                 for dl in self.info_dl["downloaders"]
-                if all(_ not in str(type(dl)).lower() for _ in ("aria2", "native"))
-                and dl.status == "manipulating"}
+                if dl.status == "init_manipulating"}
             if self.args.subt and self.info_dict.get("requested_subtitles"):
                 blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
 

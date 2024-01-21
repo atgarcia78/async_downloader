@@ -163,6 +163,17 @@ class AsyncDLSTOP(Exception):
     pass
 
 
+def try_call(*funcs, expected_type=None, args=[], kwargs={}):
+    for f in funcs:
+        try:
+            val = f(*args, **kwargs)
+        except (OSError, AttributeError, KeyError, TypeError, IndexError, ValueError, ZeroDivisionError):
+            pass
+        else:
+            if expected_type is None or isinstance(val, expected_type):
+                return val
+
+
 async def get_list_interl(entries, asyncdl, _pre):
 
     logger = logging.getLogger('interl')
@@ -1108,7 +1119,6 @@ if yt_dlp:
         sanitize_filename,
         smuggle_url,
         traverse_obj,
-        try_call,
         try_get,
         unsmuggle_url,
         update_url,
@@ -1142,7 +1152,6 @@ if yt_dlp:
     assert my_dec_on_exception
     assert ec
     assert By
-    assert try_call
 
     def get_values_regex(str_reg_list, str_content, *_groups, not_found=None):
         for str_reg in str_reg_list:
@@ -3671,24 +3680,22 @@ if PySimpleGUI:
                 await asyncio.sleep(0)
                 while True:
                     try:
-                        window, event, values = sg.read_all_windows(timeout=100)
-
-                        if not window or not event or event == sg.TIMEOUT_KEY:
-                            await asyncio.sleep(0)
-                            continue
-                        _res = []
-                        if window == self.window_console:
-                            _res.append(await self.gui_console(event, values))
-                        elif window == self.window_root:
-                            _res.append(await self.gui_root(event, values))
-                        if "break" in _res:
-                            break
-                        await asyncio.sleep(0)
+                        window, event, values = sg.read_all_windows(timeout=50)
+                        if event and event != sg.TIMEOUT_KEY and window:
+                            _res = []
+                            if window == self.window_console:
+                                _res.append(await self.gui_console(event, values))
+                            elif window == self.window_root:
+                                _res.append(await self.gui_root(event, values))
+                            if "break" in _res:
+                                break
                     except asyncio.CancelledError as e:
                         self.logger.debug(f"[gui] inner exception {repr(e)}")
                         raise
                     except Exception as e:
                         self.logger.exception(f"[gui] inner exception {repr(e)}")
+                    finally:
+                        asyncio.sleep(0)
 
             except Exception as e:
                 self.logger.warning(f"[gui] outer exception {repr(e)}")

@@ -97,21 +97,13 @@ class AsyncHTTPDownloader:
         )
 
         self.base_download_path = self.info_dict.get("download_path")
-        if _filename := self.info_dict.get("_filename"):
-            self.download_path = Path(self.base_download_path, self.info_dict["format_id"])
-            self.download_path.mkdir(parents=True, exist_ok=True)
-            self.filename = Path(
-                self.base_download_path,
-                _filename.stem + "." + self.info_dict["format_id"] + "." + self.info_dict["ext"],
-            )
-        else:
-            _filename = self.info_dict.get("filename")
-            self.download_path = Path(self.base_download_path, self.info_dict["format_id"])
-            self.download_path.mkdir(parents=True, exist_ok=True)
-            self.filename = Path(
-                self.base_download_path,
-                _filename.stem + "." + self.info_dict["format_id"] + "." + self.info_dict["ext"],
-            )
+        _filename = Path(self.info_dict.get("filename"))
+        self.download_path = Path(self.base_download_path, self.info_dict["format_id"])
+        self.download_path.mkdir(parents=True, exist_ok=True)
+        self.filename = Path(
+            self.base_download_path,
+            _filename.stem + "." + self.info_dict["format_id"] + "." + self.info_dict["ext"],
+        )
 
         # self.filesize = none_to_zero(self.info_dict.get('filesize', 0))
         self.down_size = 0
@@ -723,6 +715,8 @@ class AsyncHTTPDownloader:
 
     async def ensamble_file(self):
         logger.debug(f"{self.premsg}[ensamble_file] start ensambling {self.filename}")
+
+        self.status = "manipulating"
 
         try:
             async with aiofiles.open(self.filename, mode="wb") as dest:

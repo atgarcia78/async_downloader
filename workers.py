@@ -124,7 +124,7 @@ class WorkersRun(Workers):
         _pre = f"[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]:[_task]"
 
         try:
-            if dl.info_dl["status"] not in ("init_manipulating", "done"):
+            if dl.info_dl["status"] == 'init':
                 self.logger.debug(f"{_pre} DL init OK, ready to DL")
                 if dl.info_dl.get("auto_pasres"):
                     self.asyncdl.list_pasres.add(dl.index)
