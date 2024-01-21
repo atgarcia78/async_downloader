@@ -188,7 +188,6 @@ class AsyncARIA2CDownloader:
 
         video_url = unquote(self.info_dict["url"])
         self.uris = [video_url]
-
         self._extractor = try_get(
             self.info_dict.get("extractor_key"), lambda x: x.lower())
         self._host = get_host(video_url, shorten=self._extractor)
