@@ -3695,7 +3695,7 @@ if PySimpleGUI:
                     except Exception as e:
                         self.logger.exception(f"[gui] inner exception {repr(e)}")
                     finally:
-                        asyncio.sleep(0)
+                        await asyncio.sleep(0)
 
             except Exception as e:
                 self.logger.warning(f"[gui] outer exception {repr(e)}")
