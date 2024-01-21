@@ -68,7 +68,7 @@ class myDRM:
             session_id = cls._CDM.open()
             challenge = cls._CDM.get_license_challenge(session_id, PSSH(pssh))
             _validate_lic = func_validate or cls.validate_drm_lic
-            cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge))
+            cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
             if (keys := cls._CDM.get_keys(session_id)):
                 for key in keys:
                     if key.type == 'CONTENT':
@@ -91,4 +91,6 @@ class myDRM:
     @classmethod
     def validate_drm_lic(cls, lic_url: str, challenge: bytes, **kwargs) -> Optional[bytes]:
         with Client(**CLIENT_CONFIG) as client:
-            return client.post(lic_url, content=challenge, **kwargs).content
+            resp = client.post(lic_url, content=challenge, **kwargs)
+            print(resp, resp.request, resp.request.headers)
+            return resp.content
