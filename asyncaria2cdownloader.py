@@ -118,13 +118,10 @@ class CheckSpeed:
                     logger.info(
                         f"{_premsg} reset: n_speed[{len(self._speed)}] " +
                         f"dl0[{_res_dl0}] ncon[{_res_ncon}]")
-
                     self._speed = []
                     await self._aria2dl._reset()
                     await asyncio.sleep(0)
-
                 else:
-                    # self._speed[:self._min_check - self._index // 2 + 1] = ()
                     await asyncio.sleep(0)
 
         except asyncio.CancelledError as e:
@@ -804,14 +801,12 @@ class AsyncARIA2CDownloader:
                         f"{self.uptpremsg()} [fetch_async] error: {_msg_error}")
                     self.status = "error"
                     self.error_message = _msg_error
-
                 finally:
                     if all([self._mode != "noproxy", self._index_proxy != -1]):
                         await _clean_index()
                     await asyncio.sleep(0)
         except Exception as e:
             logger.error(f"{self.premsg}[fetch_async] {str(e)}")
-
         finally:
             logger.debug(f"{self.premsg}[fetch_async] exiting")
 

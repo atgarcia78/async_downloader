@@ -145,6 +145,25 @@ CLIENT_CONFIG = {
 }
 
 
+class MyRetryManager:
+    def __init__(self, retries, limiter=contextlib.nullcontext()):
+        self.limiter = limiter
+        self.retries = retries
+        self.error = None
+        self.attempt = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self.error and self.attempt < self.retries:
+            self.attempt += 1
+            async with self.limiter:
+                return self
+        else:
+            raise StopAsyncIteration
+
+
 class AsyncDLErrorFatal(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
