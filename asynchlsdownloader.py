@@ -482,11 +482,7 @@ class AsyncHLSDownloader:
         return ctx.isok
 
     async def _async_check_is_dl(self, ctx, **kwargs) -> bool:
-        if (_res := await self.sync_to_async(self._check_is_dl)(ctx, **kwargs)):
-            async with self._asynclock:
-                self.down_size += ctx.size
-                self.n_dl_fragments += 1
-        return _res
+        return await self.sync_to_async(self._check_is_dl)(ctx, **kwargs)
 
     def _create_info_frag(self, i, frag, hsize):
         _file_path = Path(f"{str(self.fragments_base_path)}.Frag{i + 1}")
@@ -960,36 +956,41 @@ class AsyncHLSDownloader:
     async def upt_status(self):
 
         _timer = ProgressTimer()
-        _inc_bytes = 0
+
+        self._inc_bytes = 0
+
+        async def _upt():
+            while True:
+                try:
+                    self._inc_bytes += self.comm.get_nowait()
+                except asyncio.QueueEmpty:
+                    await asyncio.sleep(0)
+                    break
+
+            if not self.check_any_event_is_set():
+                async with self._asynclock:
+                    self.down_size += self._inc_bytes
+                    self._vid_dl.total_sizes["down_size"] += self._inc_bytes
+                self._inc_bytes = 0
+                _speed_meter = self.speedometer(self.down_size)
+                _est_time = None
+                _est_time_smooth = None
+                if _speed_meter and self.filesize:
+                    _est_time = (self.filesize - self.down_size) / _speed_meter
+                    _est_time_smooth = self.smooth_eta(_est_time)
+                self.upt.update({
+                    "n_dl_fragments": self.n_dl_fragments,
+                    "speed_meter": _speed_meter,
+                    "down_size": self.down_size,
+                    "est_time": _est_time,
+                    "est_time_smooth": _est_time_smooth})
+
         while not self._vid_dl.end_tasks.is_set():
             if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
-                while True:
-                    try:
-                        _inc_bytes += self.comm.get_nowait()
-                    except asyncio.QueueEmpty:
-                        await asyncio.sleep(0)
-                        break
-
-                if not self.check_any_event_is_set():
-                    async with self._asynclock:
-                        self.down_size += _inc_bytes
-                        self._vid_dl.total_sizes["down_size"] += _inc_bytes
-
-                    _inc_bytes = 0
-                    _speed_meter = self.speedometer(self.down_size)
-                    _est_time = None
-                    _est_time_smooth = None
-                    if _speed_meter and self.filesize:
-                        _est_time = (self.filesize - self.down_size) / _speed_meter
-                        _est_time_smooth = self.smooth_eta(_est_time)
-                    self.upt.update({
-                        "n_dl_fragments": self.n_dl_fragments,
-                        "speed_meter": _speed_meter,
-                        "down_size": self.down_size,
-                        "est_time": _est_time,
-                        "est_time_smooth": _est_time_smooth})
-
+                await _upt()
             await asyncio.sleep(0)
+
+        await _upt()
 
     async def event_handle(self, msg: str) -> dict:
         _res = {}
@@ -1107,7 +1108,12 @@ class AsyncHLSDownloader:
             elif ctx.resp.status_code >= 400:
                 raise AsyncHLSDLError(f"{_premsg} resp code:{str(ctx.resp)}")
 
-            return await self._async_check_is_dl(ctx)
+            if _res := await self._async_check_is_dl(ctx):
+                async with self._asynclock:
+                    self.down_size += ctx.size
+                    self.n_dl_fragments += 1
+
+            return _res
 
         async def _check_frag(ctx: DownloadFragContext):
             _nsize = -1
@@ -1148,42 +1154,42 @@ class AsyncHLSDownloader:
 
         async for retry in MyRetryManager(self._MAX_RETRIES, self._limit):
 
-            ctx = DownloadFragContext(self.info_frag[index - 1])
+            _ctx = DownloadFragContext(self.info_frag[index - 1])
 
             try:
                 if (_ev := self.check_any_event_is_set(incpause=False)):
                     raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
 
-                async with client.stream("GET", ctx.url, headers=ctx.headers_range) as resp:
+                async with client.stream("GET", _ctx.url, headers=_ctx.headers_range) as resp:
 
                     logger.debug(f"{_premsg}: {resp}")
-                    if await _initial_checkings_ok(ctx, resp):
+                    if await _initial_checkings_ok(_ctx, resp):
                         return
                     else:
                         async for chunk in resp.aiter_bytes(chunk_size=self._CHUNK_SIZE):
-                            if (_ev := await _handle_iter(ctx, chunk)):
+                            if (_ev := await _handle_iter(_ctx, chunk)):
                                 raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
 
-                        if ctx.data:
-                            async with aiofiles.open(ctx.file, "wb") as fileobj:
-                                await fileobj.write(ctx.data)
-                            ctx.data = b''
+                        if _ctx.data:
+                            async with aiofiles.open(_ctx.file, "wb") as fileobj:
+                                await fileobj.write(_ctx.data)
+                            _ctx.data = b''
 
-                        await _check_frag(ctx)
+                        return await _check_frag(_ctx)
 
             except (
                 asyncio.CancelledError, RuntimeError, StatusError503,
                 AsyncHLSDLErrorFatal, httpx.ReadTimeout
             ) as e:
                 logger.debug(f"{_premsg}: Error: {repr(e)}")
-                await _clean_frag(ctx, e)
+                await _clean_frag(_ctx, e)
                 raise
             except Exception as e:
                 logger.error(f"{_premsg}: Error: {repr(e)}")
-                await _clean_frag(ctx, e)
+                await _clean_frag(_ctx, e)
                 if retry.attempt == retry.retries:
-                    ctx.info_frag["error"].append("MaxLimitRetries")
-                    ctx.info_frag["skipped"] = True
+                    _ctx.info_frag["error"].append("MaxLimitRetries")
+                    _ctx.info_frag["skipped"] = True
                     logger.warning(f"{_premsg}: frag download skipped mmax retries")
 
     async def fetch(self, nco: int):

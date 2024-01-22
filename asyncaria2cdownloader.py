@@ -664,7 +664,7 @@ class AsyncARIA2CDownloader:
 
     async def error_handle(self, error):
         tout = None
-        self.async_remove([self.dl_cont])
+        await self.async_remove([self.dl_cont])
         if error == "471":
             tout = 30
         elif error == "403":

@@ -4478,7 +4478,6 @@ if FileLock and xattr:
                                 if file.is_file()
                                 and not file.stem.startswith(".")
                                 and (file.suffix.lower() in (".mp4", ".mkv", ".zip"))
-                                and len(file.suffixes) == 1
                             ]
 
                             for file in files:
