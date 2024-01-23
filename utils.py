@@ -174,12 +174,7 @@ class AsyncDLErrorFatal(Exception):
 class AsyncDLError(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
-
         self.exc_info = exc_info
-
-
-class AsyncDLSTOP(Exception):
-    pass
 
 
 def try_call(*funcs, expected_type=None, args=[], kwargs={}):
@@ -2141,21 +2136,11 @@ class ActionNoYes(argparse.Action):
 
 
 def init_argparser():
-    parser = argparse.ArgumentParser(
-        description="Async downloader videos / playlist videos HLS / HTTP")
+    parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
-    parser.add_argument(
-        "--winit",
-        help="Number of init workers, default is same number for DL workers",
-        default="10",
-        type=int,
-    )
-    parser.add_argument(
-        "-p", "--parts", help="Number of workers for each DL", default="16", type=int)
-    parser.add_argument(
-        "--format", help="Format preferred of the video in youtube-dl format",
-        default="bv*+ba/b", type=str
-    )
+    parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="10", type=int)
+    parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
+    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
     parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
@@ -2168,33 +2153,19 @@ def init_argparser():
     parser.add_argument("--nodl", help="not download", action="store_true", default=False)
     parser.add_argument("--headers", default="", type=str)
     parser.add_argument("-u", action="append", dest="collection", default=[])
-    parser.add_argument(
-        "--dlcaching",
-        help="whether to force to check external storage or not",
-        action=ActionNoYes,
-        default=False,
-    )
+    parser.add_argument("--dlcaching", help="whether to force to check external storage or not", action=ActionNoYes, default=False)
     parser.add_argument("--path", default=None, type=str)
     parser.add_argument("--caplinks", action="store_true", default=False)
     parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
     parser.add_argument("--vv", help="verbose plus", action=ActionNoYes, default=False)
     parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
-    parser.add_argument(
-        "--aria2c",
-        action=ActionNoYes,
-        default="6800",
-        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
-    )
+    parser.add_argument("--aria2c", action=ActionNoYes, default="6800", help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable")
     parser.add_argument("--subt", action=ActionNoYes, default=True)
     parser.add_argument("--xattr", action=ActionNoYes, default=True)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--check-speed", action=ActionNoYes, default=True)
-    parser.add_argument(
-        "--deep-aldl",
-        help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'",
-        action=ActionNoYes,
-        default=False)
-    parser.add_argument("--http-downloader", choices=["native", "aria2c", "saldl"], default="aria2c")
+    parser.add_argument("--deep-aldl", help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'", action=ActionNoYes, default=False)
+    parser.add_argument("--downloader-native", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=True)
     parser.add_argument("--no-embed", action="store_true", default=False)
@@ -4757,7 +4728,7 @@ args = argparse.Namespace(
     nosymlinks=False,
     check_speed=True,
     deep_aldl=False,
-    http_downloader="aria2c",
+    downloader_native=False,
     use_path_pl=False,
     use_cookies=True,
     no_embed=False,

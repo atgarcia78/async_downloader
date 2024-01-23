@@ -128,7 +128,7 @@ class AsyncNativeDownloader:
 
             if (_filesize := (
                     self.info_dict.get('filesize') or self.info_dict.get('filesize_approx') or
-                    self.info_dict.get('duration', 0) * self.info_dict.get('vbr', 0) * 1000 / 8)):
+                    (self.info_dict.get('duration') or 0) * (self.info_dict.get('tbr') or 0) * 1000 / 8)):
                 self.filesize = _filesize
 
         except Exception as e:

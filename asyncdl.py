@@ -20,13 +20,13 @@ from utils import (
     MAXLEN_TITLE,
     PATH_LOGS,
     AsyncDLError,
-    AsyncDLSTOP,
     Coroutine,
     FrontEndGUI,
     LocalVideos,
     MySyncAsyncEvent,
     NWSetUp,
     Optional,
+    StatusStop,
     Union,
     _for_print,
     _for_print_videos,
@@ -228,7 +228,7 @@ class AsyncDL:
 
             if self.args.collection:
                 if self.STOP.is_set():
-                    raise AsyncDLSTOP()
+                    raise StatusStop()
                 _url_list_cli = list(
                     dict.fromkeys(
                         list(map(lambda x: re.sub(r"#\d+$", "", x), self.args.collection))))
@@ -247,7 +247,7 @@ class AsyncDL:
                 for _source, _ulist in _url_list.items():
                     for _elurl in _ulist:
                         if self.STOP.is_set():
-                            raise AsyncDLSTOP()
+                            raise StatusStop()
 
                         is_pl, ie_key = self.ytdl.is_playlist(_elurl)
                         if not is_pl:
@@ -276,7 +276,7 @@ class AsyncDL:
                     self.url_pl_list2 = []
 
                     # if self.STOP.is_set():
-                    #     raise AsyncDLSTOP()
+                    #     raise StatusStop()
 
                     self.url_pl_queue = asyncio.Queue()
 
@@ -297,7 +297,7 @@ class AsyncDL:
                         f"{_pre}[url_playlist_list] from initial playlists: {len(self.url_pl_list2)}")
 
                     if self.STOP.is_set():
-                        raise AsyncDLSTOP()
+                        raise StatusStop()
 
                     if self.url_pl_list2:
                         self.url_pl_queue = asyncio.Queue()
@@ -347,7 +347,7 @@ class AsyncDL:
                             if _url == "KILL":
                                 return
                             if self.STOP.is_set():
-                                raise AsyncDLSTOP()
+                                raise StatusStop()
                             async with self.alock:
                                 self._count_pl += 1
                             break
@@ -372,7 +372,7 @@ class AsyncDL:
                             _entries_ok = []
                             for _ent in _info["entries"]:
                                 if self.STOP.is_set():
-                                    raise AsyncDLSTOP()
+                                    raise StatusStop()
                                 if _ent.get("error"):
                                     _ent["_type"] = "error"
                                     if not _ent.get("original_url"):
@@ -391,7 +391,7 @@ class AsyncDL:
 
                         for _ent in _info["entries"]:
                             if self.STOP.is_set():
-                                raise AsyncDLSTOP()
+                                raise StatusStop()
                             if _ent.get("_type", "video") == "video":
                                 if not _ent.get("original_url"):
                                     _ent.update({"original_url": _url})
@@ -786,7 +786,7 @@ class AsyncDL:
                 _res = await async_wait_for_any(
                     [self.getlistvid_first, self.end_dl, self.STOP])
                 if self.STOP.is_set():
-                    raise AsyncDLSTOP()
+                    raise StatusStop()
                 logger.info(f'[async_ex] {_res}\n')
                 if "first" in _res.get("event"):
                     self.FEgui = FrontEndGUI(self)

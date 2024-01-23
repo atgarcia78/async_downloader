@@ -172,7 +172,7 @@ class VideoDownloader:
         _drm = bool(info_dict.get('_has_drm')) or bool(info_dict.get('has_drm'))
         _dash = get_protocol(info_dict) == "dash"
 
-        if _drm or _dash or info_dict.get("extractor_key") == "Youtube":
+        if self.args.downloader_native or _drm or _dash or info_dict.get("extractor_key") == "Youtube":
             try:
                 dl = AsyncNativeDownloader(
                     self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
