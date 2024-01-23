@@ -245,9 +245,6 @@ class AsyncDL:
 
             if _url_list:
                 for _source, _ulist in _url_list.items():
-                    if self.STOP.is_set():
-                        raise AsyncDLSTOP()
-
                     for _elurl in _ulist:
                         if self.STOP.is_set():
                             raise AsyncDLSTOP()
@@ -278,8 +275,8 @@ class AsyncDL:
                     self._count_pl = 0
                     self.url_pl_list2 = []
 
-                    if self.STOP.is_set():
-                        raise AsyncDLSTOP()
+                    # if self.STOP.is_set():
+                    #     raise AsyncDLSTOP()
 
                     self.url_pl_queue = asyncio.Queue()
 
@@ -344,18 +341,22 @@ class AsyncDL:
         try:
             while True:
                 try:
-                    _url = await self.url_pl_queue.get()
-                    if _url == "KILL":
-                        return
-                    if self.STOP.is_set():
-                        raise AsyncDLSTOP()
-                    async with self.alock:
-                        self._count_pl += 1
+                    while True:
+                        try:
+                            _url = await self.url_pl_queue.get_nowait()
+                            if _url == "KILL":
+                                return
+                            if self.STOP.is_set():
+                                raise AsyncDLSTOP()
+                            async with self.alock:
+                                self._count_pl += 1
+                            break
+                        except asyncio.QueueEmpty:
+                            await asyncio.sleep(0)
 
                     _pre = f"[get_list_videos][process_playlist][{_url}]"
                     _total_pl = len(self.url_pl_list) + len(self.url_pl_list2)
-                    logger.info(
-                        f"{_pre}[{self._count_pl}/{_total_pl}] processing")
+                    logger.info(f"{_pre}[{self._count_pl}/{_total_pl}] processing")
 
                     _info = await _get_info(_url)
 
@@ -370,6 +371,8 @@ class AsyncDL:
                             _temp_error = []
                             _entries_ok = []
                             for _ent in _info["entries"]:
+                                if self.STOP.is_set():
+                                    raise AsyncDLSTOP()
                                 if _ent.get("error"):
                                     _ent["_type"] = "error"
                                     if not _ent.get("original_url"):
@@ -389,7 +392,7 @@ class AsyncDL:
                         for _ent in _info["entries"]:
                             if self.STOP.is_set():
                                 raise AsyncDLSTOP()
-                            if _ent.get("_type", "video") == "video" and not _ent.get("error"):
+                            if _ent.get("_type", "video") == "video":
                                 if not _ent.get("original_url"):
                                     _ent.update({"original_url": _url})
                                 if (_ent.get(
@@ -452,14 +455,11 @@ class AsyncDL:
 
         try:
             vid_name = f"{_id}_{_title.upper()}"
-
             if vid_path_str := self.videos_cached.get(vid_name):
                 logger.info(f"{_pre} already DL")  # video en local
-
             elif _legacy_title and (vid_path_str := self.videos_cached.get((vid_name := f"{_id}_{_legacy_title.upper()}"))):
                 _pre += f'[{_legacy_title}]'
                 logger.info(f"{_pre} already DL with legacy title")  # video en local
-
             elif self.args.deep_aldl:
                 if not (vid_path_str := self.videos_cached.get(_id)):
                     return False
@@ -467,12 +467,12 @@ class AsyncDL:
                     logger.warning(f"{_pre} found with ID already DL")
             else:
                 return False
+
             if test:
                 return True
 
-            vid_path = Path(vid_path_str)
-
             if not self.args.nosymlinks:
+                vid_path = Path(vid_path_str)
                 if self.args.path:
                     _folderpath = Path(self.args.path)
                 else:
@@ -565,6 +565,7 @@ class AsyncDL:
         _errors_ytdl = [
             "not found", "404", "flagged", "403", "410",
             "suspended", "unavailable", "disabled"]
+
         _pre = "[prepare_entry_pl_for_dl]"
 
         try:
@@ -613,13 +614,10 @@ class AsyncDL:
                     await self._prepare_for_dl(_url)
                     self.list_videos.append(self.info_videos[_url]["video_info"])
             else:
-
-                logger.warning(
-                    f"{_pre} {_url}: already in info_videos:\n{self.info_videos[_url]}")
+                logger.warning(f"{_pre} {_url}: already in info_videos:\n{self.info_videos[_url]}")
 
         except Exception as e:
-            logger.error(
-                f"{_pre} error {repr(e)} with entry\n{entry}")
+            logger.error(f"{_pre} error {repr(e)} with entry\n{entry}")
 
     async def get_dl(self, url_key):
 
@@ -653,7 +651,6 @@ class AsyncDL:
             else:
                 _index = max(self.max_index_playlist, max(list(self.list_dl.keys()) or [0]))
                 dl.index = _index + 1
-
             self.list_dl.update({dl.index: dl})
             self.info_videos[url_key] |= {
                 "status": "initok",
@@ -706,16 +703,12 @@ class AsyncDL:
                         info["release_date"] = vid.get("release_date")
                     if (_orig_url := vid.get("original_url")):
                         info["original_url"] = _orig_url
-
                     self.info_videos[url_key]["video_info"] = info
-
                     logger.debug(f"{_pre} info extracted\n{_for_print(info)}")
-
                 except Exception as e:
                     _error = self._handle_error(url_key, repr(e))
                     logger.error(f"{_pre} init nok - {_error}")
                     return
-
             else:
                 info = vid
                 _check_prepare = True
@@ -724,7 +717,6 @@ class AsyncDL:
                 if (_check_prepare or await self._prepare_for_dl(url_key, put=False)):
                     await self.get_dl(url_key)
                     self.list_videos.append(self.info_videos[url_key]["video_info"])
-
             elif _type == "playlist":
                 logger.warning(f"{_pre} playlist en worker_init")
 
@@ -754,22 +746,21 @@ class AsyncDL:
                 logger.error(
                     f"[run_callback][{url_key}]: error when dl video, can't go" +
                     f"por manipulation - {dl.info_dl.get('error_message')}")
-
                 self.info_videos[url_key]["error"].append(
-                    f"error when dl video: {dl.info_dl.get('error_message')}"
-                )
+                    f"error when dl video: {dl.info_dl.get('error_message')}")
                 self.info_videos[url_key]["status"] = "nok"
 
             else:
                 logger.error(f"[run_callback][{url_key}]: STATUS NOT EXPECTED: {dl.info_dl['status']}")
-
                 self.info_videos[url_key]["error"].append(
-                    f"error when dl video: {dl.info_dl.get('error_message')}"
-                )
+                    f"error when dl video: {dl.info_dl.get('error_message')}")
                 self.info_videos[url_key]["status"] = "nok"
 
         except Exception as e:
             logger.error(f"[run_callback][{url_key}]: error {repr(e)}")
+            self.info_videos[url_key]["error"].append(
+                f"error in run callback: {repr(e)}")
+            self.info_videos[url_key]["status"] = "nok"
 
     async def async_ex(self):
         signals = (signal.SIGTERM, signal.SIGINT)
@@ -792,34 +783,31 @@ class AsyncDL:
             tasks_to_wait = [self.add_task(self.get_list_videos(), name="get_videos")]
 
             if not self.args.nodl:
-                _res = await async_wait_for_any([self.getlistvid_first, self.end_dl, self.STOP])
+                _res = await async_wait_for_any(
+                    [self.getlistvid_first, self.end_dl, self.STOP])
                 if self.STOP.is_set():
                     raise AsyncDLSTOP()
                 logger.info(f'[async_ex] {_res}\n')
                 if "first" in _res.get("event"):
                     self.FEgui = FrontEndGUI(self)
                     tasks_to_wait.append(
-                        self.add_task(self.end_dl.async_wait(), name="workers_run_end_dl"))
+                        self.add_task(
+                            self.end_dl.async_wait(), name="workers_run_end_dl"))
 
             if tasks_to_wait:
                 await asyncio.wait(tasks_to_wait)
-                if self.task_run_manip:
-                    done, _ = await asyncio.wait(self.task_run_manip)
-
-                    for _task in done:
-                        url_key, dl = list(self.task_run_manip[_task].values())
-                        if e := _task.exception():
-                            logger.error(
-                                f"[run_callback] [{dl.info_dict['title']}]: " +
-                                f"Error with video manipulation - {repr(e)}")
-
-                            self.info_videos[url_key]["error"].append(
-                                f"\n error with video manipulation {repr(e)}")
-
-                        if dl.info_dl["status"] == "done":
-                            self.info_videos[url_key].update({"status": "done"})
-                        else:
-                            self.info_videos[url_key].update({"status": "nok"})
+            if self.task_run_manip:
+                done, _ = await asyncio.wait(self.task_run_manip)
+                for _task in done:
+                    url_key, dl = list(self.task_run_manip[_task].values())
+                    if e := _task.exception():
+                        _msg_error = f"Error with video manipulation - {repr(e)}"
+                        logger.error(f"[run_callback] [{dl.info_dict['title']}]: {_msg_error}")
+                        self.info_videos[url_key]["error"].append(_msg_error)
+                    if dl.info_dl["status"] == "done":
+                        self.info_videos[url_key].update({"status": "done"})
+                    else:
+                        self.info_videos[url_key].update({"status": "nok"})
         except Exception as e:
             logger.error(f"[async_ex] {repr(e)}")
         finally:
@@ -837,18 +825,7 @@ class AsyncDL:
 
             if not self.STOP.is_set():
                 self.timers.t2.stop()
-                self.STOP.set()
-                await asyncio.sleep(0)
-                await self.ytdl.stop()
-                if not self.end_dl.is_set():
-                    self.WorkersRun.max_workers = 0
-                    self.WorkersRun.waiting.clear()
-                    if self.list_dl:
-                        for _, dl in self.list_dl.items():
-                            await dl.stop("exit")
-                            await asyncio.sleep(0)
-                        await asyncio.sleep(2)
-
+                await self.cancel_all_dl()
             try:
                 await self.close()
             except Exception as e:
@@ -879,7 +856,6 @@ class AsyncDL:
             if hasattr(self, "FEgui"):
                 logger.info(f"[shutdown] {self.FEgui.get_dl_media()}")
                 _task_to_wait.append(self.add_task(self.FEgui.close(), name="fegui_close"))
-
             try:
                 from asynchlsdownloader import AsyncHLSDownloader
                 if AsyncHLSDownloader._COUNTDOWNS:
@@ -903,6 +879,7 @@ class AsyncDL:
                         logger.error(f"[close] {repr(e)}")
 
             await asyncio.wait(_task_to_wait)
+
         except Exception as e:
             logger.exception(f"[close] error {repr(e)}. Lets kill processes")
             kill_processes(logger=logger, rpcport=self.args.rpcport)
