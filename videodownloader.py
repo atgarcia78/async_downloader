@@ -494,55 +494,9 @@ class VideoDownloader:
         arunproc = self.sync_to_async(self.run_proc)
         armtree = self.sync_to_async(
             partial(shutil.rmtree, ignore_errors=True))
-        _amove = self.sync_to_async(shutil.move)
         autime = self.sync_to_async(os.utime)
 
-        async def amove(orig, dst):
-            rc = -1
-            msg_error = ''
-            try:
-                rc = try_get(
-                    await _amove(orig, dst),
-                    lambda x: 0 if (x == dst) else -1)
-                if rc == -1:
-                    msg_error = 'result of move incorrect'
-            except Exception as e:
-                msg_error = {str(e)}
-            if rc == -1:
-                logger.error(
-                    f"{self.premsg}: error move " +
-                    f"{orig} to {dst} - {msg_error}")
-            return rc
-
-        self.info_dl["status"] = "manipulating"
-
-        blocking_tasks = {}
-
-        try:
-            blocking_tasks = {
-                self.add_task(
-                    dl.ensamble_file(),
-                    name=f'ensamble_file_{dl.premsg}'): f'ensamble_file_{dl.premsg}'
-                for dl in self.info_dl["downloaders"]
-                if dl.status == "init_manipulating"}
-            if self.args.subt and self.info_dict.get("requested_subtitles"):
-                blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
-
-            logger.debug(f"{self.premsg}[run_manip] blocking tasks\n{blocking_tasks}")
-
-            if blocking_tasks and (_excep := try_get(
-                await asyncio.wait(list(blocking_tasks.keys())),
-                lambda x: {
-                    d.exception(): blocking_tasks[d]
-                    for d in x[0] if d.exception()
-                } if x[0] else None)
-            ):
-                for error, label in _excep.items():
-                    logger.error(
-                        f"{self.premsg}[run_manip] task[{label}]: {repr(error)}")
-
-            logger.debug(f"{self.premsg}[run_manip] done blocking tasks")
-
+        async def check_files_exists():
             rc = True
             for dl in self.info_dl["downloaders"]:
                 _exists = all([
@@ -558,47 +512,149 @@ class VideoDownloader:
                 raise AsyncDLError(
                     f"{self.premsg}: error missing files from downloaders")
 
-            temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
+        async def amove(orig, dst):
             rc = -1
-            if self._types == "NATIVE_DRM":
-                _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
-                _drm_xml = self._get_drm_xml()
-                cmd = f"MP4Box -quiet -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {temp_filename}"
+            msg_error = ''
+            _amove = self.sync_to_async(shutil.move)
+            try:
+                rc = try_get(
+                    await _amove(orig, dst),
+                    lambda x: 0 if (x == dst) else -1)
+                if rc == -1:
+                    msg_error = 'result of move incorrect'
+            except Exception as e:
+                msg_error = {str(e)}
+            if rc == -1:
+                logger.error(
+                    f"{self.premsg}: error move " +
+                    f"{orig} to {dst} - {msg_error}")
+            return rc
 
-                logger.info(f"{self.premsg}: starting decryption files")
-                logger.debug(f"{self.premsg}: {cmd}")
+        async def embed_subt():
+            try:
+                embed_filename = prepend_extension(self.temp_filename, "embed")
 
-                proc = await arunproc(cmd)
-                logger.info(
-                    f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
+                def _make_embed_gpac_cmd():
+                    _part_cmd = ' -add '.join([
+                        f'{_file}:lang={_lang}:hdlr=sbtl'
+                        for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
+                    return f"MP4Box -add {_part_cmd} {self.temp_filename} -out {embed_filename}"
+
+                proc = await arunproc(cmd := _make_embed_gpac_cmd())
+                logger.debug(
+                    f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                     + f"{proc.stdout}\n[stderr]{proc.stderr}")
-
-                if (
-                    proc.returncode == 0 and
-                    (await aiofiles.os.path.exists(temp_filename))
-                ):
-                    logger.debug(f"{self.premsg}: DL video file OK")
-                    rc = 0
-                    '''
-                    _temp_files.append(_path_drm_xml)
-                    '''
-                    for _file in _crypt_files:
+                if (proc.returncode) == 0 and (await aiofiles.os.path.exists(embed_filename)):
+                    for _file in self.info_dl["downloaded_subtitles"].values():
                         async with async_suppress(OSError):
                             await aiofiles.os.remove(_file)
-                if rc != 0:
-                    logger.error(f"{self.premsg}: error decryption files")
-                    self.info_dl["status"] = "error"
-                    raise AsyncDLError(
-                        f"{self.premsg}: error error decryption files")
+
+                    if await amove(embed_filename, self.temp_filename) == -1:
+                        logger.warning(f"{self.premsg}: error embeding subtitles")
+                else:
+                    logger.warning(f"{self.premsg}: error embeding subtitles")
+
+            except Exception as e:
+                logger.exception(f"{self.premsg}: error embeding subtitles {repr(e)}")
+
+        async def embed_metadata():
+            try:
+                meta_filename = prepend_extension(self.temp_filename, "meta")
+                _metadata = (
+                    f"title={self.info_dict.get('title')}:" +
+                    f"online_info={self.info_dict.get('webpage_url')}")
+                if (_meta := self.info_dict.get('meta_comment')):
+                    _metadata += f":comment={_meta}"
+
+                cmd = f"MP4Box -itags {_metadata} {self.temp_filename} -out {meta_filename}"
+
+                proc = await arunproc(cmd)
+                logger.debug(
+                    f"{self.premsg} embed metadata\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
+                    + f"{proc.stdout}\n[stderr]{proc.stderr}")
+
+                if not (
+                    (proc.returncode) == 0 and (await aiofiles.os.path.exists(meta_filename)) and
+                    (await amove(meta_filename, self.temp_filename)) == 0
+                ):
+                    logger.warning(f"{self.premsg}: error embedding metadata")
+                    async with async_suppress(OSError):
+                        await aiofiles.os.remove(meta_filename)
+                if _meta:
+                    async with async_suppress(Exception, level=logging.WARNING, logger=logger, msg=f'{self.premsg}: error setxattr'):
+                        xattr.setxattr(str(self.temp_filename), "user.dublincore.description", _meta.encode())
+
+            except Exception as e:
+                logger.exception(
+                    f"{self.premsg}: error in xattr area {repr(e)}")
+
+        async def native_drm():
+            rc = -1
+            _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
+            _drm_xml = self._get_drm_xml()
+            cmd = f"MP4Box -quiet -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {self.temp_filename}"
+
+            logger.info(f"{self.premsg}: starting decryption files")
+            logger.debug(f"{self.premsg}: {cmd}")
+
+            proc = await arunproc(cmd)
+            logger.info(
+                f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
+                + f"{proc.stdout}\n[stderr]{proc.stderr}")
+
+            if (
+                proc.returncode == 0 and
+                (await aiofiles.os.path.exists(self.temp_filename))
+            ):
+                logger.debug(f"{self.premsg}: DL video file OK")
+                rc = 0
+                for _file in _crypt_files:
+                    async with async_suppress(OSError):
+                        await aiofiles.os.remove(_file)
+            if rc != 0:
+                logger.error(f"{self.premsg}: error decryption files")
+                self.info_dl["status"] = "error"
+                raise AsyncDLError(
+                    f"{self.premsg}: error error decryption files")
+
+        self.info_dl["status"] = "manipulating"
+
+        blocking_tasks = {}
+
+        try:
+            blocking_tasks = {
+                self.add_task(
+                    dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}'): f'ensamble_file_{dl.premsg}'
+                for dl in self.info_dl["downloaders"] if dl.status == "init_manipulating"}
+            if self.args.subt and self.info_dict.get("requested_subtitles"):
+                blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
+
+            logger.debug(f"{self.premsg}[run_manip] blocking tasks\n{blocking_tasks}")
+
+            if blocking_tasks and (_excep := try_get(
+                await asyncio.wait(list(blocking_tasks.keys())),
+                lambda x: {d.exception(): blocking_tasks[d] for d in x[0] if d.exception()})
+            ):
+                for error, label in _excep.items():
+                    logger.error(f"{self.premsg}[run_manip] task[{label}]: {repr(error)}")
+
+            logger.debug(f"{self.premsg}[run_manip] done blocking tasks")
+
+            await check_files_exists()
+
+            self.temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
+
+            if self._types == "NATIVE_DRM":
+                await native_drm()
 
             elif len(self.info_dl["downloaders"]) == 1:
-                # usamos ffmpeg para cambiar contenedor
+
                 # ts del DL de HLS de un sólo stream a mp4
                 if "ts" in self.info_dl["downloaders"][0].filename.suffix:
                     cmd = "".join([
                         "ffmpeg -y -probesize max -loglevel ",
                         f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"",
-                        f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:"{temp_filename}"'])
+                        f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:"{self.temp_filename}"'])
 
                     proc = await arunproc(cmd)
                     logger.debug(
@@ -608,9 +664,9 @@ class VideoDownloader:
                     rc = proc.returncode
 
                 else:
-                    rc = await amove(self.info_dl["downloaders"][0].filename, temp_filename)
+                    rc = await amove(self.info_dl["downloaders"][0].filename, self.temp_filename)
 
-                if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
+                if rc == 0 and (await aiofiles.os.path.exists(self.temp_filename)):
                     logger.debug(f"{self.premsg}: DL video file OK")
                 else:
                     self.info_dl["status"] = "error"
@@ -622,7 +678,7 @@ class VideoDownloader:
                     "ffmpeg -y -loglevel repeat+info -i file:",
                     f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:",
                     f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 ",
-                    f"-map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:\"{temp_filename}\""])
+                    f"-map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:\"{self.temp_filename}\""])
 
                 proc = await arunproc(cmd)
 
@@ -630,9 +686,7 @@ class VideoDownloader:
                     f"{self.premsg}:{cmd}"
                     + f": proc rc[{proc.returncode}]\n{proc.stdout}")
 
-                rc = proc.returncode
-
-                if rc == 0 and (await aiofiles.os.path.exists(temp_filename)):
+                if (proc.returncode) == 0 and (await aiofiles.os.path.exists(self.temp_filename)):
                     for dl in self.info_dl["downloaders"]:
                         for _file in variadic(dl.filename):
                             async with async_suppress(OSError):
@@ -649,67 +703,13 @@ class VideoDownloader:
                     raise AsyncDLError(
                         f"{self.premsg}: error merge, ffmpeg error: {rc}")
 
-            rc = -1
             if self.info_dl["downloaded_subtitles"]:
-                try:
-                    embed_filename = prepend_extension(temp_filename, "embed")
+                await embed_subt()
 
-                    def _make_embed_gpac_cmd():
-                        _part_cmd = ' -add '.join([
-                            f'{_file}:lang={_lang}:hdlr=sbtl'
-                            for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
-                        return f"MP4Box -add {_part_cmd} {temp_filename} -out {embed_filename}"
-
-                    proc = await arunproc(cmd := _make_embed_gpac_cmd())
-                    logger.debug(
-                        f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                        + f"{proc.stdout}\n[stderr]{proc.stderr}")
-                    if (rc := proc.returncode) == 0 and (await aiofiles.os.path.exists(embed_filename)):
-                        for _file in self.info_dl["downloaded_subtitles"].values():
-                            async with async_suppress(OSError):
-                                await aiofiles.os.remove(_file)
-
-                        if await amove(embed_filename, temp_filename) == -1:
-                            logger.warning(f"{self.premsg}: error embeding subtitles")
-                    else:
-                        logger.warning(f"{self.premsg}: error embeding subtitles")
-
-                except Exception as e:
-                    logger.exception(f"{self.premsg}: error embeding subtitles {repr(e)}")
-
-            rc = -1
             if self.args.xattr:
-                try:
-                    meta_filename = prepend_extension(temp_filename, "meta")
-                    _metadata = (
-                        f"title={self.info_dict.get('title')}:" +
-                        f"online_info={self.info_dict.get('webpage_url')}")
-                    if (_meta := self.info_dict.get('meta_comment')):
-                        _metadata += f":comment={_meta}"
+                await embed_metadata()
 
-                    cmd = f"MP4Box -itags {_metadata} {temp_filename} -out {meta_filename}"
-
-                    proc = await arunproc(cmd)
-                    logger.debug(
-                        f"{self.premsg} embed metadata\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                        + f"{proc.stdout}\n[stderr]{proc.stderr}")
-
-                    if not (
-                        (rc := proc.returncode) == 0 and (await aiofiles.os.path.exists(meta_filename)) and
-                        (await amove(meta_filename, temp_filename)) == 0
-                    ):
-                        logger.warning(f"{self.premsg}: error embedding metadata")
-                        async with async_suppress(OSError):
-                            await aiofiles.os.remove(meta_filename)
-                    if _meta:
-                        async with async_suppress(Exception, level=logging.WARNING, logger=logger, msg=f'{self.premsg}: error setxattr'):
-                            xattr.setxattr(str(temp_filename), "user.dublincore.description", _meta.encode())
-
-                except Exception as e:
-                    logger.exception(
-                        f"{self.premsg}: error in xattr area {repr(e)}")
-
-            if ((await amove(temp_filename, self.info_dl["filename"])) == 0
+            if ((await amove(self.temp_filename, self.info_dl["filename"])) == 0
                     and self.info_dl["filename"].exists()):
                 self.info_dl["status"] = "done"
                 if (mtime := self.info_dict.get("release_timestamp")):
@@ -721,7 +721,7 @@ class VideoDownloader:
             else:
                 self.info_dl["status"] = "error"
                 async with async_suppress(OSError):
-                    await aiofiles.os.remove(temp_filename)
+                    await aiofiles.os.remove(self.temp_filename)
                 raise AsyncDLError(
                     f"{self.premsg}[{str(self.info_dl['filename'])}] doesn't exist")
 
