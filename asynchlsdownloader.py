@@ -25,14 +25,13 @@ from Cryptodome.Cipher import AES
 from Cryptodome.Cipher._mode_cbc import CbcMode
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
-from utils import (
+from utils import (  # FrontEndGUI,
     CONF_HLS_RESET_403_TIME,
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
     Coroutine,
     CountDowns,
-    FrontEndGUI,
     InfoDL,
     List,
     MyRetryManager,
@@ -51,7 +50,6 @@ from utils import (
     async_suppress,
     async_waitfortasks,
     await_for_any,
-    change_status_nakedsword,
     empty_queue,
     get_format_id,
     get_host,
@@ -113,13 +111,10 @@ class InReset403:
 
     def add(self, member):
         self.inreset.add(member)
-        change_status_nakedsword("403")
 
     def remove(self, member):
         if member in self.inreset:
             self.inreset.remove(member)
-        if not self.inreset:
-            change_status_nakedsword("NORMAL")
 
 
 class AsyncHLSDLErrorFatal(Exception):
@@ -127,6 +122,9 @@ class AsyncHLSDLErrorFatal(Exception):
         super().__init__(msg)
 
         self.exc_info = exc_info
+
+    def __str__(self):
+        return f'{self.__class__.__name__}{self.args[0]}'
 
 
 class AsyncHLSDLError(Exception):
@@ -704,9 +702,7 @@ class AsyncHLSDownloader:
                 raise AsyncHLSDLErrorFatal("no info video")
             return _info_video
 
-        except StatusStop:
-            raise
-        except AsyncHLSDLErrorFatal:
+        except (StatusStop, AsyncHLSDLErrorFatal):
             raise
         except Exception as e:
             logger.error(f"{premsg} fails when extracting info {repr(e)}")
@@ -818,32 +814,30 @@ class AsyncHLSDownloader:
                 f"{_print_plns}{_print_proxy}"])
 
         logger.debug(_pre())
-        self._pasres_cont = False
 
         def _handle_wait_plns_403():
             AsyncHLSDownloader._INRESET_403.add(self.info_dict["id"])
             with AsyncHLSDownloader._CLASSLOCK:
-                self._pasres_cont = FrontEndGUI.pasres_break()
                 if not AsyncHLSDownloader._COUNTDOWNS:
                     AsyncHLSDownloader._COUNTDOWNS = CountDowns(
                         AsyncHLSDownloader, logger=logger)
-                    logger.debug(
-                        f"{self.premsg}:RESET[{self.n_reset}] new COUNTDOWN")
+
+            # wait blocks
             AsyncHLSDownloader._COUNTDOWNS.add(
-                n=CONF_HLS_RESET_403_TIME,
-                index=str(self.pos),
-                event=self._vid_dl.stop_event,
-                msg=self.premsg)
+                n=CONF_HLS_RESET_403_TIME, index=str(self.pos), event=self._vid_dl.stop_event, msg=self.premsg)
+
             self.check_stop()
-            logger.info(f"{_pre()} fin wait in reset cause 403")
+            logger.debug(f"{_pre()} fin wait in reset cause 403")
 
         def _handle_reset_for_plns():
+            if str(cause) == "403":
+                _handle_wait_plns_403()
             with (_sem := AsyncHLSDownloader._PLNS["ALL"]["sem"]):
                 logger.debug(f"{_pre()} in sem")
-                _first_all = _sem._initial_value == 1
+                _first_all = (_sem._initial_value == 1)
                 with (_sem2 := AsyncHLSDownloader._PLNS[self.fromplns]["sem"]):
                     logger.debug(f"{_pre()} in sem2")
-                    _first = _sem2._initial_value == 1
+                    _first = (_sem2._initial_value == 1)
                     if _first_all and str(cause) == "403":
                         NakedSwordBaseIE.API_REFRESH(msg="[resetdl]")
                         NakedSwordBaseIE.API_LOGOUT(msg="[resetdl]")
@@ -866,20 +860,21 @@ class AsyncHLSDownloader:
                             _sem.release(50)
                         time.sleep(1)
 
+        def _handle_reset_simple():
+            _webpage_url = self.info_dict["webpage_url"]
+            if self.special_extr:
+                _webpage_url = smuggle_url(
+                    _webpage_url, {"indexdl": self.pos})
+            self.get_reset_info(_webpage_url, plns=False)
+
         try:
             if self.fromplns:
-                if str(cause) == "403":
-                    _handle_wait_plns_403()
                 _handle_reset_for_plns()
             else:
-                _webpage_url = self.info_dict["webpage_url"]
-                if self.special_extr:
-                    _webpage_url = smuggle_url(
-                        _webpage_url, {"indexdl": self.pos})
-                self.get_reset_info(_webpage_url, plns=False)
-        except StatusStop as e:
+                _handle_reset_simple()
+        except StatusStop:
             logger.debug(f"{_pre()} stop_event")
-            raise e
+            raise
         except Exception as e:
             logger.exception(
                 f"{_pre()} stop_event:[{self._vid_dl.stop_event}] " +
@@ -888,9 +883,8 @@ class AsyncHLSDownloader:
         finally:
             if self.fromplns:
                 if str(cause) == "403":
-                    try_call(lambda: AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"]))
-                logger.debug(
-                    f"{_pre()} stop_event[{self._vid_dl.stop_event}] FINALLY")
+                    AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"])
+                logger.debug(f"{_pre()} stop_event[{self._vid_dl.stop_event}] FINALLY")
 
                 with AsyncHLSDownloader._CLASSLOCK:
                     _inreset = AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"]
@@ -918,8 +912,6 @@ class AsyncHLSDownloader:
                         AsyncHLSDownloader._PLNS["ALL"]["reset"].set()
                         AsyncHLSDownloader._PLNS["ALL"]["sem"] = BoundedSemaphore()
                         self.n_reset += 1
-                        if self._pasres_cont:
-                            FrontEndGUI.pasres_continue()
                         logger.debug(f"{_pre()}  exit reset")
                         return
 
@@ -927,8 +919,6 @@ class AsyncHLSDownloader:
                     if self._vid_dl.stop_event.is_set():
                         return
                     self.n_reset += 1
-                    if self._pasres_cont:
-                        FrontEndGUI.pasres_continue()
                     logger.debug(f"{_pre()} exit reset")
                     return
             else:
@@ -1045,13 +1035,13 @@ class AsyncHLSDownloader:
                     await AsyncHLSDownloader.reset_plns(cause="403", plns=self.fromplns)
                 else:
                     await self._reset(cause="403")
-                raise AsyncHLSDLErrorFatal(f"{_premsg} resp code:{str(ctx.resp)}")
+                raise AsyncHLSDLErrorFatal(f"{_premsg} resp code:{str(ctx.resp.status_code)}")
 
             elif ctx.resp.status_code == 503:
                 raise StatusError503(f"{_premsg}")
 
             elif ctx.resp.status_code >= 400:
-                raise AsyncHLSDLError(f"{_premsg} resp code:{str(ctx.resp)}")
+                raise AsyncHLSDLError(f"{_premsg} resp code:{str(ctx.resp.status_code)}")
 
             if _res := await self._async_check_is_dl(ctx):
                 async with self._asynclock:
@@ -1088,8 +1078,8 @@ class AsyncHLSDownloader:
         async def _handle_iter(ctx: DownloadFragContext, data: Optional[bytes]):
             if data:
                 ctx.data += await _decrypt(data, ctx.info_frag.get("cipher"))
-            ctx.num_bytes_downloaded = _update_counters(
-                ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded)
+                ctx.num_bytes_downloaded = _update_counters(
+                    ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded)
             if ctx.timer.has_elapsed(CONF_INTERVAL_GUI / 2):
                 if (_check := await self.event_handle(_premsg)):
                     if "pause" in _check:
@@ -1145,14 +1135,13 @@ class AsyncHLSDownloader:
                 try:
                     qindex = self.frags_queue.get_nowait()
                     if qindex == kill_token:
-                        logger.debug(f"{premsg} killtoken {qindex}")
                         return
                     else:
                         await self._download_frag(qindex, premsg, client)
                 except (asyncio.QueueEmpty, httpx.ReadTimeout) as e:
                     logger.debug(f"{premsg} inner exception {repr(e)}")
         except Exception as e:
-            logger.error(f"{premsg} outer exception {repr(e)}")
+            logger.error(f"{premsg} outer exception - {str(e).replace(premsg, '')}")
         finally:
             async with self._asynclock:
                 self.count -= 1
@@ -1194,7 +1183,6 @@ class AsyncHLSDownloader:
             if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
                 await _upt()
             await asyncio.sleep(0)
-
         await _upt()
 
     async def fetch_async(self):
@@ -1263,21 +1251,14 @@ class AsyncHLSDownloader:
                     # reset event was set
                     if _cause := self._vid_dl.reset_event.is_set():
                         if self.n_reset < self._MAX_RESETS:
-                            logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
-                            if _cause in ("403", "hard"):
-                                if self.fromplns:
-                                    await self.back_from_reset_plns(
-                                        self.premsg, plns=self.fromplns)
-                                    if self._vid_dl.stop_event.is_set():
-                                        self.status = "stop"
-                                        return
                             try:
+                                logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
+                                if _cause in ("403", "hard"):
+                                    if self.fromplns:
+                                        await self.back_from_reset_plns(self.premsg, plns=self.fromplns)
+                                        self.check_stop()
                                 async with self._limit_reset:
                                     await self.areset(_cause)
-                                if self._vid_dl.stop_event.is_set():
-                                    self.status = "stop"
-                                    return
-                                continue
                             except StatusStop:
                                 self.status = "stop"
                                 return
@@ -1285,24 +1266,21 @@ class AsyncHLSDownloader:
                                 logger.exception(f"ERROR reset couldnt progress:[{str(e)}]")
                                 self.status = "error"
                                 raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR reset") from e
-
                         else:
                             logger.warning(
                                 f"{_premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")
                             self.status = "error"
                             raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR max resets")
-
                     elif inc_frags_dl > 0:
                         try:
                             async with self._limit_reset:
                                 await self.areset("hard")
-                            if self._vid_dl.stop_event.is_set():
-                                self.status = "stop"
-                                return
-                            logger.debug(
-                                f"{_premsg}:RESET:OK new cycle pending frags [{len(self.fragsnotdl())}]")
+                            logger.debug(f"{_premsg}:RESET:OK pending frags[{len(self.fragsnotdl())}]")
                             self.n_reset -= 1
                             continue
+                        except StatusStop:
+                            self.status = "stop"
+                            return
                         except Exception as e:
                             logger.exception(f"{_premsg}:RESET[{self.n_reset}]:ERROR reset [{repr(e)}]")
                             self.status = "error"

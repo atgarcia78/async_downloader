@@ -336,7 +336,7 @@ class VideoDownloader:
             await asyncio.sleep(0)
 
     async def resume(self):
-        if self.info_dl["status"] == "downloading":
+        if self.info_dl["status"] == "downloading" and self.pause_event.is_set():
             self.resume_event.set()
             await asyncio.sleep(0)
 

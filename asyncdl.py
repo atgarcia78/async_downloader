@@ -343,7 +343,7 @@ class AsyncDL:
                 try:
                     while True:
                         try:
-                            _url = await self.url_pl_queue.get_nowait()
+                            _url = self.url_pl_queue.get_nowait()
                             if _url == "KILL":
                                 return
                             if self.STOP.is_set():

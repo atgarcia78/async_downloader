@@ -311,7 +311,6 @@ def empty_queue(q: Union[asyncio.Queue, Queue]):
     while True:
         try:
             q.get_nowait()
-            q.task_done()
         except (asyncio.QueueEmpty, Empty):
             break
 
@@ -1285,9 +1284,6 @@ if yt_dlp:
                 self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:
                 self.log(logging.INFO, msg, *args, **kwargs)
-
-    def change_status_nakedsword(status):
-        NakedSwordBaseIE._STATUS = status
 
     def cli_to_api(*opts):
         default = yt_dlp.parse_options([]).ydl_opts
@@ -3312,7 +3308,7 @@ class SimpleCountDown:
     resexit = Token("resexit")
 
     def __init__(
-        self, pb, inputqueue, check: Optional[Callable] = None, logger=None, indexdl=None, timeout=60
+        self, pb, inputqueue=None, check: Optional[Callable] = None, logger=None, indexdl=None, timeout=60
     ):
         self._pre = "[countdown][WAIT403]"
         self.check = check or (lambda: None)
@@ -3403,6 +3399,8 @@ if PySimpleGUI:
             "finish": ("error", "done", "stop"),
             "init": "init",
             "downloading": "downloading"}
+        _SECS_DL = 25
+        _SECS_PAUSE = 5
 
         def __init__(self, asyncdl):
             self.asyncdl = asyncdl
@@ -3412,8 +3410,8 @@ if PySimpleGUI:
             if self.asyncdl.args.rep_pause:
                 FrontEndGUI._PASRES_REPEAT = True
 
-            self.pasres_time_from_resume_to_pause = 35
-            self.pasres_time_in_pause = 8
+            self.pasres_time_from_resume_to_pause = FrontEndGUI._SECS_DL
+            self.pasres_time_in_pause = FrontEndGUI._SECS_PAUSE
             self.reset_repeat = False
             self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
 
