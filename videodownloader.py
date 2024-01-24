@@ -544,15 +544,18 @@ class VideoDownloader:
                 logger.debug(
                     f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
                     + f"{proc.stdout}\n[stderr]{proc.stderr}")
-                if (proc.returncode) == 0 and (await aiofiles.os.path.exists(embed_filename)):
+                if (
+                    (proc.returncode) == 0 and (await aiofiles.os.path.exists(embed_filename))
+                    and await amove(embed_filename, self.temp_filename) == 0
+                ):
+                    logger.debug(f"{self.premsg}: subt embeded OK")
                     for _file in self.info_dl["downloaded_subtitles"].values():
                         async with async_suppress(OSError):
                             await aiofiles.os.remove(_file)
-
-                    if await amove(embed_filename, self.temp_filename) == -1:
-                        logger.warning(f"{self.premsg}: error embeding subtitles")
                 else:
                     logger.warning(f"{self.premsg}: error embeding subtitles")
+                    async with async_suppress(OSError):
+                        await aiofiles.os.remove(embed_filename)
 
             except Exception as e:
                 logger.exception(f"{self.premsg}: error embeding subtitles {repr(e)}")
