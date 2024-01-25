@@ -3251,6 +3251,10 @@ class CountDowns:
 
         time.sleep(3)
 
+        if event and event.is_set():
+            self.logger.debug(f"{_premsg} finish event is set")
+            return
+
         with self.lock:
             if not self.index_main:
                 self.index_main = index
@@ -3318,7 +3322,7 @@ class SimpleCountDown:
         self.indexdl = indexdl
 
         self.inputq = inputqueue
-        self.logger = logger or logging.getLogger("asyncdl")
+        self.logger = logger or logging.getLogger("simplecd")
 
     def enable_echo(self, enable):
         fd = sys.stdin.fileno()
@@ -3372,7 +3376,7 @@ class SimpleCountDown:
                     self.pb.print("Waiting")
 
                 except Exception as e:
-                    self.logger.exception(repr(e))
+                    self.logger.debug(f"[{self.indexdl}] event is set {repr(e)}")
                     _input = "error"
                     break
         finally:

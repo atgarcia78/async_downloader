@@ -822,6 +822,7 @@ class AsyncHLSDownloader:
                     AsyncHLSDownloader._COUNTDOWNS = CountDowns(
                         AsyncHLSDownloader, logger=logger)
 
+            self.check_stop()
             # wait blocks
             AsyncHLSDownloader._COUNTDOWNS.add(
                 n=CONF_HLS_RESET_403_TIME, index=str(self.pos), event=self._vid_dl.stop_event, msg=self.premsg)
@@ -937,7 +938,7 @@ class AsyncHLSDownloader:
                         self._vid_dl.resume_event, self._vid_dl.reset_event,
                         self._vid_dl.stop_event], timeout=300)
                     logger.debug(f"{msg}[handle] after wait pause: {_res}")
-                    if _res.get("event") == "resume":
+                    if "resume" in _res.get("event", ""):
                         _res.pop("event")
                     self._vid_dl.resume_event.clear()
                     self._vid_dl.pause_event.clear()
@@ -1259,7 +1260,9 @@ class AsyncHLSDownloader:
                                         self.check_stop()
                                 async with self._limit_reset:
                                     await self.areset(_cause)
+                                self.check_stop()
                             except StatusStop:
+                                logger.debug(f"{_premsg}:RESET[{self.n_reset}]:STOP event")
                                 self.status = "stop"
                                 return
                             except Exception as e:
@@ -1275,6 +1278,7 @@ class AsyncHLSDownloader:
                         try:
                             async with self._limit_reset:
                                 await self.areset("hard")
+                            self.check_stop()
                             logger.debug(f"{_premsg}:RESET:OK pending frags[{len(self.fragsnotdl())}]")
                             self.n_reset -= 1
                             continue

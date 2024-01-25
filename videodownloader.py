@@ -291,8 +291,7 @@ class VideoDownloader:
         return _wait_tasks
 
     async def stop(self, cause: Optional[str] = None, wait=True):
-        if (self.info_dl["status"] in ("done", "error") or
-                self.stop_event.is_set() == "exit"):
+        if self.info_dl["status"] != "downloading":
             return
 
         try:
@@ -303,11 +302,13 @@ class VideoDownloader:
 
             self.stop_event.set(cause)
             await asyncio.sleep(0)
+            if self.pause_event.is_set():
+                await asyncio.sleep(0)
 
             if cause == "exit":
-                if self.reset_event.is_set():
-                    self.reset_event.clear()
-                    await asyncio.sleep(0)
+                # if self.reset_event.is_set():
+                #     self.reset_event.clear()
+                #     await asyncio.sleep(0)
                 _wait_tasks = []
                 for dl in self.info_dl["downloaders"]:
                     if ("asynchls" in str(type(dl)).lower() and
