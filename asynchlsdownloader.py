@@ -899,9 +899,7 @@ class AsyncHLSDownloader:
                 if _inreset:
                     if self._vid_dl.stop_event.is_set():
                         return
-                    logger.info(
-                        f"{_pre()} waits for rest scenes in [{self.fromplns}] to start DL "
-                        + f"[{_inreset}]")
+                    logger.debug(f"{_pre()} waits for scenes in [{self.fromplns}] to start DL [{_inreset}]")
                     wait_for_either(
                         [AsyncHLSDownloader._PLNS[self.fromplns]["reset"],
                          self._vid_dl.stop_event], timeout=300)
@@ -976,19 +974,20 @@ class AsyncHLSDownloader:
             list_reset = traverse_obj(AsyncHLSDownloader._PLNS, (plid, "in_reset"))
 
             if list_dl and dict_dl:
-                AsyncHLSDownloader._PLNS["ALL"]["in_reset"].add(plid)
-                AsyncHLSDownloader._PLNS[plid]["reset"].clear()
                 plns = [dl for key, dl in dict_dl.items() if key in list_dl]  # type: ignore
                 for dl, key in zip(plns, list_dl):  # type: ignore
                     if _tasks := await dl._reset(cause, wait=False):
+                        list_reset.add(key)  # type: ignore
                         _wait_all_tasks.extend(_tasks)
-                    list_reset.add(key)  # type: ignore
                     await asyncio.sleep(0)
 
             await asyncio.sleep(0)
 
-        if wait and _wait_all_tasks:
-            await asyncio.wait(_wait_all_tasks)
+        if _wait_all_tasks:
+            AsyncHLSDownloader._PLNS["ALL"]["in_reset"].add(plid)
+            AsyncHLSDownloader._PLNS[plid]["reset"].clear()
+            if wait:
+                await asyncio.wait(_wait_all_tasks)
 
         return _wait_all_tasks
 
