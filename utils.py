@@ -155,10 +155,21 @@ class MyRetryManager:
     def __aiter__(self):
         return self
 
+    def __iter__(self):
+        return self
+
     async def __anext__(self):
         if not self.error and self.attempt < self.retries:
             self.attempt += 1
             async with self.limiter:
+                return self
+        else:
+            raise StopAsyncIteration
+
+    def __next__(self):
+        if not self.error and self.attempt < self.retries:
+            self.attempt += 1
+            with self.limiter:
                 return self
         else:
             raise StopAsyncIteration

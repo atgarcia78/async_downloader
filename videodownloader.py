@@ -65,7 +65,6 @@ class VideoDownloader:
         _date_file = datetime.now().strftime("%Y%m%d")
 
         if not self.args.path:
-
             _base = _date_file
             if self.args.use_path_pl:
                 _pltitle = try_get(
@@ -74,9 +73,7 @@ class VideoDownloader:
                 _plid = self.info_dict.get('playlist_id')
                 if _pltitle and _plid:
                     _base = f"{_plid}_{_pltitle}_{self.info_dict.get('extractor_key')}"
-
             _download_path = Path(Path.home(), "testing", _base, self.info_dict["id"])
-
         else:
             _download_path = Path(self.args.path, self.info_dict["id"])
 
@@ -172,7 +169,10 @@ class VideoDownloader:
         _drm = bool(info_dict.get('_has_drm')) or bool(info_dict.get('has_drm'))
         _dash = get_protocol(info_dict) == "dash"
 
-        if self.args.downloader_native or _drm or _dash or info_dict.get("extractor_key") == "Youtube":
+        if (
+            self.args.downloader_native or _drm or _dash
+            or info_dict.get("extractor_key") == "Youtube"
+        ):
             try:
                 dl = AsyncNativeDownloader(
                     self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
@@ -180,7 +180,8 @@ class VideoDownloader:
                 logger.debug(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
                 return dl
             except Exception as e:
-                logger.error(f"{self.premsg}[{info_dict['format_id']}] Error in init DL")
+                logger.error(
+                    f"{self.premsg}[{info_dict['format_id']}] Error in init DL")
                 return AsyncErrorDownloader(info_dict, repr(e))
 
         if not (_info := info_dict.get("requested_formats")):
@@ -243,7 +244,6 @@ class VideoDownloader:
             _task = asyncio.create_task(coro, name=name)
         else:
             _task = coro
-
         self.background_tasks.add(_task)
         _task.add_done_callback(self.background_tasks.discard)
         return _task
@@ -254,9 +254,7 @@ class VideoDownloader:
                 dl.n_workers = n
                 if "aria2" in str(type(dl)).lower():
                     dl.opts.set("split", dl.n_workers)
-
             await self.reset(cause="hard")
-
             logger.info(f"{self.premsg}: workers set to {n}")
 
     async def reset_from_console(self):
@@ -275,7 +273,8 @@ class VideoDownloader:
             for dl in self.info_dl["downloaders"]:
                 if "asynchls" in str(type(dl)).lower():
                     if dl.fromplns:
-                        _wait_tasks = await AsyncHLSDownloader.reset_plns(dl.fromplns, cause=cause, wait=wait)
+                        _wait_tasks = await AsyncHLSDownloader.reset_plns(
+                            dl.fromplns, cause=cause, wait=wait)
                     else:
                         _wait_tasks = await dl._reset(cause=cause, wait=wait)
         else:
@@ -289,7 +288,6 @@ class VideoDownloader:
     async def stop(self, cause: Optional[str] = None, wait=True):
         if self.info_dl["status"] != "downloading":
             return
-
         try:
             logger.debug(f"{self.premsg}[stop]")
             self.info_dl["status"] = "stop"
@@ -302,13 +300,12 @@ class VideoDownloader:
                 await asyncio.sleep(0)
 
             if cause == "exit":
-                # if self.reset_event.is_set():
-                #     self.reset_event.clear()
-                #     await asyncio.sleep(0)
                 _wait_tasks = []
                 for dl in self.info_dl["downloaders"]:
-                    if ("asynchls" in str(type(dl)).lower() and
-                            getattr(dl, "tasks", None)):
+                    if (
+                        "asynchls" in str(type(dl)).lower()
+                        and getattr(dl, "tasks", None)
+                    ):
                         if _tasks := [
                             _task for _task in dl.tasks
                             if not _task.done() and not _task.cancelled()
@@ -317,23 +314,26 @@ class VideoDownloader:
                             for _t in _tasks:
                                 _t.cancel()
                             _wait_tasks.extend(_tasks)
-
                 if wait and _wait_tasks:
                     await asyncio.wait(_wait_tasks)
-
         except Exception as e:
             logger.exception(f"{self.premsg}: " + f"{repr(e)}")
 
     async def pause(self):
         if (
-            self.info_dl["status"] == "downloading" and not self.pause_event.is_set()
-                and not self.reset_event.is_set()):
+            self.info_dl["status"] == "downloading"
+            and not self.pause_event.is_set()
+            and not self.reset_event.is_set()
+        ):
             self.pause_event.set()
             self.resume_event.clear()
             await asyncio.sleep(0)
 
     async def resume(self):
-        if self.info_dl["status"] == "downloading" and self.pause_event.is_set():
+        if (
+            self.info_dl["status"] == "downloading"
+            and self.pause_event.is_set()
+        ):
             self.resume_event.set()
             await asyncio.sleep(0)
 

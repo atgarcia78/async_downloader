@@ -473,6 +473,7 @@ class AsyncDL:
 
             if not self.args.nosymlinks:
                 vid_path = Path(vid_path_str)
+
                 if self.args.path:
                     _folderpath = Path(self.args.path)
                 else:
