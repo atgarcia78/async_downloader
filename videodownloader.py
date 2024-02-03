@@ -260,11 +260,11 @@ class VideoDownloader:
             logger.info(f"{self.premsg}: workers set to {n}")
 
     async def reset_from_console(self):
-        await self.reset(cause="hard")
+        return await self.reset(cause="hard", wait=False)
 
     async def reset(self, cause: Optional[str] = None, wait=True):
         if self.info_dl["status"] != "downloading":
-            return
+            return []
         _wait_tasks = []
         if not self.reset_event.is_set():
             logger.debug(f"{self.premsg}[reset] {cause}")
@@ -273,15 +273,11 @@ class VideoDownloader:
             if self.pause_event.is_set():
                 await asyncio.sleep(0)
             for dl in self.info_dl["downloaders"]:
-                if "asynchls" in str(type(dl)).lower() and getattr(dl, "tasks", None):
-                    if _tasks := [
-                        _task for _task in dl.tasks
-                        if not _task.done() and not _task.cancelled()
-                        and _task not in [asyncio.current_task()]
-                    ]:
-                        for _t in _tasks:
-                            _t.cancel()
-                        _wait_tasks.extend(_tasks)
+                if "asynchls" in str(type(dl)).lower():
+                    if dl.fromplns:
+                        _wait_tasks = await AsyncHLSDownloader.reset_plns(dl.fromplns, cause=cause, wait=wait)
+                    else:
+                        _wait_tasks = await dl._reset(cause=cause, wait=wait)
         else:
             self.reset_event.set(cause)
 

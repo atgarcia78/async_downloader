@@ -1794,11 +1794,68 @@ if yt_dlp:
         except (ConnectError, httpx.HTTPStatusError) as e:
             return {"error": str(e)}
 
+    async def async_send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
+        """
+        raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
+        """
+        new_e = kwargs.pop("new_e", Exception)
+        try:
+            return await _async_send_http_request(url, **kwargs)
+        except ExtractorError as e:
+            raise new_e(repr(e)) from e
+        except (ConnectError, httpx.HTTPStatusError) as e:
+            return {"error": repr(e)}
+
     def raise_extractor_error(msg, expected=True, _from=None):
         raise ExtractorError(msg, expected=expected) from _from
 
     def raise_reextract_info(msg, expected=True, _from=None):
         raise ReExtractInfo(msg, expected=expected) from _from
+
+    async def _async_send_http_request(url, **kwargs) -> Optional[httpx.Response]:
+        _type = kwargs.pop('_type', "GET")
+        fatal = kwargs.pop('fatal', True)
+        _logger = kwargs.pop('logger', print)
+        _client_cl = False
+        if not (client := kwargs.pop('client', None)):
+            client = httpx.AsyncClient(**CLIENT_CONFIG)
+            _client_cl = True
+        res = None
+        req = None
+        _msg_err = ""
+
+        try:
+            req = client.build_request(_type, url, **kwargs)
+            if not (res := await client.send(req)):
+                return None
+            if fatal:
+                res.raise_for_status()
+            return res
+        except ConnectError as e:
+            _msg_err = str(e)
+            if 'errno 61' in _msg_err.lower():
+                raise
+            else:
+                raise_extractor_error(_msg_err)
+        except HTTPStatusError as e:
+            e.args = (e.args[0].split('\nFor more')[0],)
+            _msg_err = str(e)
+            if e.response.status_code == 403:
+                raise_reextract_info(_msg_err)
+            elif e.response.status_code in (502, 503):
+                raise StatusError503(_msg_err) from None
+            else:
+                raise
+        except Exception as e:
+            _msg_err = str(e)
+            if not res:
+                raise TimeoutError(_msg_err) from None
+            else:
+                raise_extractor_error(_msg_err)
+        finally:
+            _logger(f"[async_send_http_req] {_msg_err} {req}:{req.headers}:{res}")
+            if _client_cl:
+                client.close()
 
     def _send_http_request(url, **kwargs) -> Optional[httpx.Response]:
         _type = kwargs.pop('_type', "GET")
@@ -3017,7 +3074,16 @@ def kill_processes(logger=None, rpcport=None):
 
 
 def int_or_none(res):
-    return int(res) if res else None
+    def _int_or_none(el):
+        try:
+            return int(el) if el else None
+        except (ValueError, TypeError, OverflowError):
+            return None
+    if isinstance(res, (list, tuple)):
+        _res = [_int_or_none(_el) for _el in res]
+        return _res if isinstance(res, list) else tuple(_res)
+    else:
+        return _int_or_none(res)
 
 
 def str_or_none(res):
@@ -3310,6 +3376,8 @@ class Token:
 class SimpleCountDown:
     restimeout = Token("restimeout")
     resexit = Token("resexit")
+    _LOCK = threading.Lock()
+    _ENABLE_ECHO = True
 
     def __init__(
         self, pb, inputqueue=None, check: Optional[Callable] = None, logger=None, indexdl=None, timeout=60
@@ -3325,14 +3393,20 @@ class SimpleCountDown:
         self.logger = logger or logging.getLogger("simplecd")
 
     def enable_echo(self, enable):
-        fd = sys.stdin.fileno()
-        new = termios.tcgetattr(fd)
-        if enable:
-            new[3] |= termios.ECHO
-        else:
-            new[3] &= ~termios.ECHO
+        with SimpleCountDown._LOCK:
+            if enable and not SimpleCountDown._ENABLE_ECHO:
+                fd = sys.stdin.fileno()
+                new = termios.tcgetattr(fd)
+                new[3] |= termios.ECHO
+                SimpleCountDown._ENABLE_ECHO = True
+                termios.tcsetattr(fd, termios.TCSANOW, new)
 
-        termios.tcsetattr(fd, termios.TCSANOW, new)
+            elif not enable and SimpleCountDown._ENABLE_ECHO:
+                fd = sys.stdin.fileno()
+                new = termios.tcgetattr(fd)
+                new[3] &= ~termios.ECHO
+                SimpleCountDown._ENABLE_ECHO = False
+                termios.tcsetattr(fd, termios.TCSANOW, new)
 
     def _wait_for_enter(self, sel: selectors.DefaultSelector, interval: Optional[int] = None):
         if not (events := sel.select(interval)):
@@ -3530,20 +3604,20 @@ if PySimpleGUI:
                 if not values["-IN-"]:
                     sg.cprint("Please enter number")
                 else:
-                    if not values["-IN-"].split(",")[0].isdecimal():
+                    if not (_nvidworkers := int_or_none(values["-IN-"].split(",")[0])):
                         sg.cprint("#vidworkers not an integer")
                     else:
-                        _nvidworkers = int(values["-IN-"].split(",")[0])
                         if _nvidworkers <= 0:
                             sg.cprint("#vidworkers must be > 0")
                         elif self.asyncdl.list_dl:
                             _copy_list_dl = self.asyncdl.list_dl.copy()
                             if "," in values["-IN-"]:
-                                _ind = int(values["-IN-"].split(",")[1])
-                                if _ind in _copy_list_dl:
-                                    await _copy_list_dl[_ind].change_numvidworkers(_nvidworkers)
+                                _ind = int_or_none(values["-IN-"].split(",")[1:])
+                                if None in _ind or any(_el not in _copy_list_dl for _el in _ind):
+                                    sg.cprint("At least one DL index doesnt exist")
                                 else:
-                                    sg.cprint("DL index doesnt exist")
+                                    for _el in _ind:
+                                        await _copy_list_dl[_el].change_numvidworkers(_nvidworkers)
                             else:
                                 self.asyncdl.args.parts = _nvidworkers
                                 for _, dl in _copy_list_dl.items():
@@ -3585,6 +3659,7 @@ if PySimpleGUI:
                             sg.cprint(f"[pause-resume autom] before: {list(self.asyncdl.list_pasres)}")
 
                         info = []
+                        _wait_tasks = []
                         for _index in _index_list:
                             if event == "MoveTopWaitingDL":
                                 if not self.asyncdl.WorkersInit.exit.is_set():
@@ -3605,14 +3680,16 @@ if PySimpleGUI:
                             elif event == "Resume":
                                 await self.asyncdl.list_dl[_index].resume()
                             elif event == "Reset":
-                                await self.asyncdl.list_dl[_index].reset_from_console()
+                                if _tasks := await self.asyncdl.list_dl[_index].reset_from_console():
+                                    _wait_tasks.extend(_tasks)
                             elif event == "Stop":
                                 await self.asyncdl.list_dl[_index].stop("exit")
                             elif event in ["Info", "ToFile"]:
                                 _info = json.dumps(self.asyncdl.list_dl[_index].info_dict)
                                 sg.cprint(f"[{_index}] info\n{_info}")
                                 sg.cprint(
-                                    f'[{_index}] filesize[{self.asyncdl.list_dl[_index].info_dl["downloaders"][0].filesize}]'
+                                    f'[{_index}] status[{self.asyncdl.list_dl[_index].info_dl["status"]} - {self.asyncdl.list_dl[_index].info_dl["downloaders"][0].status}]'
+                                    + f'filesize[{self.asyncdl.list_dl[_index].info_dl["downloaders"][0].filesize}]'
                                     + f'downsize[{self.asyncdl.list_dl[_index].info_dl["downloaders"][0].down_size}]'
                                     + f"pause[{self.asyncdl.list_dl[_index].pause_event.is_set()}]"
                                     + f"resume[{self.asyncdl.list_dl[_index].resume_event.is_set()}]"
@@ -3620,7 +3697,8 @@ if PySimpleGUI:
                                     + f"reset[{self.asyncdl.list_dl[_index].reset_event.is_set()}]")
 
                                 info.append(_info)
-
+                        if _wait_tasks:
+                            await asyncio.wait(_wait_tasks)
                         if event in ["+PasRes", "-PasRes"]:
                             sg.cprint(f"[pause-resume autom] after: {list(self.asyncdl.list_pasres)}")
 
