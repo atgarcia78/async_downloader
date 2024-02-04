@@ -170,10 +170,7 @@ class AsyncHLSDownloader:
     _INRESET_403 = InReset403()
     _qproxies = None
 
-    def __init__(
-        self, args: Namespace, ytdl: myYTDL,
-        video_dict: dict, info_dl: InfoDL
-    ):
+    def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL):
 
         try:
             self.background_tasks = set()
@@ -246,6 +243,7 @@ class AsyncHLSDownloader:
             self.init_client: httpx.Client
 
             self._sem = asyncio.Semaphore()
+
             self.special_extr = False
             self.auto_pasres = False
             self.fromplns = None
@@ -255,7 +253,6 @@ class AsyncHLSDownloader:
 
             def getter(name: Union[str, None]) -> tuple:
                 if not name:
-                    self.special_extr = False
                     return (self.n_workers, 0, None)
                 if "nakedsword" in name:
                     self.auto_pasres = True
@@ -267,7 +264,6 @@ class AsyncHLSDownloader:
                             self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
                 value, key_text = getter_basic_config_extr(
                     name, AsyncHLSDownloader._CONFIG) or (None, None)
-                self.special_extr = False
                 if value and key_text:
                     self.special_extr = True
                     if "nakedsword" in key_text:
@@ -276,6 +272,7 @@ class AsyncHLSDownloader:
                         value["maxsplits"],
                         value["interval"],
                         value["ratelimit"].ratelimit(key_text, delay=True))
+
                 return (self.n_workers, 0, None)
 
             _nworkers, self._interv, self._limit = getter(self._extractor)
@@ -285,6 +282,7 @@ class AsyncHLSDownloader:
 
             self.m3u8_doc = ""
             self._host = get_host(self.info_dict["url"])
+
             self.frags_to_dl = []
             self.info_frag = []
             self.info_init_section = {}
@@ -387,7 +385,6 @@ class AsyncHLSDownloader:
             self.upt_plns()
 
     def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
-
         _task = coro
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
@@ -421,6 +418,7 @@ class AsyncHLSDownloader:
             if isinstance(res, dict):
                 raise AsyncHLSDLError(
                     f"{self.premsg}:[get_m3u8_doc] {res['error']}")
+
             return res.content.decode("utf-8", "replace")
 
     @on_503
@@ -442,8 +440,11 @@ class AsyncHLSDownloader:
                 logger.debug(f"{msg}:[get_headersize] {res['error']}\n{ctx.info_frag}")
                 raise AsyncHLSDLError(
                     f"{msg}:[get_headersize] {res['error']}")
-            elif not (hsize := int_or_none(res.headers.get('content-length'))):
-                logger.debug(f"{msg}:[get_headersize] not hsize {res}\n{res.headers}\n{ctx.info_frag}")
+            logger.debug(
+                f"{msg}:[get_headersize] REQUEST: {res.request} headers: {res.request.headers}\n"
+                + f"RESPONSE: {res} headers: {res.headers}\nINFO_FRAG: {ctx.info_frag}")
+            if not (hsize := int_or_none(res.headers.get('content-length'))):
+                logger.debug(f"{msg}:[get_headersize] not hsize")
                 raise AsyncHLSDLError(
                     f"{msg}:[get_headersize] not hsize")
             else:
@@ -1145,7 +1146,7 @@ class AsyncHLSDownloader:
 
                 async with client.stream("GET", _ctx.url, headers=_ctx.headers_range) as resp:
 
-                    logger.debug(f"{_premsg}: {resp} : {resp.headers.get('content-length')}")
+                    logger.debug(f"{_premsg}: REQUEST: {resp.request} headers: {resp.request.headers}\nRESPONSE: {resp} headers: {resp.headers}")
                     if await _initial_checkings_ok(_ctx, resp):
                         return
                     else:
