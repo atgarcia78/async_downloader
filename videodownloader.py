@@ -270,15 +270,13 @@ class VideoDownloader:
             await asyncio.sleep(0)
             if self.pause_event.is_set():
                 await asyncio.sleep(0)
-            for dl in self.info_dl["downloaders"]:
-                if "asynchls" in str(type(dl)).lower():
-                    if dl.fromplns:
-                        _wait_tasks = await AsyncHLSDownloader.reset_plns(
-                            dl.fromplns, cause=cause, wait=wait)
-                    else:
-                        _wait_tasks = await dl._reset(cause=cause, wait=wait)
-        else:
+        elif cause == "403":
             self.reset_event.set(cause)
+
+        _wait_tasks = []
+        for dl in self.info_dl["downloaders"]:
+            if "asynchls" in str(type(dl)).lower():
+                _wait_tasks.extend(await dl._handle_reset(cause=cause))
 
         if wait and _wait_tasks:
             await asyncio.wait(_wait_tasks)

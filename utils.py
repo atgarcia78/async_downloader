@@ -1858,7 +1858,7 @@ if yt_dlp:
             else:
                 raise
         except Exception as e:
-            _msg_err = str(e)
+            _msg_err = repr(e)
             if not res:
                 raise TimeoutError(_msg_err) from None
             else:
