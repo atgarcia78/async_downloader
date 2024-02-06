@@ -29,6 +29,7 @@ from utils import (
     async_suppress,
     get_drm_xml,
     get_protocol,
+    get_pssh_from_mpd,
     naturalsize,
     prepend_extension,
     sync_to_async,
@@ -177,7 +178,9 @@ class VideoDownloader:
                 dl = AsyncNativeDownloader(
                     self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
                 self._types = "NATIVE_DRM" if _drm else "NATIVE"
-                logger.debug(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
+                if 'manifest_url' not in self.info_dict:
+                    self.info_dict['manifest_url'] = dl.info_dict.get('manifest_url')
+                logger.info(f"{self.premsg}[get_dl] DL type native drm[{_drm}] murl[{self.info_dict['manifest_url']}]")
                 return dl
             except Exception as e:
                 logger.error(
@@ -458,16 +461,21 @@ class VideoDownloader:
             traverse_obj(self.info_dict, ("_drm", "pssh")),
             lambda x: sorted(x, key=len)[0] if x else None)
         _licurl = traverse_obj(self.info_dict, ("_drm", "licurl"))
-        if not _pssh or not _licurl:
-            raise AsyncDLError(
-                f"{self.premsg}: error DRM info - licurl[{_licurl}] pssh[{_pssh}]")
+        if not _licurl:
+            raise AsyncDLError(f"{self.premsg}: error DRM info")
+        elif not _pssh:
+            if _murl := self.info_dict.get('manifest_url'):
+                _pssh = get_pssh_from_mpd(_murl)
+        logger.debug(f"{self.premsg} licurl[{_licurl}] - murl[{_murl}] pssh[{_pssh}]")
+        if not _pssh:
+            raise AsyncDLError(f"{self.premsg}: error DRM info")
         _func_validate = None
         if "onlyfans" in self.info_dict["extractor_key"].lower():
             _func_validate = OnlyFansBaseIE.validate_drm_lic
         _path_drm_file = str(Path(self.info_dl['download_path'], 'drm.xml'))
         _keys = get_drm_xml(
             _licurl, _path_drm_file, pssh=_pssh, func_validate=_func_validate)
-        logger.info(f"{self.premsg}: drm keys[{_keys}] drm file[{_path_drm_file}]")
+        logger.debug(f"{self.premsg}: drm keys[{_keys}] drm file[{_path_drm_file}]")
         return _path_drm_file
 
     def run_proc(self, cmd):

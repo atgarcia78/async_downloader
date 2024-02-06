@@ -1913,15 +1913,33 @@ if yt_dlp:
             if _client_cl:
                 client.close()
 
+    def get_pssh_from_mpd(mpd_url=None, mpd_dict=None, uuid=None, **kwargs):
+        _pssh = []
+        if not uuid:
+            _uuid = 'edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
+        if not mpd_dict and mpd_url:
+            mpd_dict = get_xml(mpd_url, **kwargs)
+        if mpd_dict:
+            for content in mpd_dict['MPD']['Period']['AdaptationSet']:
+                if 'ContentProtection' in content:
+                    for videocontent in content['ContentProtection']:
+                        if videocontent['@schemeIdUri'] == f'urn:uuid:{_uuid}':
+                            _pssh.append(videocontent['cenc:pssh'])
+        return _pssh[0]
+
     def get_xml(mpd_url, **kwargs) -> Optional[Element]:
         import defusedxml.ElementTree as etree
+        import xmltodict
 
-        with httpx.Client(**CLIENT_CONFIG) as client:
-            if (_doc := try_get(
-                client.get(mpd_url, **kwargs),
-                lambda x: x.content.decode('utf-8', 'replace') if x else None
-            )):
-                return etree.XML(_doc)
+        if not (_doc := kwargs.pop('doc', None)):
+            with httpx.Client(**CLIENT_CONFIG) as client:
+                _doc = try_get(
+                    client.get(mpd_url, **kwargs),
+                    lambda x: x.content.decode('utf-8', 'replace'))
+
+        mpd_xml_dict = xmltodict.parse(_doc)
+        mpd_xml_dict['_etree'] = etree.XML(_doc)
+        return mpd_xml_dict
 
     def get_drm_keys(
             lic_url: str, pssh: Optional[str] = None,

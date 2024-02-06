@@ -52,7 +52,7 @@ class AsyncNativeDownloader:
         try:
             self.args = args
             self.drm = drm
-            self.info_dict = video_dict.copy()
+            self.info_dict = video_dict
             self._vid_dl = info_dl
             self.ytdl = ytdl
             self.n_workers = self.args.parts
@@ -76,6 +76,9 @@ class AsyncNativeDownloader:
                 self.filename = [
                     Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
                     for fdict in self._formats]
+
+            if 'manifest_url' not in self.info_dict:
+                self.info_dict['manifest_url'] = self._formats[0].get('manifest_url')
 
             self._host = get_host(unquote(self._formats[0]["url"]))
             self.down_size = 0
@@ -118,6 +121,8 @@ class AsyncNativeDownloader:
                 self.sem = contextlib.nullcontext()
 
             self.premsg = f'[{self.info_dict["id"]}][{self.info_dict["title"]}]'
+
+            logger.info(f"{self.premsg} murl[{self.info_dict['manifest_url']}]")
 
             self.status = "init"
 

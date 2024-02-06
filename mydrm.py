@@ -1,3 +1,6 @@
+
+import logging
+import os
 from pathlib import Path
 from threading import Lock
 from typing import Callable, Optional
@@ -7,7 +10,9 @@ from pywidevine.cdm import Cdm
 from pywidevine.device import Device, DeviceTypes
 from pywidevine.pssh import PSSH
 
-from utils import CLIENT_CONFIG, get_xml
+from utils import CLIENT_CONFIG, get_pssh_from_mpd, get_xml
+
+logger = logging.getLogger('mydrm')
 
 CONF_DRM_BASE_PATH = Path(
     Path.home(),
@@ -32,20 +37,27 @@ class myDRM:
     _CDM = None
 
     @classmethod
-    def create_drm_cdm(cls) -> Cdm:
-        with open(CONF_DRM['private_key']) as fpriv:
-            _private_key = fpriv.read()
-        with open(CONF_DRM['client_id'], "rb") as fpid:
-            _client_id = fpid.read()
+    def create_drm_cdm(cls, file: Optional[str | Path] = None) -> Cdm:
 
-        device = Device(
-            type_=DeviceTypes.ANDROID,
-            security_level=3,
-            flags={},
-            client_id=_client_id,
-            private_key=_private_key)
+        # file device format wvd
+        if file and os.path.exists(file):
+            device = Device.load(file)
 
-        return Cdm.from_device(device)
+        else:
+            with open(CONF_DRM['private_key']) as fpriv:
+                _private_key = fpriv.read()
+            with open(CONF_DRM['client_id'], "rb") as fpid:
+                _client_id = fpid.read()
+
+            device = Device(
+                type_=DeviceTypes.ANDROID,
+                security_level=3,
+                flags={},
+                client_id=_client_id,
+                private_key=_private_key)
+
+        cls._CDM = Cdm.from_device(device)
+        return cls._CDM
 
     @classmethod
     def get_drm_keys(
@@ -53,12 +65,9 @@ class myDRM:
         func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None, **kwargs
     ) -> Optional[str]:
 
-        _reduce = lambda x: list(set(map(lambda y: y.text, list(x))))
-
         if not pssh and mpd_url:
-            if (mpd_xml := get_xml(mpd_url, **kwargs)):
-                if (_list_pssh := _reduce(
-                        mpd_xml.iterfind('.//{urn:mpeg:cenc:2013}pssh'))):
+            if (mpd_xml_dict := get_xml(mpd_url, **kwargs)):
+                if _list_pssh := get_pssh_from_mpd(mpd_xml_dict):
                     pssh = sorted(_list_pssh, key=len)[0]
         if pssh:
             with cls._LOCK:
@@ -92,5 +101,11 @@ class myDRM:
     def validate_drm_lic(cls, lic_url: str, challenge: bytes, **kwargs) -> Optional[bytes]:
         with Client(**CLIENT_CONFIG) as client:
             resp = client.post(lic_url, content=challenge, **kwargs)
-            print(resp, resp.request, resp.request.headers)
+            logger.debug(f"[validate_lic] {resp}, {resp.request}, {resp.request.headers}")
             return resp.content
+
+    @classmethod
+    def close_sessions(cls):
+        if cls._CDM:
+            for sessid, _ in myDRM._CDM._Cdm__sessions.items():
+                myDRM._CDM.close(sessid)
