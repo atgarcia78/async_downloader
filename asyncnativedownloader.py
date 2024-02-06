@@ -68,13 +68,13 @@ class AsyncNativeDownloader:
                     key=lambda x: (x.get("resolution", "") == "audio_only" or x.get("ext", "") == "m4a"))
                 self._streams = {self._formats[0]['format_id']: 'video', self._formats[1]['format_id']: 'audio'}
 
-            _filename = Path(self.info_dict.get("filename"))
+            self._filename = Path(self.info_dict.get("filename"))
             if not self.drm:
                 self.filename = Path(
-                    self.download_path, f'{_filename.stem}.{self.info_dict["ext"]}')
+                    self.download_path, f'{self._filename.stem}.{self.info_dict["ext"]}')
             else:
                 self.filename = [
-                    Path(self.download_path, f'{_filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
+                    Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
                     for fdict in self._formats]
 
             self._host = get_host(unquote(self._formats[0]["url"]))
@@ -161,7 +161,7 @@ class AsyncNativeDownloader:
                 'format': '+'.join(list(self._streams.keys())),
                 'progress_hooks': [my_hook],
                 'paths': {'home': str(self.download_path)},
-                'outtmpl': {'default': f'{self.filename.stem}.%(ext)s'}}
+                'outtmpl': {'default': f'{self._filename.stem}.%(ext)s'}}
 
             with myYTDL(params=(self.ytdl.params | opts_upt), silent=True) as pytdl:
                 pytdl.download(self.info_dict["webpage_url"])
