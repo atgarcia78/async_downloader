@@ -101,6 +101,7 @@ class VideoDownloader:
             "auto_pasres": False,
             "webpage_url": self.info_dict.get("webpage_url"),
             "title": _title,
+            "_title_print": self.info_dict.get('_title_print', _title),
             "ytdl": ytdl,
             "date_file": _date_file,
             "download_path": _download_path,
@@ -753,12 +754,8 @@ class VideoDownloader:
 
     def print_hookup(self):
 
-        def _pre(_maxlen=10):
-            _title = (
-                self.info_dict["title"]
-                if ((_len := len(self.info_dict["title"])) >= _len)
-                else self.info_dict["title"] + " " * (_maxlen - _len))
-            return f"[{self.index}][{self.info_dict['id']}][{_title[:_maxlen]}]:"
+        def _pre(max_len=10):
+            return f"[{self.index}][{self.info_dict['id']}][{self.info_dl['_title_print'][:max_len]:{max_len}}]"
 
         def _get_msg():
             msg = ""
@@ -790,6 +787,6 @@ class VideoDownloader:
                 status = "PAUSED"
             else:
                 status = "Downloading"
-            return f"{_pre(40)} {status} {_progress_dl()}\n {_get_msg()}\n"
+            return f"{_pre(max_len=40)} {status} {_progress_dl()}\n {_get_msg()}\n"
         elif self.info_dl["status"] == "manipulating":
             return f"{_pre()} Ensambling/Merging {_progress_dl()}\n {_get_msg()}\n"

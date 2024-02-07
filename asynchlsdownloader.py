@@ -288,7 +288,7 @@ class AsyncHLSDownloader:
             self.n_workers = max(
                 self.n_workers, _nworkers) if _nworkers >= 16 else min(self.n_workers, _nworkers)
 
-            self.m3u8_doc = ""
+            self.m3u8_doc = None
             self._host = get_host(self.info_dict["url"])
 
             self.frags_to_dl = []
@@ -1215,6 +1215,7 @@ class AsyncHLSDownloader:
         logger.debug(f"{premsg} init worker")
 
         self.clients[nco] = httpx.AsyncClient(**self.config_httpx())
+
         try:
             while True:
                 try:
@@ -1226,10 +1227,9 @@ class AsyncHLSDownloader:
                 except asyncio.QueueEmpty as e:
                     logger.debug(f"{premsg} inner exception {repr(e)}")
                     await asyncio.sleep(0)
-        except AsyncHLSDLErrorFatal as e:
-            logger.debug(f"{premsg} outer exception - {repr(e).replace(premsg, '')}")
         except Exception as e:
-            logger.error(f"{premsg} outer exception - {repr(e).replace(premsg, '')}")
+            _msg_error = f"{premsg} outer exception - {repr(e).replace(premsg, '')}"
+            logger.debug(_msg_error) if isinstance(e, AsyncHLSDLErrorFatal) else logger.error(_msg_error)
         finally:
             async with self._asynclock:
                 self.count -= 1
@@ -1237,46 +1237,44 @@ class AsyncHLSDownloader:
                 await _cl.aclose()
             logger.debug(f"{premsg} bye worker")
 
-    async def upt_status(self):
-
-        _timer = ProgressTimer()
-        self._inc_bytes = 0
-
-        async def _upt():
-            while True:
-                try:
-                    self._inc_bytes += self.comm.get_nowait()
-                except asyncio.QueueEmpty:
-                    await asyncio.sleep(0)
-                    break
-
-            if not self.check_any_event_is_set():
-                async with self._asynclock:
-                    self.down_size += self._inc_bytes
-                    self._vid_dl.total_sizes["down_size"] += self._inc_bytes
-                self._inc_bytes = 0
-                _speed_meter = self.speedometer(self.down_size)
-                _est_time = None
-                _est_time_smooth = None
-                if _speed_meter and self.filesize:
-                    _est_time = (self.filesize - self.down_size) / _speed_meter
-                    _est_time_smooth = self.smooth_eta(_est_time)
-                self.upt.update({
-                    "n_dl_fragments": self.n_dl_fragments,
-                    "speed_meter": _speed_meter,
-                    "down_size": self.down_size,
-                    "est_time": _est_time,
-                    "est_time_smooth": _est_time_smooth})
-
-        while not self._vid_dl.end_tasks.is_set():
-            if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
-                await _upt()
-            await asyncio.sleep(0)
-        await _upt()
-
     async def fetch_async(self):
         _premsg = f"{self.premsg}[fetch_async]"
         n_frags_dl = 0
+
+        async def upt_status():
+            _timer = ProgressTimer()
+            self._inc_bytes = 0
+
+            async def _upt():
+                while True:
+                    try:
+                        self._inc_bytes += self.comm.get_nowait()
+                    except asyncio.QueueEmpty:
+                        await asyncio.sleep(0)
+                        break
+                if not self.check_any_event_is_set():
+                    async with self._asynclock:
+                        self.down_size += self._inc_bytes
+                        self._vid_dl.total_sizes["down_size"] += self._inc_bytes
+                    self._inc_bytes = 0
+                    _speed_meter = self.speedometer(self.down_size)
+                    _est_time = None
+                    _est_time_smooth = None
+                    if _speed_meter and self.filesize:
+                        _est_time = (self.filesize - self.down_size) / _speed_meter
+                        _est_time_smooth = self.smooth_eta(_est_time)
+                    self.upt.update({
+                        "n_dl_fragments": self.n_dl_fragments,
+                        "speed_meter": _speed_meter,
+                        "down_size": self.down_size,
+                        "est_time": _est_time,
+                        "est_time_smooth": _est_time_smooth})
+
+            while not self._vid_dl.end_tasks.is_set():
+                if _timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
+                    await _upt()
+                await asyncio.sleep(0)
+            await _upt()
 
         async def init_plns():
             if not self.fromplns:
@@ -1316,7 +1314,7 @@ class AsyncHLSDownloader:
             while True:
                 _setup()
                 upt_task = self.add_task(
-                    self.upt_status(), name=f"{self.premsg}[upt_task]")
+                    upt_status(), name=f"{self.premsg}[upt_task]")
                 self.tasks = [
                     self.add_task(self.fetch(i), name=f"{self.premsg}[{i}]")
                     for i in range(self.n_workers)]
@@ -1356,7 +1354,8 @@ class AsyncHLSDownloader:
                                     await self.back_from_reset_plns(self.fromplns, self.premsg)
                                     self.check_stop()
                                 _final_cause = self._vid_dl.reset_event.is_set()
-                                logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[original - {_cause} : final - {_final_cause}]")
+                                logger.debug(
+                                    f"{_premsg}:RESET[{self.n_reset}]:CAUSE[original-{_cause}:final-{_final_cause}]")
                                 await self.areset(_final_cause)
                                 self.check_stop()
                                 if _cause == "hard":
@@ -1393,15 +1392,12 @@ class AsyncHLSDownloader:
                         self.status = "error"
                         raise AsyncHLSDLErrorFatal(f"{_premsg} no inc dlfrags in one cycle")
 
-                except AsyncHLSDLErrorFatal as e:
-                    logger.error(f"{_premsg} inner error while loop {repr(e)}")
-                    self.status = "error"
-                    await self.clean_when_error()
-                    return
                 except Exception as e:
                     logger.error(f"{_premsg} inner error while loop {repr(e)}")
                     self.status = "error"
                     await self.clean_when_error()
+                    if isinstance(e, AsyncHLSDLErrorFatal):
+                        return
                 finally:
                     await self.dump_config_file()
                     self.init_client.close()
@@ -1425,8 +1421,7 @@ class AsyncHLSDownloader:
     async def dump_config_file(self):
         _data = {
             el["frag"]: el["headersize"]
-            for el in self.info_frag if el["headersize"]
-        }
+            for el in self.info_frag if el["headersize"]}
         async with aiofiles.open(self.config_file, mode="w") as finit:
             await finit.write(json.dumps(_data))
 
