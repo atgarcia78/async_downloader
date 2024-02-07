@@ -56,6 +56,8 @@ class myDRM:
                 client_id=_client_id,
                 private_key=_private_key)
 
+        cls.close_sessions()
+
         cls._CDM = Cdm.from_device(device)
         return cls._CDM
 

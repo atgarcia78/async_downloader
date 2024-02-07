@@ -2361,11 +2361,10 @@ def get_httpx_async_client(config: Optional[dict] = None) -> httpx.AsyncClient:
     return httpx.AsyncClient(**(CLIENT_CONFIG | config))
 
 
-def get_driver(**kwargs) -> Optional[Firefox]:
-    if kwargs.get("noheadless") is None:
-        kwargs["noheadless"] = True
+def get_driver(noheadless=True, **kwargs) -> Optional[Firefox]:
+
     if _driver := try_get(
-            SeleniumInfoExtractor._get_driver(**kwargs),
+            SeleniumInfoExtractor._get_driver(**kwargs | {'noheadless': noheadless}),
             lambda x: x[0] if x else None):
         return _driver
 
@@ -2389,15 +2388,11 @@ class myIP:
         "ipify": {"url": "https://api.ipify.org?format=json", "key": "ip"},
         "ipapi": {"url": "http://ip-api.com/json", "key": "query"},
     }
-    # CONFIG = {}
-    # CLIENT = None
 
     @classmethod
     def _set_config(cls, key, timeout=1):
         _proxies = {"all://": f"http://127.0.0.1:{key}"} if key else None
         _timeout = httpx.Timeout(timeout=timeout)
-        # cls.CONFIG.update({"proxies": _proxies, "timeout": _timeout})
-        # cls.CLIENT = get_httpx_client(config=cls.CONFIG)
         return get_httpx_client(config={"proxies": _proxies, "timeout": _timeout})
 
     @staticmethod
@@ -2435,9 +2430,7 @@ class myIP:
     def get_myip(cls, key=None, timeout=1, tryall=True, api=None):
         """
         class method which is entry for the functionality.
-
         _myip = myIP.get_myip(key=12408, timeout=8)
-
         key is the port of the 127.0.0.1:{key} proxy. Dont set it to not use proxy
         """
         client = cls._set_config(key, timeout=timeout)
@@ -2531,10 +2524,10 @@ class TorGuardProxies:
     def _init_gost(cls, cmd_gost: list) -> list:
 
         proc_gost = []
-
         for cmd in cmd_gost:
             try:
-                _proc = subprocess.Popen(shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                _proc = subprocess.Popen(
+                    shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
                 _proc.poll()
                 if _proc.returncode:
                     cls.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{cmd}]")
