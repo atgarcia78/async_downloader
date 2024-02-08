@@ -25,7 +25,7 @@ from Cryptodome.Cipher import AES
 from Cryptodome.Cipher._mode_cbc import CbcMode
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
-from utils import (  # FrontEndGUI,
+from utils import (
     CONF_HLS_RESET_403_TIME,
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
