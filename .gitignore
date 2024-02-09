@@ -172,4 +172,7 @@ cython_debug/
 .vscode/
 old/
 
+# node modules
+node-modules/
+
 # End of https://www.toptal.com/developers/gitignore/api/osx,python
