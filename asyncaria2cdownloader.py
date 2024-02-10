@@ -521,7 +521,7 @@ class AsyncARIA2CDownloader:
                 proxy_info = await self._get_info(proxy_ytdl, _init_url)
 
             _url = cast(str, traverse_obj(proxy_info, ("url", {unquote})))
-            logger.debug(f"{self.premsg} ip{n}{_proxy} uri{n} {_url}")
+            logger.debug(f"{self.premsg} ip{n} {_proxy} uri{n} {_url}")
             if not _url:
                 raise AsyncARIA2CDLError("couldnt get video url")
 
