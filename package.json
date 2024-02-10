@@ -2,11 +2,10 @@
   "name": "async_downloader",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
   "scripts": {
-    "getXIndent": "node /Users/antoniotorres/.dotfiles/yt-dlp/nsword_getxident.mjs",
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "mytest": "node /Users/antoniotorres/.dotfiles/yt-dlp/nsword_getxident.mjs"
+    "getXIndent": "node /Users/antoniotorres/.dotfiles/yt-dlp/bundle.js",
+    "test": "node /Users/antoniotorres/.dotfiles/yt-dlp/_temp_nsword_getxident.js",
+    "mytest": "node /Users/antoniotorres/.dotfiles/yt-dlp/bundle.js"
   },
   "keywords": [],
   "author": "",
