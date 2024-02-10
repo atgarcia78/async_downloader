@@ -553,8 +553,8 @@ class VideoDownloader:
 
                 proc = await arunproc(cmd := _make_embed_gpac_cmd())
                 logger.debug(
-                    f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                    + f"{proc.stdout}\n[stderr]{proc.stderr}")
+                    f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}")
+
                 if (
                     (proc.returncode) == 0 and (await aiofiles.os.path.exists(embed_filename))
                     and await amove(embed_filename, self.temp_filename) == 0
@@ -584,8 +584,7 @@ class VideoDownloader:
 
                 proc = await arunproc(cmd)
                 logger.debug(
-                    f"{self.premsg} embed metadata\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                    + f"{proc.stdout}\n[stderr]{proc.stderr}")
+                    f"{self.premsg} embed metadata\n[cmd] {cmd}\n[rc] {proc.returncode}")
 
                 if not (
                     (proc.returncode) == 0 and (await aiofiles.os.path.exists(meta_filename)) and
@@ -613,8 +612,7 @@ class VideoDownloader:
 
             proc = await arunproc(cmd)
             logger.info(
-                f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                + f"{proc.stdout}\n[stderr]{proc.stderr}")
+                f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {proc.returncode}")
 
             if (
                 proc.returncode == 0 and
@@ -672,8 +670,7 @@ class VideoDownloader:
 
                     proc = await arunproc(cmd)
                     logger.debug(
-                        f"{self.premsg}: {cmd}\n[rc] {proc.returncode}\n[stdout]\n"
-                        + f"{proc.stdout}\n[stderr]{proc.stderr}")
+                        f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
                     rc = proc.returncode
 
@@ -697,8 +694,7 @@ class VideoDownloader:
                 proc = await arunproc(cmd)
 
                 logger.debug(
-                    f"{self.premsg}:{cmd}"
-                    + f": proc rc[{proc.returncode}]\n{proc.stdout}")
+                    f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
                 if (proc.returncode) == 0 and (await aiofiles.os.path.exists(self.temp_filename)):
                     for dl in self.info_dl["downloaders"]:
@@ -740,7 +736,8 @@ class VideoDownloader:
                     f"{self.premsg}[{str(self.info_dl['filename'])}] doesn't exist")
 
         except Exception as e:
-            logger.exception(f"{self.premsg} error when manipulating {repr(e)}")
+            logger.exception(
+                f"{self.premsg} error when manipulating {repr(e)}")
             self.info_dl["status"] = "error"
             if blocking_tasks:
                 for t in blocking_tasks:
