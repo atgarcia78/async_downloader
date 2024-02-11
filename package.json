@@ -3,9 +3,7 @@
   "version": "1.0.0",
   "description": "",
   "scripts": {
-    "getXIndent": "node /Users/antoniotorres/.dotfiles/yt-dlp/_temp_nsword_getxident.js",
-    "test": "node /Users/antoniotorres/.dotfiles/yt-dlp/_temp_nsword_getxident.js",
-    "mytest": "node /Users/antoniotorres/.dotfiles/yt-dlp/bundle.js"
+    "getXIndent": "node /Users/antoniotorres/.dotfiles/yt-dlp/_temp_nsword_getxident.js"
   },
   "keywords": [],
   "author": "",

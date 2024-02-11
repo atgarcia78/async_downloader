@@ -420,7 +420,10 @@ class VideoDownloader:
             cmd = [
                 "yt-dlp", "-P", self.info_dl['filename'].absolute().parent,
                 "-o", f"{self.info_dl['filename'].stem}.%(ext)s",
-                "--no-download", "--write-subs", self.info_dict.get('original_url') if self.info_dict.get('__gvd_playlist_index') else self.info_dict.get("webpage_url")]
+                "--no-download", "--write-subs",
+                self.info_dict.get('original_url')
+                if self.info_dict.get('__gvd_playlist_index')
+                else self.info_dict.get("webpage_url")]
             return subprocess.run(cmd, encoding="utf-8", capture_output=True)
 
         if not (_subts := self.info_dict.get("requested_subtitles")):

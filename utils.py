@@ -1950,7 +1950,7 @@ if yt_dlp:
             lic_url, pssh=pssh, func_validate=func_validate, mpd_url=mpd_url, **kwargs)
 
     def get_drm_xml(
-            lic_url: str, file_dest: [str | Path],
+            lic_url: str, file_dest: str | Path,
             pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
             mpd_url: Optional[str] = None, **kwargs):
         from mydrm import myDRM

@@ -1,3 +1,4 @@
+from __future__ import annotations
 
 import logging
 import os
@@ -38,17 +39,14 @@ class myDRM:
 
     @classmethod
     def create_drm_cdm(cls, file: Optional[str | Path] = None) -> Cdm:
-
         # file device format wvd
         if file and os.path.exists(file):
             device = Device.load(file)
-
         else:
             with open(CONF_DRM['private_key']) as fpriv:
                 _private_key = fpriv.read()
             with open(CONF_DRM['client_id'], "rb") as fpid:
                 _client_id = fpid.read()
-
             device = Device(
                 type_=DeviceTypes.ANDROID,
                 security_level=3,
@@ -57,7 +55,6 @@ class myDRM:
                 private_key=_private_key)
 
         cls.close_sessions()
-
         cls._CDM = Cdm.from_device(device)
         return cls._CDM
 
@@ -71,23 +68,25 @@ class myDRM:
             if (mpd_xml_dict := get_xml(mpd_url, **kwargs)):
                 if _list_pssh := get_pssh_from_mpd(mpd_xml_dict):
                     pssh = sorted(_list_pssh, key=len)[0]
-        if pssh:
-            with cls._LOCK:
-                if not cls._CDM:
-                    cls._CDM = cls.create_drm_cdm()
+            if not pssh:
+                raise ValueError('couldnt find pssh')
 
-            session_id = cls._CDM.open()
-            challenge = cls._CDM.get_license_challenge(session_id, PSSH(pssh))
-            _validate_lic = func_validate or cls.validate_drm_lic
-            cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
-            if (keys := cls._CDM.get_keys(session_id)):
-                for key in keys:
-                    if key.type == 'CONTENT':
-                        return f"{key.kid.hex}:{key.key.hex()}"
+        with cls._LOCK:
+            if not cls._CDM:
+                cls._CDM = cls.create_drm_cdm()
+
+        session_id = cls._CDM.open()
+        challenge = cls._CDM.get_license_challenge(session_id, PSSH(pssh))
+        _validate_lic = func_validate or cls.validate_drm_lic
+        cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
+        if (keys := cls._CDM.get_keys(session_id)):
+            for key in keys:
+                if key.type == 'CONTENT':
+                    return f"{key.kid.hex}:{key.key.hex()}"
 
     @classmethod
     def get_drm_xml(
-        cls, lic_url: str, file_dest: [str | Path],
+        cls, lic_url: str, file_dest: str | Path,
         pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
         mpd_url: Optional[str] = None, **kwargs
     ) -> Optional[str]:
@@ -109,5 +108,5 @@ class myDRM:
     @classmethod
     def close_sessions(cls):
         if cls._CDM:
-            for sessid, _ in myDRM._CDM._Cdm__sessions.items():
+            for sessid, _ in cls._CDM._Cdm__sessions.items():
                 myDRM._CDM.close(sessid)
