@@ -2372,7 +2372,7 @@ def get_httpx_async_client(config: Optional[dict] = None) -> httpx.AsyncClient:
     return httpx.AsyncClient(**(CLIENT_CONFIG | config))
 
 
-def get_driver(noheadless=True, **kwargs) -> Optional[Firefox]:
+def get_driver(noheadless=True, **kwargs):
 
     if _driver := try_get(
             SeleniumInfoExtractor._get_driver(**kwargs | {'noheadless': noheadless}),
