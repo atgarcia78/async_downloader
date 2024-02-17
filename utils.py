@@ -50,26 +50,16 @@ from urllib.parse import urlparse
 from xml.etree.ElementTree import Element
 
 import httpx
-from asgiref.sync import sync_to_async
-from selenium.webdriver import Firefox
-
-FileLock = None
-try:
-    from filelock import FileLock
-except Exception:
-    print("PLEASE INSTALL filelock")
 
 try:
-    import proxy
+    from asgiref.sync import sync_to_async
 except Exception:
-    print("PLEASE INSTALL proxy")
-    proxy = None
+    sync_to_async = None
 
 try:
-    import xattr
+    from selenium.webdriver import Firefox
 except Exception:
-    print("PLEASE INSTALL xattr")
-    xattr = None
+    Firefox = None
 
 try:
     from tabulate import tabulate
@@ -87,6 +77,27 @@ try:
     import yt_dlp
 except Exception:
     yt_dlp = None
+
+FileLock = None
+try:
+    from filelock import FileLock
+except Exception:
+    if yt_dlp:
+        print("PLEASE INSTALL filelock")
+
+try:
+    import proxy
+except Exception:
+    if yt_dlp:
+        print("PLEASE INSTALL proxy")
+    proxy = None
+
+try:
+    import xattr
+except Exception:
+    if yt_dlp:
+        print("PLEASE INSTALL xattr")
+    xattr = None
 
 # ***********************************+
 # ************************************
@@ -2953,8 +2964,12 @@ class SentenceTranslator(object):
 def translate_srt(filesrt, srclang, dstlang):
 
     import srt
+    with open(filesrt, 'r') as f:
+        _srt_text = f.read()
+    _list_srt = list(srt.parse(_srt_text))
 
     lock = threading.Lock()
+    trans = SentenceTranslator(src=srclang, dst=dstlang, patience=0)
 
     def worker(subt, i):
         if subt.content:
@@ -2974,12 +2989,6 @@ def translate_srt(filesrt, srclang, dstlang):
             with lock:
                 print(f"ERROR: {i} - {subt.content}")
 
-    with open(filesrt, 'r') as f:
-        _srt_text = f.read()
-
-    _list_srt = list(srt.parse(_srt_text))
-
-    trans = SentenceTranslator(src=srclang, dst=dstlang, patience=0)
     with ThreadPoolExecutor(max_workers=16) as exe:
         futures = [exe.submit(worker, subt, i) for i, subt in enumerate(_list_srt)]
 
