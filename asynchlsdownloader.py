@@ -1173,9 +1173,7 @@ class AsyncHLSDownloader:
                     raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
 
                 async with self.clients[nco].stream("GET", _ctx.url, headers=_ctx.headers_range) as resp:
-                    # logger.debug(
-                    #     f"{_premsg}: REQUEST: {resp.request} headers: {resp.request.headers}\n"
-                    #     + f"RESPONSE: {resp} headers: {resp.headers}")
+
                     logger.debug(f"{_premsg}: {resp.request} {resp} hsize: [{resp.headers.get('content-length')}]")
 
                     if await _initial_checkings_ok(_ctx, resp):

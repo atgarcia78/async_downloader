@@ -346,13 +346,14 @@ class AsyncDL:
                             _url = self.url_pl_queue.get_nowait()
                             if _url == "KILL":
                                 return
-                            if self.STOP.is_set():
-                                raise StatusStop()
                             async with self.alock:
                                 self._count_pl += 1
                             break
                         except asyncio.QueueEmpty:
                             await asyncio.sleep(0)
+                        finally:
+                            if self.STOP.is_set():
+                                raise StatusStop()
 
                     _pre = f"[get_list_videos][process_playlist][{_url}]"
                     _total_pl = len(self.url_pl_list) + len(self.url_pl_list2)
