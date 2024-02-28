@@ -261,7 +261,7 @@ class AsyncHLSDownloader:
 
             def getter(name: Union[str, None]) -> tuple:
                 if not name:
-                    return (self.n_workers, 0, None)
+                    return (self.n_workers, 0, contextlib.nullcontext())
                 if "nakedsword" in name:
                     self.auto_pasres = True
                     if self.info_dict.get("playlist_id"):
@@ -281,7 +281,7 @@ class AsyncHLSDownloader:
                         value["interval"],
                         value["ratelimit"].ratelimit(key_text, delay=True))
 
-                return (self.n_workers, 0, None)
+                return (self.n_workers, 0, contextlib.nullcontext())
 
             _nworkers, self._interv, self._limit = getter(self._extractor)
 
