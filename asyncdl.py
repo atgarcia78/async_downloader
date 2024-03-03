@@ -272,10 +272,6 @@ class AsyncDL:
                     self._url_pl_entries = []
                     self._count_pl = 0
                     self.url_pl_list2 = []
-
-                    # if self.STOP.is_set():
-                    #     raise StatusStop()
-
                     self.url_pl_queue = asyncio.Queue()
 
                     for url in self.url_pl_list:
@@ -331,9 +327,6 @@ class AsyncDL:
             except Exception as e:
                 logger.warning(f"{_pre} {repr(e)}")
                 _info = {"_type": "error", "url": _url, "error": repr(e)}
-                await self._prepare_entry_pl_for_dl(_info)
-                async with self.alock:
-                    self._url_pl_entries += [_info]
             return _info
 
         try:
@@ -361,45 +354,42 @@ class AsyncDL:
                     if _info.get("_type", "video") != "playlist":
                         if not _info.get("original_url"):
                             _info |= {"original_url": _url}
+                        if _info.get("error"):
+                            _info["_type"] = "error"
                         await self._prepare_entry_pl_for_dl(_info)
                         async with self.alock:
                             self._url_pl_entries += [_info]
                     else:
-                        if isinstance(_info.get("entries"), list):
-                            _temp_error = []
-                            _entries_ok = []
-                            for _ent in _info["entries"]:
-                                if self.STOP.is_set():
-                                    raise StatusStop()
-                                if _ent.get("error"):
-                                    _ent["_type"] = "error"
-                                    if not _ent.get("original_url"):
-                                        _ent.update({"original_url": _url})
-                                    await self._prepare_entry_pl_for_dl(_ent)
-                                    async with self.alock:
-                                        self._url_pl_entries.append(_ent)
-                                    _temp_error.append(_ent)
-                                else:
-                                    _entries_ok.append(_ent)
+                        _entries_ok = []
+                        for _ent in _info["entries"]:
+                            if self.STOP.is_set():
+                                raise StatusStop()
+                            if not _ent.get("original_url"):
+                                _ent.update({"original_url": _url})
+                            if _ent.get("error") or not _ent.get("url"):
+                                _ent["_type"] = "error"
+                                await self._prepare_entry_pl_for_dl(_ent)
+                                async with self.alock:
+                                    self._url_pl_entries.append(_ent)
+                            else:
+                                _entries_ok.append(_ent)
 
-                            _info["entries"] = _entries_ok
+                        _info["entries"] = _entries_ok
 
                         for _ent in _info["entries"]:
                             if self.STOP.is_set():
                                 raise StatusStop()
                             if _ent.get("_type", "video") == "video":
-                                if not _ent.get("original_url"):
-                                    _ent.update({"original_url": _url})
-                                if (_ent.get(
-                                    "extractor_key", "")).lower() == "generic" and (
-                                    _ent.get("n_entries", 0) <= 1
+                                if (
+                                    _ent.get("extractor_key", "").lower() == "generic"
+                                    and _ent.get("n_entries", 0) <= 1
                                 ):
-                                    _ent.pop("playlist", "")
-                                    _ent.pop("playlist_index", "")
-                                    _ent.pop("n_entries", "")
-                                    _ent.pop("playlist", "")
-                                    _ent.pop("playlist_id", "")
-                                    _ent.pop("playlist_title", "")
+                                    _ent.pop("playlist", None)
+                                    _ent.pop("playlist_index", None)
+                                    _ent.pop("n_entries", None)
+                                    _ent.pop("playlist", None)
+                                    _ent.pop("playlist_id", None)
+                                    _ent.pop("playlist_title", None)
 
                                 if (_wurl := _ent["webpage_url"]) == _ent["original_url"]:
                                     if _ent.get("n_entries", 0) > 1:
@@ -414,14 +404,7 @@ class AsyncDL:
 
                             else:
                                 try:
-                                    if (
-                                        _error := (_ent.get("error") or not _ent.get("url")) or
-                                        not try_get(self.ytdl.is_playlist(_ent.get("url")), lambda x: x[0])
-                                    ):
-                                        if not _ent.get("original_url"):
-                                            _ent.update({"original_url": _url})
-                                        if _error:
-                                            _ent["_type"] = "error"
+                                    if not try_get(self.ytdl.is_playlist(_ent.get("url")), lambda x: x[0]):
                                         await self._prepare_entry_pl_for_dl(_ent)
                                         async with self.alock:
                                             self._url_pl_entries.append(_ent)
@@ -452,7 +435,10 @@ class AsyncDL:
             vid_name = f"{_id}_{_title.upper()}"
             if vid_path_str := self.videos_cached.get(vid_name):
                 logger.info(f"{_pre} already DL")  # video en local
-            elif _legacy_title and (vid_path_str := self.videos_cached.get((vid_name := f"{_id}_{_legacy_title.upper()}"))):
+            elif (
+                _legacy_title
+                and (vid_path_str := self.videos_cached.get((vid_name := f"{_id}_{_legacy_title.upper()}")))
+            ):
                 _pre += f'[{_legacy_title}]'
                 logger.info(f"{_pre} already DL with legacy title")  # video en local
             elif self.args.deep_aldl:
@@ -507,9 +493,11 @@ class AsyncDL:
             return
 
         for urlkey, _vid in self.info_videos.items():
-            if urlkey != url_to_check and (
-                    _vid["video_info"].get("_type", "video") == "video"
-                    and (_vid["video_info"].get("id", "") == _id)):
+            if (
+                urlkey != url_to_check
+                and _vid["video_info"].get("_type", "video") == "video"
+                and (_vid["video_info"].get("id", "") == _id)
+            ):
                 return urlkey
 
     async def async_check_if_same_video(self, url_to_check):
@@ -759,8 +747,7 @@ class AsyncDL:
             self.info_videos[url_key]["status"] = "nok"
 
     async def async_ex(self):
-        signals = (signal.SIGTERM, signal.SIGINT)
-        for s in signals:
+        for s in (signal.SIGTERM, signal.SIGINT):
             asyncio.get_running_loop().add_signal_handler(
                 s, lambda s=s: asyncio.create_task(self.shutdown(sig=s)))
 
@@ -787,8 +774,7 @@ class AsyncDL:
                 if "first" in _res.get("event"):
                     self.FEgui = FrontEndGUI(self)
                     tasks_to_wait.append(
-                        self.add_task(
-                            self.end_dl.async_wait(), name="workers_run_end_dl"))
+                        self.add_task(self.end_dl.async_wait(), name="workers_run_end_dl"))
 
             if tasks_to_wait:
                 await asyncio.wait(tasks_to_wait)
@@ -898,70 +884,69 @@ class AsyncDL:
 
         def _print_list_videos():
             try:
-                list_videos = [_getter(url, vid) for url, vid in self.info_videos.items() if vid.get("todl")]
+                list_videos = [
+                    _getter(url, vid)
+                    for url, vid in self.info_videos.items()
+                    if vid.get("todl")
+                ]
 
-                list_videos_str = [[url] for url in list_videos] if list_videos else []
+                list_videos_str = [
+                    [url] for url in list_videos
+                ] if list_videos else []
 
                 list_videos2dl = [
-                    _getter(url, vid) for url, vid in self.info_videos.items()
+                    _getter(url, vid)
+                    for url, vid in self.info_videos.items()
                     if all([not vid.get("aldl"), not vid.get("samevideo"),
                             vid.get("todl"), vid.get("status") != "prenok"])
                 ]
 
-                list_videos2dl_str = (
+                list_videos2dl_str = [
                     [
-                        [
-                            vid["video_info"].get("id", ""),
-                            vid["video_info"].get("title", ""),
-                            naturalsize(none_to_zero(vid["video_info"].get("filesize", 0))),
-                            _getter(url, vid),
-                            vid.get("status"),
-                        ]
-                        for url, vid in self.info_videos.items()
-                        if all([not vid.get("aldl"), not vid.get("samevideo"),
-                                vid.get("todl"), vid.get("status") != "prenok"])
+                        vid["video_info"].get("id", ""),
+                        vid["video_info"].get("title", ""),
+                        naturalsize(none_to_zero(vid["video_info"].get("filesize", 0))),
+                        _getter(url, vid),
+                        vid.get("status"),
                     ]
-                    if list_videos2dl
-                    else []
-                )
+                    for url, vid in self.info_videos.items()
+                    if all([not vid.get("aldl"), not vid.get("samevideo"),
+                            vid.get("todl"), vid.get("status") != "prenok"])
+                ] if list_videos2dl else []
 
                 list_videosaldl = [
                     _getter(url, vid)
                     for url, vid in self.info_videos.items()
                     if vid.get("aldl") and vid.get("todl")
                 ]
-                list_videosaldl_str = (
+
+                list_videosaldl_str = [
                     [
-                        [
-                            vid["video_info"].get("id", ""),
-                            vid["video_info"].get("title", ""),
-                            _getter(url, vid),
-                            vid["aldl"],
-                        ]
-                        for url, vid in self.info_videos.items()
-                        if vid.get("aldl") and vid.get("todl")
+                        vid["video_info"].get("id", ""),
+                        vid["video_info"].get("title", ""),
+                        _getter(url, vid),
+                        vid["aldl"],
                     ]
-                    if list_videosaldl
-                    else []
-                )
+                    for url, vid in self.info_videos.items()
+                    if vid.get("aldl") and vid.get("todl")
+                ] if list_videosaldl else []
 
                 list_videossamevideo = [
-                    _getter(url, vid) for url, vid in self.info_videos.items() if vid.get("samevideo")
+                    _getter(url, vid)
+                    for url, vid in self.info_videos.items()
+                    if vid.get("samevideo")
                 ]
-                list_videossamevideo_str = (
+
+                list_videossamevideo_str = [
                     [
-                        [
-                            vid["video_info"].get("id", ""),
-                            vid["video_info"].get("title", ""),
-                            _getter(url, vid),
-                            vid["samevideo"],
-                        ]
-                        for url, vid in self.info_videos.items()
-                        if vid.get("samevideo")
+                        vid["video_info"].get("id", ""),
+                        vid["video_info"].get("title", ""),
+                        _getter(url, vid),
+                        vid["samevideo"],
                     ]
-                    if list_videossamevideo
-                    else []
-                )
+                    for url, vid in self.info_videos.items()
+                    if vid.get("samevideo")
+                ] if list_videossamevideo else []
 
                 logger.info(
                     f"Total videos [{len(list_videos)}]\nTo DL " +
@@ -1019,16 +1004,13 @@ class AsyncDL:
 
         _videos_url_notsupported = self.list_unsup_urls
         _videos_url_notvalid = self.list_notvalid_urls
-        _videos_url_tocheck = (
-            [_url for _url, _ in self.list_urls_to_check]
-            if self.list_urls_to_check else []
-        )
-
-        _videos_url_tocheck_str = (
-            [f"{_url}:{_error}" for _url, _error in self.list_urls_to_check]
-            if self.list_urls_to_check
-            else []
-        )
+        _videos_url_tocheck = [
+            _url for _url, _ in self.list_urls_to_check
+        ] if self.list_urls_to_check else []
+        _videos_url_tocheck_str = [
+            f"{_url}:{_error}"
+            for _url, _error in self.list_urls_to_check
+        ] if self.list_urls_to_check else []
 
         videos_okdl = []
         videos_kodl = []
