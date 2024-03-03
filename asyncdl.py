@@ -16,7 +16,6 @@ from pathlib import Path
 from codetiming import Timer
 
 from utils import (
-    CONF_PLAYLIST_INTERL_IES,
     MAXLEN_TITLE,
     PATH_LOGS,
     AsyncDLError,
@@ -32,7 +31,6 @@ from utils import (
     _for_print_videos,
     async_wait_for_any,
     cast,
-    get_list_interl,
     init_ytdl,
     js_to_json,
     kill_processes,
@@ -343,8 +341,7 @@ class AsyncDL:
                 try:
                     while True:
                         try:
-                            _url = self.url_pl_queue.get_nowait()
-                            if _url == "KILL":
+                            if (_url := self.url_pl_queue.get_nowait()) == "KILL":
                                 return
                             async with self.alock:
                                 self._count_pl += 1
@@ -386,9 +383,6 @@ class AsyncDL:
                                     _entries_ok.append(_ent)
 
                             _info["entries"] = _entries_ok
-
-                            if _info.get("extractor_key") in CONF_PLAYLIST_INTERL_IES:
-                                _info["entries"] = await get_list_interl(_info["entries"], self, _pre)
 
                         for _ent in _info["entries"]:
                             if self.STOP.is_set():
@@ -507,7 +501,7 @@ class AsyncDL:
     async def async_check_if_aldl(self, info_dict, test=False):
         return await self.sync_to_async(self._check_if_aldl)(info_dict, test=test)
 
-    def _check_if_same_video(self, url_to_check: str) -> Union[str, None]:
+    def _check_if_same_video(self, url_to_check: str) -> Optional[str]:
         info = self.info_videos[url_to_check]["video_info"]
         if info.get("_type", "video") != "video" or not (_id := info.get("id")):
             return

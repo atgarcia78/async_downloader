@@ -28,7 +28,7 @@ from concurrent.futures import wait as wait_thr
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from importlib.machinery import SOURCE_SUFFIXES, FileFinder, SourceFileLoader
-from importlib.util import module_from_spec
+from importlib.util import module_from_spec, spec_from_file_location
 from ipaddress import ip_address
 from itertools import zip_longest
 from operator import getitem
@@ -136,11 +136,6 @@ CONF_INTERVAL_GUI = 0.2
 
 CONF_ARIA2C_EXTR_GROUP = ["doodstream", "odnoklassniki"]
 CONF_AUTO_PASRES = ["doodstream"]
-CONF_PLAYLIST_INTERL_IES = [
-    # "MyVidsterChannelPlaylist",
-    # "MyVidsterSearchPlaylist",
-    # "MyVidsterRSSPlaylist",
-]
 
 CLIENT_CONFIG = {
     "timeout": httpx.Timeout(timeout=20),
@@ -337,28 +332,19 @@ def empty_queue(q: Union[asyncio.Queue, Queue]):
             break
 
 
-def load_module(name, path: str):
-    _loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
-    finder = FileFinder(path, *_loader_details)
-    spec = finder.find_spec(name)
+def load_module(name: str, path: str):
+    if path.endswith('.py'):
+        spec = spec_from_file_location(name, path)
+    else:
+        _loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
+        finder = FileFinder(path, *_loader_details)
+        spec = finder.find_spec(name)
     if not spec or not spec.loader:
         raise ImportError(f"no module named {name}")
     mod = module_from_spec(spec)
+    sys.modules[name] = mod
     spec.loader.exec_module(mod)
     return mod
-
-
-def upartial(f, *args, **kwargs):
-    """
-    An upgraded version of partial which accepts not named parameters
-    def test(arg1, arg2, kwarg1=None):
-        ---
-    _test = upartial(arg1='1', kwarg1='k1')
-    _test(arg2='2')
-    """
-    params = f.__code__.co_varnames[1:]
-    kwargs = dict(zip(params, args)) | kwargs
-    return functools.partial(f, **kwargs)
 
 
 def get_host(url: str, shorten=None) -> str:
@@ -565,9 +551,8 @@ class MySyncAsyncEvent:
             self.async_wait(timeout=timeout), name=self.name)
 
     def __repr__(self):
-        cls = self.__class__
         status = f"set, cause: {self._cause}" if self._flag else "unset"
-        _res = f"<{cls.__module__}.{cls.__qualname__} at {id(self):#x}: {status}"
+        _res = f"<{self.__class__.__module__}.{self.__class__.__qualname__} at {id(self):#x}: {status}"
         _res += f"\n\tname: {self.name if hasattr(self, 'name') else 'noname'}"
         _res += f"\n\tsync event: {repr(self.event)}\n\tasync event: {repr(self.aevent)}\n>"
         return _res

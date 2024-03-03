@@ -259,7 +259,7 @@ class AsyncHLSDownloader:
                 self.info_dict.get("extractor_key"),
                 lambda x: x.lower())
 
-            def getter(name: Union[str, None]) -> tuple:
+            def getter(name: Optional[str]) -> tuple:
                 if not name:
                     return (self.n_workers, 0, contextlib.nullcontext())
                 if "nakedsword" in name:
@@ -977,7 +977,7 @@ class AsyncHLSDownloader:
             _res["event"] = _event
         return _res
 
-    async def _handle_reset(self, cause: Union[str, None] = None, nworkers=None):
+    async def _handle_reset(self, cause: Optional[str] = None, nworkers: Optional[int] = None):
         _tasks = []
         if self.fromplns:
             _asem = AsyncHLSDownloader._PLNS[self.fromplns]["asem"]
@@ -993,7 +993,7 @@ class AsyncHLSDownloader:
             _tasks = await self._reset(cause=cause, wait=False)
         return _tasks
 
-    async def _reset(self, cause: Union[str, None] = None, wait=True):
+    async def _reset(self, cause: Optional[str] = None, wait=True):
         if self.status != "downloading":
             return []
         _wait_tasks = []
@@ -1014,7 +1014,7 @@ class AsyncHLSDownloader:
         return _wait_tasks
 
     @classmethod
-    async def reset_plns(cls, plns: str, cause: Optional[str] = "403", wait=True, nworkers=None):
+    async def reset_plns(cls, plns: str, cause: Optional[str] = "403", wait=True, nworkers: Optional[int] = None):
 
         if plns not in AsyncHLSDownloader._PLNS:
             logger.error(f"[reset_plns] PLNS[{plns}] not yet handled")
