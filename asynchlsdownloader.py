@@ -1334,8 +1334,7 @@ class AsyncHLSDownloader:
                         self.status = "stop"
                         return
 
-                    _nfragsdl = len(self.fragsdl())
-                    if _nfragsdl == len(self.info_dict["fragments"]):
+                    if (_nfragsdl := len(self.fragsdl())) == len(self.info_dict["fragments"]):
                         self.status = "init_manipulating"
                         logger.debug(f"{_premsg} Frags DL completed")
                         return
