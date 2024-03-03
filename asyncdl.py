@@ -523,15 +523,15 @@ class AsyncDL:
 
     def get_info(self, video_info):
         if (_id := video_info.get("id")):
-            video_info["id"] = sanitize_filename(
+            _id = video_info["id"] = sanitize_filename(
                 _id, restricted=True).replace("_", "").replace("-", "")
 
         if (_title := video_info.get("title")):
-            video_info["title"] = sanitize_filename(
+            _title = video_info["title"] = sanitize_filename(
                 _title[:MAXLEN_TITLE], restricted=True)
 
         if (_legacy_title := video_info.get("_legacy_title")):
-            video_info["_legacy_title"] = sanitize_filename(
+            _legacy_title = video_info["_legacy_title"] = sanitize_filename(
                 _legacy_title[:MAXLEN_TITLE], restricted=True)
 
         return (_id, _title, _legacy_title)
