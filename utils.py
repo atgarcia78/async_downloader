@@ -2966,7 +2966,6 @@ def translate_srt(filesrt, srclang, dstlang, strip=True):
 
     def worker(subt, i):
         if _temp := subt.content:
-
             start = _temp.startswith('# ')
             end = _temp.endswith(' #')
             if start:
