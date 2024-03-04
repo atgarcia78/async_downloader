@@ -522,6 +522,7 @@ class AsyncARIA2CDownloader:
 
             _url = cast(str, traverse_obj(proxy_info, ("url", {unquote})))
             logger.debug(f"{self.premsg} ip{n} {_proxy} uri{n} {_url}")
+
             if not _url:
                 raise AsyncARIA2CDLError("couldnt get video url")
 
@@ -529,7 +530,6 @@ class AsyncARIA2CDownloader:
                 return _url
             else:
                 return _get_url_proxy(_url, _proxy_port)
-
         except Exception as e:
             _msg = f"host[{self._host}]pr[{n}:{_proxy}]{str(e)}"
             logger.debug(
@@ -632,9 +632,7 @@ class AsyncARIA2CDownloader:
         if self._vid_dl.pause_event.is_set():
             await self.async_pause([self.dl_cont])
             await asyncio.sleep(0)
-            _res = await async_wait_for_any([
-                self._vid_dl.resume_event, self._vid_dl.reset_event,
-                self._vid_dl.stop_event])
+            _res = await async_wait_for_any([self._vid_dl.resume_event] + self._vid_dl_events)
             await self.async_resume([self.dl_cont])
             self._vid_dl.pause_event.clear()
             self._vid_dl.resume_event.clear()
