@@ -768,9 +768,9 @@ class AsyncDL:
             if not self.args.nodl:
                 _res = await await_for_any(
                     [self.getlistvid_first, self.end_dl, self.STOP])
+                logger.info(f'[async_ex] {_res}\n')
                 if self.STOP.is_set():
                     raise StatusStop()
-                logger.info(f'[async_ex] {_res}\n')
                 if "first" in _res.get("event"):
                     self.FEgui = FrontEndGUI(self)
                     tasks_to_wait.append(
