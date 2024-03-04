@@ -2954,7 +2954,7 @@ class SentenceTranslator(object):
             return
 
 
-def translate_srt(filesrt, srclang, dstlang):
+def translate_srt(filesrt, srclang, dstlang, strip=True):
 
     import srt
     with open(filesrt, 'r') as f:
@@ -2965,11 +2965,20 @@ def translate_srt(filesrt, srclang, dstlang):
     trans = SentenceTranslator(src=srclang, dst=dstlang, patience=0)
 
     def worker(subt, i):
-        if subt.content:
-            _temp = subt.content.replace('\n', ' ')
+        if _temp := subt.content:
+
             start = _temp.startswith('# ')
             end = _temp.endswith(' #')
-            _res = trans(_temp.replace('# ', '').replace(' #', ''))
+            if start:
+                _temp = _temp.replace('# ', '')
+            if end:
+                _temp = _temp.replace(' #', '')
+            if strip:
+                _temp = [_temp.replace('\n', ' ')]
+            else:
+                _temp = _temp.splitlines()
+
+            _res = '\n'.join([trans(_subt) for _subt in _temp])
             if not _res:
                 with lock:
                     print(f"ERROR: {i} - {_temp}")
