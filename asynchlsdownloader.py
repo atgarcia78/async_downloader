@@ -106,18 +106,6 @@ class DownloadFragContext:
         self.headers_range = info_frag["headers_range"]
 
 
-class InReset403:
-    def __init__(self):
-        self.inreset = set()
-
-    def add(self, member):
-        self.inreset.add(member)
-
-    def remove(self, member):
-        if member in self.inreset:
-            self.inreset.remove(member)
-
-
 class AsyncHLSDLErrorFatal(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
@@ -171,7 +159,7 @@ class AsyncHLSDownloader:
     _COUNTDOWNS = None
     _QUEUE = {}
     _INPUT = Queue()
-    _INRESET_403 = InReset403()
+    _INRESET_403 = set()
     _qproxies = None
 
     def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL):
@@ -914,12 +902,12 @@ class AsyncHLSDownloader:
         finally:
             if self.fromplns:
                 if str(cause) == "403":
-                    AsyncHLSDownloader._INRESET_403.remove(self.info_dict["id"])
+                    AsyncHLSDownloader._INRESET_403.discard(self.info_dict["id"])
                 logger.debug(f"{_pre()} stop_event[{self._vid_dl.stop_event}] FINALLY")
 
                 with AsyncHLSDownloader._CLASSLOCK:
                     _inreset = AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"]
-                    try_call(lambda: _inreset.remove(self.info_dict["_index_scene"]))
+                    _inreset.discard(self.info_dict["_index_scene"])
                     if not _inreset:
                         logger.debug(f"{_pre()} end of resets fromplns [{self.fromplns}]")
 
@@ -935,7 +923,7 @@ class AsyncHLSDownloader:
                          self._vid_dl.stop_event], timeout=300)
 
                 with AsyncHLSDownloader._CLASSLOCK:
-                    try_call(lambda: AsyncHLSDownloader._PLNS["ALL"]["in_reset"].remove(self.fromplns))
+                    AsyncHLSDownloader._PLNS["ALL"]["in_reset"].discard(self.fromplns)
                     if not (_inreset := AsyncHLSDownloader._PLNS["ALL"]["in_reset"]):
                         logger.debug(f"{_pre()} end for all plns ")
                         AsyncHLSDownloader._PLNS["ALL"]["reset"].set()
@@ -1411,9 +1399,9 @@ class AsyncHLSDownloader:
             if self.fromplns:
                 async with async_lock(AsyncHLSDownloader._CLASSLOCK):
                     _downloading = AsyncHLSDownloader._PLNS[self.fromplns]["downloading"]
-                    try_call(lambda: _downloading.remove(self.info_dict["_index_scene"]))
+                    _downloading.discard(self.info_dict["_index_scene"])
                     if not _downloading:
-                        try_call(lambda: AsyncHLSDownloader._PLNS["ALL"]["downloading"].remove(self.fromplns))
+                        AsyncHLSDownloader._PLNS["ALL"]["downloading"].discard(self.fromplns)
 
     async def dump_config_file(self):
         _data = {

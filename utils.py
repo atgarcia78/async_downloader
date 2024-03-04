@@ -508,6 +508,7 @@ class MySyncAsyncEvent:
         self.event = threading.Event()
         self.aevent = asyncio.Event()
         self._flag = False
+        self._tasks = set()
         if initset:
             self.set()
 
@@ -518,11 +519,6 @@ class MySyncAsyncEvent:
         self._cause = cause or 'set_with_no_cause'
 
     def is_set(self) -> Optional[str]:
-        """
-        Return cause(true if cause is none) if
-        and only if the internal flag is true.
-        """
-
         if self._flag:
             return self._cause
 
@@ -532,23 +528,30 @@ class MySyncAsyncEvent:
         self._flag = False
         self._cause = None
 
-    def wait(self, timeout: Optional[float] = None) -> bool:
-        return True if self._flag else self.event.wait(timeout=timeout)
+    def wait(self, timeout: Optional[float] = None) -> dict:
+        if self._flag:
+            return {"event": self.name, "cause": self._cause}
+        if self.event.wait(timeout=timeout):
+            return {"event": self.name, "cause": self._cause}
+        else:
+            return {"timeout": timeout}
 
     async def async_wait(self, timeout: Optional[float] = None) -> dict:
-
         if self._flag:
-            return {"cause": self._cause}
+            return {"event": self.name, "cause": self._cause}
         try:
             await asyncio.wait_for(
                 self.aevent.wait(), timeout=timeout)
-            return {"event": self.name}
+            return {"event": self.name, "cause": self._cause}
         except asyncio.TimeoutError:
             return {"timeout": timeout}
 
     def add_task(self, timeout: Optional[float] = None) -> asyncio.Task:
-        return asyncio.create_task(
+        _task = asyncio.create_task(
             self.async_wait(timeout=timeout), name=self.name)
+        self._tasks.add(_task)
+        _task.add_done_callback(self._tasks.discard)
+        return _task
 
     def __repr__(self):
         status = f"set, cause: {self._cause}" if self._flag else "unset"
@@ -847,8 +850,13 @@ async def await_for_any(
 
     _events = cast(Iterable[MySyncAsyncEvent], variadic(events))
 
-    if _res := [getattr(_ev, "name", "noname")
-                for _ev in _events if _ev and _ev.is_set()]:
+    if (
+        _res := [
+            getattr(_ev, "name", "noname")
+            for _ev in _events
+            if _ev and _ev.is_set()
+        ]
+    ):
 
         return {"event": _res}
 

@@ -29,7 +29,7 @@ from utils import (
     Union,
     _for_print,
     _for_print_videos,
-    async_wait_for_any,
+    await_for_any,
     cast,
     init_ytdl,
     js_to_json,
@@ -766,7 +766,7 @@ class AsyncDL:
             tasks_to_wait = [self.add_task(self.get_list_videos(), name="get_videos")]
 
             if not self.args.nodl:
-                _res = await async_wait_for_any(
+                _res = await await_for_any(
                     [self.getlistvid_first, self.end_dl, self.STOP])
                 if self.STOP.is_set():
                     raise StatusStop()
