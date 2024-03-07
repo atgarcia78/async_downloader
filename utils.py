@@ -161,6 +161,29 @@ def get_dependencies(your_package):
         return []
 
 
+def pip_list():
+    piplist = subprocess.run(
+        "pip list | awk '{print $1}' | egrep -v 'Package|---'",
+        shell=True, capture_output=True, encoding='utf-8').stdout.splitlines()
+
+    def pip_show(_pckg):
+        pckg = subprocess.run(f'pip show {_pckg}', shell=True, capture_output=True, encoding='utf-8').stdout
+        if len(_temp := pckg.split('----')) > 1:
+            _temp[-1] = 'Location:' + _temp[-1].split('\nLocation:')[1]
+            pckg = _temp[0] + _temp[-1]
+        if _lic := (try_call(lambda: pckg.split('License: ')[1].split('\nLocation:')[0])):
+            pckg = pckg.replace(_lic, _lic.replace('\n', ' ').replace(':', '$$'))
+        data = {el.split(': ')[0]: el.split(': ')[1] for el in pckg.splitlines()}
+        data['Requires'] = data['Requires'].split(', ') if data['Requires'] else []
+        data['Required-by'] = data['Required-by'].split(', ') if data['Required-by'] else []
+        return data
+
+    with ThreadPoolExecutor() as exe:
+        futures = [exe.submit(pip_show, pk) for pk in piplist]
+
+    return [fut.result() for fut in futures]
+
+
 class MyRetryManager:
     def __init__(self, retries, limiter=contextlib.nullcontext()):
         self.limiter = limiter
