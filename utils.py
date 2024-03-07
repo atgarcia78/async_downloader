@@ -156,9 +156,32 @@ def get_dependencies(your_package):
     pypi_url = 'https://pypi.python.org/pypi/' + your_package + '/json'
     data = requests.get(pypi_url).json()
     if _pkgs := data.get('info', {}).get('requires_dist'):
-        return [re.findall(r'^(\w+)', el)[0] for el in _pkgs if ('extra ==' not in el and 'sys_platform == "win32"' not in el and 'implementation_name != "cpython"' not in el and 'os_name == "nt"' not in el and 'implementation_name == "pypy"' not in el and 'python_version < ' not in el and 'platform_python_implementation == "PyPy"' not in el) or ('extra' in el and 'extras' in el) or ('extra' in el and '\'socks' in el)]
+        return [
+            re.findall(r'^(\w+)', el)[0]
+            for el in _pkgs
+            if (
+                'extra ==' not in el and 'sys_platform == "win32"' not in el
+                and 'implementation_name != "cpython"' not in el
+                and 'os_name == "nt"' not in el and 'implementation_name == "pypy"' not in el
+                and 'python_version < ' not in el
+                and 'platform_python_implementation == "PyPy"' not in el
+            ) or ('extra ==' in el and 'extras' in el) or ('extra ==' in el and '\'socks' in el)
+        ]
     else:
         return []
+
+
+def pip_show(_pckg):
+    pckg = subprocess.run(['pip', 'show', _pckg], capture_output=True, encoding='utf-8').stdout
+    if len(_temp := pckg.split('----')) > 1:
+        pckg = _temp[0] + '\n'.join([_eltemp.replace('License:', 'License_:') for _eltemp in _temp[1:]])
+    if _lic := (try_call(lambda: pckg.split('License: ')[1].split('\nLocation:')[0])):
+        pckg = pckg.replace(_lic, _lic.replace('\n', '$$$___###rc###').replace(': ', '$$$___###dp###'))
+    data = {el.split(': ')[0]: el.split(': ')[1] for el in pckg.splitlines()}
+    data['Requires'] = data['Requires'].split(', ') if data['Requires'] else []
+    data['Required-by'] = data['Required-by'].split(', ') if data['Required-by'] else []
+    data['License'] = data['License'].replace('$$$___###dp###', ': ').replace('License_:', 'License:').replace('$$$___###rc###', '\n') if data.get('License') else ''
+    return data
 
 
 def pip_list():
@@ -166,22 +189,10 @@ def pip_list():
         "pip list | awk '{print $1}' | egrep -v 'Package|---'",
         shell=True, capture_output=True, encoding='utf-8').stdout.splitlines()
 
-    def pip_show(_pckg):
-        pckg = subprocess.run(f'pip show {_pckg}', shell=True, capture_output=True, encoding='utf-8').stdout
-        if len(_temp := pckg.split('----')) > 1:
-            _temp[-1] = 'Location:' + _temp[-1].split('\nLocation:')[1]
-            pckg = _temp[0] + _temp[-1]
-        if _lic := (try_call(lambda: pckg.split('License: ')[1].split('\nLocation:')[0])):
-            pckg = pckg.replace(_lic, _lic.replace('\n', ' ').replace(':', '$$'))
-        data = {el.split(': ')[0]: el.split(': ')[1] for el in pckg.splitlines()}
-        data['Requires'] = data['Requires'].split(', ') if data['Requires'] else []
-        data['Required-by'] = data['Required-by'].split(', ') if data['Required-by'] else []
-        return data
-
     with ThreadPoolExecutor() as exe:
         futures = [exe.submit(pip_show, pk) for pk in piplist]
 
-    return [fut.result() for fut in futures]
+    return {_res['Name']: _res for fut in futures if (_res := fut.result())}
 
 
 class MyRetryManager:
