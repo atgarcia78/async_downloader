@@ -151,6 +151,16 @@ CLIENT_CONFIG = {
 }
 
 
+def get_dependencies(your_package):
+    import requests
+    pypi_url = 'https://pypi.python.org/pypi/' + your_package + '/json'
+    data = requests.get(pypi_url).json()
+    if _pkgs := data.get('info', {}).get('requires_dist'):
+        return [re.findall(r'^(\w+)', el)[0] for el in _pkgs if ('extra ==' not in el and 'sys_platform == "win32"' not in el and 'implementation_name != "cpython"' not in el and 'os_name == "nt"' not in el and 'implementation_name == "pypy"' not in el and 'python_version < ' not in el and 'platform_python_implementation == "PyPy"' not in el) or ('extra' in el and 'extras' in el) or ('extra' in el and '\'socks' in el)]
+    else:
+        return []
+
+
 class MyRetryManager:
     def __init__(self, retries, limiter=contextlib.nullcontext()):
         self.limiter = limiter
