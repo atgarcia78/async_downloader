@@ -11,7 +11,13 @@ from pywidevine.cdm import Cdm
 from pywidevine.device import Device, DeviceTypes
 from pywidevine.pssh import PSSH
 
-from utils import CLIENT_CONFIG, get_pssh_from_mpd, get_xml
+from utils import (
+    CLIENT_CONFIG,
+    get_pssh_from_m3u8,
+    get_pssh_from_mpd,
+    try_call,
+    variadic,
+)
 
 logger = logging.getLogger('mydrm')
 
@@ -61,14 +67,18 @@ class myDRM:
     @classmethod
     def get_drm_keys(
         cls, lic_url: str, pssh: Optional[str] = None,
-        func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None, **kwargs
+        func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None,
+        m3u8_url: Optional[str] = None, **kwargs
     ) -> Optional[str]:
 
-        if not pssh and mpd_url:
-            if (mpd_xml_dict := get_xml(mpd_url, **kwargs)):
-                pssh = get_pssh_from_mpd(mpd_dict=mpd_xml_dict)[0]
-            if not pssh:
-                raise ValueError('couldnt find pssh')
+        if not pssh:
+            if mpd_url:
+                pssh = try_call(lambda: get_pssh_from_mpd(mpd_url=mpd_url, **kwargs)[0])
+            elif m3u8_url:
+                pssh = try_call(lambda: get_pssh_from_m3u8(m3u8_url, **kwargs)[0])
+
+        if not pssh:
+            raise ValueError('couldnt find pssh')
 
         with cls._LOCK:
             if not cls._CDM:
@@ -79,9 +89,9 @@ class myDRM:
         _validate_lic = func_validate or cls.validate_drm_lic
         cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
         if (keys := cls._CDM.get_keys(session_id)):
-            for key in keys:
-                if key.type == 'CONTENT':
-                    return f"{key.kid.hex}:{key.key.hex()}"
+            _res = [f"{key.kid.hex}:{key.key.hex()}" for key in keys if key.type == 'CONTENT']
+
+        return _res if len(_res) > 1 else _res[0]
 
     @classmethod
     def get_drm_xml(
@@ -90,11 +100,14 @@ class myDRM:
         mpd_url: Optional[str] = None, **kwargs
     ) -> Optional[str]:
 
-        if (_keys := cls.get_drm_keys(
+        if (
+            _keys := variadic(cls.get_drm_keys(
                 lic_url, pssh=pssh, func_validate=func_validate,
-                mpd_url=mpd_url, **kwargs)):
+                mpd_url=mpd_url, **kwargs))
+        ):
+
             with open(file_dest, 'w') as f:
-                f.write(CONF_DRM_XML_TEMPLATE % tuple(_keys.split(':')))
+                f.write(CONF_DRM_XML_TEMPLATE % tuple(_keys[0].split(':')))
             return _keys
 
     @classmethod

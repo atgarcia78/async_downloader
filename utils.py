@@ -47,7 +47,6 @@ from typing import (
     cast,
 )
 from urllib.parse import urlparse
-from xml.etree.ElementTree import Element
 
 import httpx
 
@@ -1961,22 +1960,54 @@ if yt_dlp:
             if _client_cl:
                 client.close()
 
-    def get_pssh_from_mpd(mpd_url=None, mpd_dict=None, uuid=None, **kwargs):
-        _pssh = []
+    def get_pssh_from_m3u8(m3u8_url, m3u8_doc=None, uuid=None, **kwargs):
+        import m3u8
         if not uuid:
-            _uuid = 'edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
-        if not mpd_dict and mpd_url:
-            mpd_dict = get_xml(mpd_url, **kwargs)
-        if mpd_dict:
-            for content in mpd_dict['MPD']['Period']['AdaptationSet']:
-                if 'ContentProtection' in content:
-                    for videocontent in content['ContentProtection']:
-                        if videocontent['@schemeIdUri'] in (f'urn:uuid:{_uuid}', f'urn:uuid:{_uuid.upper()}'):
-                            _pssh.append(videocontent['cenc:pssh'])
-        return _pssh
+            uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
+        pssh = set()
+        try:
+            if not m3u8_doc:
+                with httpx.Client(**CLIENT_CONFIG) as client:
+                    m3u8_doc = try_get(
+                        client.get(m3u8_url, **kwargs),
+                        lambda x: x.content.decode('utf-8', 'replace'))
+        except Exception:
+            return list(pssh)
 
-    def get_xml(mpd_url, **kwargs) -> Optional[Element]:
-        import defusedxml.ElementTree as etree
+        m3u8obj = m3u8.loads(m3u8_doc, uri=m3u8_url)
+        if keys := m3u8obj.session_keys:
+            for key in keys:
+                if key.method == 'SAMPLE-AES-CTR':
+                    if getattr(key, 'keyformat', '').lower() == uuid:
+                        if uri := getattr(key, 'uri', None):
+                            if _pssh := try_call(lambda: uri.split('data:text/plain;base64,')[1]):
+                                pssh.add(_pssh)
+        return list(pssh)
+
+    def get_pssh_from_mpd(mpd_url=None, mpd_dict=None, uuid=None, **kwargs):
+        if not uuid:
+            uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
+        pssh = set()
+        try:
+            if not mpd_dict and mpd_url:
+                mpd_dict = get_xml(mpd_url, **kwargs)
+            mpd = json.loads(json.dumps(mpd_dict))
+            periods = mpd['MPD']['Period']
+        except Exception:
+            return list(pssh)
+
+        for period in variadic(periods):
+            for ad_set in variadic(period['AdaptationSet']):
+                if ad_set['@mimeType'] == 'video/mp4':
+                    try:
+                        for t in ad_set['ContentProtection']:
+                            if t['@schemeIdUri'].lower() == uuid:
+                                pssh.add(t["cenc:pssh"])
+                    except Exception:
+                        pass
+        return list(pssh)
+
+    def get_xml(mpd_url, **kwargs) -> dict:
         import xmltodict
 
         if not (_doc := kwargs.pop('doc', None)):
@@ -1985,9 +2016,7 @@ if yt_dlp:
                     client.get(mpd_url, **kwargs),
                     lambda x: x.content.decode('utf-8', 'replace'))
 
-        mpd_xml_dict = xmltodict.parse(_doc)
-        mpd_xml_dict['_etree'] = etree.XML(_doc)
-        return mpd_xml_dict
+        return xmltodict.parse(_doc)
 
     def get_drm_keys(
             lic_url: str, pssh: Optional[str] = None,
