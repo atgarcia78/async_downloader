@@ -66,8 +66,7 @@ class myDRM:
 
         if not pssh and mpd_url:
             if (mpd_xml_dict := get_xml(mpd_url, **kwargs)):
-                if _list_pssh := get_pssh_from_mpd(mpd_xml_dict):
-                    pssh = sorted(_list_pssh, key=len)[0]
+                pssh = get_pssh_from_mpd(mpd_dict=mpd_xml_dict)[0]
             if not pssh:
                 raise ValueError('couldnt find pssh')
 

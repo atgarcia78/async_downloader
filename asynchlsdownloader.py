@@ -452,8 +452,8 @@ class AsyncHLSDownloader:
     @on_503
     @on_exception
     def download_init_section(self):
-        url, file, cipher = traverse_obj(
-            self.info_init_section, (("url", "file", "cipher"),), default=[None, None, None])
+        url, file = traverse_obj(
+            self.info_init_section, (("url", "file"),), default=[None, None, None])
         if not url or not file:
             raise AsyncHLSDLError(f"{self.premsg}:[get_init_section] not url or file")
 
@@ -466,7 +466,7 @@ class AsyncHLSDownloader:
                     if isinstance(res, dict):
                         raise AsyncHLSDLError(
                             f"{self.premsg}:[get_init_section] {res['error']}")
-                    _data = cipher.decrypt(res.content) if cipher else res.content
+                    _data = res.content
                     with open(file, "wb") as fsect:
                         fsect.write(_data)
                     self.info_init_section["downloaded"] = True
@@ -483,8 +483,9 @@ class AsyncHLSDownloader:
         if "&hash=" in _url and _url.endswith("&="):
             _url += "&="
         self.info_init_section = {
-            "frag": 0, "url": _url, "file": _file_path, "key": _initfrag.key,
-            "cipher": traverse_obj(self.key_cache, (try_call(lambda: _initfrag.key.uri), "cipher")),
+            "frag": 0, "url": _url, "file": _file_path,
+            # "key": _initfrag.key,
+            # "cipher": traverse_obj(self.key_cache, (try_call(lambda: _initfrag.key.uri), "cipher")),
             "downloaded": _file_path.exists()
         }
         if not self.info_init_section['downloaded']:
@@ -556,7 +557,7 @@ class AsyncHLSDownloader:
 
             if (_initfrag := m3u8_obj.segments[0].init_section):
                 if not self.info_init_section:
-                    _load_keys(_initfrag.key)
+                    # _load_keys(_initfrag.key)
                     self.get_init_section(_initfrag)
 
             _duration = try_get(

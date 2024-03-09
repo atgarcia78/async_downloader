@@ -118,7 +118,7 @@ CONF_DRM = {
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
-CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:124.0) Gecko/20100101 Firefox/124.0"
+CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:125.0) Gecko/20100101 Firefox/125.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -1971,9 +1971,9 @@ if yt_dlp:
             for content in mpd_dict['MPD']['Period']['AdaptationSet']:
                 if 'ContentProtection' in content:
                     for videocontent in content['ContentProtection']:
-                        if videocontent['@schemeIdUri'] == f'urn:uuid:{_uuid}':
+                        if videocontent['@schemeIdUri'] in (f'urn:uuid:{_uuid}', f'urn:uuid:{_uuid.upper()}'):
                             _pssh.append(videocontent['cenc:pssh'])
-        return _pssh[0]
+        return _pssh
 
     def get_xml(mpd_url, **kwargs) -> Optional[Element]:
         import defusedxml.ElementTree as etree
@@ -2292,6 +2292,7 @@ def init_argparser():
     parser.add_argument("--aria2c", action=ActionNoYes, default="6800", help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable")
     parser.add_argument("--subt", action=ActionNoYes, default=True)
     parser.add_argument("--xattr", action=ActionNoYes, default=True)
+    parser.add_argument("--drm", action=ActionNoYes, default=True)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--check-speed", action=ActionNoYes, default=True)
     parser.add_argument("--deep-aldl", help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'", action=ActionNoYes, default=False)

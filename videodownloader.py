@@ -133,8 +133,8 @@ class VideoDownloader:
             _status = "init_manipulating"
         else:
             _status = "init"
-        _filesize = sum(getattr(dl, "filesize", 0) for dl in downloaders)
-        _down_size = sum(getattr(dl, "down_size", 0) for dl in downloaders)
+        _filesize = sum(getattr(dl, "filesize", 0) or 0 for dl in downloaders)
+        _down_size = sum(getattr(dl, "down_size", 0) or 0 for dl in downloaders)
         self.total_sizes |= {"filesize": _filesize, "down_size": _down_size}
 
         self.info_dl |= {
@@ -168,7 +168,7 @@ class VideoDownloader:
 
     def _get_dl(self, info_dict: dict):
 
-        _drm = bool(info_dict.get('_has_drm')) or bool(info_dict.get('has_drm'))
+        _drm = self.args.drm and (bool(info_dict.get('_has_drm')) or bool(info_dict.get('has_drm')))
         _dash = get_protocol(info_dict) == "dash"
 
         if (
@@ -476,7 +476,7 @@ class VideoDownloader:
             raise AsyncDLError(f"{self.premsg}: error DRM info")
         elif not _pssh:
             if _murl := self.info_dict.get('manifest_url'):
-                _pssh = get_pssh_from_mpd(_murl)
+                _pssh = get_pssh_from_mpd(mpd_url=_murl)[0]
         logger.debug(f"{self.premsg} licurl[{_licurl}] - murl[{_murl}] pssh[{_pssh}]")
         if not _pssh:
             raise AsyncDLError(f"{self.premsg}: error DRM info")
