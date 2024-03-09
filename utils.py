@@ -1870,7 +1870,7 @@ if yt_dlp:
     def raise_reextract_info(msg, expected=True, _from=None):
         raise ReExtractInfo(msg, expected=expected) from _from
 
-    async def _async_send_http_request(url, **kwargs) -> Optional[httpx.Response]:
+    async def _async_send_http_request(url: str, **kwargs) -> Optional[httpx.Response]:
         _type = kwargs.pop('_type', "GET")
         fatal = kwargs.pop('fatal', True)
         _logger = kwargs.pop('logger', print)
@@ -1915,7 +1915,7 @@ if yt_dlp:
             if _client_cl:
                 client.close()
 
-    def _send_http_request(url, **kwargs) -> Optional[httpx.Response]:
+    def _send_http_request(url: str, **kwargs) -> Optional[httpx.Response]:
         _type = kwargs.pop('_type', "GET")
         fatal = kwargs.pop('fatal', True)
         _logger = kwargs.pop('logger', print)
@@ -1960,7 +1960,11 @@ if yt_dlp:
             if _client_cl:
                 client.close()
 
-    def get_pssh_from_m3u8(m3u8_url, m3u8_doc=None, uuid=None, **kwargs):
+    def get_pssh_from_m3u8(
+        m3u8_url: str, m3u8_doc: Optional[str] = None,
+        uuid: Optional[str] = None, **kwargs
+    ) -> list:
+
         import m3u8
         if not uuid:
             uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
@@ -1984,7 +1988,10 @@ if yt_dlp:
                                 pssh.add(_pssh)
         return list(pssh)
 
-    def get_pssh_from_mpd(mpd_url=None, mpd_dict=None, uuid=None, **kwargs):
+    def get_pssh_from_mpd(
+            mpd_url: Optional[str] = None, mpd_dict: Optional[dict] = None,
+            uuid: Optional[str] = None, **kwargs
+    ) -> list:
         if not uuid:
             uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
         pssh = set()
@@ -2007,7 +2014,7 @@ if yt_dlp:
                         pass
         return list(pssh)
 
-    def get_xml(mpd_url, **kwargs) -> dict:
+    def get_xml(mpd_url: str, **kwargs) -> dict:
         import xmltodict
 
         if not (_doc := kwargs.pop('doc', None)):
@@ -2019,8 +2026,9 @@ if yt_dlp:
         return xmltodict.parse(_doc)
 
     def get_drm_keys(
-            lic_url: str, pssh: Optional[str] = None,
-            func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None, **kwargs):
+            lic_url: str, pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
+            mpd_url: Optional[str] = None, **kwargs
+    ) -> list | str:
         from mydrm import myDRM
 
         return myDRM.get_drm_keys(

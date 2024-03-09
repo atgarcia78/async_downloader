@@ -69,7 +69,7 @@ class myDRM:
         cls, lic_url: str, pssh: Optional[str] = None,
         func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None,
         m3u8_url: Optional[str] = None, **kwargs
-    ) -> Optional[str]:
+    ) -> Optional[str | list]:
 
         if not pssh:
             if mpd_url:
@@ -108,7 +108,7 @@ class myDRM:
 
             with open(file_dest, 'w') as f:
                 f.write(CONF_DRM_XML_TEMPLATE % tuple(_keys[0].split(':')))
-            return _keys
+            return _keys[0]
 
     @classmethod
     def validate_drm_lic(cls, lic_url: str, challenge: bytes, **kwargs) -> Optional[bytes]:

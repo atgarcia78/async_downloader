@@ -428,7 +428,9 @@ class VideoDownloader:
 
         if not (_subts := self.info_dict.get("requested_subtitles")):
             return
+
         _final_subts = {}
+
         for key, val in _subts.items():
             if key.startswith("es"):
                 _final_subts['es'] = val
@@ -436,6 +438,7 @@ class VideoDownloader:
                 _final_subts['en'] = val
             elif key == "ca":
                 _final_subts['ca'] = val
+
         if not _final_subts:
             return
 
@@ -449,11 +452,9 @@ class VideoDownloader:
                 _subts_file = Path(
                     self.info_dl["filename"].absolute().parent,
                     f"{self.info_dl['filename'].stem}.{_lang}.srt")
-
                 logger.debug(f"{self.premsg}: {str(_subts_file)} exists[{_subts_file.exists()}]")
                 if _subts_file.exists():
                     self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
-
             except Exception as e:
                 logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
 
@@ -506,8 +507,7 @@ class VideoDownloader:
     async def run_manip(self):
         aget_subts_files = self.sync_to_async(self._get_subts_files)
         arunproc = self.sync_to_async(self.run_proc)
-        armtree = self.sync_to_async(
-            partial(shutil.rmtree, ignore_errors=True))
+        armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
         autime = self.sync_to_async(os.utime)
 
         async def check_files_exists():
@@ -666,14 +666,14 @@ class VideoDownloader:
 
                 # ts del DL de HLS de un sólo stream a mp4
                 if "ts" in self.info_dl["downloaders"][0].filename.suffix:
-                    cmd = "".join([
-                        "ffmpeg -y -probesize max -loglevel ",
-                        f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\"",
-                        f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:"{self.temp_filename}"'])
+                    cmd = (
+                        "ffmpeg -y -probesize max -loglevel "
+                        + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
+                        + f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{self.temp_filename}\""
+                    )
 
                     proc = await arunproc(cmd)
-                    logger.debug(
-                        f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
+                    logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
                     rc = proc.returncode
 
@@ -684,15 +684,15 @@ class VideoDownloader:
                     logger.debug(f"{self.premsg}: DL video file OK")
                 else:
                     self.info_dl["status"] = "error"
-                    raise AsyncDLError(
-                        f"{self.premsg}: error move file: {rc}")
+                    raise AsyncDLError(f"{self.premsg}: error move file: {rc}")
 
             else:
-                cmd = "".join([
-                    "ffmpeg -y -loglevel repeat+info -i file:",
-                    f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:",
-                    f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 ",
-                    f"-map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:\"{self.temp_filename}\""])
+                cmd = (
+                    "ffmpeg -y -loglevel repeat+info -i file:"
+                    + f"\"{str(self.info_dl['downloaders'][0].filename)}\" -i file:"
+                    + f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 "
+                    + f"-map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:\"{self.temp_filename}\""
+                )
 
                 proc = await arunproc(cmd)
 
@@ -705,16 +705,12 @@ class VideoDownloader:
                             async with async_suppress(OSError):
                                 await aiofiles.os.remove(_file)
 
-                    logger.debug(
-                        f"{self.premsg}: "
-                        + f"Streams merged for: {self.info_dl['filename']}")
-                    logger.debug(
-                        f"{self.premsg}: DL video file OK")
+                    logger.debug(f"{self.premsg}: Streams merged for: {self.info_dl['filename']}")
+                    logger.debug(f"{self.premsg}: DL video file OK")
 
                 else:
                     self.info_dl["status"] = "error"
-                    raise AsyncDLError(
-                        f"{self.premsg}: error merge, ffmpeg error: {rc}")
+                    raise AsyncDLError(f"{self.premsg}: error merge, ffmpeg error: {rc}")
 
             if self.info_dl["downloaded_subtitles"]:
                 await embed_subt()
@@ -722,25 +718,23 @@ class VideoDownloader:
             if self.args.xattr:
                 await embed_metadata()
 
-            if ((await amove(self.temp_filename, self.info_dl["filename"])) == 0
-                    and self.info_dl["filename"].exists()):
+            if (
+                (await amove(self.temp_filename, self.info_dl["filename"])) == 0
+                and self.info_dl["filename"].exists()
+            ):
                 self.info_dl["status"] = "done"
                 if (mtime := self.info_dict.get("release_timestamp")):
-                    try:
-                        await autime(
-                            self.info_dl["filename"], (int(datetime.now().timestamp()), mtime))
-                    except Exception as e:
-                        logger.exception(f"{self.premsg} error mtime {repr(e)}")
+                    async with async_suppress(OSError):
+                        await autime(self.info_dl["filename"], (int(datetime.now().timestamp()), mtime))
+
             else:
                 self.info_dl["status"] = "error"
                 async with async_suppress(OSError):
                     await aiofiles.os.remove(self.temp_filename)
-                raise AsyncDLError(
-                    f"{self.premsg}[{str(self.info_dl['filename'])}] doesn't exist")
+                raise AsyncDLError(f"{self.premsg}[{str(self.info_dl['filename'])}] doesn't exist")
 
         except Exception as e:
-            logger.exception(
-                f"{self.premsg} error when manipulating {repr(e)}")
+            logger.exception(f"{self.premsg} error when manipulating {repr(e)}")
             self.info_dl["status"] = "error"
             if blocking_tasks:
                 for t in blocking_tasks:
