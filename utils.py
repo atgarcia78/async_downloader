@@ -4133,8 +4133,10 @@ if PySimpleGUI:
                     if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
                         io_upt = psutil.net_io_counters()
                         ds = speedometer(io_upt.bytes_recv)
-                        msg = f"RECV: {naturalsize(speedometer.rec_bytes, binary=True)}  "
-                        msg += f'DL: {naturalsize(ds, binary=True, format_="7.3f") + "ps" if ds > 1024 else "--"}'
+                        # msg = f"RECV: {naturalsize(speedometer.rec_bytes, binary=True)}  "
+                        # msg += f'DL: {naturalsize(ds, binary=True, format_="7.3f") + "ps" if ds > 1024 else "--"}'
+                        msg = f"RECV: {naturalsize(speedometer.rec_bytes)}  "
+                        msg += f'DL: {naturalsize(ds, format_="7.3f") + "ps" if ds > 1024 else "--"}'
                         self.update_window("all", nwmon=msg)
                         if short_progress_timer.has_elapsed(seconds=10 * CONF_INTERVAL_GUI):
                             self.list_nwmon.append((datetime.now(), ds))
@@ -4162,7 +4164,9 @@ if PySimpleGUI:
         def get_dl_media(self):
             if self.list_nwmon:
                 _speed_data = [el[1] for el in self.list_nwmon]
-                _media = naturalsize(median(_speed_data), binary=True)
+                # _media = naturalsize(median(_speed_data), binary=True)
+                _media = naturalsize(median(_speed_data))
+
                 return f"DL MEDIA: {_media}ps"
 
         @run_operation_in_executor_from_loop(name="pasresthr")

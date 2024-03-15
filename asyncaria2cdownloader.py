@@ -67,7 +67,9 @@ class HookPrint:
         self.update(dl_cont)
 
     def update(self, dl_cont: aria2p.Download):
-        self.speed_str = f"{naturalsize(dl_cont.download_speed, binary=True)}ps"
+        # self.speed_str = f"{naturalsize(dl_cont.download_speed, binary=True)}ps"
+        self.speed_str = f"{naturalsize(dl_cont.download_speed)}ps"
+
         self.progress_str = f"{dl_cont.progress:.0f}%"
         self.connections = dl_cont.connections
         self.eta_str = dl_cont.eta_string()
