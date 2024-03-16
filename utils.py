@@ -1291,7 +1291,8 @@ if yt_dlp:
             "You have asked for UNPLAYABLE formats to be listed/downloaded",
             "in player engine - download may fail",
             "cookies from firefox",
-            "Ignoring subtitle tracks found in the HLS manifest"
+            "Ignoring subtitle tracks found in the HLS manifest",
+            "Using netrc for"
         ]
 
         _skip_phr = ["Downloading", "Extracting information", "Checking", "Logging"]
