@@ -451,6 +451,8 @@ class AsyncARIA2CDownloader:
     async def aupdate(self, dl_cont: Optional[aria2p.Download]):
         if dl_cont is not None:
             return await self._acall(dl_cont.update)
+        else:
+            return {"error": "dl_cont is None"}
 
     def uptpremsg(self):
         _upt = f"{self.premsg} host: {self._host} mode: {self._mode}"
