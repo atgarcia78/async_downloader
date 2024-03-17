@@ -1460,7 +1460,7 @@ class AsyncHLSDownloader:
             if await aiofiles.os.path.exists(self.filename):
                 logger.debug(f"{self.premsg}: [ensamble_file] ensambled{self.filename}")
                 armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
-                # await armtree(str(self.download_path))
+                await armtree(str(self.download_path))
                 self.status = "done"
                 if _skipped:
                     logger.warning(f"{self.premsg}: [ensamble_file] skipped frags [{_skipped}]")
