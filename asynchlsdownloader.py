@@ -593,7 +593,8 @@ class AsyncHLSDownloader:
         if size == 0 or (size > 0 and hsize and not (hsize - 100 <= size <= hsize + 100)):
             try_call(lambda: ctx.file.unlink())
             size = -1
-        if size != -1 and hsize:
+        # if size != -1 and hsize:
+        if size != -1:
             is_ok = True
         ctx.isok = is_ok
         ctx.size = size
@@ -1094,23 +1095,23 @@ class AsyncHLSDownloader:
                     self.n_dl_fragments += 1
                 return True
 
-            elif not ctx.info_frag["headersize"]:
-                _index = ctx.info_frag["frag"]
-                if _index not in self.hsize_tasks:
-                    logger.warning(f"{_premsg}:[get_headersize] start")
-                    self.hsize_tasks[_index] = self.add_task(self.get_headersize(ctx, _premsg), name=f"gethsize[{_index}]")
+            # elif not ctx.info_frag["headersize"]:
+            #     _index = ctx.info_frag["frag"]
+            #     if _index not in self.hsize_tasks:
+            #         logger.warning(f"{_premsg}:[get_headersize] start")
+            #         self.hsize_tasks[_index] = self.add_task(self.get_headersize(ctx, _premsg), name=f"gethsize[{_index}]")
 
-                _reset = False
-                async with self._asynclock:
-                    if self._interv == 0:
-                        self._interv = 1
-                        self.n_workers = 5
-                        _reset = True
-                if _reset:
-                    logger.warning(f"{_premsg}: no hsize, workers set to {self.n_workers}")
-                    if _wait_tasks := await self._handle_reset(cause="hard"):
-                        asyncio.wait(_wait_tasks)
-                    raise AsyncHLSDLErrorFatal(f"{_premsg} reset hard no hsize")
+            #     _reset = False
+            #     async with self._asynclock:
+            #         if self._interv == 0:
+            #             self._interv = 1
+            #             self.n_workers = 5
+            #             _reset = True
+            #     if _reset:
+            #         logger.warning(f"{_premsg}: no hsize, workers set to {self.n_workers}")
+            #         if _wait_tasks := await self._handle_reset(cause="hard"):
+            #             await asyncio.wait(_wait_tasks)
+            #         raise AsyncHLSDLErrorFatal(f"{_premsg} reset hard no hsize")
 
             return _res
 
@@ -1123,9 +1124,10 @@ class AsyncHLSDownloader:
                 raise AsyncHLSDLError(f"{_premsg} no frag file")
             ctx.size = ctx.info_frag["size"] = _nsize
             if not (_nhsize := ctx.info_frag["headersize"]):
-                logger.warning(f"{_premsg} couldnt get hsize, need to wait")
-                return
-            self.hsize_tasks.pop(index, None)
+                _nhsize = _nsize
+            #     logger.warning(f"{_premsg} couldnt get hsize, need to wait")
+            #     return
+            # self.hsize_tasks.pop(index, None)
             if (_nhsize - 100 <= _nsize <= _nhsize + 100):
                 ctx.info_frag["downloaded"] = True
                 async with self._asynclock:
@@ -1310,14 +1312,14 @@ class AsyncHLSDownloader:
                     await asyncio.wait(self.tasks)
                     self._vid_dl.end_tasks.set()
 
-                    if self.hsize_tasks:
-                        await asyncio.wait(list(self.hsize_tasks.values()))
-                        for index in self.hsize_tasks:
-                            if (_nhsize := self.info_frag[index - 1]["headersize"]):
-                                if (_nhsize - 100 <= self.info_frag[index - 1]["size"] <= _nhsize + 100):
-                                    self.info_frag[index - 1]["downloaded"] = True
-                                    self.n_dl_fragments += 1
-                        self.hsize_tasks = {}
+                    # if self.hsize_tasks:
+                    #     await asyncio.wait(list(self.hsize_tasks.values()))
+                    #     for index in self.hsize_tasks:
+                    #         if (_nhsize := self.info_frag[index - 1]["headersize"]):
+                    #             if (_nhsize - 100 <= self.info_frag[index - 1]["size"] <= _nhsize + 100):
+                    #                 self.info_frag[index - 1]["downloaded"] = True
+                    #                 self.n_dl_fragments += 1
+                    #     self.hsize_tasks = {}
 
                     if self._vid_dl.stop_event.is_set():
                         self.status = "stop"
@@ -1436,8 +1438,9 @@ class AsyncHLSDownloader:
                 async with async_suppress(OSError):
                     if frag["size"] < 0:
                         frag["size"] = await aiofiles.os.path.getsize(frag["file"])
-                if frag["size"] < 0 or not frag["headersize"] or not (
-                        frag["headersize"] - 100 <= frag["size"] <= frag["headersize"] + 100):
+                # if frag["size"] < 0 or not frag["headersize"] or not (
+                #         frag["headersize"] - 100 <= frag["size"] <= frag["headersize"] + 100):
+                if frag["size"] < 0:
                     raise AsyncHLSDLError(f"{self.premsg}: error when ensambling: {frag}")
 
             proc = _concat_files()
@@ -1457,7 +1460,7 @@ class AsyncHLSDownloader:
             if await aiofiles.os.path.exists(self.filename):
                 logger.debug(f"{self.premsg}: [ensamble_file] ensambled{self.filename}")
                 armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
-                await armtree(str(self.download_path))
+                # await armtree(str(self.download_path))
                 self.status = "done"
                 if _skipped:
                     logger.warning(f"{self.premsg}: [ensamble_file] skipped frags [{_skipped}]")

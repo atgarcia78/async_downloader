@@ -162,43 +162,45 @@ class AsyncDL:
         logger.debug(f"{_pre} start")
 
         async def get_info_files():
+            try:
+                def get_info_json(file):
+                    try:
+                        with open(file, "r") as f:
+                            return json.loads(js_to_json(f.read()))
+                    except Exception as e:
+                        logger.error(f"{_pre} Error:{repr(e)}")
+                        return {}
 
-            def get_info_json(file):
-                try:
-                    with open(file, "r") as f:
-                        return json.loads(js_to_json(f.read()))
-                except Exception as e:
-                    logger.error(f"{_pre} Error:{repr(e)}")
-                    return {}
+                _file_list_videos = []
+                for file in self.args.collection_files:
+                    info_video = get_info_json(file)
+                    if info_video:
+                        if info_video.get("_type", "video") != "playlist":
+                            _file_list_videos.append(info_video)
+                        elif _entries := info_video.get("entries"):
+                            _file_list_videos.extend(_entries)
 
-            _file_list_videos = []
-            for file in self.args.collection_files:
-                info_video = get_info_json(file)
-                if info_video:
-                    if info_video.get("_type", "video") != "playlist":
-                        _file_list_videos.append(info_video)
-                    elif _entries := info_video.get("entries"):
-                        _file_list_videos.extend(_entries)
+                for _vid in _file_list_videos:
+                    if not _vid.get("playlist"):
+                        _url = _vid.get("webpage_url")
+                        if _url not in self.info_videos:
+                            self.info_videos[_url] = self.build_info_video("file_cli", _vid)
+                            if _same_video_url := await self.async_check_if_same_video(_url):
+                                self.info_videos[_url].update({"samevideo": _same_video_url})
+                                logger.warning(
+                                    f"{_pre} {_url}: not added in vidlist, entry same video {_same_video_url}")
+                                await self._prepare_for_dl(_url)
 
-            for _vid in _file_list_videos:
-                if not _vid.get("playlist"):
-                    _url = _vid.get("webpage_url")
-                    if _url not in self.info_videos.get(_url):
-                        self.info_videos[_url] = self.build_info_video("file_cli", _vid)
-                        if _same_video_url := await self.async_check_if_same_video(_url):
-                            self.info_videos[_url].update({"samevideo": _same_video_url})
-                            logger.warning(
-                                f"{_pre} {_url}: not added in vidlist, entry same video {_same_video_url}")
-                            await self._prepare_for_dl(_url)
-
+                            else:
+                                await self._prepare_for_dl(_url)
+                                self.list_videos.append(self.info_videos[_url]["video_info"])
                         else:
-                            await self._prepare_for_dl(_url)
-                            self.list_videos.append(self.info_videos[_url]["video_info"])
+                            logger.warning(
+                                f"{_pre} {_url}: already in info_videos:\n{self.info_videos[_url]}")
                     else:
-                        logger.warning(
-                            f"{_pre} {_url}: already in info_videos:\n{self.info_videos[_url]}")
-                else:
-                    await self._prepare_entry_pl_for_dl(_vid)
+                        await self._prepare_entry_pl_for_dl(_vid)
+            except Exception as e:
+                logger.exception(f"{_pre}: Error {repr(e)}")
 
         try:
             _url_list_caplinks = []
@@ -310,7 +312,7 @@ class AsyncDL:
                     logger.debug(f"{_pre}\n{_for_print_videos(self._url_pl_entries)}")
 
         except Exception as e:
-            logger.error(f"{_pre}: Error {repr(e)}")
+            logger.exception(f"{_pre}: Error {repr(e)}")
         finally:
             await self.WorkersInit.add_init("KILL")
             if not self.STOP.is_set():
