@@ -871,7 +871,7 @@ class AsyncDL:
             logger.info("[close] bye")
 
     def get_results_info(self):
-        _DOMAINS_CONF_PRINT = ["nakedsword.com", "onlyfans.com", "pornhub"]
+        _DOMAINS_CONF_PRINT = ["nakedsword.com", "onlyfans.com", "pornhub", "sflix.to", "theflixertv.to", "newprimewire.li"]
         col = shutil.get_terminal_size().columns
 
         def _getter(url: str, vid: dict) -> str:

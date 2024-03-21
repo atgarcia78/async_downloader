@@ -228,7 +228,7 @@ class AsyncHLSDownloader:
                 'proxies': self._proxy,
                 'limits': httpx.Limits(keepalive_expiry=30),
                 'follow_redirects': True,
-                'timeout': httpx.Timeout(15),
+                'timeout': httpx.Timeout(30),
                 'verify': False,
                 'headers': self.info_dict["http_headers"]}
 
@@ -1083,8 +1083,8 @@ class AsyncHLSDownloader:
                     await asyncio.wait(_wait_tasks)
                 raise AsyncHLSDLErrorFatal(f"{_premsg} resp code:{str(ctx.resp.status_code)}")
 
-            elif ctx.resp.status_code in (502, 503):
-                raise StatusError503(f"{_premsg}")
+            elif ctx.resp.status_code in (502, 503, 521):
+                raise StatusError503(f"{_premsg} error status code {ctx.resp.status_code}")
 
             elif ctx.resp.status_code >= 400:
                 raise AsyncHLSDLError(f"{_premsg} resp code:{str(ctx.resp.status_code)}")
@@ -1185,7 +1185,7 @@ class AsyncHLSDownloader:
                 logger.debug(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
                 raise
-            except httpx.ReadTimeout as e:
+            except (httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
                 logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
                 if _wait_tasks := await self._handle_reset(cause="hard", nworkers=2):
