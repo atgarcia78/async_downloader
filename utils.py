@@ -1696,7 +1696,7 @@ if yt_dlp:
 
         ytdl_opts = {
             "allow_unplayable_formats": True,
-            "retries": 1,
+            "retries": 3,
             "extractor_retries": 1,
             "force_generic_extractor": False,
             "allowed_extractors": ["default"],
