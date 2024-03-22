@@ -1312,15 +1312,6 @@ class AsyncHLSDownloader:
                     await asyncio.wait(self.tasks)
                     self._vid_dl.end_tasks.set()
 
-                    # if self.hsize_tasks:
-                    #     await asyncio.wait(list(self.hsize_tasks.values()))
-                    #     for index in self.hsize_tasks:
-                    #         if (_nhsize := self.info_frag[index - 1]["headersize"]):
-                    #             if (_nhsize - 100 <= self.info_frag[index - 1]["size"] <= _nhsize + 100):
-                    #                 self.info_frag[index - 1]["downloaded"] = True
-                    #                 self.n_dl_fragments += 1
-                    #     self.hsize_tasks = {}
-
                     if self._vid_dl.stop_event.is_set():
                         self.status = "stop"
                         return
@@ -1363,19 +1354,20 @@ class AsyncHLSDownloader:
                             self.status = "error"
                             raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR max resets")
                     elif inc_frags_dl > 0:
-                        try:
-                            await self.areset("hard")
-                            self.check_stop()
-                            logger.debug(f"{_premsg}:RESET:OK pending frags[{len(self.fragsnotdl())}]")
-                            self.n_reset -= 1
-                            continue
-                        except StatusStop:
-                            self.status = "stop"
-                            return
-                        except Exception as e:
-                            logger.exception(f"{_premsg}:RESET[{self.n_reset}]:ERROR reset [{repr(e)}]")
-                            self.status = "error"
-                            raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR reset") from e
+                        continue
+                        # try:
+                        #     await self.areset("hard")
+                        #     self.check_stop()
+                        #     logger.debug(f"{_premsg}:RESET:OK pending frags[{len(self.fragsnotdl())}]")
+                        #     self.n_reset -= 1
+                        #     continue
+                        # except StatusStop:
+                        #     self.status = "stop"
+                        #     return
+                        # except Exception as e:
+                        #     logger.exception(f"{_premsg}:RESET[{self.n_reset}]:ERROR reset [{repr(e)}]")
+                        #     self.status = "error"
+                        #     raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR reset") from e
                     else:
                         self.status = "error"
                         raise AsyncHLSDLErrorFatal(f"{_premsg} no inc dlfrags in one cycle")
