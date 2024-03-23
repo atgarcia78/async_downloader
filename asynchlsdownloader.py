@@ -144,8 +144,11 @@ on_exception_hsize = my_dec_on_exception(
 on_503 = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=False, interval=30)
 
-on_timeout = my_dec_on_exception(
-    TimeoutError, max_tries=5, raise_on_giveup=False, interval=10)
+
+network_exceptions = (httpx.ReadTimeout, httpx.ProtocolError)
+
+on_network_exception = my_dec_on_exception(
+    network_exceptions, max_timme=360, raise_on_giveup=False, interval=5)
 
 
 class AsyncHLSDownloader:
@@ -709,6 +712,7 @@ class AsyncHLSDownloader:
         try:
             self.check_stop()
             if not self.args.proxy and proxy:
+                logger.warning(f"{premsg} ojo entrnado en myTDL")
                 with myYTDL(params=self.ytdl.params, proxy=proxy, silent=True) as proxy_ytdl:
                     _info_video = proxy_ytdl.sanitize_info(
                         proxy_ytdl.extract_info(url, download=False))
@@ -1060,7 +1064,7 @@ class AsyncHLSDownloader:
                 fs=_tasks_all, events=self._vid_dl.stop_event)
 
     @on_503
-    @on_timeout
+    @on_network_exception
     async def _download_frag(self, index: int, msg: str, nco: int):
         _premsg = f"{msg}:[frag-{index}]:[dl]"
 
@@ -1165,12 +1169,11 @@ class AsyncHLSDownloader:
                 logger.debug(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
                 raise
-            except (httpx.ReadTimeout, httpx.RemoteProtocolError) as e:
+            except network_exceptions as e:
                 logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
-                # if _wait_tasks := await self._handle_reset(cause="hard", nworkers=2):
-                #     await asyncio.wait(_wait_tasks)
-                raise AsyncHLSDLErrorFatal(f"{_premsg} {repr(e)}")
+                # raise AsyncHLSDLError(f"{_premsg} {repr(e)}")
+                raise
             except (AsyncHLSDLError, Exception) as e:
                 logger.error(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
@@ -1191,8 +1194,7 @@ class AsyncHLSDownloader:
                     qindex = self.frags_queue.get_nowait()
                     if qindex == kill_token:
                         return
-                    else:
-                        await self._download_frag(qindex, premsg, nco)
+                    await self._download_frag(qindex, premsg, nco)
                 except asyncio.QueueEmpty as e:
                     logger.debug(f"{premsg} inner exception {repr(e)}")
                     await asyncio.sleep(0)
@@ -1231,7 +1233,7 @@ class AsyncHLSDownloader:
                     async with self._asynclock:
                         self.down_size += self._inc_bytes
                         self._vid_dl.total_sizes["down_size"] += self._inc_bytes
-                        self.filesize = self._vid_dl.total_sizes["filesize"] = avg_filesize() 
+                        self.filesize = self._vid_dl.total_sizes["filesize"] = avg_filesize()
                     self._inc_bytes = 0
                     _speed_meter = self.speedometer(self.down_size)
                     _est_time = None
@@ -1343,19 +1345,6 @@ class AsyncHLSDownloader:
                     elif inc_frags_dl > 0:
                         await self.sync_to_async(self.prep_reset)()
                         continue
-                        # try:
-                        #     await self.areset("hard")
-                        #     self.check_stop()
-                        #     logger.debug(f"{_premsg}:RESET:OK pending frags[{len(self.fragsnotdl())}]")
-                        #     self.n_reset -= 1
-                        #     continue
-                        # except StatusStop:
-                        #     self.status = "stop"
-                        #     return
-                        # except Exception as e:
-                        #     logger.exception(f"{_premsg}:RESET[{self.n_reset}]:ERROR reset [{repr(e)}]")
-                        #     self.status = "error"
-                        #     raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR reset") from e
                     else:
                         self.status = "error"
                         raise AsyncHLSDLErrorFatal(f"{_premsg} no inc dlfrags in one cycle")

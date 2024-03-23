@@ -417,14 +417,11 @@ class VideoDownloader:
 
     def _get_subts_files(self):
         def _dl_subt():
-            cmd = [
-                "yt-dlp", "-P", self.info_dl['filename'].absolute().parent,
-                "-o", f"{self.info_dl['filename'].stem}.%(ext)s",
-                "--no-download", "--write-subs",
-                self.info_dict.get('original_url')
-                if self.info_dict.get('__gvd_playlist_index')
-                else self.info_dict.get("webpage_url")]
-            return subprocess.run(cmd, encoding="utf-8", capture_output=True)
+            self.info_dl['ytdl'].params['paths'] = {'home': str(self.info_dl["filename"].absolute().parent)}
+            self.info_dl['ytdl'].params['keepvideo'] = False
+            self.info_dl['ytdl'].params['skip_download'] = True
+            _url = self.info_dict.get('original_url') if self.info_dict.get('__gvd_playlist_index') else self.info_dict.get("webpage_url")
+            return self.info_dl['ytdl'].download(_url)
 
         if not (_subts := self.info_dict.get("requested_subtitles")):
             return
@@ -442,9 +439,9 @@ class VideoDownloader:
         if not _final_subts:
             return
 
-        res = _dl_subt()
-        logger.debug(f"{self.premsg}[get_subts] res  proc[{res.returncode}]")
-        if res.returncode != 0:
+        res_returncode = _dl_subt()
+        logger.debug(f"{self.premsg}[get_subts] res  proc[{res_returncode}]")
+        if res_returncode != 0:
             return
 
         for _lang, _ in _final_subts.items():
