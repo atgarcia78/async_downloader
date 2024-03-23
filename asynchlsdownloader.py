@@ -145,15 +145,15 @@ on_503 = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=False, interval=30)
 
 
-network_exceptions = (httpx.ReadTimeout, httpx.ProtocolError)
+network_exceptions = (httpx.ReadTimeout, httpx.RemoteProtocolError)
 
 on_network_exception = my_dec_on_exception(
-    network_exceptions, max_timme=360, raise_on_giveup=False, interval=5)
+    network_exceptions, max_tries=10, raise_on_giveup=True, interval=5)
 
 
 class AsyncHLSDownloader:
     _PLNS = {}
-    _CHUNK_SIZE = 65536  # 10485760  # 16384  # 1024  # 102400 #10485760
+    _CHUNK_SIZE = 8196  # 16384  # 65536  # 10485760  # 16384  # 1024  # 102400 #10485760
     _MAX_RETRIES = 5
     _MAX_RESETS = 20
     _CONFIG = load_config_extractors()
@@ -1173,6 +1173,9 @@ class AsyncHLSDownloader:
                 logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
                 # raise AsyncHLSDLError(f"{_premsg} {repr(e)}")
+                if _cl := self.clients.pop(nco, None):
+                    await _cl.aclose()
+                self.clients[nco] = httpx.AsyncClient(**self.config_httpx())
                 raise
             except (AsyncHLSDLError, Exception) as e:
                 logger.error(f"{_premsg}: Error: {repr(e)}")
