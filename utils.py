@@ -1693,6 +1693,8 @@ if yt_dlp:
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
             "Accept-Language": "en-US,en;q=0.5",
         }
+        if args.headers:
+            headers |= {el[0]: el[1] for item in args.headers if item and (el := item.split(':', 1))}
 
         ytdl_opts = {
             "allow_unplayable_formats": True,
@@ -2319,7 +2321,7 @@ def init_argparser():
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
     parser.add_argument("--nodl", help="not download", action="store_true", default=False)
-    parser.add_argument("--headers", default="", type=str)
+    parser.add_argument("--add-header", action="append", dest="headers", default=[])
     parser.add_argument("-u", action="append", dest="collection", default=[])
     parser.add_argument("--dlcaching", help="whether to force to check external storage or not", action=ActionNoYes, default=False)
     parser.add_argument("--path", default=None, type=str)
@@ -4913,7 +4915,7 @@ args = argparse.Namespace(
     first=None,
     last=None,
     nodl=False,
-    headers="",
+    headers=[],
     collection=[],
     dlcaching=False,
     path=None,
