@@ -165,7 +165,7 @@ class AsyncNativeDownloader:
                 'outtmpl': {'default': f'{self._filename.stem}.%(ext)s'}}
 
             with myYTDL(params=(self.ytdl.params | opts_upt), silent=True) as pytdl:
-                pytdl.params['http_headers'] |= traverse_obj(self.info_dict, ("formats", 0, "http_headers"))
+                pytdl.params['http_headers'] |= (traverse_obj(self.info_dict, ("formats", 0, "http_headers")) or {})
                 if _cookies := traverse_obj(self.info_dict, ("formats", 0, "cookies")):
                     pytdl._load_cookies(_cookies, autoscope=False)
                 _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict, download=True))

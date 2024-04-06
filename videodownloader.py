@@ -238,10 +238,7 @@ class VideoDownloader:
         self._types = " - ".join(_types)
         return res_dl
 
-    def add_task(
-        self, coro: Union[Coroutine, asyncio.Task], *,
-        name: Optional[str] = None
-    ) -> asyncio.Task:
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
 
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
@@ -390,7 +387,8 @@ class VideoDownloader:
                             f"{self.premsg}[run_dl] task[{label}]: {repr(error)}")
 
                 if self.stop_event.is_set():
-                    logger.debug(f"{self.premsg}[run_dl] end run with stop - {self.info_dl['status']}")
+                    logger.debug(
+                        f"{self.premsg}[run_dl] end run with stop - {self.info_dl['status']}")
                     self.info_dl["status"] = "stop"
 
                 else:
