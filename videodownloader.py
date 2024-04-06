@@ -13,7 +13,6 @@ from queue import Queue
 import aiofiles.os
 import xattr
 from yt_dlp.cookies import LenientSimpleCookie
-from yt_dlp.extractor.onlyfans import OnlyFansBaseIE
 from yt_dlp.utils import sanitize_filename
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
@@ -181,7 +180,7 @@ class VideoDownloader:
                 dl = AsyncNativeDownloader(
                     self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
                 self._types = "NATIVE_DRM" if _drm else "NATIVE"
-                logger.info(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
+                logger.debug(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
                 return dl
             except Exception as e:
                 logger.error(
@@ -477,7 +476,9 @@ class VideoDownloader:
                 _headers = traverse_obj(self.info_dict, ("formats", 0, "http_headers"))
                 kwargs = {'headers': _headers}
                 if _cookies := traverse_obj(self.info_dict, ("formats", 0, "cookies")):
-                    cookies = [{'name': cookie.key, 'value': cookie.value, 'domain': cookie.get('domain')} for cookie in LenientSimpleCookie(_cookies).values()]
+                    cookies = [
+                        {'name': cookie.key, 'value': cookie.value, 'path': cookie.get('path', '/'), 'domain': cookie.get('domain')}
+                        for cookie in LenientSimpleCookie(_cookies).values()]
                     kwargs |= {'cookies': cookies}
                 _pssh = try_get(get_pssh_from_mpd(mpd_url=_murl, **kwargs), lambda x: x[0])
         logger.debug(f"{self.premsg} licurl[{_licurl}] - murl[{_murl}] pssh[{_pssh}]")
@@ -485,7 +486,8 @@ class VideoDownloader:
             raise AsyncDLError(f"{self.premsg}: error DRM info")
         _func_validate = None
         if "onlyfans" in self.info_dict["extractor_key"].lower():
-            _func_validate = OnlyFansBaseIE.validate_drm_lic
+            ie = self.info_dl['ytdl'].get_extractor('OnlyFansPost')
+            _func_validate = ie.validate_drm_lic
         _path_drm_file = str(Path(self.info_dl['download_path'], 'drm.xml'))
         _keys = get_drm_xml(
             _licurl, _path_drm_file, pssh=_pssh, func_validate=_func_validate)
