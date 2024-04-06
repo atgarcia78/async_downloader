@@ -12,6 +12,7 @@ from queue import Queue
 
 import aiofiles.os
 import xattr
+from yt_dlp.cookies import LenientSimpleCookie
 from yt_dlp.extractor.onlyfans import OnlyFansBaseIE
 from yt_dlp.utils import sanitize_filename
 
@@ -117,7 +118,8 @@ class VideoDownloader:
 
         self._infodl = InfoDL(
             self.pause_event, self.resume_event, self.stop_event,
-            self.end_tasks, self.reset_event, self.total_sizes, nwsetup)
+            self.end_tasks, self.reset_event,
+            self.total_sizes, nwsetup, self.info_dict)
 
         self._types = ""
         downloaders = []
@@ -179,9 +181,7 @@ class VideoDownloader:
                 dl = AsyncNativeDownloader(
                     self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
                 self._types = "NATIVE_DRM" if _drm else "NATIVE"
-                if 'manifest_url' not in self.info_dict:
-                    self.info_dict['manifest_url'] = dl.info_dict.get('manifest_url')
-                logger.info(f"{self.premsg}[get_dl] DL type native drm[{_drm}] murl[{self.info_dict['manifest_url']}]")
+                logger.info(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
                 return dl
             except Exception as e:
                 logger.error(
@@ -473,8 +473,13 @@ class VideoDownloader:
         if not _licurl:
             raise AsyncDLError(f"{self.premsg}: error DRM info")
         elif not _pssh:
-            if _murl := self.info_dict.get('manifest_url'):
-                _pssh = get_pssh_from_mpd(mpd_url=_murl)[0]
+            if _murl := traverse_obj(self.info_dict, ("formats", 0, "manifest_url")):
+                _headers = traverse_obj(self.info_dict, ("formats", 0, "http_headers"))
+                kwargs = {'headers': _headers}
+                if _cookies := traverse_obj(self.info_dict, ("formats", 0, "cookies")):
+                    cookies = [{'name': cookie.key, 'value': cookie.value, 'domain': cookie.get('domain')} for cookie in LenientSimpleCookie(_cookies).values()]
+                    kwargs |= {'cookies': cookies}
+                _pssh = try_get(get_pssh_from_mpd(mpd_url=_murl, **kwargs), lambda x: x[0])
         logger.debug(f"{self.premsg} licurl[{_licurl}] - murl[{_murl}] pssh[{_pssh}]")
         if not _pssh:
             raise AsyncDLError(f"{self.premsg}: error DRM info")
@@ -607,11 +612,11 @@ class VideoDownloader:
             _drm_xml = self._get_drm_xml()
             cmd = f"MP4Box -quiet -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {self.temp_filename}"
 
-            logger.info(f"{self.premsg}: starting decryption files")
+            logger.debug(f"{self.premsg}: starting decryption files")
             logger.debug(f"{self.premsg}: {cmd}")
 
             proc = await arunproc(cmd)
-            logger.info(
+            logger.debug(
                 f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {proc.returncode}")
 
             if (

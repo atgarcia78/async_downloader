@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import functools
 import logging
 import os
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Semaphore
 from typing import Callable, Optional
 
 from httpx import Client
@@ -42,6 +43,15 @@ CONF_DRM_XML_TEMPLATE = '''\
 class myDRM:
     _LOCK = Lock()
     _CDM = None
+    _SEM = Semaphore(12)
+
+    class syncsem:
+        def __call__(self, func):
+            @functools.wraps(func)
+            def wrapper(*args, **kwargs):
+                with myDRM._SEM:
+                    return func(*args, **kwargs)
+            return wrapper
 
     @classmethod
     def create_drm_cdm(cls, file: Optional[str | Path] = None) -> Cdm:
@@ -65,6 +75,7 @@ class myDRM:
         return cls._CDM
 
     @classmethod
+    @syncsem()
     def get_drm_keys(
         cls, lic_url: str, pssh: Optional[str] = None,
         func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None,
@@ -85,13 +96,15 @@ class myDRM:
                 cls._CDM = cls.create_drm_cdm()
 
         session_id = cls._CDM.open()
-        challenge = cls._CDM.get_license_challenge(session_id, PSSH(pssh))
-        _validate_lic = func_validate or cls.validate_drm_lic
-        cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
-        if (keys := cls._CDM.get_keys(session_id)):
-            _res = [f"{key.kid.hex}:{key.key.hex()}" for key in keys if key.type == 'CONTENT']
-
-        return _res if len(_res) > 1 else _res[0]
+        try:
+            challenge = cls._CDM.get_license_challenge(session_id, PSSH(pssh))
+            _validate_lic = func_validate or cls.validate_drm_lic
+            cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
+            if (keys := cls._CDM.get_keys(session_id)):
+                _res = [f"{key.kid.hex}:{key.key.hex()}" for key in keys if key.type == 'CONTENT']
+            return _res if len(_res) > 1 else _res[0]
+        finally:
+            cls._CDM.close(session_id)
 
     @classmethod
     def get_drm_xml(

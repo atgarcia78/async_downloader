@@ -343,38 +343,42 @@ class AsyncARIA2CDownloader:
         return opts
 
     def _get_filesize(self, uris, proxy=None) -> Optional[tuple]:
-        opts_dict = {
-            "header": "\n".join(
-                [f"{key}: {value}" for key, value in self.headers.items()]),
-            "dry-run": "true",
-            "split": 1,
-            "all-proxy": proxy or ""}
-        _callback = lambda x, _: x.stop_listening()
 
-        try:
-            logger.debug(f"{self.premsg}[get_filesize] start")
-            with self._decor:
-                _dl = self.aria2_API.add_uris(
-                    uris, options=self.set_opts(opts_dict))
-                try:
-                    self.aria2_API.listen_to_notifications(
-                        on_download_complete=_callback,
-                        on_download_error=_callback)
-                    _dl.update()
-                    if _dl.status == "complete":
-                        return (_dl.total_length, _dl.completed_length)
-                except Exception as e:
-                    logger.error(f"{self.premsg}[get_filesize] error: {str(e)}")
-                finally:
-                    for func in [self.aria2_API.stop_listening, _dl.remove]:
-                        try:
-                            func()
-                        except Exception as e:
-                            logger.error(f"{self.premsg}[get_filesize] error in [{func}]: {repr(e)}")
-                    logger.debug(f"{self.premsg}[get_filesize] bye")
+        with AsyncARIA2CDownloader._LOCK:
 
-        except Exception as e:
-            logger.error(f"{self.premsg}[get_filesize] error: {str(e)}")
+            opts_dict = {
+                "header": "\n".join(
+                    [f"{key}: {value}" for key, value in self.headers.items()]),
+                "dry-run": "true",
+                "split": 1,
+                "out": self.info_dict['id'],
+                "all-proxy": proxy or ""}
+            _callback = lambda x, _: x.stop_listening()
+
+            try:
+                logger.debug(f"{self.premsg}[get_filesize] start")
+                with self._decor:
+                    _dl = self.aria2_API.add_uris(
+                        uris, options=self.set_opts(opts_dict))
+                    try:
+                        self.aria2_API.listen_to_notifications(
+                            on_download_complete=_callback,
+                            on_download_error=_callback)
+                        _dl.update()
+                        if _dl.status == "complete":
+                            return (_dl.total_length, _dl.completed_length)
+                    except Exception as e:
+                        logger.error(f"{self.premsg}[get_filesize] error: {str(e)}")
+                    finally:
+                        for func in [self.aria2_API.stop_listening, _dl.remove]:
+                            try:
+                                func()
+                            except Exception as e:
+                                logger.error(f"{self.premsg}[get_filesize] error in [{func}]: {repr(e)}")
+                        logger.debug(f"{self.premsg}[get_filesize] bye")
+
+            except Exception as e:
+                logger.error(f"{self.premsg}[get_filesize] error: {str(e)}")
 
     async def _acall(self, func: Callable, /, *args, **kwargs):
         """

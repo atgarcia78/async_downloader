@@ -368,7 +368,7 @@ class AsyncDL:
                                 raise StatusStop()
                             if not _ent.get("original_url"):
                                 _ent.update({"original_url": _url})
-                            if _ent.get("error") or not _ent.get("url"):
+                            if _ent.get("error") or not _ent.get("format"):
                                 _ent["_type"] = "error"
                                 await self._prepare_entry_pl_for_dl(_ent)
                                 async with self.alock:

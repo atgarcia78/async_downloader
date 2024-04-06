@@ -1292,7 +1292,8 @@ if yt_dlp:
             "in player engine - download may fail",
             "cookies from firefox",
             "Ignoring subtitle tracks found in the HLS manifest",
-            "Using netrc for"
+            "Using netrc for",
+            "You have requested merging of multiple formats"
         ]
 
         _skip_phr = ["Downloading", "Extracting information", "Checking", "Logging"]
@@ -2004,7 +2005,8 @@ if yt_dlp:
             mpd = json.loads(json.dumps(mpd_dict))
             periods = mpd['MPD']['Period']
         except Exception:
-            return list(pssh)
+            raise
+            # return list(pssh)
 
         for period in variadic(periods):
             for ad_set in variadic(period['AdaptationSet']):
@@ -2022,6 +2024,9 @@ if yt_dlp:
 
         if not (_doc := kwargs.pop('doc', None)):
             with httpx.Client(**CLIENT_CONFIG) as client:
+                if (_cookies := kwargs.pop('cookies')):
+                    for cookie in _cookies:
+                        client.cookies.set(name=cookie['name'], value=cookie['value'], domain=cookie['domain'])
                 _doc = try_get(
                     client.get(mpd_url, **kwargs),
                     lambda x: x.content.decode('utf-8', 'replace'))
@@ -4418,6 +4423,7 @@ class InfoDL:
     reset_event: MySyncAsyncEvent
     total_sizes: dict
     nwsetup: NWSetUp
+    info_dict: dict
 
     def clear(self):
         self.pause_event.clear()
