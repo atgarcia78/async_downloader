@@ -1366,7 +1366,7 @@ if yt_dlp:
                 opts["verbose"] = False
                 opts["verboseplus"] = False
                 opts["logger"] = MyYTLogger(
-                    logging.getLogger("ytdlp"),
+                    logging.getLogger("ytdl"),
                     quiet=True, verbose=False, superverbose=False)
 
             super().__init__(params=(params or {}) | opts, auto_init=auto_init)  # type: ignore
@@ -2179,7 +2179,7 @@ if yt_dlp:
         else:
             yt = ytdl
 
-        logger = mylogger(logging.get_logger("dl_gvd"))
+        logger = mylogger(logging.getLogger("dl_gvd"))
         logger.quiet = quiet
         url = f"https://www.gvdblog.com/search?date={date}"
         resleg = yt.extract_info(url, download=False)
@@ -2268,13 +2268,9 @@ def init_logging(file_path=None, test=False):
 
     logging.config.dictConfig(config)
 
-    for log_name, _ in logging.Logger.manager.loggerDict.items():
-        if log_name.startswith("proxy"):
-            logger = logging.getLogger(log_name)
+    for log_name, logger in logging.Logger.manager.loggerDict.items():
+        if any(log_name.startswith(_) for _ in ('proxy', 'plugins.proxy')) and isinstance(logger, logging.Logger):
             logger.setLevel(logging.ERROR)
-
-    logger = logging.getLogger("plugins.proxy_pool_by_host")
-    logger.setLevel(logging.ERROR)
 
     if test:
         return logging.getLogger("test")

@@ -120,13 +120,20 @@ def _resolve_queue(q):
 
 class QueueListenerHandler(QueueHandler):
 
-    def __init__(self, handlers, respect_handler_level=False, auto_run=True, queue=Queue(-1)):
-        _queue = queue
-        super().__init__(_resolve_queue(_queue))
+    handlers = []
+    _LOCK = threading.Lock()
+
+    def __init__(self, handlers, name):
+
+        with QueueListenerHandler._LOCK:
+            if name in QueueListenerHandler.handlers:
+                return
+            QueueListenerHandler.handlers.append(name)
+        self._name_logger = name
+        super().__init__(_resolve_queue(Queue(-1)))
         self._listener = SingleThreadQueueListener(
-            self.queue, *_resolve_handlers(handlers), respect_handler_level=respect_handler_level)
-        if auto_run:
-            self.start()
+            self.queue, name, *_resolve_handlers(handlers), respect_handler_level=True)
+        self.start()
 
     def start(self):
         self._listener.start()
@@ -134,24 +141,28 @@ class QueueListenerHandler(QueueHandler):
     def stop(self):
         self._listener.stop()
 
-    def emit(self, record):
-        return super().emit(record)
-
 
 class SingleThreadQueueListener(QueueListener):
 
     monitor_thread = None
     listeners = []
     sleep_time = 0.1
+    _LOCK = threading.Lock()
+
+    def __init__(self, queue, name, *handlers, respect_handler_level=False):
+        self.queue = queue
+        self.handlers = handlers
+        self._thread = None
+        self.respect_handler_level = respect_handler_level
+        self._name_logger = name
 
     @classmethod
     def _start(cls):
-        """Start a single thread, only if none is started."""
-        if cls.monitor_thread is None or not cls.monitor_thread.is_alive():
-            cls.monitor_thread = t = threading.Thread(
-                target=cls._monitor_all, name='logging_monitor')
-            t.daemon = True
-            t.start()
+        with cls._LOCK:
+            if cls.monitor_thread is None or not cls.monitor_thread.is_alive():
+                cls.monitor_thread = t = threading.Thread(
+                    target=cls._monitor_all, name='logging_monitor', daemon=True)
+                t.start()
         return cls.monitor_thread
 
     @classmethod
@@ -165,24 +176,14 @@ class SingleThreadQueueListener(QueueListener):
 
     @classmethod
     def _monitor_all(cls):
-        """A monitor function for all the registered listeners.
-        Does not block when obtaining messages from the queue to give all
-        listeners a chance to get an item from the queue. That's why we
-        must sleep at every cycle.
-
-        If a sentinel is sent, the listener is unregistered.
-        When all listeners are unregistered, the thread stops.
-        """
         noop = lambda: None
         while cls.listeners:
-            time.sleep(cls.sleep_time)  # does not block all threads
+            time.sleep(cls.sleep_time)
             for listener in cls.listeners:
                 try:
-                    # Gets all messages in this queue without blocking
                     task_done = getattr(listener.queue, 'task_done', noop)
                     while True:
-                        record = listener.dequeue(False)
-                        if record is listener._sentinel:
+                        if (record := listener.dequeue(False)) is listener._sentinel:
                             with contextlib.suppress(ValueError):
                                 cls.listeners.remove(listener)
                         else:
@@ -192,11 +193,7 @@ class SingleThreadQueueListener(QueueListener):
                     continue
 
     def start(self):
-        """Override default implementation.
-        Register this listener and call class' _start() instead.
-        """
         SingleThreadQueueListener.listeners.append(self)
-        # Start if not already
         SingleThreadQueueListener._start()
 
     def stop(self):
@@ -208,6 +205,14 @@ class LogContext:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, *args):
         list(map(lambda x: x.stop(), SingleThreadQueueListener.listeners))
         SingleThreadQueueListener._join()
+
+
+def get_logger(name):
+    _logger = logging.getLogger(name)
+    _logger.propagate = False
+    _handlers = logging.root.handlers[0]._listener.handlers
+    QueueListenerHandler(_handlers, name=name)
+    return _logger
