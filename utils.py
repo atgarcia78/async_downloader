@@ -4330,7 +4330,7 @@ class NWSetUp:
                     "--log-level",
                     log_level,
                     "--plugins",
-                    "plugins.ProxyPoolByHostPlugin",
+                    "proxy_plugins.ProxyPoolByHostPlugin",
                 ]
             ) as p:
                 try:

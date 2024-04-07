@@ -52,10 +52,6 @@ class ColoredFormatter(logging.Formatter):
         seq = MAPPING.get(levelname, 37)  # default white
         colored_levelname = ("{0}{1}m{2}{3}").format(PREFIX, seq, levelname, SUFFIX)
         colored_record.levelname = colored_levelname
-        # if 'proxy.' in colored_record.name:
-        #    colored_record.name = colored_record.name.split('.')[0]
-        # if colored_record.msg.startswith("%no%"):
-        #     colored_record.msg = colored_record.msg[4:]
         if "%no%" in colored_record.msg:
             colored_record.msg = colored_record.msg.replace("%no%", "")
 
@@ -102,7 +98,6 @@ class FilterMsg(logging.Filter):
 def _resolve_handlers(_list):
     if not isinstance(_list, ConvertingList):
         return _list
-    # Indexing the list performs the evaluation.
     return [_list[i] for i in range(len(_list))]
 
 
@@ -128,7 +123,8 @@ class QueueListenerHandler(QueueHandler):
     def __init__(self, handlers, respect_handler_level=False, auto_run=True, queue=Queue(-1)):
         _queue = queue
         super().__init__(_resolve_queue(_queue))
-        self._listener = SingleThreadQueueListener(self.queue, *_resolve_handlers(handlers), respect_handler_level=respect_handler_level)
+        self._listener = SingleThreadQueueListener(
+            self.queue, *_resolve_handlers(handlers), respect_handler_level=respect_handler_level)
         if auto_run:
             self.start()
 
@@ -143,11 +139,7 @@ class QueueListenerHandler(QueueHandler):
 
 
 class SingleThreadQueueListener(QueueListener):
-    """A subclass of QueueListener that uses a single thread for all queues.
 
-    See https://github.com/python/cpython/blob/main/Lib/logging/handlers.py
-    for the implementation of QueueListener.
-    """
     monitor_thread = None
     listeners = []
     sleep_time = 0.1
@@ -208,7 +200,6 @@ class SingleThreadQueueListener(QueueListener):
         SingleThreadQueueListener._start()
 
     def stop(self):
-        """Enqueues the sentinel but does not stop the thread."""
         self.enqueue_sentinel()
 
 
@@ -218,7 +209,5 @@ class LogContext:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        while SingleThreadQueueListener.listeners:
-            listener = SingleThreadQueueListener.listeners.pop()
-            listener.stop()
+        list(map(lambda x: x.stop(), SingleThreadQueueListener.listeners))
         SingleThreadQueueListener._join()

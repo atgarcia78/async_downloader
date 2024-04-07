@@ -101,18 +101,13 @@
         },
         "queue_handler": {
             "class": "supportlogging.QueueListenerHandler",
-            "handlers": [
-                "cfg://handlers.console",
-                "cfg://handlers.info_file_handler"
-            ],
+            "handlers": ["cfg://handlers.console", "cfg://handlers.info_file_handler"],
             "respect_handler_level": "True"
         }
     },
     "loggers": {},
     "root": {
         "level": "DEBUG",
-        "handlers": [
-            "queue_handler"
-        ]
+        "handlers": ["queue_handler"]
     }
 }
