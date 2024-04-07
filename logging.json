@@ -87,7 +87,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "DEBUG",
             "formatter": "file_format",
-            "filename": "{path_logs}/asyncdl.log",
+            "filename": "{path_logs}",
             "filters": ["filtermodules", "filtermsg"],
             "maxBytes": 3155360,
             "backupCount": 20,

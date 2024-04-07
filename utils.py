@@ -2264,7 +2264,7 @@ def init_logging(file_path=None, test=False):
         config = json.loads(f.read())
 
     config["handlers"]["info_file_handler"]["filename"] = config[
-        "handlers"]["info_file_handler"]["filename"].format(path_logs=str(PATH_LOGS))
+        "handlers"]["info_file_handler"]["filename"].format(path_logs=str(Path(PATH_LOGS, 'asyncdl.log')))
 
     logging.config.dictConfig(config)
 
