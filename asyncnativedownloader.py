@@ -26,7 +26,7 @@ from utils import (
     try_get,
 )
 
-logger = logging.getLogger("async_native")
+logger = logging.getLogger("asyncnativedl")
 
 
 class AsyncNativeDLErrorFatal(Exception):

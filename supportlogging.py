@@ -2,24 +2,21 @@
 supportlogging - Python3 Logging
 
 """
-import atexit
+import contextlib
 import logging
 import logging.handlers
 import shutil
+import threading
+import time
 from copy import copy
-from logging.config import (
-    ConvertingDict,  # type: ignore
-    ConvertingList,  # type: ignore
+from logging.config import (  # type: ignore
+    ConvertingDict,
+    ConvertingList,
     valid_ident,
 )
 from logging.handlers import QueueHandler, QueueListener
+from queue import Empty, Queue
 from textwrap import fill
-
-try:
-    from multiprocess import Queue  # type: ignore
-except ImportError:
-    logging.error("Please install multiprocess")
-    from multiprocessing import Queue
 
 MAPPING = {
     "DEBUG": 34,  # white
@@ -105,7 +102,6 @@ class FilterMsg(logging.Filter):
 def _resolve_handlers(_list):
     if not isinstance(_list, ConvertingList):
         return _list
-
     # Indexing the list performs the evaluation.
     return [_list[i] for i in range(len(_list))]
 
@@ -115,7 +111,6 @@ def _resolve_queue(q):
         return q
     if "__resolved_value__" in q:
         return q["__resolved_value__"]
-
     cname = q.pop("class")
     klass = q.configurator.resolve(cname)
     props = q.pop(".", None)
@@ -124,20 +119,18 @@ def _resolve_queue(q):
     if props:
         for name, value in props.items():
             setattr(result, name, value)
-
     q["__resolved_value__"] = result
     return result
 
 
 class QueueListenerHandler(QueueHandler):
+
     def __init__(self, handlers, respect_handler_level=False, auto_run=True, queue=Queue(-1)):
-        queue = _resolve_queue(queue)
-        super().__init__(queue)
-        handlers = _resolve_handlers(handlers)
-        self._listener = QueueListener(self.queue, *handlers, respect_handler_level=respect_handler_level)
+        _queue = queue
+        super().__init__(_resolve_queue(_queue))
+        self._listener = SingleThreadQueueListener(self.queue, *_resolve_handlers(handlers), respect_handler_level=respect_handler_level)
         if auto_run:
             self.start()
-            atexit.register(self.stop)
 
     def start(self):
         self._listener.start()
@@ -147,3 +140,85 @@ class QueueListenerHandler(QueueHandler):
 
     def emit(self, record):
         return super().emit(record)
+
+
+class SingleThreadQueueListener(QueueListener):
+    """A subclass of QueueListener that uses a single thread for all queues.
+
+    See https://github.com/python/cpython/blob/main/Lib/logging/handlers.py
+    for the implementation of QueueListener.
+    """
+    monitor_thread = None
+    listeners = []
+    sleep_time = 0.1
+
+    @classmethod
+    def _start(cls):
+        """Start a single thread, only if none is started."""
+        if cls.monitor_thread is None or not cls.monitor_thread.is_alive():
+            cls.monitor_thread = t = threading.Thread(
+                target=cls._monitor_all, name='logging_monitor')
+            t.daemon = True
+            t.start()
+        return cls.monitor_thread
+
+    @classmethod
+    def _join(cls):
+        """Waits for the thread to stop.
+        Only call this after stopping all listeners.
+        """
+        if cls.monitor_thread is not None and cls.monitor_thread.is_alive():
+            cls.monitor_thread.join()
+        cls.monitor_thread = None
+
+    @classmethod
+    def _monitor_all(cls):
+        """A monitor function for all the registered listeners.
+        Does not block when obtaining messages from the queue to give all
+        listeners a chance to get an item from the queue. That's why we
+        must sleep at every cycle.
+
+        If a sentinel is sent, the listener is unregistered.
+        When all listeners are unregistered, the thread stops.
+        """
+        noop = lambda: None
+        while cls.listeners:
+            time.sleep(cls.sleep_time)  # does not block all threads
+            for listener in cls.listeners:
+                try:
+                    # Gets all messages in this queue without blocking
+                    task_done = getattr(listener.queue, 'task_done', noop)
+                    while True:
+                        record = listener.dequeue(False)
+                        if record is listener._sentinel:
+                            with contextlib.suppress(ValueError):
+                                cls.listeners.remove(listener)
+                        else:
+                            listener.handle(record)
+                        task_done()
+                except Empty:
+                    continue
+
+    def start(self):
+        """Override default implementation.
+        Register this listener and call class' _start() instead.
+        """
+        SingleThreadQueueListener.listeners.append(self)
+        # Start if not already
+        SingleThreadQueueListener._start()
+
+    def stop(self):
+        """Enqueues the sentinel but does not stop the thread."""
+        self.enqueue_sentinel()
+
+
+class LogContext:
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        while SingleThreadQueueListener.listeners:
+            listener = SingleThreadQueueListener.listeners.pop()
+            listener.stop()
+        SingleThreadQueueListener._join()

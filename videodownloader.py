@@ -39,7 +39,7 @@ from utils import (
     variadic,
 )
 
-logger = logging.getLogger("video_DL")
+logger = logging.getLogger("videodl")
 
 
 class AsyncErrorDownloader:

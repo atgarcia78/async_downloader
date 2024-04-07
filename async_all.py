@@ -4,15 +4,17 @@ import logging
 import uvloop
 
 from asyncdl import AsyncDL
+from supportlogging import LogContext
 from utils import init_argparser, init_config
 
 init_config()
-logger = logging.getLogger("async_all")
+logger = logging.getLogger("asyncdl")
 
 
 def main():
-    asyncDL = AsyncDL(init_argparser())
-    uvloop.run(asyncDL.async_ex())
+    with LogContext():
+        asyncDL = AsyncDL(init_argparser())
+        uvloop.run(asyncDL.async_ex())
 
 
 if __name__ == "__main__":

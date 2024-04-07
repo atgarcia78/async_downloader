@@ -47,7 +47,7 @@ from utils import (
 from videodownloader import VideoDownloader
 from workers import WorkersInit, WorkersRun
 
-logger = mylogger(logging.getLogger("asyncDL"))
+logger = mylogger(logging.getLogger("asyncdl"))
 
 
 @dataclass

@@ -99,7 +99,7 @@
             "backupCount": 20,
             "encoding": "utf8"
         },
-        "queue_listener": {
+        "queue_handler": {
             "class": "supportlogging.QueueListenerHandler",
             "handlers": [
                 "cfg://handlers.console",
@@ -112,7 +112,7 @@
     "root": {
         "level": "DEBUG",
         "handlers": [
-            "queue_listener"
+            "queue_handler"
         ]
     }
 }

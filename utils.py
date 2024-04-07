@@ -250,7 +250,7 @@ def try_call(*funcs, expected_type=None, args=[], kwargs={}):
 
 async def get_list_interl(entries, asyncdl, _pre):
 
-    logger = logging.getLogger('interl')
+    logger = logging.getLogger('asyncdl')
 
     _temp_aldl = []
     res = []
@@ -400,7 +400,7 @@ def get_host(url: str, shorten=None) -> str:
 
 
 def nested_obj(d, *selectors, get_all=True, default=None, v=False):
-    logger = logging.getLogger("nestedobj")
+    logger = logging.getLogger("asyncdl")
     NO_RES = object()
 
     def is_sequence(x):
@@ -846,7 +846,7 @@ class run_operation_in_executor_from_loop:
 class async_suppress(contextlib.AbstractAsyncContextManager):
     def __init__(self, *exceptions, level=logging.DEBUG, logger=None, msg=None):
         self._exceptions = exceptions
-        self.logger = logger or logging.getLogger('utils.asyncsuppres')
+        self.logger = logger or logging.getLogger('asyncdl')
         self.level = level if isinstance(level, int) else logging.getLevelName(level)
         self.msg = f'{msg} ' if msg else ''
 
@@ -936,7 +936,7 @@ async def async_wait_for_any(events, timeout: Optional[float] = None) -> dict[st
                 return {"timeout": [str(timeout)]}
             await asyncio.sleep(CONF_INTERVAL_GUI / 2)
     except Exception as e:
-        logger = logging.getLogger('waitforany')
+        logger = logging.getLogger('asyncdl')
         logger.error(repr(e))
 
 
@@ -1081,7 +1081,7 @@ async def async_waitfortasks(
                 'cancelled': _cancelled}
 
     except Exception as e:
-        logger = logging.getLogger('utils.asyncwaitfortasks')
+        logger = logging.getLogger('asyncdl')
         logger.exception(repr(e))
 
 
@@ -1258,12 +1258,6 @@ if yt_dlp:
             print(msg, end="\n", flush=True)
 
     class MyYTLogger(logging.LoggerAdapter):
-        """
-        para ser compatible con el logging de yt_dlp: yt_dlp usa debug para enviar los debug y
-        los info. Los debug llevan '[debug] ' antes.
-        se pasa un logger de logging al crear la instancia
-        logger = MyYTLogger(logging.getLogger("name_ejemplo", {}))
-        """
 
         _debug_phr = [
             "Falling back on generic information extractor",
@@ -1372,7 +1366,7 @@ if yt_dlp:
                 opts["verbose"] = False
                 opts["verboseplus"] = False
                 opts["logger"] = MyYTLogger(
-                    logging.getLogger("yt_dlp_s"),
+                    logging.getLogger("ytdlp"),
                     quiet=True, verbose=False, superverbose=False)
 
             super().__init__(params=(params or {}) | opts, auto_init=auto_init)  # type: ignore
@@ -1687,8 +1681,6 @@ if yt_dlp:
         }
         """
 
-        logger = logging.getLogger("yt_dlp")
-
         headers = {
             "User-Agent": args.useragent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -1706,7 +1698,7 @@ if yt_dlp:
             "http_headers": headers,
             "proxy": args.proxy,
             "logger": MyYTLogger(
-                logger, quiet=args.quiet, verbose=args.verbose,
+                logging.getLogger("ytdl"), quiet=args.quiet, verbose=args.verbose,
                 superverbose=args.vv),
             "verbose": args.verbose,
             "quiet": args.quiet,
@@ -1751,7 +1743,7 @@ if yt_dlp:
 
         ytdl = myYTDL(params=ytdl_opts, auto_init="no_verbose_header")
 
-        logger.debug(f"ytdl opts:\n{ytdl.params}")
+        logging.getLogger('asyncdl').debug(f"ytdl opts:\n{ytdl.params}")
 
         return ytdl
 
@@ -2065,7 +2057,7 @@ if yt_dlp:
             "t7": Path("/Volumes/T7/videos")
         }
 
-        logger = logging.getLogger("get_files")
+        logger = logging.getLogger("asyncdl")
 
         list_folders = []
 
@@ -2187,7 +2179,7 @@ if yt_dlp:
         else:
             yt = ytdl
 
-        logger = mylogger(logging.getLogger("dl_gvd"))
+        logger = mylogger(logging.get_logger("dl_gvd"))
         logger.quiet = quiet
         url = f"https://www.gvdblog.com/search?date={date}"
         resleg = yt.extract_info(url, download=False)
@@ -2414,7 +2406,7 @@ def find_in_ps(pattern, value=None):
 
 
 def init_aria2c(args):
-    logger = logging.getLogger("asyncDL")
+    logger = logging.getLogger("asyncdl")
     _info = get_listening_tcp()
     _in_use_aria2c_ports = sorted(traverse_obj(_info, ("aria2c", ..., "port")))
     if args.rpcport in _in_use_aria2c_ports:
@@ -2589,7 +2581,7 @@ class TorGuardProxies:
 
     IPS_SSL = []
 
-    logger = logging.getLogger("torguardprx")
+    logger = logging.getLogger("asyncdl")
 
     @classmethod
     def mytest_proxies_rt(cls, routing_table, timeout=2):
@@ -2960,7 +2952,7 @@ def get_wd_conf(name=None, pre=None):
             proxies = TorGuardProxies()
             proxies.genwgconf(name, pre=pre)
         except Exception as e:
-            logger = logging.getLogger("wdconf")
+            logger = logging.getLogger("asyncdl")
             logger.exception(repr(e))
     else:
         print("Use ip or torguard domain xx.torguard.com")

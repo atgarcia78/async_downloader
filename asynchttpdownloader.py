@@ -40,7 +40,7 @@ from utils import (
     traverse_obj,
 )
 
-logger = logging.getLogger("async_http_DL")
+logger = logging.getLogger("asynchttpdl")
 
 
 class AsyncHTTPDLErrorFatal(Exception):

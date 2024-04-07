@@ -53,7 +53,7 @@ from utils import (
     variadic,
 )
 
-logger = logging.getLogger("async_ARIA2CDL")
+logger = logging.getLogger("asyncaria2dl")
 
 
 @dataclass

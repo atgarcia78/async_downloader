@@ -75,7 +75,7 @@ from utils import (
     wait_for_either,
 )
 
-logger = logging.getLogger("async_HLS_DL")
+logger = logging.getLogger("asynchlsdl")
 
 kill_token = Token("kill")
 
