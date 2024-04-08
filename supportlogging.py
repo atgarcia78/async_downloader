@@ -207,13 +207,16 @@ def init_logging(log_name, config_path=None, test=False):
     with open(config_json, 'r') as f:
         config = json.loads(f.read())
 
-    config["handlers"]["info_file_handler"]["filename"] = config[
-        "handlers"]["info_file_handler"]["filename"].format(name=log_name)
+    _to_upt = config['handlers']['info_file_handler']
+    for key, value in _to_upt.items():
+        if key == 'filename':
+            _to_upt[key] = value.format(name='asyncdl')
+            break
 
     logging.config.dictConfig(config)
 
-    for log_name, logger in logging.Logger.manager.loggerDict.items():
-        if any(log_name.startswith(_) for _ in ('proxy', 'plugins.proxy')) and isinstance(logger, logging.Logger):
+    for _name, logger in logging.Logger.manager.loggerDict.items():
+        if any(_name.startswith(_) for _ in ('proxy', 'plugins.proxy')) and isinstance(logger, logging.Logger):
             logger.setLevel(logging.ERROR)
 
     if test:
@@ -228,11 +231,3 @@ class LogContext:
     def __exit__(self, *args):
         list(map(lambda x: x.stop(), SingleThreadQueueListener.listeners))
         SingleThreadQueueListener._join()
-
-
-def get_logger(name):
-    _logger = logging.getLogger(name)
-    _logger.propagate = False
-    _handlers = logging.root.handlers[0]._listener.handlers
-    QueueListenerHandler(_handlers, _name_logger=name)
-    return _logger
