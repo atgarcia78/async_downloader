@@ -1,8 +1,5 @@
-"""
-supportlogging - Python3 Logging
-
-"""
 import contextlib
+import json
 import logging
 import logging.handlers
 import shutil
@@ -15,6 +12,7 @@ from logging.config import (  # type: ignore
     valid_ident,
 )
 from logging.handlers import QueueHandler, QueueListener
+from pathlib import Path
 from queue import Empty, Queue
 from textwrap import fill
 
@@ -123,16 +121,16 @@ class QueueListenerHandler(QueueHandler):
     handlers = []
     _LOCK = threading.Lock()
 
-    def __init__(self, handlers, name):
+    def __init__(self, handlers, _name_logger='root'):
 
         with QueueListenerHandler._LOCK:
-            if name in QueueListenerHandler.handlers:
+            if _name_logger in QueueListenerHandler.handlers:
                 return
-            QueueListenerHandler.handlers.append(name)
-        self._name_logger = name
+            QueueListenerHandler.handlers.append(_name_logger)
+        self._name_logger = _name_logger
         super().__init__(_resolve_queue(Queue(-1)))
         self._listener = SingleThreadQueueListener(
-            self.queue, name, *_resolve_handlers(handlers), respect_handler_level=True)
+            self.queue, *_resolve_handlers(handlers), respect_handler_level=True, _name_logger=_name_logger)
         self.start()
 
     def start(self):
@@ -149,12 +147,12 @@ class SingleThreadQueueListener(QueueListener):
     sleep_time = 0.1
     _LOCK = threading.Lock()
 
-    def __init__(self, queue, name, *handlers, respect_handler_level=False):
+    def __init__(self, queue, *handlers, respect_handler_level=False, _name_logger='root'):
         self.queue = queue
         self.handlers = handlers
         self._thread = None
         self.respect_handler_level = respect_handler_level
-        self._name_logger = name
+        self._name_logger = _name_logger
 
     @classmethod
     def _start(cls):
@@ -200,6 +198,28 @@ class SingleThreadQueueListener(QueueListener):
         self.enqueue_sentinel()
 
 
+def init_logging(log_name, config_path=None, test=False):
+    if not config_path:
+        config_json = Path(Path.home(), "Projects/common/logging.json")
+    else:
+        config_json = Path(config_path)
+
+    with open(config_json, 'r') as f:
+        config = json.loads(f.read())
+
+    config["handlers"]["info_file_handler"]["filename"] = config[
+        "handlers"]["info_file_handler"]["filename"].format(name=log_name)
+
+    logging.config.dictConfig(config)
+
+    for log_name, logger in logging.Logger.manager.loggerDict.items():
+        if any(log_name.startswith(_) for _ in ('proxy', 'plugins.proxy')) and isinstance(logger, logging.Logger):
+            logger.setLevel(logging.ERROR)
+
+    if test:
+        return logging.getLogger("test")
+
+
 class LogContext:
 
     def __enter__(self):
@@ -214,5 +234,5 @@ def get_logger(name):
     _logger = logging.getLogger(name)
     _logger.propagate = False
     _handlers = logging.root.handlers[0]._listener.handlers
-    QueueListenerHandler(_handlers, name=name)
+    QueueListenerHandler(_handlers, _name_logger=name)
     return _logger

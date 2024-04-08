@@ -50,6 +50,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from supportlogging import init_logging
+
 try:
     from asgiref.sync import sync_to_async
 except Exception:
@@ -2254,28 +2256,6 @@ if yt_dlp:
 ############################################################
 
 
-def init_logging(file_path=None, test=False):
-    if not file_path:
-        config_file = Path(Path.home(), "Projects/common/logging.json")
-    else:
-        config_file = Path(file_path)
-
-    with open(config_file) as f:
-        config = json.loads(f.read())
-
-    config["handlers"]["info_file_handler"]["filename"] = config[
-        "handlers"]["info_file_handler"]["filename"].format(path_logs=str(Path(PATH_LOGS, 'asyncdl.log')))
-
-    logging.config.dictConfig(config)
-
-    for log_name, logger in logging.Logger.manager.loggerDict.items():
-        if any(log_name.startswith(_) for _ in ('proxy', 'plugins.proxy')) and isinstance(logger, logging.Logger):
-            logger.setLevel(logging.ERROR)
-
-    if test:
-        return logging.getLogger("test")
-
-
 class ActionNoYes(argparse.Action):
     def __init__(self, option_strings, dest, default=None, required=False, help=None):
         if len(option_strings) != 1:
@@ -2911,7 +2891,6 @@ def get_all_wd_conf(name=None):
     if name and "torguard.com" in name:
         ips = TorGuardProxies.get_ips(name)
         if ips:
-            init_logging()
             total = len(ips)
             _pre = name.split(".")[0].upper()
             proxies = TorGuardProxies()
@@ -3302,7 +3281,7 @@ def init_config(quiet=False, test=False):
     os.environ["MOZ_HEADLESS_WIDTH"] = "1920"
     os.environ["MOZ_HEADLESS_HEIGHT"] = "1080"
     if not quiet:
-        return init_logging(test=test)
+        return init_logging('asyncdl', test=test)
 
 
 class CountDowns:

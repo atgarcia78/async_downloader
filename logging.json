@@ -87,7 +87,7 @@
             "class": "logging.handlers.RotatingFileHandler",
             "level": "DEBUG",
             "formatter": "file_format",
-            "filename": "{path_logs}",
+            "filename": "/Users/antoniotorres/Projects/common/logs/{name}.log",
             "filters": ["filtermodules", "filtermsg"],
             "maxBytes": 3155360,
             "backupCount": 20,
@@ -95,8 +95,7 @@
         },
         "queue_handler": {
             "class": "supportlogging.QueueListenerHandler",
-            "handlers": ["cfg://handlers.console", "cfg://handlers.info_file_handler"],
-            "name": "root"
+            "handlers": ["cfg://handlers.console", "cfg://handlers.info_file_handler"]
         }
     },
     "root": {
