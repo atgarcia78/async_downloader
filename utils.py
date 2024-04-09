@@ -1155,7 +1155,7 @@ def wait_until(timeout, statement, args, kwargs, interv=CONF_INTERVAL_GUI):
 if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
     from yt_dlp import YoutubeDL, parse_options
-    from yt_dlp.cookies import extract_cookies_from_browser
+    from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
     from yt_dlp.extractor.commonwebdriver import (
         By,
         ConnectError,
@@ -1455,6 +1455,17 @@ if yt_dlp:
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
             return await self.sync_to_async(
                 self.process_ie_result)(*args, **kwargs)
+
+    def get_cookies_netscape_file(cookies_str: str, cookies_file_path: str) -> bool:
+        with myYTDL() as ytdl:
+            ytdl._load_cookies(cookies_str, autoscope=False)
+            ytdl.cookiejar.save(filename=cookies_file_path)
+        return os.path.exists(cookies_file_path)
+
+    def get_cookies_jar(cookies_str: str) -> YoutubeDLCookieJar:
+        with myYTDL() as ytdl:
+            ytdl._load_cookies(cookies_str, autoscope=False)
+            return ytdl.cookiejar
 
     def get_extractor_ytdl(url: str, ytdl: Union[YoutubeDL, myYTDL]) -> tuple:
         logger = logging.getLogger("asyncdl")
@@ -2019,8 +2030,12 @@ if yt_dlp:
         if not (_doc := kwargs.pop('doc', None)):
             with httpx.Client(**CLIENT_CONFIG) as client:
                 if (_cookies := kwargs.pop('cookies')):
-                    for cookie in _cookies:
-                        client.cookies.set(name=cookie['name'], value=cookie['value'], domain=cookie['domain'])
+                    if isinstance(_cookies, dict):
+                        for cookie in _cookies:
+                            client.cookies.set(name=cookie['name'], value=cookie['value'], path=cookie.get('path', '/'), domain=cookie['domain'])
+                    else:
+                        for cookie in _cookies:
+                            client.cookies.jar.set_cookie(cookie)
                 _doc = try_get(
                     client.get(mpd_url, **kwargs),
                     lambda x: x.content.decode('utf-8', 'replace'))

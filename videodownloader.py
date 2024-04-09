@@ -12,7 +12,6 @@ from queue import Queue
 
 import aiofiles.os
 import xattr
-from yt_dlp.cookies import LenientSimpleCookie
 from yt_dlp.utils import sanitize_filename
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
@@ -27,6 +26,7 @@ from utils import (
     Optional,
     Union,
     async_suppress,
+    get_cookies_jar,
     get_drm_xml,
     get_protocol,
     get_pssh_from_mpd,
@@ -473,11 +473,9 @@ class VideoDownloader:
             if _murl := traverse_obj(self.info_dict, ("formats", 0, "manifest_url")):
                 _headers = traverse_obj(self.info_dict, ("formats", 0, "http_headers"))
                 kwargs = {'headers': _headers}
-                if _cookies := traverse_obj(self.info_dict, ("formats", 0, "cookies")):
-                    cookies = [
-                        {'name': cookie.key, 'value': cookie.value, 'path': cookie.get('path', '/'), 'domain': cookie.get('domain')}
-                        for cookie in LenientSimpleCookie(_cookies).values()]
-                    kwargs |= {'cookies': cookies}
+                if _cookies_str := traverse_obj(self.info_dict, ("formats", 0, "cookies")):
+                    if _cookie_jar := get_cookies_jar(_cookies_str):
+                        kwargs |= {'cookies': _cookie_jar}
                 _pssh = try_get(get_pssh_from_mpd(mpd_url=_murl, **kwargs), lambda x: x[0])
         logger.debug(f"{self.premsg} licurl[{_licurl}] - murl[{_murl}] pssh[{_pssh}]")
         if not _pssh:

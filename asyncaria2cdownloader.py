@@ -35,6 +35,7 @@ from utils import (
     async_lock,
     async_wait_for_any,
     async_waitfortasks,
+    get_cookies_netscape_file,
     get_format_id,
     get_host,
     getter_basic_config_extr,
@@ -192,8 +193,6 @@ class AsyncARIA2CDownloader:
         self._host = get_host(video_url, shorten=self._extractor)
 
         self.headers = self.info_dict.get("http_headers", {})
-        if _cookie := self.info_dict.get("cookies"):
-            self.headers.update({"Cookie": _cookie})
 
         self.download_path = self.info_dict["download_path"]
         self.download_path.mkdir(parents=True, exist_ok=True)
@@ -202,6 +201,11 @@ class AsyncARIA2CDownloader:
         self.filename = Path(
             self.download_path,
             f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
+
+        self.cookie_file = ""
+        if _cookies_str := self.info_dict.get("cookies"):
+            self.cookies_file = f'{str(self.filename)}.cookies'
+            get_cookies_netscape_file(_cookies_str, self.cookies_file)
 
         self.dl_cont = None
         self.upt = None
@@ -298,7 +302,8 @@ class AsyncARIA2CDownloader:
             "uri-selector": "inorder",
             "min-split-size": CONF_ARIA2C_MIN_SIZE_SPLIT,
             "dry-run": "false",
-            "all-proxy": self._proxy or ""
+            "all-proxy": self._proxy or "",
+            "load-cookies": self.cookie_file
         }
 
         self.opts = self.set_opts(opts_dict)
@@ -499,10 +504,6 @@ class AsyncARIA2CDownloader:
 
         video_url = unquote(_info["url"])
         self.uris = [video_url]
-        if _cookie := _info.get("cookies"):
-            self.headers.update({"Cookie": _cookie})
-            self.opts.set("header", "\n".join(
-                [f"{key}: {value}" for key, value in self.headers.items()]))
 
         if (_host := get_host(video_url, shorten=self._extractor)) != self._host:
             self._host = _host

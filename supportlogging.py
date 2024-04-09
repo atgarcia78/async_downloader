@@ -6,8 +6,11 @@ import shutil
 import threading
 import time
 from copy import copy
-from logging.config import (ConvertingDict, ConvertingList,  # type: ignore
-                            valid_ident)
+from logging.config import (  # type: ignore
+    ConvertingDict,
+    ConvertingList,
+    valid_ident,
+)
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from queue import Empty, Queue
@@ -23,13 +26,6 @@ MAPPING = {
 
 PREFIX = "\033["
 SUFFIX = "\033[0m"
-
-
-class Wintxt(logging.StreamHandler):
-    _GUI_LOG = None
-
-    def __init__(self, stream=None):
-        super().__init__(self)
 
 
 class FileFormatter(logging.Formatter):
@@ -114,21 +110,21 @@ def _resolve_queue(q):
 
 
 class QueueListenerHandler(QueueHandler):
-
     handlers = []
     _LOCK = threading.Lock()
 
     def __init__(self, handlers, _name_logger='root'):
-
         with QueueListenerHandler._LOCK:
             if _name_logger in QueueListenerHandler.handlers:
                 return
             QueueListenerHandler.handlers.append(_name_logger)
+
         self._name_logger = _name_logger
         super().__init__(_resolve_queue(Queue(-1)))
+
         self._listener = SingleThreadQueueListener(
             self.queue, *_resolve_handlers(handlers),
-            respect_handler_level=True, _name_logger=_name_logger)
+            _name_logger=_name_logger)
         self.start()
 
     def start(self):
@@ -139,22 +135,21 @@ class QueueListenerHandler(QueueHandler):
 
 
 class SingleThreadQueueListener(QueueListener):
-
     monitor_thread = None
     listeners = []
     sleep_time = 0.1
     _LOCK = threading.Lock()
 
-    def __init__(self, queue, *handlers, respect_handler_level=False, _name_logger='root'):
+    def __init__(self, queue, *handlers, _name_logger='root'):
         self.queue = queue
         self.handlers = handlers
         self._thread = None
-        self.respect_handler_level = respect_handler_level
+        self.respect_handler_level = True
         self._name_logger = _name_logger
 
     @classmethod
     def monitor_running(cls):
-        return cls.monitor_running is not None and cls.monitor_running.is_alive()
+        return cls.monitor_thread is not None and cls.monitor_thread.is_alive()
 
     @classmethod
     def _start(cls):
@@ -218,7 +213,10 @@ def init_logging(log_name, config_path=None, test=False):
     logging.config.dictConfig(config)
 
     for _name, logger in logging.Logger.manager.loggerDict.items():
-        if isinstance(logger, logging.Logger) and any(_name.startswith(_) for _ in ('proxy', 'plugins.proxy')):
+        if (
+            isinstance(logger, logging.Logger)
+            and any(_name.startswith(_) for _ in ('proxy', 'plugins.proxy'))
+        ):
             logger.setLevel(logging.ERROR)
 
     if test:
