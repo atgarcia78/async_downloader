@@ -6,11 +6,8 @@ import shutil
 import threading
 import time
 from copy import copy
-from logging.config import (  # type: ignore
-    ConvertingDict,
-    ConvertingList,
-    valid_ident,
-)
+from logging.config import (ConvertingDict, ConvertingList,  # type: ignore
+                            valid_ident)
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from queue import Empty, Queue
@@ -130,7 +127,8 @@ class QueueListenerHandler(QueueHandler):
         self._name_logger = _name_logger
         super().__init__(_resolve_queue(Queue(-1)))
         self._listener = SingleThreadQueueListener(
-            self.queue, *_resolve_handlers(handlers), respect_handler_level=True, _name_logger=_name_logger)
+            self.queue, *_resolve_handlers(handlers),
+            respect_handler_level=True, _name_logger=_name_logger)
         self.start()
 
     def start(self):
@@ -155,9 +153,13 @@ class SingleThreadQueueListener(QueueListener):
         self._name_logger = _name_logger
 
     @classmethod
+    def monitor_running(cls):
+        return cls.monitor_running is not None and cls.monitor_running.is_alive()
+
+    @classmethod
     def _start(cls):
         with cls._LOCK:
-            if cls.monitor_thread is None or not cls.monitor_thread.is_alive():
+            if not cls.monitor_running():
                 cls.monitor_thread = t = threading.Thread(
                     target=cls._monitor_all, name='logging_monitor', daemon=True)
                 t.start()
@@ -168,24 +170,24 @@ class SingleThreadQueueListener(QueueListener):
         """Waits for the thread to stop.
         Only call this after stopping all listeners.
         """
-        if cls.monitor_thread is not None and cls.monitor_thread.is_alive():
+        if cls.monitor_running():
             cls.monitor_thread.join()
         cls.monitor_thread = None
 
     @classmethod
     def _monitor_all(cls):
-        noop = lambda: None
         while cls.listeners:
             time.sleep(cls.sleep_time)
             for listener in cls.listeners:
                 try:
-                    task_done = getattr(listener.queue, 'task_done', noop)
+                    task_done = getattr(listener.queue, 'task_done', lambda: None)
                     while True:
                         if (record := listener.dequeue(False)) is listener._sentinel:
                             with contextlib.suppress(ValueError):
                                 cls.listeners.remove(listener)
-                        else:
-                            listener.handle(record)
+                            task_done()
+                            break
+                        listener.handle(record)
                         task_done()
                 except Empty:
                     continue
@@ -216,7 +218,7 @@ def init_logging(log_name, config_path=None, test=False):
     logging.config.dictConfig(config)
 
     for _name, logger in logging.Logger.manager.loggerDict.items():
-        if any(_name.startswith(_) for _ in ('proxy', 'plugins.proxy')) and isinstance(logger, logging.Logger):
+        if isinstance(logger, logging.Logger) and any(_name.startswith(_) for _ in ('proxy', 'plugins.proxy')):
             logger.setLevel(logging.ERROR)
 
     if test:
