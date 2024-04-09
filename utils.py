@@ -1462,7 +1462,7 @@ if yt_dlp:
             ytdl.cookiejar.save(filename=cookies_file_path)
         return os.path.exists(cookies_file_path)
 
-    def get_cookies_jar(cookies_str: str) -> YoutubeDLCookieJar:
+    def get_cookies_jar(cookies_str: str) -> YoutubeDLCookieJar | None:
         with myYTDL() as ytdl:
             ytdl._load_cookies(cookies_str, autoscope=False)
             return ytdl.cookiejar

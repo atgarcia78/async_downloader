@@ -26,6 +26,7 @@ from Cryptodome.Cipher._mode_cbc import CbcMode
 from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
 
 from utils import (
+    CLIENT_CONFIG,
     CONF_HLS_RESET_403_TIME,
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
@@ -52,6 +53,7 @@ from utils import (
     async_waitfortasks,
     await_for_any,
     empty_queue,
+    get_cookies_jar,
     get_format_id,
     get_host,
     getter_basic_config_extr,
@@ -232,7 +234,9 @@ class AsyncHLSDownloader:
                 'follow_redirects': True,
                 'timeout': httpx.Timeout(30),
                 'verify': False,
-                'headers': self.info_dict["http_headers"]}
+                'cookies': try_get(self.info_dict, lambda x: get_cookies_jar(x['formats'][0]['cookies'])),
+                'headers': try_get(self.info_dict, lambda x: x['formats'][0]['http_headers']) or CLIENT_CONFIG['http_headers']
+            }
 
             self.clients = {}
 
@@ -736,8 +740,7 @@ class AsyncHLSDownloader:
 
         if info_reset:
             self.info_dict.update({
-                "url": info_reset["url"], "formats": info_reset["formats"],
-                "http_headers": info_reset["http_headers"]})
+                "url": info_reset["url"], "formats": info_reset["formats"]})
             self._host = get_host(self.info_dict["url"])
 
             try:
