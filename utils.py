@@ -1738,7 +1738,7 @@ if yt_dlp:
             "external_downloader": {
                 "default": "native"
             },
-            "concurrent_fragment_downloads": 64,
+            "concurrent_fragment_downloads": 128,
             "restrictfilenames": True,
             "user_agent": args.useragent,
             "verboseplus": args.vv,
@@ -2018,7 +2018,7 @@ if yt_dlp:
 
         for period in variadic(periods):
             for ad_set in variadic(period['AdaptationSet']):
-                if ad_set['@mimeType'] == 'video/mp4':
+                if ad_set.get('@contentType') == 'video' or ad_set.get('@mimeType') == 'video/mp4':
                     try:
                         for t in ad_set['ContentProtection']:
                             if t['@schemeIdUri'].lower() == uuid:

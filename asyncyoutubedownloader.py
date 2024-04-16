@@ -21,7 +21,6 @@ from utils import (
     myYTDL,
     naturalsize,
     sync_to_async,
-    traverse_obj,
     try_call,
     try_get,
 )
@@ -148,8 +147,8 @@ class AsyncYoutubeDownloader:
                     self.down_size += (_inc := d['downloaded_bytes'] - self.down_size_old)
                     self._vid_dl.total_sizes["down_size"] += _inc
                     self.down_size_old = d['downloaded_bytes']
-                    if not self._avg_size and self._file == 'video':
-                        self.filesize = self._vid_dl.total_sizes["filesize"] = d['total_bytes_estimate']
+                    if not self._avg_size and self._file == 'video' and (_filesize := d.get('total_bytes_estimate')):
+                        self.filesize = self._vid_dl.total_sizes["filesize"] = _filesize
                     self.dl_cont[self._file] |= {
                         'downloaded': d['downloaded_bytes'],
                         'speed': d['_speed_str'],
@@ -168,8 +167,8 @@ class AsyncYoutubeDownloader:
                 'outtmpl': {'default': f'{self._filename.stem}.%(ext)s'}}
 
             with myYTDL(params=(self.ytdl.params | opts_upt), silent=True) as pytdl:
-                pytdl.params['http_headers'] |= (traverse_obj(self.info_dict, ("formats", 0, "http_headers")) or {})
-                if _cookies_str := traverse_obj(self.info_dict, ("formats", 0, "cookies")):
+                pytdl.params['http_headers'] |= (self._formats[0].get('http_headers') or {})
+                if (_cookies_str := self._formats[0].get('cookies')):
                     pytdl._load_cookies(_cookies_str, autoscope=False)
                 _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict, download=True))
             self._vid_dl.info_dict |= _info_dict

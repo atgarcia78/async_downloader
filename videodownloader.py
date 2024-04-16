@@ -28,6 +28,7 @@ from utils import (
     async_suppress,
     get_cookies_jar,
     get_drm_xml,
+    get_format_id,
     get_protocol,
     get_pssh_from_mpd,
     naturalsize,
@@ -470,10 +471,11 @@ class VideoDownloader:
         if not _licurl:
             raise AsyncDLError(f"{self.premsg}: error DRM info")
         elif not _pssh:
-            if _murl := traverse_obj(self.info_dict, ("formats", 0, "manifest_url")):
-                _headers = traverse_obj(self.info_dict, ("formats", 0, "http_headers"))
-                kwargs = {'headers': _headers}
-                if _cookies_str := traverse_obj(self.info_dict, ("formats", 0, "cookies")):
+            _video_fmt_id = try_get(self.info_dict.get('format_id'), lambda x: x.split('+')[0])
+            _fmt = get_format_id(self.info_dict, _video_fmt_id)
+            if _murl := _fmt.get("manifest_url"):
+                kwargs = {'headers': _fmt.get('http_headers') or {}}
+                if _cookies_str := _fmt.get("cookies"):
                     if _cookie_jar := get_cookies_jar(_cookies_str):
                         kwargs |= {'cookies': _cookie_jar}
                 _pssh = try_get(get_pssh_from_mpd(mpd_url=_murl, **kwargs), lambda x: x[0])

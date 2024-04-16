@@ -234,8 +234,8 @@ class AsyncHLSDownloader:
                 'follow_redirects': True,
                 'timeout': httpx.Timeout(30),
                 'verify': False,
-                'cookies': try_get(self.info_dict, lambda x: get_cookies_jar(x['formats'][0]['cookies'])),
-                'headers': try_get(self.info_dict, lambda x: x['formats'][0]['http_headers']) or CLIENT_CONFIG['http_headers']
+                'cookies': try_get(self.info_dict, lambda x: get_cookies_jar(x.get('cookies') or x['formats'][0]['cookies'])),
+                'headers': try_get(self.info_dict, lambda x: x.get('http_headers') or x['formats'][0]['http_headers']) or CLIENT_CONFIG['http_headers']
             }
 
             self.clients = {}
@@ -739,8 +739,9 @@ class AsyncHLSDownloader:
     def prep_reset(self, info_reset: Optional[dict] = None):
 
         if info_reset:
-            self.info_dict.update({
-                "url": info_reset["url"], "formats": info_reset["formats"]})
+            # self.info_dict.update({
+            #     "url": info_reset["url"], "formats": info_reset["formats"]})
+            self.info_dict |= info_reset
             self._host = get_host(self.info_dict["url"])
 
             try:
