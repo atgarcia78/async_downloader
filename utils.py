@@ -1738,7 +1738,7 @@ if yt_dlp:
             "external_downloader": {
                 "default": "native"
             },
-            "concurrent_fragment_downloads": 128,
+            "concurrent_fragment_downloads": 256,
             "restrictfilenames": True,
             "user_agent": args.useragent,
             "verboseplus": args.vv,
