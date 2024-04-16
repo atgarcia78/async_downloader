@@ -119,7 +119,7 @@ CONF_DRM = {
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
-CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:126.0) Gecko/20100101 Firefox/126.0"
+CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:127.0) Gecko/20100101 Firefox/127.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -2324,7 +2324,7 @@ def init_argparser():
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--check-speed", action=ActionNoYes, default=True)
     parser.add_argument("--deep-aldl", help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'", action=ActionNoYes, default=False)
-    parser.add_argument("--downloader-native", action="store_true", default=False)
+    parser.add_argument("--downloader-ytdl", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=True)
     parser.add_argument("--no-embed", action="store_true", default=False)
@@ -4914,7 +4914,7 @@ args = argparse.Namespace(
     nosymlinks=False,
     check_speed=True,
     deep_aldl=False,
-    downloader_native=False,
+    downloader_ytdl=False,
     use_path_pl=False,
     use_cookies=True,
     no_embed=False,

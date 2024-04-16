@@ -17,7 +17,7 @@ from yt_dlp.utils import sanitize_filename
 from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
-from asyncnativedownloader import AsyncNativeDownloader
+from asyncyoutubedownloader import AsyncYoutubeDownloader
 from utils import (
     AsyncDLError,
     Coroutine,
@@ -173,14 +173,14 @@ class VideoDownloader:
         _dash = get_protocol(info_dict) == "dash"
 
         if (
-            self.args.downloader_native or _drm or _dash
+            self.args.downloader_ytdl or _drm or _dash
             or info_dict.get("extractor_key") == "Youtube"
         ):
             try:
-                dl = AsyncNativeDownloader(
+                dl = AsyncYoutubeDownloader(
                     self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
-                self._types = "NATIVE_DRM" if _drm else "NATIVE"
-                logger.debug(f"{self.premsg}[get_dl] DL type native drm[{_drm}]")
+                self._types = "YOUTUBE_DRM" if _drm else "YOUTUBE"
+                logger.debug(f"{self.premsg}[get_dl] DL type youtube drm[{_drm}]")
                 return dl
             except Exception as e:
                 logger.error(
@@ -604,7 +604,7 @@ class VideoDownloader:
                 logger.exception(
                     f"{self.premsg}: error in xattr area {repr(e)}")
 
-        async def native_drm():
+        async def youtube_drm():
             rc = -1
             _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
             _drm_xml = self._get_drm_xml()
@@ -659,8 +659,8 @@ class VideoDownloader:
 
             self.temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
 
-            if self._types == "NATIVE_DRM":
-                await native_drm()
+            if self._types == "YOUTUBE_DRM":
+                await youtube_drm()
 
             elif len(self.info_dl["downloaders"]) == 1:
 
