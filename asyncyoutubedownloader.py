@@ -149,7 +149,7 @@ class AsyncYoutubeDownloader:
                     self._vid_dl.total_sizes["down_size"] += _inc
                     self.down_size_old = d['downloaded_bytes']
                     if not self._avg_size and self._file == 'video':
-                        self.filesize = self._vid_dl.total_sizes["filesize"] = d['total_bytes']
+                        self.filesize = self._vid_dl.total_sizes["filesize"] = d['total_bytes_estimate']
                     self.dl_cont[self._file] |= {
                         'downloaded': d['downloaded_bytes'],
                         'speed': d['_speed_str'],
