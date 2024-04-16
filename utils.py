@@ -1735,6 +1735,9 @@ if yt_dlp:
                 {"key": "FFmpegSubtitlesConvertor",
                  "format": "srt",
                  "when": "before_dl"}],
+            "external_downloader": {
+                "default": "native"
+            },
             "concurrent_fragment_downloads": 64,
             "restrictfilenames": True,
             "user_agent": args.useragent,
@@ -2029,7 +2032,7 @@ if yt_dlp:
 
         if not (_doc := kwargs.pop('doc', None)):
             with httpx.Client(**CLIENT_CONFIG) as client:
-                if (_cookies := kwargs.pop('cookies')):
+                if (_cookies := kwargs.pop('cookies', None)):
                     if isinstance(_cookies, dict):
                         for cookie in _cookies:
                             client.cookies.set(name=cookie['name'], value=cookie['value'], path=cookie.get('path', '/'), domain=cookie['domain'])

@@ -127,6 +127,7 @@ class AsyncYoutubeDownloader:
                 'video': {"progress": "--", "downloaded": "--", "speed": "--"},
                 'audio': {"progress": "--", "downloaded": "--", "speed": "--"}}
 
+            self._avg_size = bool(self.info_dict.get('filesize'))
             if (_filesize := (
                     self.info_dict.get('filesize') or self.info_dict.get('filesize_approx') or
                     (self.info_dict.get('duration') or 0) * (self.info_dict.get('tbr') or 0) * 1000 / 8)):
@@ -147,6 +148,8 @@ class AsyncYoutubeDownloader:
                     self.down_size += (_inc := d['downloaded_bytes'] - self.down_size_old)
                     self._vid_dl.total_sizes["down_size"] += _inc
                     self.down_size_old = d['downloaded_bytes']
+                    if not self._avg_size and self._file == 'video':
+                        self.filesize = self._vid_dl.total_sizes["filesize"] = d['total_bytes']
                     self.dl_cont[self._file] |= {
                         'downloaded': d['downloaded_bytes'],
                         'speed': d['_speed_str'],
