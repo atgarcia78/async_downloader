@@ -2228,7 +2228,7 @@ if yt_dlp:
                     entries_final.append(entleg)
                 elif not entleg["format_id"].startswith("hls") and entalt["format_id"].startswith("hls"):
                     entaltfilesize = entalt.get("filesize_approx") or (
-                        entalt.get("tbr", 0) * entalt.get("duration", 0) * 1024 / 8
+                        entalt.get("tbr", 0) * entalt.get("duration", 0) * 1000 / 8
                     )
                     entlegfilesize = entleg.get("filesize")
                     if all(
@@ -4123,8 +4123,6 @@ if PySimpleGUI:
                     if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
                         io_upt = psutil.net_io_counters()
                         ds = speedometer(io_upt.bytes_recv)
-                        # msg = f"RECV: {naturalsize(speedometer.rec_bytes, binary=True)}  "
-                        # msg += f'DL: {naturalsize(ds, binary=True, format_="7.3f") + "ps" if ds > 1024 else "--"}'
                         msg = f"RECV: {naturalsize(speedometer.rec_bytes)}  "
                         msg += f'DL: {naturalsize(ds, format_="7.3f") + "ps" if ds > 1024 else "--"}'
                         self.update_window("all", nwmon=msg)
@@ -4154,7 +4152,6 @@ if PySimpleGUI:
         def get_dl_media(self):
             if self.list_nwmon:
                 _speed_data = [el[1] for el in self.list_nwmon]
-                # _media = naturalsize(median(_speed_data), binary=True)
                 _media = naturalsize(median(_speed_data))
 
                 return f"DL MEDIA: {_media}ps"

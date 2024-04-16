@@ -695,7 +695,7 @@ class AsyncHLSDownloader:
 
     def calculate_filesize(self) -> Optional[int]:
         return (
-            int(self.totalduration * 1024 * _bitrate / 8)
+            int(self.totalduration * 1000 * _bitrate / 8)
             if (_bitrate := traverse_obj(self.info_dict, "tbr", "abr"))
             else None)
 
@@ -1219,7 +1219,7 @@ class AsyncHLSDownloader:
         n_frags_dl = 0
 
         def avg_filesize():
-            if not self._avg_size or (self.n_dl_fragments / self.n_total_fragments < 0.1):
+            if not self._avg_size or self.n_dl_fragments < 2:
                 return self.filesize
             else:
                 return self.n_total_fragments * (self.down_size / self.n_dl_fragments)

@@ -36,8 +36,7 @@
                 "parso.python.diff",
                 "httpcore",
                 "mitmproxy",
-                "seleniumwire.handle",
-                "seleniumwire.server"
+                "seleniumwire"
             ]
         },
         "filtermsg": {
