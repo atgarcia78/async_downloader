@@ -1722,7 +1722,7 @@ if yt_dlp:
             "format_sort": [args.sort],
             "nocheckcertificate": True,
             "allsubtitles": True,
-            "subtitlesformat": "srt/vtt/best",
+            "subtitlesformat": "best",
             #"subtitleslangs": ["en", "es", "ca"],
             "keepvideo": True,
             "convertsubtitles": "srt",

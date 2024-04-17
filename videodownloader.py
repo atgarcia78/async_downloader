@@ -415,10 +415,10 @@ class VideoDownloader:
             self.info_dl["status"] = "error"
 
     def _get_subts_files(self):
-        def _dl_subt(subts):
+        def _dl_subt(subs):
             opts_upt = {
                 'skip_download': True,
-                'keepvideo': False,
+                'keepvideo': self.args.keep_videos,
                 'format': self.info_dict["format_id"],
                 'paths': {'home': str(self.info_dl["filename"].absolute().parent)},
                 'outtmpl': {'default': f'{self.info_dl["filename"].stem}.%(ext)s'}}
@@ -427,31 +427,34 @@ class VideoDownloader:
                 pytdl.params['http_headers'] |= (_fmt.get('http_headers') or {})
                 if (_cookies_str := _fmt.get('cookies')):
                     pytdl._load_cookies(_cookies_str, autoscope=False)
-                _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict | {'subtitles': subts}, download=True))
+                _subs = {_lang: [_val] for _lang, _val in subs.items()}
+                _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict | {'subtitles': _subs}, download=True))
             return _info_dict
 
-        if not (_subts := self.info_dict.get("requested_subtitles")):
-            return
+        try:
+            if not (_subts := self.info_dict.get("requested_subtitles")):
+                return
 
-        _final_subts = {
-            key: val
-            for key, val in _subts.items()
-            if any([key == "es", key == "en", key == "ca"])}
+            _final_subts = {
+                key: val
+                for key, val in _subts.items()
+                if any([key == "es", key == "en", key == "ca"])}
 
-        # ytdl.params["subtitleslangs"]: ["all"]
-        for _lang in ["es", "en"]:
-            if _lang not in _final_subts:
-                for key, val in _subts.items():
-                    if key.startswith(_lang):
-                        _final_subts[_lang] = val
-                        break
+            # ytdl.params["subtitleslangs"]: ["all"]
+            for _lang in ["es", "en"]:
+                if _lang not in _final_subts:
+                    for key, val in _subts.items():
+                        if key.startswith(_lang):
+                            _final_subts[_lang] = val
+                            break
 
-        logger.debug(f"{self.premsg}[get_subts] final_subts: {_final_subts}")
-        if not _final_subts:
-            return
-
-        _info = _dl_subt(_final_subts)
-        logger.debug(f"{self.premsg}[get_subts] info_dict_subt\n{_info.get('requested_subtitles')}")
+            logger.debug(f"{self.premsg}[get_subts] final_subts: {_final_subts}")
+            if not _final_subts:
+                return
+            _info = _dl_subt(_final_subts)
+            logger.debug(f"{self.premsg}[get_subts] info_dict_subt\n{_info.get('requested_subtitles')}")
+        except Exception as e:
+            logger.exception(f"{self.premsg}[get_subts] {repr(e)}")
 
         for _lang in _final_subts:
             try:
