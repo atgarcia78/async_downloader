@@ -1210,7 +1210,26 @@ if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
     from yt_dlp import YoutubeDL, parse_options
     from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
-    from yt_dlp.extractor.commonwebdriver import (
+    from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
+    from yt_dlp.networking import HEADRequest
+    from yt_dlp.utils import (
+        ExtractorError,
+        determine_protocol,
+        find_available_port,
+        get_domain,
+        js_to_json,
+        prepend_extension,
+        render_table,
+        sanitize_filename,
+        smuggle_url,
+        traverse_obj,
+        try_get,
+        unsmuggle_url,
+        update_url,
+        variadic,
+        write_string,
+    )
+    from yt_dlp_plugins.extractor.commonwebdriver import (
         By,
         ConnectError,
         HTTPStatusError,
@@ -1232,25 +1251,6 @@ if yt_dlp:
         limiter_non,
         load_config_extractors,
         my_dec_on_exception,
-    )
-    from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
-    from yt_dlp.networking import HEADRequest
-    from yt_dlp.utils import (
-        ExtractorError,
-        determine_protocol,
-        find_available_port,
-        get_domain,
-        js_to_json,
-        prepend_extension,
-        render_table,
-        sanitize_filename,
-        smuggle_url,
-        traverse_obj,
-        try_get,
-        unsmuggle_url,
-        update_url,
-        variadic,
-        write_string,
     )
     assert HTTPStatusError
     assert LimitContextDecorator
