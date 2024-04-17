@@ -175,7 +175,9 @@ class AsyncYoutubeDownloader:
                 pytdl.params['http_headers'] |= (self._formats[0].get('http_headers') or {})
                 if (_cookies_str := self._formats[0].get('cookies')):
                     pytdl._load_cookies(_cookies_str, autoscope=False)
-                _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict, download=True))
+                _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict | {'subtitles': {}}, download=True))
+            _info_dict.pop('requested_subtitles', None)
+            _info_dict.pop('subtitles', None)
             self._vid_dl.info_dict |= _info_dict
         except Exception as e:
             logger.exception(f"{self.premsg}[fetch] {repr(e)}")

@@ -415,7 +415,7 @@ class VideoDownloader:
             self.info_dl["status"] = "error"
 
     def _get_subts_files(self):
-        def _dl_subt():
+        def _dl_subt(subts):
             opts_upt = {
                 'skip_download': True,
                 'keepvideo': False,
@@ -427,50 +427,52 @@ class VideoDownloader:
                 pytdl.params['http_headers'] |= (_fmt.get('http_headers') or {})
                 if (_cookies_str := _fmt.get('cookies')):
                     pytdl._load_cookies(_cookies_str, autoscope=False)
-                pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict, download=True))
-            return 0
+                _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict | {'subtitles': subts}, download=True))
+            return _info_dict
 
         if not (_subts := self.info_dict.get("requested_subtitles")):
             return
 
-        _final_subts = {}
+        _final_subts = {
+            key: val
+            for key, val in _subts.items()
+            if any([key == "es", key == "en", key == "ca"])}
 
-        for key, val in _subts.items():
-            if key.startswith("es"):
-                _final_subts['es'] = val
-            elif key.startswith("en"):
-                _final_subts['en'] = val
-            elif key == "ca":
-                _final_subts['ca'] = val
+        # ytdl.params["subtitleslangs"]: ["all"]
+        for _lang in ["es", "en"]:
+            if _lang not in _final_subts:
+                for key, val in _subts.items():
+                    if key.startswith(_lang):
+                        _final_subts[_lang] = val
+                        break
 
+        logger.debug(f"{self.premsg}[get_subts] final_subts: {_final_subts}")
         if not _final_subts:
             return
 
-        res_returncode = _dl_subt()
-        logger.debug(f"{self.premsg}[get_subts] res  proc[{res_returncode}]")
-        if res_returncode != 0:
-            return
+        _info = _dl_subt(_final_subts)
+        logger.debug(f"{self.premsg}[get_subts] info_dict_subt\n{_info.get('requested_subtitles')}")
 
-        for _lang, _ in _final_subts.items():
+        for _lang in _final_subts:
             try:
-                _subts_file = Path(
-                    self.info_dl["filename"].absolute().parent,
-                    f"{self.info_dl['filename'].stem}.{_lang}.srt")
-                logger.debug(f"{self.premsg}: {str(_subts_file)} exists[{_subts_file.exists()}]")
-                if _subts_file.exists():
-                    self.info_dl["downloaded_subtitles"].update({_lang: _subts_file})
+                _subts_file = traverse_obj(_info, ("requested_subtitles", _lang, "filepath"))
+                logger.debug(f"{self.premsg}[get_subts][{_lang}] file: {_subts_file} exists[{Path(_subts_file).exists() if _subts_file else False}]")
+                if _subts_file and Path(_subts_file).exists():
+                    self.info_dl["downloaded_subtitles"][_lang] = _subts_file
             except Exception as e:
-                logger.exception(f"{self.premsg} couldnt generate subtitle file: {repr(e)}")
+                logger.exception(f"{self.premsg}[get_subts][{_lang}]  couldnt generate subtitle file: {repr(e)}")
 
         if 'ca' in self.info_dl["downloaded_subtitles"] and 'es' not in self.info_dl["downloaded_subtitles"]:
             logger.debug(f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]")
-            _subs_file = Path(
-                self.info_dl["filename"].absolute().parent,
-                f"{self.info_dl['filename'].stem}.es.srt")
-            with open(_subs_file, 'w') as f:
-                f.write(translate_srt(self.info_dl["downloaded_subtitles"]['ca'], 'ca', 'es'))
-            self.info_dl["downloaded_subtitles"]['es'] = _subs_file
-            logger.debug(f"{self.premsg}: subs file [es, srt] ready")
+            _subs_file = self.info_dl["downloaded_subtitles"]['ca'].replace('.ca.srt', '.es.srt')
+            try:
+                with open(_subs_file, 'w') as f:
+                    f.write(translate_srt(self.info_dl["downloaded_subtitles"]['ca'], 'ca', 'es'))
+                if Path(_subs_file).exists():
+                    self.info_dl["downloaded_subtitles"]['es'] = _subs_file
+                    logger.debug(f"{self.premsg}: subs file [es, srt] ready")
+            except Exception as e:
+                logger.exception(f"{self.premsg}[get_subts] couldnt translate subtitle file from ca to es: {repr(e)}")
 
     def _get_drm_xml(self) -> str:
         _pssh = try_get(
