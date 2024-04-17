@@ -554,8 +554,9 @@ class VideoDownloader:
                     _part_cmd = ' -add '.join([
                         f'{_file}:lang={_lang}:hdlr=sbtl'
                         for _lang, _file in self.info_dl['downloaded_subtitles'].items()])
-                    return f"MP4Box -add {_part_cmd} {self.temp_filename} -out {embed_filename}"
+                    return f"MP4Box -flat -add {_part_cmd} {self.temp_filename} -out {embed_filename}"
 
+                logger.info(f"{self.premsg}: starting embed subt")
                 proc = await arunproc(cmd := _make_embed_gpac_cmd())
                 logger.debug(
                     f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}")
@@ -565,9 +566,10 @@ class VideoDownloader:
                     and await amove(embed_filename, self.temp_filename) == 0
                 ):
                     logger.debug(f"{self.premsg}: subt embeded OK")
-                    for _file in self.info_dl["downloaded_subtitles"].values():
-                        async with async_suppress(OSError):
-                            await aiofiles.os.remove(_file)
+                    if not self.args.keep_videos:
+                        for _file in self.info_dl["downloaded_subtitles"].values():
+                            async with async_suppress(OSError):
+                                await aiofiles.os.remove(_file)
                 else:
                     logger.warning(f"{self.premsg}: error embeding subtitles")
                     async with async_suppress(OSError):
@@ -585,8 +587,8 @@ class VideoDownloader:
                 if (_meta := self.info_dict.get('meta_comment')):
                     _metadata += f":comment={_meta}"
 
-                cmd = f"MP4Box -itags {_metadata} {self.temp_filename} -out {meta_filename}"
-
+                cmd = f"MP4Box -flat -itags {_metadata} {self.temp_filename} -out {meta_filename}"
+                logger.info(f"{self.premsg}: starting embed metadata")
                 proc = await arunproc(cmd)
                 logger.debug(
                     f"{self.premsg} embed metadata\n[cmd] {cmd}\n[rc] {proc.returncode}")
@@ -610,9 +612,9 @@ class VideoDownloader:
             rc = -1
             _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
             _drm_xml = self._get_drm_xml()
-            cmd = f"MP4Box -quiet -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {self.temp_filename}"
+            cmd = f"MP4Box -flat -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {self.temp_filename}"
 
-            logger.debug(f"{self.premsg}: starting decryption files")
+            logger.info(f"{self.premsg}: starting decryption files")
             logger.debug(f"{self.premsg}: {cmd}")
 
             proc = await arunproc(cmd)
@@ -625,9 +627,10 @@ class VideoDownloader:
             ):
                 logger.debug(f"{self.premsg}: DL video file OK")
                 rc = 0
-                for _file in _crypt_files:
-                    async with async_suppress(OSError):
-                        await aiofiles.os.remove(_file)
+                if not self.args.keep_videos:
+                    for _file in _crypt_files:
+                        async with async_suppress(OSError):
+                            await aiofiles.os.remove(_file)
             if rc != 0:
                 logger.error(f"{self.premsg}: error decryption files")
                 self.info_dl["status"] = "error"
@@ -671,7 +674,7 @@ class VideoDownloader:
                     cmd = (
                         "ffmpeg -y -probesize max -loglevel "
                         + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
-                        + f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc file:\"{self.temp_filename}\""
+                        + f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc -movflags +faststart file:\"{self.temp_filename}\""
                     )
 
                     proc = await arunproc(cmd)
@@ -702,10 +705,11 @@ class VideoDownloader:
                     f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
                 if (proc.returncode) == 0 and (await aiofiles.os.path.exists(self.temp_filename)):
-                    for dl in self.info_dl["downloaders"]:
-                        for _file in variadic(dl.filename):
-                            async with async_suppress(OSError):
-                                await aiofiles.os.remove(_file)
+                    if not self.args.keep_videos:
+                        for dl in self.info_dl["downloaders"]:
+                            for _file in variadic(dl.filename):
+                                async with async_suppress(OSError):
+                                    await aiofiles.os.remove(_file)
 
                     logger.debug(f"{self.premsg}: Streams merged for: {self.info_dl['filename']}")
                     logger.debug(f"{self.premsg}: DL video file OK")
@@ -744,8 +748,9 @@ class VideoDownloader:
                 await asyncio.wait(blocking_tasks)
             raise
         finally:
-            async with async_suppress(OSError):
-                await armtree(self.info_dl["download_path"])
+            if not self.args.keep_videos:
+                async with async_suppress(OSError):
+                    await armtree(self.info_dl["download_path"])
             await asyncio.sleep(0)
 
     def print_hookup(self):

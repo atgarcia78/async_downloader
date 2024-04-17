@@ -2332,6 +2332,7 @@ def init_argparser():
     parser.add_argument("--use-cookies", action="store_true", default=True)
     parser.add_argument("--no-embed", action="store_true", default=False)
     parser.add_argument("--rep-pause", action="store_true", default=False)
+    parser.add_argument("--keep-videos", action="store_true", default=False)
 
     args = parser.parse_args()
 
