@@ -1210,7 +1210,7 @@ if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
     from yt_dlp import YoutubeDL, parse_options
     from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
-    from yt_dlp.extractor.nakedsword import NakedSwordBaseIE
+    from yt_dlp_plugins.extractor.nakedsword import NakedSwordBase
     from yt_dlp.networking import HEADRequest
     from yt_dlp.utils import (
         ExtractorError,
@@ -1260,7 +1260,7 @@ if yt_dlp:
     assert smuggle_url
     assert prepend_extension
     assert get_domain
-    assert NakedSwordBaseIE
+    assert NakedSwordBase
     assert load_config_extractors
     assert getter_basic_config_extr
     assert SeleniumInfoExtractor
