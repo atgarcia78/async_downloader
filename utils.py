@@ -50,7 +50,11 @@ from urllib.parse import urlparse
 
 import httpx
 
-from supportlogging import init_logging
+try:
+    from supportlogging import init_logging
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    init_logging = None
 
 try:
     from asgiref.sync import sync_to_async
@@ -71,7 +75,8 @@ except Exception:
 try:
     import psutil
     import PySimpleGUI
-except Exception:
+except Exception as e:
+    print(str(e), file=sys.stderr)
     PySimpleGUI = None
 
 try:
@@ -150,6 +155,55 @@ CLIENT_CONFIG = {
     "follow_redirects": True,
     "verify": False,
 }
+
+
+class Tracker():
+
+    _sentinel = object()
+
+    def __init__(self, cmd, upt, pattern):
+        self._upt = upt
+        self._stderr_queue = Queue()
+        self._stderr_buffer = ''
+        self.progress_pattern = re.compile(pattern)
+        self.proc = subprocess.Popen(shlex.split(cmd), text=True, encoding='utf8', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+    def _handle_lines(self):
+        def _parse_output(line):
+            if not (_info := re.match(self.progress_pattern, line)):
+                return
+            return float(_info.group('progress'))
+
+        if not self._stderr_queue.empty():
+            stderr_line = self._stderr_queue.get_nowait()
+            if stderr_line != self._sentinel:
+                self._stderr_buffer += stderr_line + '\n'
+                if _progr := _parse_output(stderr_line):
+                    self._upt['progress'] = _progr
+            else:
+                self._upt['progress'] = 100.0
+
+    def _wait_for_proc(self):
+        retcode = self.proc.poll()
+        while retcode is None:
+            time.sleep(CONF_INTERVAL_GUI / 10)
+            self._handle_lines()
+            retcode = self.proc.poll()
+        return retcode
+
+    def track_progress(self):
+        def _enqueue_lines(std, queue):
+            for line in iter(std.readline, ''):
+                queue.put(line.strip())
+            queue.put(self._sentinel)
+            std.close()
+
+        err_listener = threading.Thread(
+            target=_enqueue_lines, args=(self.proc.stderr, self._stderr_queue), daemon=True)
+
+        err_listener.start()
+        retcode = self._wait_for_proc()
+        return retcode
 
 
 def get_dependencies(your_package):
@@ -1722,8 +1776,8 @@ if yt_dlp:
             "format_sort": [args.sort],
             "nocheckcertificate": True,
             "allsubtitles": True,
-            "subtitlesformat": "best",
-            #"subtitleslangs": ["en", "es", "ca"],
+            "subtitlesformat": "srt/vtt/best",
+            # "subtitleslangs": ["en", "es", "ca"],
             "keepvideo": True,
             "convertsubtitles": "srt",
             "continuedl": True,
@@ -1743,7 +1797,7 @@ if yt_dlp:
             "external_downloader": {
                 "default": "native"
             },
-            "concurrent_fragment_downloads": 256,
+            "concurrent_fragment_downloads": 64,
             "restrictfilenames": True,
             "user_agent": args.useragent,
             "verboseplus": args.vv,
@@ -3304,7 +3358,7 @@ def init_config(quiet=False, test=False):
     patch_https_connection_pool(maxsize=1000)
     os.environ["MOZ_HEADLESS_WIDTH"] = "1920"
     os.environ["MOZ_HEADLESS_HEIGHT"] = "1080"
-    if not quiet:
+    if not quiet and init_logging:
         return init_logging('asyncdl', test=test)
 
 
@@ -3657,6 +3711,12 @@ if PySimpleGUI:
                             f"\n\n-------STATUS DL----------------\n\n{upt}"
                             + "\n\n-------END STATUS DL------------\n\n")
                         self.console_dl_status = False
+                if "manip" in values["all"]:
+                    if list_manip := values["all"]["manip"]:
+                        upt = "\n\n" + "".join(list((list_manip.values())))
+                    else:
+                        upt = ""
+                    self.window_root["-ML3-"].update(value=upt)
                 if "finish" in values["all"]:
                     self.list_finish = values["all"]["finish"]
                     if self.list_finish:
@@ -3922,8 +3982,8 @@ if PySimpleGUI:
                     ],
                     [
                         sg.Multiline(
-                            default_text="Waiting for info",
-                            size=(60, 40),
+                            default_text="\nWaiting for info",
+                            size=(30, 40),
                             font=("Courier New Bold", 10),
                             write_only=True,
                             key="-ML0-",
@@ -3944,7 +4004,7 @@ if PySimpleGUI:
                     [
                         sg.Text(
                             "Waiting for info",
-                            size=(180, 2),
+                            size=(200, 2),
                             font=("Courier New Bold", 12),
                             key="ST",
                             expand_x=True,
@@ -3960,7 +4020,7 @@ if PySimpleGUI:
                 [
                     [
                         sg.Text(
-                            "NOW DOWNLOADING/CREATING FILE",
+                            "NOW DOWNLOADING",
                             font="Any 14",
                             expand_x=True,
                             expand_y=True
@@ -3968,11 +4028,40 @@ if PySimpleGUI:
                     ],
                     [
                         sg.Multiline(
-                            default_text="Waiting for info",
+                            default_text="\nWaiting for info",
                             size=(90, 40),
                             font=("Courier New Bold", 10),
                             write_only=True,
                             key="-ML1-",
+                            autoscroll=True,
+                            auto_refresh=True,
+                            expand_x=True,
+                            expand_y=True
+                        )
+                    ],
+                ],
+                element_justification="l",
+                expand_x=True,
+                expand_y=True,
+            )
+
+            col_3 = sg.Column(
+                [
+                    [
+                        sg.Text(
+                            "NOW CREATING FILE        ",
+                            font="Any 14",
+                            expand_x=True,
+                            expand_y=True
+                        )
+                    ],
+                    [
+                        sg.Multiline(
+                            default_text="\nWaiting for info",
+                            size=(30, 40),
+                            font=("Courier New Bold", 10),
+                            write_only=True,
+                            key="-ML3-",
                             autoscroll=True,
                             auto_refresh=True,
                             expand_x=True,
@@ -3997,7 +4086,7 @@ if PySimpleGUI:
                     ],
                     [
                         sg.Multiline(
-                            default_text="Waiting for info",
+                            default_text="\nWaiting for info",
                             size=(30, 40),
                             font=("Courier New Bold", 10),
                             write_only=True,
@@ -4014,10 +4103,10 @@ if PySimpleGUI:
                 expand_y=True,
             )
 
-            layout_root = [[col_00], [col_0, col_1, col_2]]
+            layout_root = [[col_00], [col_0, col_1, col_3, col_2]]
 
             return self.get_window(
-                "async_downloader", layout_root, ml_keys=[f"-ML{i}-" for i in range(3)])
+                "async_downloader", layout_root, ml_keys=[f"-ML{i}-" for i in range(4)])
 
         def init_gui_console(self):
             sg.theme("SystemDefaultForReal")

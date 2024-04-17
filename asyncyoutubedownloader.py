@@ -142,6 +142,10 @@ class AsyncYoutubeDownloader:
             try:
                 if d['status'] == 'downloading':
                     if self._file == 'video' and try_call(lambda: list(self._streams.keys())[1] in d['filename']):
+                        self.dl_cont[self._file] |= {
+                            'speed': '--',
+                            'progress': '100%'
+                        }
                         self._file = 'audio'
                         self.down_size_old = 0
                         self.filesize_offset = self.filesize

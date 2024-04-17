@@ -24,6 +24,7 @@ from utils import (
     InfoDL,
     MySyncAsyncEvent,
     Optional,
+    Tracker,
     Union,
     async_suppress,
     get_cookies_jar,
@@ -96,6 +97,8 @@ class VideoDownloader:
 
         _title = sanitize_filename(self.info_dict["title"], restricted=True)
 
+        self._status_manip_upt = {'progress': 0.0}
+
         self.info_dl = {
             "id": self.info_dict["id"],
             "n_workers": self.args.parts,
@@ -146,6 +149,7 @@ class VideoDownloader:
             "filesize": _filesize,
             "down_size": _down_size,
             "status": _status,
+            "sub_status": None
         }
 
     @property
@@ -506,6 +510,10 @@ class VideoDownloader:
         logger.debug(f"{self.premsg}: drm keys[{_keys}] drm file[{_path_drm_file}]")
         return _path_drm_file
 
+    def run_proc_tracker(self, cmd, queue, pattern):
+        _tracker = Tracker(cmd, queue, pattern)
+        return _tracker.track_progress()
+
     def run_proc(self, cmd):
         _cmd = None
         try:
@@ -523,6 +531,7 @@ class VideoDownloader:
     async def run_manip(self):
         aget_subts_files = self.sync_to_async(self._get_subts_files)
         arunproc = self.sync_to_async(self.run_proc)
+        arunproctracker = self.sync_to_async(self.run_proc_tracker)
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
         autime = self.sync_to_async(os.utime)
 
@@ -626,17 +635,16 @@ class VideoDownloader:
             rc = -1
             _crypt_files = list(map(str, self.info_dl["downloaders"][0].filename))
             _drm_xml = self._get_drm_xml()
-            cmd = f"MP4Box -flat -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {self.temp_filename}"
-
+            cmd = f"MP4Box -flat -decrypt {_drm_xml} -add {' -add '.join(_crypt_files)} -new {self.temp_filename} -proglf -logs=all@info:ncl"
             logger.info(f"{self.premsg}: starting decryption files")
             logger.debug(f"{self.premsg}: {cmd}")
 
-            proc = await arunproc(cmd)
+            _rc = await arunproctracker(cmd, self._status_manip_upt, r'Decrypting:\s+(?P<progress>\S+)\s')
             logger.debug(
-                f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {proc.returncode}")
+                f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {rc}")
 
             if (
-                proc.returncode == 0 and
+                _rc == 0 and
                 (await aiofiles.os.path.exists(self.temp_filename))
             ):
                 logger.debug(f"{self.premsg}: DL video file OK")
@@ -660,6 +668,8 @@ class VideoDownloader:
                 self.add_task(
                     dl.ensamble_file(), name=f'ensamble_file_{dl.premsg}'): f'ensamble_file_{dl.premsg}'
                 for dl in self.info_dl["downloaders"] if dl.status == "init_manipulating"}
+            if blocking_tasks:
+                self.info_dl["sub_status"] = "Ensambling file"
             if self.args.subt and self.info_dict.get("requested_subtitles"):
                 blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
 
@@ -679,6 +689,7 @@ class VideoDownloader:
             self.temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
 
             if self._types == "YOUTUBE_DRM":
+                self.info_dl["sub_status"] = "Decrypting files"
                 await youtube_drm()
 
             elif len(self.info_dl["downloaders"]) == 1:
@@ -690,7 +701,7 @@ class VideoDownloader:
                         + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
                         + f" -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc -movflags +faststart file:\"{self.temp_filename}\""
                     )
-
+                    self.info_dl["sub_status"] = "Converting ts to mp4"
                     proc = await arunproc(cmd)
                     logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
@@ -712,7 +723,7 @@ class VideoDownloader:
                     + f"\"{str(self.info_dl['downloaders'][1].filename)}\" -c copy -map 0:v:0 "
                     + f"-map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:\"{self.temp_filename}\""
                 )
-
+                self.info_dl["sub_status"] = "Merging streams"
                 proc = await arunproc(cmd)
 
                 logger.debug(
@@ -733,9 +744,11 @@ class VideoDownloader:
                     raise AsyncDLError(f"{self.premsg}: error merge, ffmpeg error: {rc}")
 
             if self.info_dl["downloaded_subtitles"]:
+                self.info_dl["sub_status"] = "Embeding subt"
                 await embed_subt()
 
             if self.args.xattr:
+                self.info_dl["sub_status"] = "Embeding metadata"
                 await embed_metadata()
 
             if (
@@ -785,6 +798,14 @@ class VideoDownloader:
         def _progress_dl():
             return f"{naturalsize(self.total_sizes['down_size'], format_='.2f')} {_filesize_str()}"
 
+        def _status_manip():
+            _status_manip = (self.info_dl['sub_status'] or 'Waiting for info')
+            msg = _status_manip + '\n'
+            if _status_manip == "Decrypting files":
+                _progr = self._status_manip_upt.get('progress')
+                msg += f"\tPR[{_progr:5.1f}%]"
+            return msg
+
         if self.info_dl["status"] == "done":
             if not (_size_str := getattr(self, '_size_str', None)):
                 self._size_str = f"{naturalsize(self.info_dl['filename'].stat().st_size, format_='.2f')}"
@@ -804,4 +825,4 @@ class VideoDownloader:
                 status = "Downloading"
             return f"{_pre(max_len=40)} {status} {_progress_dl()}\n {_get_msg()}\n"
         elif self.info_dl["status"] == "manipulating":
-            return f"{_pre()} Ensambling/Merging {_progress_dl()}\n {_get_msg()}\n"
+            return f"{_pre()} {_status_manip()}\n"
