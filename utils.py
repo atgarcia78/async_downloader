@@ -1304,6 +1304,8 @@ if yt_dlp:
             self.log(logging.DEBUG, msg, *args, **kwargs)
 
         def info(self, msg, *args, **kwargs):
+            if self.quiet:
+                return
             if any(_ in msg for _ in self._debug_phr):
                 self.log(logging.DEBUG, msg, *args, **kwargs)
             else:
@@ -1316,12 +1318,13 @@ if yt_dlp:
                 self.log(logging.WARNING, msg, *args, **kwargs)
 
         def debug(self, msg, *args, **kwargs):
-            mobj = get_values_regex([r"^(\[[^\]]+\])"], msg) or ""
-            mobj2 = msg.split(": ")[-1]
 
             if self.quiet:
-                self.log(logging.DEBUG, msg, *args, **kwargs)
-            elif self.verbose and not self.superverbose:
+                # self.log(logging.DEBUG, msg, *args, **kwargs)
+                return
+            mobj = get_values_regex([r"^(\[[^\]]+\])"], msg) or ""
+            mobj2 = msg.split(": ")[-1]
+            if self.verbose and not self.superverbose:
                 if any(
                     [
                         (mobj in ("[redirect]", "[download]", "[debug+]", "[info]")),
