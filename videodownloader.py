@@ -38,6 +38,7 @@ from utils import (
     traverse_obj,
     try_get,
     variadic,
+    myYTDL
 )
 
 logger = logging.getLogger("videodl")
@@ -415,11 +416,22 @@ class VideoDownloader:
 
     def _get_subts_files(self):
         def _dl_subt():
-            self.info_dl['ytdl'].params['paths'] = {'home': str(self.info_dl["filename"].absolute().parent)}
-            self.info_dl['ytdl'].params['keepvideo'] = False
-            self.info_dl['ytdl'].params['skip_download'] = True
-            _url = self.info_dict.get('original_url') if self.info_dict.get('__gvd_playlist_index') else self.info_dict.get("webpage_url")
-            return self.info_dl['ytdl'].download(_url)
+            # self.info_dl['ytdl'].params['paths'] = {'home': str(self.info_dl["filename"].absolute().parent)}
+            # self.info_dl['ytdl'].params['keepvideo'] = False
+            # self.info_dl['ytdl'].params['skip_download'] = True
+            # _url = self.info_dict.get('original_url') if self.info_dict.get('__gvd_playlist_index') else self.info_dict.get("webpage_url")
+            # return self.info_dl['ytdl'].download(_url)
+            opts_upt = {
+                'skip_download': True,
+                'format': self.info_dict["format_id"],
+                'paths': {'home': str(self.info_dl["filename"].absolute().parent)},
+                'outtmpl': {'default': f'{self.info_dl["filename"].stem}.%(ext)s'}}
+            with myYTDL(params=(self.ytdl.params | opts_upt), silent=True) as pytdl:
+                _fmt = get_format_id(self.info_dict, try_get(self.info_dict.get('format_id'), lambda x: x.split('+')[0]))
+                pytdl.params['http_headers'] |= (_fmt.get('http_headers') or {})
+                if (_cookies_str := _fmt.get('cookies')):
+                    pytdl._load_cookies(_cookies_str, autoscope=False)
+                pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict, download=True))
 
         if not (_subts := self.info_dict.get("requested_subtitles")):
             return
