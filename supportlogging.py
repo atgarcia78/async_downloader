@@ -196,18 +196,13 @@ class SingleThreadQueueListener(QueueListener):
 
 
 def init_logging(log_name, config_path=None, test=False):
-    if not config_path:
-        config_json = Path(Path.home(), "Projects/common/logging.json")
-    else:
-        config_json = Path(config_path)
-
+    config_json = config_path or Path(Path.home(), "Projects/common/logging.json")
     with open(config_json, 'r') as f:
         config = json.loads(f.read())
-
     _to_upt = config['handlers']['info_file_handler']
     for key, value in _to_upt.items():
         if key == 'filename':
-            _to_upt[key] = value.format(name='asyncdl')
+            _to_upt[key] = value.format(name=log_name)
             break
 
     logging.config.dictConfig(config)
@@ -228,6 +223,6 @@ class LogContext:
     def __enter__(self):
         return self
 
-    def __exit__(self, *args):
+    def __exit__(self, *args, **kwargs):
         list(map(lambda x: x.stop(), SingleThreadQueueListener.listeners))
         SingleThreadQueueListener._join()
