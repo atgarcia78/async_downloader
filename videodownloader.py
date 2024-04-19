@@ -670,7 +670,7 @@ class VideoDownloader:
                 for dl in self.info_dl["downloaders"] if dl.status == "init_manipulating"}
             if blocking_tasks:
                 self.info_dl["sub_status"] = "Ensambling file"
-            if self.args.subt and self.info_dict.get("requested_subtitles"):
+            if self.args.subt and self.info_dict.get("requested_subtitles") and self._types != "YOUTUBE":
                 blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
 
             logger.debug(f"{self.premsg}[run_manip] blocking tasks\n{blocking_tasks}")
@@ -743,11 +743,11 @@ class VideoDownloader:
                     self.info_dl["status"] = "error"
                     raise AsyncDLError(f"{self.premsg}: error merge, ffmpeg error: {rc}")
 
-            if self.info_dl["downloaded_subtitles"]:
+            if self._types != "YOUTUBE" and self.info_dl["downloaded_subtitles"]:
                 self.info_dl["sub_status"] = "Embeding subt"
                 await embed_subt()
 
-            if self.args.xattr:
+            if self._types != "YOUTUBE" and self.args.xattr:
                 self.info_dl["sub_status"] = "Embeding metadata"
                 await embed_metadata()
 

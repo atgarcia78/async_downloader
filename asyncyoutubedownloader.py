@@ -23,6 +23,7 @@ from utils import (
     sync_to_async,
     try_call,
     try_get,
+
 )
 
 logger = logging.getLogger("asyncyoutubedl")
@@ -168,21 +169,28 @@ class AsyncYoutubeDownloader:
 
         try:
             opts_upt = {
-                'allow_unplayable_formats': True,
+                'keepvideo': self.drm,
+                'allow_unplayable_formats': self.drm,
+                "concurrent_fragment_downloads": self.n_workers,
                 'skip_download': False,
                 'format': '+'.join(list(self._streams.keys())),
                 'progress_hooks': [my_hook],
                 'paths': {'home': str(self.download_path)},
-                'outtmpl': {'default': f'{self._filename.stem}.%(ext)s'}}
+                'outtmpl': {'default': f'{self._filename.stem}.%(ext)s'}
+            } | ({'postprocessors': []} if self.drm else {})
 
             with myYTDL(params=(self.ytdl.params | opts_upt), silent=True) as pytdl:
                 pytdl.params['http_headers'] |= (self._formats[0].get('http_headers') or {})
                 if (_cookies_str := self._formats[0].get('cookies')):
                     pytdl._load_cookies(_cookies_str, autoscope=False)
-                _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(self.info_dict | {'subtitles': {}}, download=True))
+                _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(
+                    self.info_dict | ({'subtitles': {}} if self.drm else {}),
+                    download=True))
+
             _info_dict.pop('requested_subtitles', None)
             _info_dict.pop('subtitles', None)
             self._vid_dl.info_dict |= _info_dict
+
         except Exception as e:
             logger.exception(f"{self.premsg}[fetch] {repr(e)}")
             self.status = "error"

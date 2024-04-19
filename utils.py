@@ -157,6 +157,17 @@ CLIENT_CONFIG = {
 }
 
 
+def deep_update(mapping, *updating_mappings):
+    updated_mapping = mapping.copy()
+    for updating_mapping in updating_mappings:
+        for k, v in updating_mapping.items():
+            if k in updated_mapping and isinstance(updated_mapping[k], dict) and isinstance(v, dict):
+                updated_mapping[k] = deep_update(updated_mapping[k], v)
+            else:
+                updated_mapping[k] = v
+    return updated_mapping
+
+
 class Tracker():
 
     _sentinel = object()
@@ -1210,7 +1221,6 @@ if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
     from yt_dlp import YoutubeDL, parse_options
     from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
-    from yt_dlp_plugins.extractor.nakedsword import NakedSwordBase
     from yt_dlp.networking import HEADRequest
     from yt_dlp.utils import (
         ExtractorError,
@@ -1252,6 +1262,7 @@ if yt_dlp:
         load_config_extractors,
         my_dec_on_exception,
     )
+    from yt_dlp_plugins.extractor.nakedsword import NakedSwordBase
     assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
@@ -1775,11 +1786,11 @@ if yt_dlp:
             "format": args.format,
             "format_sort": [args.sort],
             "nocheckcertificate": True,
-            "allsubtitles": True,
-            "subtitlesformat": "srt/vtt/best",
-            # "subtitleslangs": ["en", "es", "ca"],
+            "subtitlesformat": "srt/vtt",
+            "subtitleslangs": ["es", "en"],
             "keepvideo": True,
             "convertsubtitles": "srt",
+            "embedsubtitles": True,
             "continuedl": True,
             "updatetime": False,
             "ignore_no_formats_error": True,
@@ -1790,10 +1801,13 @@ if yt_dlp:
             "usenetrc": True,
             "skip_download": True,
             "writesubtitles": True,
+            "writeautomaticsub": True,
             "postprocessors": [
-                {"key": "FFmpegSubtitlesConvertor",
-                 "format": "srt",
-                 "when": "before_dl"}],
+                {'key': 'FFmpegSubtitlesConvertor', 'format': 'srt', 'when': 'before_dl'},
+                {'key': 'FFmpegEmbedSubtitle', 'already_have_subtitle': True},
+                {'key': 'FFmpegMetadata', 'add_chapters': None, 'add_metadata': True, 'add_infojson': None},
+                {'key': 'XAttrMetadata'},
+                {'key': 'FFmpegConcat', 'only_multi_video': True, 'when': 'playlist'}],
             "external_downloader": {
                 "default": "native"
             },
@@ -1807,7 +1821,7 @@ if yt_dlp:
             "lock": threading.Lock(),
             "embed": not args.no_embed,
             "_util_classes": {"SimpleCountDown": SimpleCountDown},
-            "outtmpl": {"default": "%(id)s_%(title)s.%(ext)s"}
+            "outtmpl": {"default": args.outtmpl}
         }
 
         if args.use_cookies:
@@ -2361,6 +2375,7 @@ def init_argparser():
     parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="10", type=int)
     parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
     parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
+    parser.add_argument("--outtmpl", help="Format preferred for filrname", default="%(id)s_%(title)s.%(ext)s", type=str)
     parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str)
     parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
     parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
@@ -5020,6 +5035,7 @@ args = argparse.Namespace(
     rpcport=6800,
     enproxy=False,
     nocheckcert=True,
+    outtmpl="%(id)s_%(title)s.%(ext)s",
 )
 
 
