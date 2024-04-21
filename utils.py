@@ -1262,7 +1262,6 @@ if yt_dlp:
         load_config_extractors,
         my_dec_on_exception,
     )
-    from yt_dlp_plugins.extractor.nakedsword import NakedSwordBase
     assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
@@ -1271,7 +1270,6 @@ if yt_dlp:
     assert smuggle_url
     assert prepend_extension
     assert get_domain
-    assert NakedSwordBase
     assert load_config_extractors
     assert getter_basic_config_extr
     assert SeleniumInfoExtractor
@@ -2045,14 +2043,28 @@ if yt_dlp:
             if _client_cl:
                 client.close()
 
-    def get_pssh_from_m3u8(
-        m3u8_url: str, m3u8_doc: Optional[str] = None,
-        uuid: Optional[str] = None, **kwargs
+    def get_pssh_from_manifest(
+        manifest_url: Optional[str] = None,
+        manifest_doc: Optional[str] = None,
+        **kwargs
     ) -> list:
 
-        import m3u8
-        if not uuid:
-            uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
+        if not manifest_doc and manifest_url:
+            if not (manifest_doc := get_manifest(manifest_url, **kwargs)):
+                raise Exception('error with manifest doc')
+        if '<?xml' in manifest_doc:
+            import xmltodict
+            return get_pssh_from_mpd(mpd_dict=xmltodict.parse(manifest_doc))
+        elif '#EXTM3U' in manifest_doc:
+            return get_pssh_from_m3u8(m3u8_doc=manifest_doc)
+
+    def get_pssh_from_m3u8(
+        m3u8_url: Optional[str] = None,
+        m3u8_doc: Optional[str] = None,
+        **kwargs
+    ) -> list:
+
+        uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
         pssh = set()
         try:
             if not m3u8_doc:
@@ -2062,6 +2074,8 @@ if yt_dlp:
                         lambda x: x.content.decode('utf-8', 'replace'))
         except Exception:
             return list(pssh)
+
+        import m3u8
 
         m3u8obj = m3u8.loads(m3u8_doc, uri=m3u8_url)
         if keys := m3u8obj.session_keys:
@@ -2074,68 +2088,76 @@ if yt_dlp:
         return list(pssh)
 
     def get_pssh_from_mpd(
-            mpd_url: Optional[str] = None, mpd_dict: Optional[dict] = None,
-            uuid: Optional[str] = None, **kwargs
+        mpd_url: Optional[str] = None,
+        mpd_dict: Optional[dict] = None,
+        **kwargs
     ) -> list:
-        if not uuid:
-            uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
+
+        uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
         pssh = set()
-        try:
-            if not mpd_dict and mpd_url:
-                mpd_dict = get_xml(mpd_url, **kwargs)
+        if not mpd_dict:
+            mpd_dict = get_xml(mpd_url, **kwargs)
+
+        if mpd_dict:
             mpd = json.loads(json.dumps(mpd_dict))
             periods = mpd['MPD']['Period']
-        except Exception:
-            raise
-            # return list(pssh)
 
-        for period in variadic(periods):
-            for ad_set in variadic(period['AdaptationSet']):
-                if ad_set.get('@contentType') == 'video' or ad_set.get('@mimeType') == 'video/mp4':
-                    try:
+            for period in variadic(periods):
+                for ad_set in variadic(period['AdaptationSet']):
+                    if any([
+                        ad_set.get('@contentType') == 'video',
+                        ad_set.get('@mimeType') == 'video/mp4']
+                    ):
                         for t in ad_set['ContentProtection']:
                             if t['@schemeIdUri'].lower() == uuid:
                                 pssh.add(t["cenc:pssh"])
-                    except Exception:
-                        pass
-        return list(pssh)
+            return list(pssh)
+
+    def get_manifest(manifest_url: str, **kwargs) -> dict:
+
+        _upt_config = {}
+        if (_cookies_arg := kwargs.pop('cookies', None)):
+            if isinstance(_cookies_arg, str):
+                _cookies_type = get_cookies_jar(_cookies_arg)
+            else:
+                _cookies_type = _cookies_arg.copy()
+            _upt_config['cookies'] = _cookies_type
+
+        with httpx.Client(**(CLIENT_CONFIG | _upt_config)) as client:
+            return try_get(
+                client.get(manifest_url, **kwargs),
+                lambda x: x.content.decode('utf-8', 'replace'))
 
     def get_xml(mpd_url: str, **kwargs) -> dict:
+
         import xmltodict
 
         if not (_doc := kwargs.pop('doc', None)):
-            with httpx.Client(**CLIENT_CONFIG) as client:
-                if (_cookies := kwargs.pop('cookies', None)):
-                    if isinstance(_cookies, dict):
-                        for cookie in _cookies:
-                            client.cookies.set(name=cookie['name'], value=cookie['value'], path=cookie.get('path', '/'), domain=cookie['domain'])
-                    else:
-                        for cookie in _cookies:
-                            client.cookies.jar.set_cookie(cookie)
-                _doc = try_get(
-                    client.get(mpd_url, **kwargs),
-                    lambda x: x.content.decode('utf-8', 'replace'))
-
-        return xmltodict.parse(_doc)
+            _doc = get_manifest(mpd_url, **kwargs)
+        if _doc:
+            return xmltodict.parse(_doc)
 
     def get_drm_keys(
-            lic_url: str, pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
-            mpd_url: Optional[str] = None, **kwargs
+        lic_url: str, pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
+        manifest_url: Optional[str] = None, manifest_doc: Optional[str] = None, **kwargs
     ) -> list | str:
         from mydrm import myDRM
 
         return myDRM.get_drm_keys(
-            lic_url, pssh=pssh, func_validate=func_validate, mpd_url=mpd_url, **kwargs)
+            lic_url, pssh=pssh, func_validate=func_validate, manifest_url=manifest_url, **kwargs)
 
     def get_drm_xml(
-            lic_url: str, file_dest: str | Path,
-            pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
-            mpd_url: Optional[str] = None, **kwargs):
+        lic_url: str, file_dest: str | Path,
+        pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
+        manifest_url: Optional[str] = None,
+        manifest_doc: Optional[str] = None,
+        **kwargs
+    ):
         from mydrm import myDRM
 
         return myDRM.get_drm_xml(
             lic_url, file_dest, pssh=pssh, func_validate=func_validate,
-            mpd_url=mpd_url, **kwargs)
+            manifest_url=manifest_url, manifest_doc=manifest_doc, **kwargs)
 
     def get_files_same_id():
         config_folders = {

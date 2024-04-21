@@ -12,13 +12,7 @@ from pywidevine.cdm import Cdm
 from pywidevine.device import Device, DeviceTypes
 from pywidevine.pssh import PSSH
 
-from utils import (
-    CLIENT_CONFIG,
-    get_pssh_from_m3u8,
-    get_pssh_from_mpd,
-    try_call,
-    variadic,
-)
+from utils import CLIENT_CONFIG, get_pssh_from_manifest, try_call, variadic
 
 logger = logging.getLogger('mydrm')
 
@@ -54,8 +48,10 @@ class myDRM:
             return wrapper
 
     @classmethod
-    def create_drm_cdm(cls, file: Optional[str | Path] = None) -> Cdm:
-        # file device format wvd
+    def create_drm_cdm(
+        cls,
+        file: Optional[str | Path] = None
+    ) -> Cdm:
         if file and os.path.exists(file):
             device = Device.load(file)
         else:
@@ -77,20 +73,21 @@ class myDRM:
     @classmethod
     @syncsem()
     def get_drm_keys(
-        cls, lic_url: str, pssh: Optional[str] = None,
-        func_validate: Optional[Callable] = None, mpd_url: Optional[str] = None,
-        m3u8_url: Optional[str] = None, **kwargs
+        cls,
+        lic_url: str,
+        pssh: Optional[str] = None,
+        func_validate: Optional[Callable] = None,
+        manifest_url: Optional[str] = None,
+        manifest_doc: Optional[str] = None,
+        **kwargs
     ) -> Optional[str | list]:
 
         if not pssh:
-            if mpd_url:
-                pssh = try_call(lambda: get_pssh_from_mpd(mpd_url=mpd_url, **kwargs)[0])
-            elif m3u8_url:
-                pssh = try_call(lambda: get_pssh_from_m3u8(m3u8_url, **kwargs)[0])
+            pssh = try_call(lambda: get_pssh_from_manifest(manifest_url=manifest_url, **kwargs)[0])
+            if not pssh:
+                raise ValueError('couldnt find pssh')
 
-        if not pssh:
-            raise ValueError('couldnt find pssh')
-
+        _validate_lic = func_validate or cls.validate_drm_lic
         with cls._LOCK:
             if not cls._CDM:
                 cls._CDM = cls.create_drm_cdm()
@@ -98,33 +95,49 @@ class myDRM:
         session_id = cls._CDM.open()
         try:
             challenge = cls._CDM.get_license_challenge(session_id, PSSH(pssh))
-            _validate_lic = func_validate or cls.validate_drm_lic
             cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
             if (keys := cls._CDM.get_keys(session_id)):
-                _res = [f"{key.kid.hex}:{key.key.hex()}" for key in keys if key.type == 'CONTENT']
-            return _res if len(_res) > 1 else _res[0]
+                if _res := [
+                    f"{key.kid.hex}:{key.key.hex()}"
+                    for key in keys
+                    if key.type == 'CONTENT'
+                ]:
+                    return _res if len(_res) > 1 else _res[0]
         finally:
             cls._CDM.close(session_id)
 
     @classmethod
     def get_drm_xml(
-        cls, lic_url: str, file_dest: str | Path,
-        pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
-        mpd_url: Optional[str] = None, **kwargs
+        cls,
+        lic_url: str,
+        file_dest: str | Path,
+        pssh: Optional[str] = None,
+        func_validate: Optional[Callable] = None,
+        manifest_url: Optional[str] = None,
+        manifest_doc: Optional[str] = None,
+        **kwargs
     ) -> Optional[str]:
 
         if (
             _keys := variadic(cls.get_drm_keys(
                 lic_url, pssh=pssh, func_validate=func_validate,
-                mpd_url=mpd_url, **kwargs))
+                manifest_url=manifest_url, **kwargs))
         ):
 
-            with open(file_dest, 'w') as f:
-                f.write(CONF_DRM_XML_TEMPLATE % tuple(_keys[0].split(':')))
+            cls._write_xml(file_dest, _keys[0])
             return _keys[0]
 
     @classmethod
-    def validate_drm_lic(cls, lic_url: str, challenge: bytes, **kwargs) -> Optional[bytes]:
+    def _write_xml(cls, file_dest, key):
+        with open(file_dest, 'w') as f:
+            f.write(CONF_DRM_XML_TEMPLATE % tuple(key.split(':')))
+
+    @classmethod
+    def validate_drm_lic(
+        cls,
+        lic_url: str,
+        challenge: bytes, **kwargs
+    ) -> Optional[bytes]:
         with Client(**CLIENT_CONFIG) as client:
             resp = client.post(lic_url, content=challenge, **kwargs)
             logger.debug(f"[validate_lic] {resp}, {resp.request}, {resp.request.headers}")

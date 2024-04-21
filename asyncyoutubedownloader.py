@@ -8,12 +8,12 @@ from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import cast
-from urllib.parse import unquote
 
 from utils import (
     InfoDL,
     LockType,
     async_lock,
+    get_format_id,
     get_host,
     getter_basic_config_extr,
     limiter_non,
@@ -21,25 +21,19 @@ from utils import (
     myYTDL,
     naturalsize,
     sync_to_async,
-    try_call,
     try_get,
-
 )
 
 logger = logging.getLogger("asyncyoutubedl")
 
 
 class AsyncYoutubeDLErrorFatal(Exception):
-    """Error during info extraction."""
-
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
         self.exc_info = exc_info
 
 
 class AsyncYoutubeDLError(Exception):
-    """Error during info extraction."""
-
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
         self.exc_info = exc_info
@@ -49,123 +43,126 @@ class AsyncYoutubeDownloader:
     _CLASSLOCK = asyncio.Lock()
     _CONFIG = load_config_extractors()
 
-    def __init__(self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL, drm=False):
-        try:
-            self.args = args
-            self.drm = drm
-            self.info_dict = video_dict
-            self._vid_dl = info_dl
-            self.ytdl = ytdl
-            self.n_workers = self.args.parts
-            self.download_path = self.info_dict["download_path"]
-            self.download_path.mkdir(parents=True, exist_ok=True)
+    def __init__(
+        self,
+        args: Namespace,
+        ytdl: myYTDL,
+        video_dict: dict,
+        info_dl: InfoDL,
+        drm=False
+    ):
 
-            if not (_req_fmts := self.info_dict.get("requested_formats")):
-                self._formats = [self.info_dict]
-                self._streams = {self.info_dict['format_id']: 'video'}
+        self.args = args
+        self.drm = drm
+        self.info_dict = video_dict
+        self._vid_dl = info_dl
+        self.ytdl = ytdl
+        self.n_workers = self.args.parts
+        self.download_path = self.info_dict["download_path"]
+        self.download_path.mkdir(parents=True, exist_ok=True)
+
+        self._streams = [
+            get_format_id(self.info_dict, _fmtid)
+            for _fmtid in self.info_dict.get('format_id').split('+')]
+
+        self._filename = Path(self.info_dict.get("filename"))
+        if not self.drm:
+            self.filename = Path(
+                self.download_path,
+                f'{self._filename.stem}.{self.info_dict["ext"]}')
+        else:
+            self.filename = [
+                Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
+                for fdict in self._streams]
+
+        self.down_size = 0
+        self.down_size_old = 0
+        self.error_message = ""
+
+        self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_natdl")
+
+        self.sync_to_async = partial(
+            sync_to_async, thread_sensitive=False, executor=self.ex_dl)
+
+        self.special_extr = False
+
+        def getter(x):
+            value, key_text = getter_basic_config_extr(
+                x, AsyncYoutubeDownloader._CONFIG) or (None, None)
+
+            if value and key_text:
+                self.special_extr = True
+                limit = value["ratelimit"].ratelimit(key_text, delay=True)
+                maxplits = value["maxsplits"]
             else:
-                self._formats = sorted(
-                    _req_fmts,
-                    key=lambda x: (x.get("resolution", "") == "audio_only" or x.get("ext", "") == "m4a"))
-                self._streams = {self._formats[0]['format_id']: 'video', self._formats[1]['format_id']: 'audio'}
+                limit = limiter_non.ratelimit("transp", delay=True)
+                maxplits = self.n_workers
 
-            self._filename = Path(self.info_dict.get("filename"))
-            if not self.drm:
-                self.filename = Path(
-                    self.download_path, f'{self._filename.stem}.{self.info_dict["ext"]}')
-            else:
-                self.filename = [
-                    Path(self.download_path, f'{self._filename.stem}.f{fdict["format_id"]}.{fdict["ext"]}')
-                    for fdict in self._formats]
+            return (limit, maxplits)
 
-            self._host = get_host(unquote(self._formats[0]["url"]))
-            self.down_size = 0
-            self.down_size_old = 0
+        self._extractor = try_get(
+            self.info_dict.get("extractor_key"), lambda x: x.lower())
+        self.auto_pasres = False
 
-            self.error_message = ""
+        self._limit, self._conn = getter(self._extractor)
+        if self._conn < 16:
+            with self.ytdl.params.setdefault("lock", Lock()):
+                self.ytdl.params.setdefault("sem", {})
+                self.sem = cast(
+                    LockType, self.ytdl.params["sem"].setdefault(
+                        get_host(self._streams[0]['url']), Lock()))
+        else:
+            self.sem = contextlib.nullcontext()
 
-            self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_natdl")
+        self.premsg = f'[{self.info_dict["id"]}][{self.info_dict["title"]}]'
 
-            self.sync_to_async = partial(
-                sync_to_async, thread_sensitive=False, executor=self.ex_dl)
+        self.status = "init"
+        self._file = 'video'
 
-            self.special_extr = False
+        self.dl_cont = {
+            'video': {"progress": "--", "downloaded": "--", "speed": "--"}
+        } | ({
+            'audio': {"progress": "--", "downloaded": "--", "speed": "--"}
+        } if len(self._streams) > 1 else {})
 
-            def getter(x):
-                value, key_text = getter_basic_config_extr(
-                    x, AsyncYoutubeDownloader._CONFIG) or (None, None)
-
-                if value and key_text:
-                    self.special_extr = True
-                    limit = value["ratelimit"].ratelimit(key_text, delay=True)
-                    maxplits = value["maxsplits"]
-                else:
-                    limit = limiter_non.ratelimit("transp", delay=True)
-                    maxplits = self.n_workers
-
-                return (limit, maxplits)
-
-            self._extractor = try_get(
-                self.info_dict.get("extractor_key"), lambda x: x.lower())
-            self.auto_pasres = False
-
-            self._limit, self._conn = getter(self._extractor)
-            if self._conn < 16:
-                with self.ytdl.params.setdefault("lock", Lock()):
-                    self.ytdl.params.setdefault("sem", {})
-                    self.sem = cast(
-                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
-            else:
-                self.sem = contextlib.nullcontext()
-
-            self.premsg = f'[{self.info_dict["id"]}][{self.info_dict["title"]}]'
-
-            self.status = "init"
-
-            self._file = 'video'
-            self.dl_cont = {
-                'video': {"progress": "--", "downloaded": "--", "speed": "--"},
-                'audio': {"progress": "--", "downloaded": "--", "speed": "--"}}
-
-            self._avg_size = bool(self.info_dict.get('filesize'))
-            if (_filesize := (
-                    self.info_dict.get('filesize') or self.info_dict.get('filesize_approx') or
-                    (self.info_dict.get('duration') or 0) * (self.info_dict.get('tbr') or 0) * 1000 / 8)):
-                self.filesize = _filesize
-
-        except Exception as e:
-            logger.exception(repr(e))
-            raise
+        self._avg_size = bool(self.info_dict.get('filesize'))
+        if (_filesize := (
+                self.info_dict.get('filesize') or self.info_dict.get('filesize_approx') or
+                (self.info_dict.get('duration') or 0) * (self.info_dict.get('tbr') or 0) * 1000 / 8)):
+            self.filesize = _filesize
 
     def fetch(self):
+        if len(self._streams) > 1:
+            _fmtid2 = self._streams[1]['format_id']
+            _new_str = lambda x: (
+                self._file == 'video' and _fmtid2 in x)
+        else:
+            _new_str = lambda x: False
 
         def my_hook(d):
-            try:
-                if d['status'] == 'downloading':
-                    if self._file == 'video' and try_call(lambda: list(self._streams.keys())[1] in d['filename']):
-                        self.dl_cont[self._file] |= {
-                            'speed': '--',
-                            'progress': '100%'
-                        }
-                        self._file = 'audio'
-                        self.down_size_old = 0
-                        self.filesize_offset = self.filesize
-                    self.down_size += (_inc := d['downloaded_bytes'] - self.down_size_old)
-                    self._vid_dl.total_sizes["down_size"] += _inc
-                    self.down_size_old = d['downloaded_bytes']
-                    if not self._avg_size and (_filesize := d.get('total_bytes_estimate')):
-                        if self._file == 'video':
-                            self.filesize = self._vid_dl.total_sizes["filesize"] = _filesize
-                        else:
-                            self.filesize = self._vid_dl.total_sizes["filesize"] = self.filesize_offset + _filesize
-
+            if d['status'] == 'downloading':
+                if _new_str(d['filename']):
                     self.dl_cont[self._file] |= {
-                        'downloaded': d['downloaded_bytes'],
-                        'speed': d['_speed_str'],
-                        'progress': d['_percent_str']
+                        'speed': '--',
+                        'progress': '100%'
                     }
-            except Exception as e:
-                logger.exception(f"{self.premsg}[fetch] {repr(e)}")
+                    self._file = 'audio'
+                    self.down_size_old = 0
+                    self.filesize_offset = self.filesize
+                self.down_size += (_inc := d['downloaded_bytes'] - self.down_size_old)
+                self._vid_dl.total_sizes["down_size"] += _inc
+                self.down_size_old = d['downloaded_bytes']
+                if not self._avg_size and (_filesize := d.get('total_bytes_estimate')):
+                    if self._file == 'video':
+                        self.filesize = self._vid_dl.total_sizes["filesize"] = _filesize
+                    else:
+                        self.filesize = self._vid_dl.total_sizes["filesize"] = self.filesize_offset + _filesize
+
+                self.dl_cont[self._file] |= {
+                    'downloaded': d['downloaded_bytes'],
+                    'speed': d['_speed_str'],
+                    'progress': d['_percent_str']
+                }
 
         try:
             opts_upt = {
@@ -173,15 +170,15 @@ class AsyncYoutubeDownloader:
                 'allow_unplayable_formats': self.drm,
                 "concurrent_fragment_downloads": self.n_workers,
                 'skip_download': False,
-                'format': '+'.join(list(self._streams.keys())),
+                'format': self.info_dict['format_id'],
                 'progress_hooks': [my_hook],
                 'paths': {'home': str(self.download_path)},
                 'outtmpl': {'default': f'{self._filename.stem}.%(ext)s'}
             } | ({'postprocessors': []} if self.drm else {})
 
             with myYTDL(params=(self.ytdl.params | opts_upt), silent=True) as pytdl:
-                pytdl.params['http_headers'] |= (self._formats[0].get('http_headers') or {})
-                if (_cookies_str := self._formats[0].get('cookies')):
+                pytdl.params['http_headers'] |= (self._streams[0].get('http_headers') or {})
+                if (_cookies_str := self._streams[0].get('cookies')):
                     pytdl._load_cookies(_cookies_str, autoscope=False)
                 _info_dict = pytdl.sanitize_info(pytdl.process_ie_result(
                     self.info_dict | ({'subtitles': {}} if self.drm else {}),
@@ -216,8 +213,7 @@ class AsyncYoutubeDownloader:
         def _print_downloading():
             _speed_str = []
             _progress_str = []
-            _temps = [self.dl_cont[_file].copy() for _file in list(self._streams.values())]
-            for _temp in _temps:
+            for _temp in self.dl_cont.values():
                 if (_speed_meter := _temp.get("speed", "--")) and _speed_meter != "--":
                     _speed_str.append(_speed_meter)
                 else:
@@ -230,7 +226,7 @@ class AsyncYoutubeDownloader:
                 f'[Youtube] Video DL [{_speed_str[0]}] '
                 + f'PR [{_progress_str[0]}] {_now_str}\n'
             )
-            if len(_temps) > 1:
+            if len(_speed_str) > 1:
                 _msg += (
                     f'   [Youtube] Audio DL [{_speed_str[1]}] '
                     + f'PR [{_progress_str[1]}]\n'

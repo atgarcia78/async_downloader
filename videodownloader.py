@@ -27,11 +27,10 @@ from utils import (
     Tracker,
     Union,
     async_suppress,
-    get_cookies_jar,
     get_drm_xml,
     get_format_id,
     get_protocol,
-    get_pssh_from_mpd,
+    get_pssh_from_manifest,
     myYTDL,
     naturalsize,
     prepend_extension,
@@ -176,17 +175,17 @@ class VideoDownloader:
     def _get_dl(self, info_dict: dict):
 
         _drm = self.args.drm and (bool(info_dict.get('_has_drm')) or bool(info_dict.get('has_drm')))
-        _dash = get_protocol(info_dict) == "dash"
+        _protocol = get_protocol(info_dict)
 
         if (
-            self.args.downloader_ytdl or _drm or _dash
+            self.args.downloader_ytdl or _drm or _protocol == "dash"
             or info_dict.get("extractor_key") == "Youtube"
         ):
             try:
                 dl = AsyncYoutubeDownloader(
                     self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
-                self._types = "YOUTUBE_DRM" if _drm else "YOUTUBE"
-                logger.debug(f"{self.premsg}[get_dl] DL type youtube drm[{_drm}]")
+                self._types = f"YTDL_DRM-{_protocol}" if _drm else f"YTDL-{_protocol}"
+                logger.debug(f"{self.premsg}[get_dl] DL type: {self._types}")
                 return dl
             except Exception as e:
                 logger.error(
@@ -482,21 +481,25 @@ class VideoDownloader:
                 logger.exception(f"{self.premsg}[get_subts] couldnt translate subtitle file from ca to es: {repr(e)}")
 
     def _get_drm_xml(self) -> str:
-        _pssh = try_get(
+
+        if not (_licurl := traverse_obj(self.info_dict, ("_drm", "licurl"))):
+            raise AsyncDLError(f"{self.premsg}: error DRM info")
+        if not (_pssh := try_get(
             traverse_obj(self.info_dict, ("_drm", "pssh")),
             lambda x: sorted(x, key=len)[0] if x else None)
-        _licurl = traverse_obj(self.info_dict, ("_drm", "licurl"))
-        if not _licurl:
-            raise AsyncDLError(f"{self.premsg}: error DRM info")
-        elif not _pssh:
-            _video_fmt_id = try_get(self.info_dict.get('format_id'), lambda x: x.split('+')[0])
+        ):
+            _video_fmt_id = try_get(
+                self.info_dict.get('format_id'),
+                lambda x: x.split('+')[0])
             _fmt = get_format_id(self.info_dict, _video_fmt_id)
             if _murl := _fmt.get("manifest_url"):
                 kwargs = {'headers': _fmt.get('http_headers') or {}}
                 if _cookies_str := _fmt.get("cookies"):
-                    if _cookie_jar := get_cookies_jar(_cookies_str):
-                        kwargs |= {'cookies': _cookie_jar}
-                _pssh = try_get(get_pssh_from_mpd(mpd_url=_murl, **kwargs), lambda x: x[0])
+                    kwargs |= {'cookies': _cookies_str}
+                _pssh = try_get(
+                    get_pssh_from_manifest(manifest_url=_murl, **kwargs),
+                    lambda x: x[0])
+
         logger.debug(f"{self.premsg} licurl[{_licurl}] - murl[{_murl}] pssh[{_pssh}]")
         if not _pssh:
             raise AsyncDLError(f"{self.premsg}: error DRM info")
@@ -670,7 +673,7 @@ class VideoDownloader:
                 for dl in self.info_dl["downloaders"] if dl.status == "init_manipulating"}
             if blocking_tasks:
                 self.info_dl["sub_status"] = "Ensambling file"
-            if self.args.subt and self.info_dict.get("requested_subtitles") and self._types != "YOUTUBE":
+            if self.args.subt and self.info_dict.get("requested_subtitles") and self._types != "YTD":
                 blocking_tasks |= {self.add_task(aget_subts_files(), name='get_subts'): 'get_subs'}
 
             logger.debug(f"{self.premsg}[run_manip] blocking tasks\n{blocking_tasks}")
@@ -688,7 +691,7 @@ class VideoDownloader:
 
             self.temp_filename = prepend_extension(str(self.info_dl["filename"]), "temp")
 
-            if self._types == "YOUTUBE_DRM":
+            if self._types.startswith("YTDL_DRM"):
                 self.info_dl["sub_status"] = "Decrypting files"
                 await youtube_drm()
 

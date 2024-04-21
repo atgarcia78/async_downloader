@@ -23,7 +23,6 @@ import httpx
 import m3u8
 from Cryptodome.Cipher import AES
 from Cryptodome.Cipher._mode_cbc import CbcMode
-from yt_dlp_plugins.extractor.nakedsword import NakedSwordBase
 
 from utils import (
     CLIENT_CONFIG,
@@ -870,8 +869,6 @@ class AsyncHLSDownloader:
                     logger.debug(f"{_pre()} in sem2")
                     _first = (_sem2._initial_value == 1)
                     if _first_all and str(cause) == "403":
-                        NakedSwordBase.API_REFRESH(msg="[resetdl]")
-                        NakedSwordBase.API_LOGOUT(msg="[resetdl]")
                         time.sleep(5)
 
                     _listreset = [int(index) for index in list(

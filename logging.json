@@ -20,24 +20,10 @@
         "filtermodules": {
             "()": "supportlogging.FilterModule",
             "patterns": [
-                "urllib3.connectionpool",
-                "httpx",
-                "PIL.TiffImagePlugin",
-                "img2pdf",
-                "hpack",
-                "remote_connection",
-                "passlib",
-                "backoff",
-                "googleapiclient.discovery_cache",
-                "charset_normalizer",
-                "blib2to3.pgen2.driver",
-                "pyrate_limiter.limit_context_decorator",
-                "oauth2client.client",
-                "parso.python.diff",
-                "httpcore",
-                "mitmproxy",
-                "seleniumwire"
-            ]
+                "urllib3.connectionpool", "httpx", "PIL.TiffImagePlugin", "img2pdf", "hpack",
+                "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache",
+                "charset_normalizer", "blib2to3", "pyrate_limiter.limit_context_decorator",
+                "oauth2client.client", "parso.python.diff", "httpcore", "mitmproxy", "seleniumwire"]
         },
         "filtermsg": {
             "()": "supportlogging.FilterMsg",
@@ -79,10 +65,7 @@
             "class": "logging.StreamHandler",
             "level": "INFO",
             "formatter": "colored",
-            "filters": [
-                "filtermodules",
-                "filtermsg"
-            ],
+            "filters": ["filtermodules"],
             "stream": "ext://sys.stdout"
         },
         "info_file_handler": {
@@ -90,10 +73,7 @@
             "level": "DEBUG",
             "formatter": "file_format",
             "filename": "/Users/antoniotorres/Projects/common/logs/{name}.log",
-            "filters": [
-                "filtermodules",
-                "filtermsg"
-            ],
+            "filters": ["filtermodules"],
             "maxBytes": 3155360,
             "backupCount": 20,
             "encoding": "utf8"
@@ -108,8 +88,6 @@
     },
     "root": {
         "level": "DEBUG",
-        "handlers": [
-            "queue_handler"
-        ]
+        "handlers": ["queue_handler"]
     }
 }
