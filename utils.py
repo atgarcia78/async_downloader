@@ -1239,11 +1239,11 @@ if yt_dlp:
         variadic,
         write_string,
     )
+    from yt_dlp.extractor.common import InfoExtractor
     from yt_dlp_plugins.extractor.commonwebdriver import (
         By,
         ConnectError,
         HTTPStatusError,
-        InfoExtractor,
         ProgressBar,
         ReExtractInfo,
         SeleniumInfoExtractor,
@@ -1450,14 +1450,15 @@ if yt_dlp:
         async def __aexit__(self, *args):
             return await self.sync_to_async(self.__exit__)(*args)
 
-        def get_extractor(self, el: str) -> Union[tuple, InfoExtractor]:
+        def get_extractor(self, el: str) -> InfoExtractor:
             if el.startswith('http'):
-                return self._get_extractor_from_url(el)
-            _sel_ie = self.get_info_extractor(el)
+                _sel_ie = self._get_extractor_from_url(el)
+            else:
+                _sel_ie = self.get_info_extractor(el)
             _sel_ie.initialize()
             return _sel_ie
 
-        def _get_extractor_from_url(self, url: str) -> tuple:
+        def _get_extractor_from_url(self, url: str) -> InfoExtractor:
             _sel_ie_key = "Generic"
             for ie_key, ie in self._ies.items():
                 try:
@@ -1468,8 +1469,7 @@ if yt_dlp:
                     logger = logging.getLogger("asyncdl")
                     logger.exception(f"[get_extractor] fail with {ie_key} - {repr(e)}")
             _sel_ie = self.get_info_extractor(_sel_ie_key)
-            _sel_ie.initialize()
-            return (_sel_ie_key, _sel_ie)
+            return _sel_ie
 
         def is_playlist(self, url: str) -> tuple:
             ie_key, ie = cast(tuple, self.get_extractor(url))
