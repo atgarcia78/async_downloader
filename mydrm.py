@@ -95,12 +95,22 @@ class myDRM:
         session_id = cls._CDM.open()
         try:
             challenge = cls._CDM.get_license_challenge(session_id, PSSH(pssh))
-            cls._CDM.parse_license(session_id, _validate_lic(lic_url, challenge, **kwargs))
+            _license = _validate_lic(lic_url, challenge, **kwargs)
+            try:
+                cls._CDM.parse_license(session_id, _license.content)
+            except Exception as e:
+                try:
+                    cls._CDM.parse_license(session_id, _license.json()['license'])
+                except Exception:
+                    try:
+                        cls._CDM.parse_license(session_id, _license.json()['licenseData'])
+                    except Exception:
+                        raise e
             if (keys := cls._CDM.get_keys(session_id)):
                 if _res := [
                     f"{key.kid.hex}:{key.key.hex()}"
                     for key in keys
-                    if key.type == 'CONTENT'
+                    if key.type != 'SIGNING'
                 ]:
                     return _res if len(_res) > 1 else _res[0]
         finally:
@@ -141,7 +151,7 @@ class myDRM:
         with Client(**CLIENT_CONFIG) as client:
             resp = client.post(lic_url, content=challenge, **kwargs)
             logger.debug(f"[validate_lic] {resp}, {resp.request}, {resp.request.headers}")
-            return resp.content
+            return resp
 
     @classmethod
     def close_sessions(cls):
