@@ -1452,13 +1452,14 @@ if yt_dlp:
 
         def get_extractor(self, el: str) -> InfoExtractor:
             if el.startswith('http'):
-                _sel_ie = self._get_extractor_from_url(el)
+                _sel_ie_key, _sel_ie = self._get_info_extractor_from_url(el)
             else:
+                _sel_ie_key = el
                 _sel_ie = self.get_info_extractor(el)
             _sel_ie.initialize()
             return _sel_ie
 
-        def _get_extractor_from_url(self, url: str) -> InfoExtractor:
+        def _get_info_extractor_from_url(self, url: str) -> InfoExtractor:
             _sel_ie_key = "Generic"
             for ie_key, ie in self._ies.items():
                 try:
@@ -1469,10 +1470,10 @@ if yt_dlp:
                     logger = logging.getLogger("asyncdl")
                     logger.exception(f"[get_extractor] fail with {ie_key} - {repr(e)}")
             _sel_ie = self.get_info_extractor(_sel_ie_key)
-            return _sel_ie
+            return _sel_ie_key, _sel_ie
 
         def is_playlist(self, url: str) -> tuple:
-            ie_key, ie = cast(tuple, self.get_extractor(url))
+            ie_key, ie = cast(tuple, self._get_info_extractor_from_url(url))
             if ie_key == "Generic":
                 return (True, ie_key)
             else:

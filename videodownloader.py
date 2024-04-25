@@ -463,7 +463,7 @@ class VideoDownloader:
             try:
                 _subts_file = traverse_obj(_info, ("requested_subtitles", _lang, "filepath"))
                 logger.debug(f"{self.premsg}[get_subts][{_lang}] file: {_subts_file} exists[{Path(_subts_file).exists() if _subts_file else False}]")
-                if _subts_file and Path(_subts_file).exists():
+                if _subts_file and Path(_subts_file).exists() and Path(_subts_file).stat().st_size > 0:
                     self.info_dl["downloaded_subtitles"][_lang] = _subts_file
             except Exception as e:
                 logger.exception(f"{self.premsg}[get_subts][{_lang}]  couldnt generate subtitle file: {repr(e)}")
