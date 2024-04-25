@@ -216,6 +216,8 @@ def init_logging(log_name, config_path=None, test=False):
 
     if test:
         return logging.getLogger("test")
+    else:
+        return logging.getLogger(log_name)
 
 
 class LogContext:

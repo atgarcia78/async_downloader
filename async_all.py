@@ -1,15 +1,11 @@
 #!/usr/bin/env python
-import logging
-
 import uvloop
 
 from asyncdl import AsyncDL
 from supportlogging import LogContext
 from utils import init_argparser, init_config
 
-init_config()
-
-logger = logging.getLogger('asyncdl')
+logger = init_config(log_name='asyncdl')
 
 
 def main():
@@ -22,4 +18,4 @@ if __name__ == "__main__":
     try:
         main()
     except Exception as e:
-        logger.error(f"[main] {repr(e)}")
+        logger.exception(f"[main] {repr(e)}")
