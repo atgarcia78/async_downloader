@@ -1452,9 +1452,8 @@ if yt_dlp:
 
         def get_extractor(self, el: str) -> InfoExtractor:
             if el.startswith('http'):
-                _sel_ie_key, _sel_ie = self._get_info_extractor_from_url(el)
+                _, _sel_ie = self._get_info_extractor_from_url(el)
             else:
-                _sel_ie_key = el
                 _sel_ie = self.get_info_extractor(el)
             _sel_ie.initialize()
             return _sel_ie

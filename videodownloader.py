@@ -460,13 +460,22 @@ class VideoDownloader:
             logger.exception(f"{self.premsg}[get_subts] {repr(e)}")
 
         for _lang in _final_subts:
+            _subts_file = traverse_obj(_info, ("requested_subtitles", _lang, "filepath"))
             try:
-                _subts_file = traverse_obj(_info, ("requested_subtitles", _lang, "filepath"))
-                logger.debug(f"{self.premsg}[get_subts][{_lang}] file: {_subts_file} exists[{Path(_subts_file).exists() if _subts_file else False}]")
-                if _subts_file and Path(_subts_file).exists() and Path(_subts_file).stat().st_size > 0:
+                _exists = Path(_subts_file).exists() if _subts_file else False
+                _size = Path(_subts_file).stat().st_size if _exists else -1
+                logger.debug(f"{self.premsg}[get_subts][{_lang}] file: {_subts_file} exists[{_exists}] size[{_size}]")
+                if _size > 0:
                     self.info_dl["downloaded_subtitles"][_lang] = _subts_file
+                else:
+                    raise Exception('error with subt file')
             except Exception as e:
                 logger.exception(f"{self.premsg}[get_subts][{_lang}]  couldnt generate subtitle file: {repr(e)}")
+                if _subts_file:
+                    try:
+                        os.remove(_subts_file)
+                    except OSError:
+                        pass
 
         if 'ca' in self.info_dl["downloaded_subtitles"] and 'es' not in self.info_dl["downloaded_subtitles"]:
             logger.debug(f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]")
