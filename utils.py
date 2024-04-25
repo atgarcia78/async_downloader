@@ -1221,6 +1221,7 @@ if yt_dlp:
     from pyrate_limiter import LimitContextDecorator
     from yt_dlp import YoutubeDL, parse_options
     from yt_dlp.cookies import YoutubeDLCookieJar, extract_cookies_from_browser
+    from yt_dlp.extractor.common import InfoExtractor
     from yt_dlp.networking import HEADRequest
     from yt_dlp.utils import (
         ExtractorError,
@@ -1239,7 +1240,6 @@ if yt_dlp:
         variadic,
         write_string,
     )
-    from yt_dlp.extractor.common import InfoExtractor
     from yt_dlp_plugins.extractor.commonwebdriver import (
         By,
         ConnectError,
