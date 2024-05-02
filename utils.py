@@ -1240,28 +1240,31 @@ if yt_dlp:
         variadic,
         write_string,
     )
-    from yt_dlp_plugins.extractor.commonwebdriver import (
-        By,
-        ConnectError,
-        HTTPStatusError,
-        ProgressBar,
-        ReExtractInfo,
-        SeleniumInfoExtractor,
-        StatusError503,
-        StatusStop,
-        dec_on_exception,
-        dec_retry_error,
-        ec,
-        getter_basic_config_extr,
-        limiter_0_01,
-        limiter_0_1,
-        limiter_1,
-        limiter_5,
-        limiter_15,
-        limiter_non,
-        load_config_extractors,
-        my_dec_on_exception,
-    )
+    try:
+        from yt_dlp_plugins.extractor.commonwebdriver import (
+            By,
+            ConnectError,
+            HTTPStatusError,
+            ProgressBar,
+            ReExtractInfo,
+            SeleniumInfoExtractor,
+            StatusError503,
+            StatusStop,
+            dec_on_exception,
+            dec_retry_error,
+            ec,
+            getter_basic_config_extr,
+            limiter_0_01,
+            limiter_0_1,
+            limiter_1,
+            limiter_5,
+            limiter_15,
+            limiter_non,
+            load_config_extractors,
+            my_dec_on_exception,
+        )
+    except Exception:
+        pass
     assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
