@@ -905,11 +905,6 @@ class run_operation_in_executor_from_loop:
         return wrapper
 
 
-############################################################
-# """                     SYNC ASYNC                     """
-############################################################
-
-
 class async_suppress(contextlib.AbstractAsyncContextManager):
     def __init__(self, *exceptions, level=logging.DEBUG, logger=None, msg=None):
         self._exceptions = exceptions
@@ -2468,26 +2463,23 @@ def init_argparser():
     return args
 
 
-if yt_dlp:
+def get_listening_tcp() -> dict:
+    """
+    dict of result executing 'listening' in shell with keys:
+        tcp port,
+        command
+    """
 
-    @my_dec_on_exception(Exception, max_tries=3, raise_on_giveup=True, interval=0.5)
-    def get_listening_tcp() -> dict:
-        """
-        dict of result executing 'listening' in shell with keys:
-            tcp port,
-            command
-        """
+    def jsonKeys2int(x):
+        trans = lambda x: int(x) if x.isdigit() else x
+        if isinstance(x, dict):
+            return {trans(k): v for k, v in x.items()}
 
-        def jsonKeys2int(x):
-            trans = lambda x: int(x) if x.isdigit() else x
-            if isinstance(x, dict):
-                return {trans(k): v for k, v in x.items()}
-
-        if (printout := subprocess.run(
-                ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout):
-            return json.loads(printout, object_hook=jsonKeys2int)
-        else:
-            raise ValueError('no info about tcp ports in use')
+    if (printout := subprocess.run(
+            ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout):
+        return json.loads(printout, object_hook=jsonKeys2int)
+    else:
+        raise ValueError('no info about tcp ports in use')
 
 
 def find_in_ps(pattern, value=None):
