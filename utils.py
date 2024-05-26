@@ -223,7 +223,7 @@ def get_dependencies(your_package):
     data = requests.get(pypi_url).json()
     if _pkgs := data.get('info', {}).get('requires_dist'):
         return [
-            re.findall(r'^(\w+)', el)[0]
+            (re.findall(r'^(\w+)', el)[0], el)
             for el in _pkgs
             if (
                 'extra ==' not in el and 'sys_platform == "win32"' not in el
