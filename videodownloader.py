@@ -267,9 +267,8 @@ class VideoDownloader:
         when reset from console, if in pause the reset is declyned
         to ease managing the pauses of dls
         '''
-
-        if self.pause_event.is_set():
-            return []
+        # if self.pause_event.is_set():
+        #     return []
         return await self.reset(cause="hard", wait=False)
 
     async def reset(self, cause: Optional[str] = None, wait=True):

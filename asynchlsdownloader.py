@@ -47,7 +47,6 @@ from utils import (
     Union,
     _for_print,
     async_lock,
-    async_send_http_request,
     async_suppress,
     async_waitfortasks,
     await_for_any,
@@ -57,7 +56,6 @@ from utils import (
     get_host,
     getter_basic_config_extr,
     int_or_none,
-    limiter_1,
     load_config_extractors,
     my_dec_on_exception,
     myYTDL,
@@ -238,8 +236,6 @@ class AsyncHLSDownloader:
             }
 
             self.clients = {}
-
-            self.async_init_client = httpx.AsyncClient(**self.config_httpx())
 
             self.init_client: httpx.Client
 
@@ -423,36 +419,33 @@ class AsyncHLSDownloader:
 
             return res.content.decode("utf-8", "replace")
 
-    @on_503
-    @on_exception_hsize
-    async def get_headersize(self, ctx: DownloadFragContext, msg: str) -> Optional[int]:
-        async with limiter_1.ratelimit(self._extractor, delay=True):
-            try:
-                if not (
-                    res := await async_send_http_request(
-                        ctx.url, _type="HEAD", headers=ctx.headers_range,
-                        client=self.async_init_client, logger=logger.debug, new_e=AsyncHLSDLError)
-                ):
-                    logger.debug(f"{msg}:[get_headersize] couldnt get header size\n{ctx.info_frag}")
-                    raise AsyncHLSDLError(
-                        f"{msg}:[get_headersize] couldnt get header size")
-            except Exception as e:
-                res = {"error": repr(e)}
-            if isinstance(res, dict):
-                logger.debug(f"{msg}:[get_headersize] {res['error']}\n{ctx.info_frag}")
-                raise AsyncHLSDLError(
-                    f"{msg}:[get_headersize] {res['error']}")
-            logger.debug(
-                f"{msg}:[get_headersize] REQUEST: {res.request} headers: {res.request.headers}\n"
-                + f"RESPONSE: {res} headers: {res.headers}\nINFO_FRAG: {ctx.info_frag}")
-            if not (hsize := int_or_none(res.headers.get('content-length'))):
-                logger.debug(f"{msg}:[get_headersize] not hsize")
-                raise AsyncHLSDLError(
-                    f"{msg}:[get_headersize] not hsize")
-            else:
-                logger.warning(f"{msg}:[get_headersize] {hsize}")
-                ctx.info_frag["headersize"] = hsize
-                return hsize
+    def get_headersize(self, ctx: DownloadFragContext) -> Optional[int]:
+        pre = f"[get_headersize][frag-{ctx.info_frag['frag']}]"
+        if ctx.headers_range:
+            logger.warning(f"{pre} NOK - fragments wth header range")
+            return
+        try:
+            if not (
+                res := send_http_request(
+                    ctx.url, _type="HEAD", headers={'Range': 'bytes=0-100'},
+                    client=self.init_client, logger=logger.debug, new_e=AsyncHLSDLError)
+            ):
+                logger.warning(f"{pre} NOK - couldnt get res to head")
+                return
+        except Exception as e:
+            res = {"error": repr(e)}
+        if isinstance(res, dict):
+            return
+        logger.debug(
+            f"{pre} REQUEST: {res.request} headers: {res.request.headers}\n"
+            + f"RESPONSE: {res} headers: {res.headers}\nINFO_FRAG: {ctx.info_frag}")
+        if not (hsize := try_get(res.headers.get('content-range'), lambda x: int(x.split('/')[1]))):
+            logger.warning(f"{pre} NOK - not content range in res")
+            return
+        else:
+            logger.debug(f"{pre} {hsize}")
+            ctx.info_frag["headersize"] = hsize
+            return hsize
 
     @on_503
     @on_exception
@@ -591,9 +584,9 @@ class AsyncHLSDownloader:
     def _check_is_dl(self, ctx: DownloadFragContext, hsize=None) -> bool:
         is_ok = False
         if not hsize:
-            hsize = (
-                try_call(lambda: ctx.info_frag["headersize"])
-                or try_call(lambda: int_or_none(ctx.resp.headers["content-length"])))
+            hsize = try_call(lambda: ctx.info_frag["headersize"])
+            if not hsize and ctx.resp:
+                hsize = try_call(lambda: int_or_none(ctx.resp.headers["content-length"])) or self.get_headersize(ctx)
         size = try_call(lambda: ctx.file.stat().st_size) or -1
         if size == 0 or (size > 0 and hsize and not (hsize - 100 <= size <= hsize + 100)):
             try_call(lambda: ctx.file.unlink())
@@ -1304,6 +1297,7 @@ class AsyncHLSDownloader:
                 try:
                     await asyncio.wait(self.tasks)
                     self._vid_dl.end_tasks.set()
+                    await asyncio.sleep(0)
 
                     if self._vid_dl.stop_event.is_set():
                         self.status = "stop"
@@ -1361,17 +1355,18 @@ class AsyncHLSDownloader:
                         return
                 finally:
                     await self.dump_config_file()
-                    self.init_client.close()
-                    await self.async_init_client.aclose()
-                    if not self._vid_dl.end_tasks.is_set():
-                        self._vid_dl.end_tasks.set()
-                        await asyncio.sleep(0)
+                    # if not self._vid_dl.end_tasks.is_set():
+                    #     self._vid_dl.end_tasks.set()
+                    #     await asyncio.sleep(0)
                     await asyncio.wait([upt_task])
 
         except Exception as e:
             logger.error(f"{_premsg} outer error while loop {repr(e)}")
             self.status = "error"
         finally:
+            logger.debug(f'{_premsg} Final report info_frag:\n{self.info_frag}')
+            await self.dump_config_file(to_log=True)
+            self.init_client.close()
             if self.fromplns:
                 async with async_lock(AsyncHLSDownloader._CLASSLOCK):
                     _downloading = AsyncHLSDownloader._PLNS[self.fromplns]["downloading"]
@@ -1379,12 +1374,14 @@ class AsyncHLSDownloader:
                     if not _downloading:
                         AsyncHLSDownloader._PLNS["ALL"]["downloading"].discard(self.fromplns)
 
-    async def dump_config_file(self):
+    async def dump_config_file(self, to_log=False):
         _data = {
             el["frag"]: el["headersize"]
             for el in self.info_frag if el["headersize"]}
         async with aiofiles.open(self.config_file, mode="w") as finit:
             await finit.write(json.dumps(_data))
+        if to_log:
+            logger.debug(f"{self.premsg}[config_file]\n{json.dumps(_data)}")
 
     async def clean_when_error(self):
         for frag in self.info_frag:
