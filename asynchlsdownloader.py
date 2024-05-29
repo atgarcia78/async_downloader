@@ -108,7 +108,6 @@ class DownloadFragContext:
 class AsyncHLSDLErrorFatal(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
-
         self.exc_info = exc_info
 
     def __str__(self):
@@ -118,14 +117,12 @@ class AsyncHLSDLErrorFatal(Exception):
 class AsyncHLSDLError(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
-
         self.exc_info = exc_info
 
 
 class AsyncHLSDLReset(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
-
         self.exc_info = exc_info
 
 
@@ -142,7 +139,6 @@ on_exception_hsize = my_dec_on_exception(
 
 on_503 = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=False, interval=30)
-
 
 network_exceptions = (httpx.ReadTimeout, httpx.RemoteProtocolError)
 
@@ -169,7 +165,6 @@ class AsyncHLSDownloader:
         try:
             self.background_tasks = set()
             self.tasks = []
-            self.hsize_tasks = {}
             self.info_dict = video_dict
             self._vid_dl = info_dl
             self.args = args
@@ -231,8 +226,12 @@ class AsyncHLSDownloader:
                 'follow_redirects': True,
                 'timeout': httpx.Timeout(30),
                 'verify': False,
-                'cookies': try_get(self.info_dict, lambda x: get_cookies_jar(x.get('cookies') or x['formats'][0]['cookies'])),
-                'headers': try_get(self.info_dict, lambda x: x.get('http_headers') or x['formats'][0]['http_headers']) or CLIENT_CONFIG['http_headers']
+                'cookies': try_get(
+                    self.info_dict,
+                    lambda x: get_cookies_jar(x.get('cookies') or x['formats'][0]['cookies'])),
+                'headers': try_get(
+                    self.info_dict,
+                    lambda x: x.get('http_headers') or x['formats'][0]['http_headers']) or CLIENT_CONFIG['http_headers']
             }
 
             self.clients = {}
@@ -403,20 +402,15 @@ class AsyncHLSDownloader:
     @on_503
     @on_exception
     def get_m3u8_doc(self) -> Optional[str]:
+        _error = ''
         with self._limit:
             if not (
                 res := send_http_request(
-                    self.info_dict["url"],
-                    client=self.init_client,
-                    logger=logger.debug,
-                    new_e=AsyncHLSDLError)
-            ):
+                    self.info_dict["url"], client=self.init_client,
+                    logger=logger.debug, new_e=AsyncHLSDLError)
+            ) or isinstance(res, dict) and (_error := res.get('error')):
                 raise AsyncHLSDLError(
-                    f"{self.premsg}:[get_m3u8_doc] couldnt get init section")
-            if isinstance(res, dict):
-                raise AsyncHLSDLError(
-                    f"{self.premsg}:[get_m3u8_doc] {res['error']}")
-
+                    f"{self.premsg}:[get_m3u8_doc] error downloading m3u8 doc {_error}")
             return res.content.decode("utf-8", "replace")
 
     def get_headersize(self, ctx: DownloadFragContext) -> Optional[int]:
@@ -425,16 +419,16 @@ class AsyncHLSDownloader:
             logger.warning(f"{pre} NOK - fragments wth header range")
             return
         try:
+            _error = ''
             if not (
                 res := send_http_request(
                     ctx.url, _type="HEAD", headers={'Range': 'bytes=0-100'},
                     client=self.init_client, logger=logger.debug, new_e=AsyncHLSDLError)
-            ):
-                logger.warning(f"{pre} NOK - couldnt get res to head")
+            ) or isinstance(res, dict) and (_error := res.get('error')):
+                logger.warning(f"{pre} NOK - couldnt get res to head {_error}")
                 return
         except Exception as e:
-            res = {"error": repr(e)}
-        if isinstance(res, dict):
+            logger.warning(f"{pre} NOK - couldnt get res to head {repr(e)}")
             return
         logger.debug(
             f"{pre} REQUEST: {res.request} headers: {res.request.headers}\n"
@@ -544,7 +538,6 @@ class AsyncHLSDownloader:
             return _list_segments
 
         try:
-
             if (
                 not self.m3u8_doc or not (m3u8_obj := m3u8.loads(self.m3u8_doc, uri=self.info_dict["url"]))
                 or not m3u8_obj.segments
@@ -555,7 +548,6 @@ class AsyncHLSDownloader:
 
             if (_initfrag := m3u8_obj.segments[0].init_section):
                 if not self.info_init_section:
-                    # _load_keys(_initfrag.key)
                     self.get_init_section(_initfrag)
 
             _duration = try_get(
@@ -568,7 +560,6 @@ class AsyncHLSDownloader:
                 m3u8_obj._initialize_attributes()
 
             return _prepare_segments(m3u8_obj.segments)
-
         except Exception as e:
             logger.error(f"{self.premsg}[get_info_fragments] - {repr(e)}")
             raise AsyncHLSDLErrorFatal("error get info fragments") from e
@@ -731,8 +722,6 @@ class AsyncHLSDownloader:
     def prep_reset(self, info_reset: Optional[dict] = None):
 
         if info_reset:
-            # self.info_dict.update({
-            #     "url": info_reset["url"], "formats": info_reset["formats"]})
             self.info_dict |= info_reset
             self._host = get_host(self.info_dict["url"])
 
@@ -1138,6 +1127,7 @@ class AsyncHLSDownloader:
 
             _ctx = DownloadFragContext(self.info_frag[index - 1])
             try:
+
                 if (_ev := self.check_any_event_is_set(incpause=False)):
                     raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
 
@@ -1156,6 +1146,7 @@ class AsyncHLSDownloader:
                         await fileobj.write(_ctx.data)
                     _ctx.data = b''
                 return await _check_frag(_ctx)
+
             except (
                 asyncio.CancelledError, RuntimeError, StatusError503,
                 AsyncHLSDLErrorFatal
@@ -1166,7 +1157,6 @@ class AsyncHLSDownloader:
             except network_exceptions as e:
                 logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
-                # raise AsyncHLSDLError(f"{_premsg} {repr(e)}")
                 if _cl := self.clients.pop(nco, None):
                     await _cl.aclose()
                 self.clients[nco] = httpx.AsyncClient(**self.config_httpx())
@@ -1279,7 +1269,6 @@ class AsyncHLSDownloader:
             self.speedometer.reset(initial_bytes=self.down_size)
             self.progress_timer.reset()
             self.smooth_eta.reset()
-            self.hsize_tasks = {}
             self.status = "downloading"
             self.count_msg = ""
 
@@ -1350,14 +1339,12 @@ class AsyncHLSDownloader:
                 except Exception as e:
                     logger.error(f"{_premsg} inner error while loop {repr(e)}")
                     self.status = "error"
+                    self._vid_dl.end_tasks.set()
                     await self.clean_when_error()
                     if isinstance(e, AsyncHLSDLErrorFatal):
                         return
                 finally:
                     await self.dump_config_file()
-                    # if not self._vid_dl.end_tasks.is_set():
-                    #     self._vid_dl.end_tasks.set()
-                    #     await asyncio.sleep(0)
                     await asyncio.wait([upt_task])
 
         except Exception as e:
@@ -1408,8 +1395,6 @@ class AsyncHLSDownloader:
                 async with async_suppress(OSError):
                     if frag["size"] < 0:
                         frag["size"] = await aiofiles.os.path.getsize(frag["file"])
-                # if frag["size"] < 0 or not frag["headersize"] or not (
-                #         frag["headersize"] - 100 <= frag["size"] <= frag["headersize"] + 100):
                 if frag["size"] < 0:
                     raise AsyncHLSDLError(f"{self.premsg}: error when ensambling: {frag}")
 
