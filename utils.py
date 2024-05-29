@@ -1981,7 +1981,7 @@ if yt_dlp:
             _msg_err = str(e)
             if e.response.status_code == 403:
                 raise_reextract_info(_msg_err)
-            elif e.response.status_code in (502, 503):
+            elif e.response.status_code in (500, 502, 503, 520, 521):
                 raise StatusError503(_msg_err) from None
             else:
                 raise
@@ -2026,7 +2026,7 @@ if yt_dlp:
             _msg_err = str(e)
             if e.response.status_code == 403:
                 raise_reextract_info(_msg_err)
-            elif e.response.status_code == 503:
+            elif e.response.status_code in (500, 502, 503, 520, 521):
                 raise StatusError503(_msg_err) from None
             else:
                 raise

@@ -133,12 +133,11 @@ on_exception = my_dec_on_exception(
     (TimeoutError, AsyncHLSDLError, ReExtractInfo),
     max_tries=5, raise_on_giveup=False, interval=10)
 
-on_exception_hsize = my_dec_on_exception(
-    (TimeoutError, AsyncHLSDLError, ReExtractInfo),
-    max_tries=10, raise_on_giveup=False, interval=30)
+on_503_hsize = my_dec_on_exception(
+    StatusError503, max_time=360, raise_on_giveup=False, interval=10)
 
 on_503 = my_dec_on_exception(
-    StatusError503, max_time=360, raise_on_giveup=False, interval=30)
+    StatusError503, max_time=360, raise_on_giveup=True, interval=10)
 
 network_exceptions = (httpx.ReadTimeout, httpx.RemoteProtocolError)
 
@@ -413,23 +412,23 @@ class AsyncHLSDownloader:
                     f"{self.premsg}:[get_m3u8_doc] error downloading m3u8 doc {_error}")
             return res.content.decode("utf-8", "replace")
 
+    @on_503_hsize
+    @on_exception
     def get_headersize(self, ctx: DownloadFragContext) -> Optional[int]:
         pre = f"[get_headersize][frag-{ctx.info_frag['frag']}]"
         if ctx.headers_range:
             logger.warning(f"{pre} NOK - fragments wth header range")
             return
-        try:
-            _error = ''
-            if not (
-                res := send_http_request(
-                    ctx.url, _type="HEAD", headers={'Range': 'bytes=0-100'},
-                    client=self.init_client, logger=logger.debug, new_e=AsyncHLSDLError)
-            ) or isinstance(res, dict) and (_error := res.get('error')):
-                logger.warning(f"{pre} NOK - couldnt get res to head {_error}")
-                return
-        except Exception as e:
-            logger.warning(f"{pre} NOK - couldnt get res to head {repr(e)}")
+
+        _error = ''
+        if not (
+            res := send_http_request(
+                ctx.url, _type="HEAD", headers={'Range': 'bytes=0-100'},
+                client=self.init_client, logger=logger.debug, new_e=AsyncHLSDLError)
+        ) or isinstance(res, dict) and (_error := res.get('error')):
+            logger.warning(f"{pre} NOK - couldnt get res to head {_error}")
             return
+
         logger.debug(
             f"{pre} REQUEST: {res.request} headers: {res.request.headers}\n"
             + f"RESPONSE: {res} headers: {res.headers}\nINFO_FRAG: {ctx.info_frag}")
@@ -1072,7 +1071,7 @@ class AsyncHLSDownloader:
                     await asyncio.wait(_wait_tasks)
                 raise AsyncHLSDLErrorFatal(f"{_premsg} resp code:{str(ctx.resp.status_code)}")
 
-            elif ctx.resp.status_code in (502, 503, 521):
+            elif ctx.resp.status_code in (500, 502, 503, 520, 521):
                 raise StatusError503(f"{_premsg} error status code {ctx.resp.status_code}")
 
             elif ctx.resp.status_code >= 400:
@@ -1152,6 +1151,8 @@ class AsyncHLSDownloader:
                 AsyncHLSDLErrorFatal
             ) as e:
                 logger.debug(f"{_premsg}: Error: {repr(e)}")
+                if e.__class__.__name__ == 'StatusError503':
+                    logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
                 raise
             except network_exceptions as e:
