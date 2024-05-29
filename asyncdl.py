@@ -560,7 +560,7 @@ class AsyncDL:
                 logger.warning(f"{_pre} PLAYLIST IN PLAYLIST:{entry}")
                 return
             elif _type == "error":
-                if not (_errorurl := entry.get("url")):
+                if not (_errorurl := (entry.get("url") or (entry.get("original_url")))):
                     return
                 _error = entry.get("error", "no video entry")
                 if not self.info_videos.get(_errorurl):
