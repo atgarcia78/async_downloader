@@ -1767,6 +1767,7 @@ if yt_dlp:
             headers |= {el[0]: el[1] for item in args.headers if item and (el := item.split(':', 1))}
 
         ytdl_opts = {
+            "cachedir": "/Users/antoniotorres/.config/yt-dlp",
             "allow_unplayable_formats": True,
             "retries": 3,
             "extractor_retries": 1,
