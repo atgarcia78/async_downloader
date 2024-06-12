@@ -1490,7 +1490,7 @@ if yt_dlp:
                         any(_ in mobj2 for _ in self._skip_phr),
                     ]
                 ):
-                    self.log(logging.DEBUG, msg[len(mobj) :].strip(), *args, **kwargs)
+                    self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
                 else:
                     self.log(logging.INFO, msg, *args, **kwargs)
             elif self.superverbose:
@@ -1502,7 +1502,7 @@ if yt_dlp:
                 "[download]",
                 "[debug+]",
             ) or any(_ in mobj2 for _ in self._skip_phr):
-                self.log(logging.DEBUG, msg[len(mobj) :].strip(), *args, **kwargs)
+                self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
             else:
                 self.log(logging.INFO, msg, *args, **kwargs)
 
@@ -4717,7 +4717,7 @@ if PySimpleGUI:
                                                 self.window_console.write_event_value(
                                                     "Resume",
                                                     ",".join(
-                                                        list(map(str, _list[i + 1 :]))
+                                                        list(map(str, _list[i + 1:]))
                                                     ),
                                                 )
 
