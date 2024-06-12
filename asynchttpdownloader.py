@@ -102,7 +102,11 @@ class AsyncHTTPDownloader:
         self.download_path.mkdir(parents=True, exist_ok=True)
         self.filename = Path(
             self.base_download_path,
-            _filename.stem + "." + self.info_dict["format_id"] + "." + self.info_dict["ext"],
+            _filename.stem
+            + "."
+            + self.info_dict["format_id"]
+            + "."
+            + self.info_dict["ext"],
         )
 
         # self.filesize = none_to_zero(self.info_dict.get('filesize', 0))
@@ -126,7 +130,11 @@ class AsyncHTTPDownloader:
         self.n_parts: int = self.vid_dl.info_dl.get("n_workers", 16)
 
         self.premsg = "".join(
-            [f'[{self.info_dict["id"]}]', f'[{self.info_dict["title"]}]', f'[{self.info_dict["format_id"]}]']
+            [
+                f'[{self.info_dict["id"]}]',
+                f'[{self.info_dict["title"]}]',
+                f'[{self.info_dict["format_id"]}]',
+            ]
         )
 
         self.init()
@@ -137,7 +145,9 @@ class AsyncHTTPDownloader:
             def getter(x):
                 if not x:
                     return (limiter_non.ratelimit("transp", delay=True), self.n_parts)
-                value, key_text = getter_basic_config_extr(x, AsyncHTTPDownloader._CONFIG) or (None, None)
+                value, key_text = getter_basic_config_extr(
+                    x, AsyncHTTPDownloader._CONFIG
+                ) or (None, None)
                 if value and key_text:
                     self.special_extr = True
                     return (
@@ -169,7 +179,9 @@ class AsyncHTTPDownloader:
 
             if _sem:
                 with self.ytdl.params["lock"]:
-                    if not (_temp := traverse_obj(self.ytdl.params, ("sem", self._host))):
+                    if not (
+                        _temp := traverse_obj(self.ytdl.params, ("sem", self._host))
+                    ):
                         _temp = Lock()
                         self.ytdl.params["sem"].update({self._host: _temp})
 
@@ -209,10 +221,13 @@ class AsyncHTTPDownloader:
         def _check_server():
             try:
                 res = self.init_client.head(self.uris[0], headers={"range": "bytes=0-"})
-                logger.debug(f"{self.premsg}[check_server] {res} {res.request.headers} {res.headers}")
+                logger.debug(
+                    f"{self.premsg}[check_server] {res} {res.request.headers} {res.headers}"
+                )
                 res.raise_for_status()
                 return (
-                    res.headers.get("accept-ranges") or res.headers.get("content-range"),
+                    res.headers.get("accept-ranges")
+                    or res.headers.get("content-range"),
                     int_or_none(res.headers.get("content-length")),
                 )
 
@@ -220,7 +235,9 @@ class AsyncHTTPDownloader:
                 logger.exception(f"{self.premsg}[check_server] {repr(e)}")
                 raise
 
-        if (_ar := self.info_dict.get("accept_ranges")) and (_fs := self.info_dict.get("filesize")):
+        if (_ar := self.info_dict.get("accept_ranges")) and (
+            _fs := self.info_dict.get("filesize")
+        ):
             return (_ar, _fs)
         else:
             return _check_server() or (None, None)
@@ -232,9 +249,13 @@ class AsyncHTTPDownloader:
             try:
                 if offset:
                     _start = self.parts[i]["offset"] + self.parts[i]["start"]
-                    self.parts[i]["headers"].append({"range": f"bytes={_start}-{self.parts[i]['end']}"})
+                    self.parts[i]["headers"].append(
+                        {"range": f"bytes={_start}-{self.parts[i]['end']}"}
+                    )
 
-                res = self.init_client.head(self.parts[i]["url"], headers=self.parts[i]["headers"][-1])
+                res = self.init_client.head(
+                    self.parts[i]["url"], headers=self.parts[i]["headers"][-1]
+                )
                 logger.debug(
                     f"{self.premsg}[upt_hsize] {res} {res.request} {res.request.headers} {res.headers.get('content-length')}"
                 )
@@ -245,7 +266,9 @@ class AsyncHTTPDownloader:
                 else:
                     self.parts[i].update({"hsizeoffset": headers_size})
 
-                logger.debug(f"{self.premsg}[upt_hsize] OK for part[{i}] \n{self.parts[i]}")
+                logger.debug(
+                    f"{self.premsg}[upt_hsize] OK for part[{i}] \n{self.parts[i]}"
+                )
 
                 return headers_size
 
@@ -282,7 +305,10 @@ class AsyncHTTPDownloader:
                                 f"{self.filename.stem}_part_{i}_of_{self.n_parts}",
                             ),
                             "tempfilesize": (
-                                _tfs := (self.filesize // self.n_parts + self.filesize % self.n_parts)
+                                _tfs := (
+                                    self.filesize // self.n_parts
+                                    + self.filesize % self.n_parts
+                                )
                             ),
                             "headersize": None,
                             "hsizeoffset": None,
@@ -364,18 +390,24 @@ class AsyncHTTPDownloader:
                 if partsize == 0:
                     part["filepath"].unlink()
                     self.parts_to_dl.append(part["part"])
-                    logger.debug(f"{_premsg} exits with size {partsize}. Re-download from scratch")
+                    logger.debug(
+                        f"{_premsg} exits with size {partsize}. Re-download from scratch"
+                    )
 
                 elif _headersize:
                     if partsize > _headersize + 100:
                         part["filepath"].unlink()
                         self.parts_to_dl.append(part["part"])
-                        logger.debug(f"{_premsg} exits size[{partsize}]. Re-download from scratch")
+                        logger.debug(
+                            f"{_premsg} exits size[{partsize}]. Re-download from scratch"
+                        )
 
                     elif _headersize - 100 <= partsize <= _headersize + 100:
                         # with a error margen of +-100bytes,
                         # file is fully downloaded
-                        logger.debug(f"{_premsg} exits with size {partsize} and full downloaded")
+                        logger.debug(
+                            f"{_premsg} exits with size {partsize} and full downloaded"
+                        )
                         self.down_size += partsize
                         part["downloaded"] = True
                         part["size"] = partsize
@@ -393,15 +425,21 @@ class AsyncHTTPDownloader:
                             part["hsizeoffset"] = _hsizeoffset
                             self.parts_to_dl.append(part["part"])
                             self.down_size += partsize
-                            logger.debug(f"{self.premsg}[feed queue]\n{part}\n{self.parts[i]}")
+                            logger.debug(
+                                f"{self.premsg}[feed queue]\n{part}\n{self.parts[i]}"
+                            )
                         else:
                             part = _old_part
                             part["filepath"].unlink()
                             self.parts_to_dl.append(part["part"])
-                            logger.warning(f"{_premsg} no headersize. Re-download from scratch")
+                            logger.warning(
+                                f"{_premsg} no headersize. Re-download from scratch"
+                            )
 
                 else:
-                    logger.warning(f"{_premsg} exits size [{partsize}] no headersize. Re-download")
+                    logger.warning(
+                        f"{_premsg} exits size [{partsize}] no headersize. Re-download"
+                    )
                     part["filepath"].unlink()
                     self.parts_to_dl.append(part["part"])
 
@@ -423,25 +461,35 @@ class AsyncHTTPDownloader:
                 if self.down_size and not self.check_any_event_is_set():
                     _down_size = self.down_size
                     _speed_meter = self.speedometer(_down_size)
-                    self.upt.update({"speed_meter": _speed_meter, "down_size": _down_size})
+                    self.upt.update(
+                        {"speed_meter": _speed_meter, "down_size": _down_size}
+                    )
 
                     if _speed_meter and self.filesize:
                         _est_time = (self.filesize - _down_size) / _speed_meter
                         _est_time_smooth = self.smooth_eta(_est_time)
-                        self.upt.update({"est_time": _est_time, "est_time_smooth": _est_time_smooth})
+                        self.upt.update(
+                            {"est_time": _est_time, "est_time_smooth": _est_time_smooth}
+                        )
 
             await asyncio.sleep(0)
 
     @retry
     def get_reset_info(self, _reset_url):
-        _reset_info = self.ytdl.sanitize_info(self.ytdl.extract_info(_reset_url, download=False))
+        _reset_info = self.ytdl.sanitize_info(
+            self.ytdl.extract_info(_reset_url, download=False)
+        )
         if not _reset_info:
             raise AsyncHTTPDLError("no video info")
         return get_format_id(_reset_info, self.info_dict["format_id"])
 
     def resetdl(self):
         _wurl = self.info_dict.get("webpage_url")
-        _webpage_url = smuggle_url(_wurl, {"indexdl": self.vid_dl.index}) if self.special_extr else _wurl
+        _webpage_url = (
+            smuggle_url(_wurl, {"indexdl": self.vid_dl.index})
+            if self.special_extr
+            else _wurl
+        )
         info_reset = self.get_reset_info(_webpage_url)
         logger.debug(f"{self.premsg}[reset] info reset {info_reset}")
         self.headers = info_reset.get("http_headers")
@@ -468,7 +516,11 @@ class AsyncHTTPDownloader:
         _res = None
         if self.vid_dl.pause_event.is_set():
             _res = await async_waitfortasks(
-                events=(self.vid_dl.resume_event, self.vid_dl.reset_event, self.vid_dl.stop_event),
+                events=(
+                    self.vid_dl.resume_event,
+                    self.vid_dl.reset_event,
+                    self.vid_dl.stop_event,
+                ),
                 background_tasks=self.background_tasks,
             )
             self.vid_dl.pause_event.clear()
@@ -476,7 +528,11 @@ class AsyncHTTPDownloader:
 
             await asyncio.sleep(0)
         else:
-            _event = [_ev.name for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event) if _ev.is_set()]
+            _event = [
+                _ev.name
+                for _ev in (self.vid_dl.reset_event, self.vid_dl.stop_event)
+                if _ev.is_set()
+            ]
             if _event:
                 _res = {"event": _event[0]}
                 await asyncio.sleep(0)
@@ -537,7 +593,9 @@ class AsyncHTTPDownloader:
                             )
 
                             if res.status_code >= 400:
-                                raise AsyncHTTPDLError(f"error[{res.status_code}] part[{part}]")
+                                raise AsyncHTTPDLError(
+                                    f"error[{res.status_code}] part[{part}]"
+                                )
 
                             else:
                                 if (len(self.parts[part - 1]["headers"]) == 1) and (
@@ -551,15 +609,22 @@ class AsyncHTTPDownloader:
 
                                 _started = time.monotonic()
 
-                                async for chunk in res.aiter_bytes(chunk_size=self._CHUNK_SIZE):
+                                async for chunk in res.aiter_bytes(
+                                    chunk_size=self._CHUNK_SIZE
+                                ):
                                     _timechunk = time.monotonic() - _started
-                                    self.parts[part - 1]["time2dlchunks"].append(_timechunk)
+                                    self.parts[part - 1]["time2dlchunks"].append(
+                                        _timechunk
+                                    )
 
                                     await f.write(chunk)
 
                                     async with self._ALOCK:
                                         self.down_size += (
-                                            _iter_bytes := (res.num_bytes_downloaded - num_bytes_downloaded)
+                                            _iter_bytes := (
+                                                res.num_bytes_downloaded
+                                                - num_bytes_downloaded
+                                            )
                                         )
                                         if (_dif := self.down_size - self.filesize) > 0:
                                             self.filesize += _dif
@@ -588,7 +653,9 @@ class AsyncHTTPDownloader:
                             self.parts[part - 1]["size"] = _tempfile_size
                             async with self._ALOCK:
                                 self.n_parts_dl += 1
-                            logger.debug(f"{_premsg} OK DL: total {self.n_parts_dl}\n{self.parts[part-1]}")
+                            logger.debug(
+                                f"{_premsg} OK DL: total {self.n_parts_dl}\n{self.parts[part-1]}"
+                            )
                             break
 
                         else:
@@ -604,7 +671,11 @@ class AsyncHTTPDownloader:
                                 + f"{self.parts[part-1]['headersize'] + 100}"
                             )
 
-                    except (asyncio.CancelledError, AsyncHTTPDLErrorFatal, RuntimeError) as e:
+                    except (
+                        asyncio.CancelledError,
+                        AsyncHTTPDLErrorFatal,
+                        RuntimeError,
+                    ) as e:
                         logger.error(f"{_premsg}[fetch-res] error: {repr(e)}")
                         raise
 
@@ -616,7 +687,9 @@ class AsyncHTTPDownloader:
                             _tempfile_size = (await os.stat(tempfilename)).st_size
                             self.parts[part - 1]["offset"] = _tempfile_size
                             if not self.upt_hsize(part - 1, offset=True):
-                                raise AsyncHTTPDLErrorFatal(f"{_premsg}[fetch-res] Error to upt hsize part")
+                                raise AsyncHTTPDLErrorFatal(
+                                    f"{_premsg}[fetch-res] Error to upt hsize part"
+                                )
                             await asyncio.sleep(0)
                         else:
                             logger.warning(f"{_premsg}[fetch-res] error: maxnumrepeats")
@@ -633,7 +706,9 @@ class AsyncHTTPDownloader:
         try:
             self._ALOCK = asyncio.Lock()
             # self.first_data = asyncio.Event()
-            self.areset = sync_to_async(self.resetdl, thread_sensitive=False, executor=self.ex_dl)
+            self.areset = sync_to_async(
+                self.resetdl, thread_sensitive=False, executor=self.ex_dl
+            )
 
             while True:
                 self.count = self._NUM_WORKERS
@@ -658,7 +733,10 @@ class AsyncHTTPDownloader:
                     self.background_tasks.add(upt_task[0])
                     upt_task[0].add_done_callback(self.background_tasks.discard)
                     async with async_lock(self.sem):  # type: ignore
-                        self.tasks = [asyncio.create_task(self.fetch(i)) for i in range(self._NUM_WORKERS)]
+                        self.tasks = [
+                            asyncio.create_task(self.fetch(i))
+                            for i in range(self._NUM_WORKERS)
+                        ]
                         for _task in self.tasks:
                             self.background_tasks.add(_task)
                             _task.add_done_callback(self.background_tasks.discard)
@@ -724,15 +802,23 @@ class AsyncHTTPDownloader:
                     if p["filepath"].exists():
                         p["size"] = p["filepath"].stat().st_size
                         if p["headersize"] - 100 <= p["size"] <= p["headersize"] + 100:
-                            async with aiofiles.open(p["filepath"], mode="rb") as source:
+                            async with aiofiles.open(
+                                p["filepath"], mode="rb"
+                            ) as source:
                                 await dest.write(await source.read())
                         else:
-                            raise AsyncHTTPDLError(f"{self.premsg}[ensamble_file] error when ensambling: {p}")
+                            raise AsyncHTTPDLError(
+                                f"{self.premsg}[ensamble_file] error when ensambling: {p}"
+                            )
                     else:
-                        raise AsyncHTTPDLError(f"{self.premsg}[ensamble_file] error when ensambling: {p}")
+                        raise AsyncHTTPDLError(
+                            f"{self.premsg}[ensamble_file] error when ensambling: {p}"
+                        )
 
         except Exception as e:
-            logger.debug(f"{self.premsg}[ensamble_file] error when ensambling parts {str(e)}")
+            logger.debug(
+                f"{self.premsg}[ensamble_file] error when ensambling parts {str(e)}"
+            )
             if await os.path.exists(self.filename):
                 await os.remove(self.filename)
             self.status = "error"
@@ -741,7 +827,9 @@ class AsyncHTTPDownloader:
 
         if await os.path.exists(self.filename):
             armtree = sync_to_async(
-                partial(rmtree, ignore_errors=True), thread_sensitive=False, executor=self.ex_dl
+                partial(rmtree, ignore_errors=True),
+                thread_sensitive=False,
+                executor=self.ex_dl,
             )
             await armtree(self.download_path)
             self.status = "done"
@@ -749,7 +837,9 @@ class AsyncHTTPDownloader:
         else:
             self.status = "error"
             await self.clean_when_error()
-            raise AsyncHTTPDLError(f"{self.premsg}[ensamble_file] error when ensambling parts")
+            raise AsyncHTTPDLError(
+                f"{self.premsg}[ensamble_file] error when ensambling parts"
+            )
 
     def format_parts(self):
         import math
@@ -785,11 +875,15 @@ class AsyncHTTPDownloader:
                 else:
                     _speed_meter_str = "--"
 
-                if (_est_time_smooth := _temp.get("est_time_smooth")) and _est_time_smooth < 3600:
+                if (
+                    _est_time_smooth := _temp.get("est_time_smooth")
+                ) and _est_time_smooth < 3600:
                     _eta_smooth_str = ":".join(
                         [
                             _item.split(".")[0]
-                            for _item in f"{timedelta(seconds=_est_time_smooth)}".split(":")[1:]
+                            for _item in f"{timedelta(seconds=_est_time_smooth)}".split(
+                                ":"
+                            )[1:]
                         ]
                     )
                 else:
@@ -809,6 +903,4 @@ class AsyncHTTPDownloader:
                 _size = self.filename.stat().st_size
             else:
                 _size = 0
-            return (
-                f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{_filesize_str}]\n"
-            )
+            return f"[HTTP][{self.info_dict['format_id']}]: Ensambling {naturalsize(_size)} [{_filesize_str}]\n"

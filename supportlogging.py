@@ -113,7 +113,7 @@ class QueueListenerHandler(QueueHandler):
     handlers = []
     _LOCK = threading.Lock()
 
-    def __init__(self, handlers, _name_logger='root'):
+    def __init__(self, handlers, _name_logger="root"):
         with QueueListenerHandler._LOCK:
             if _name_logger in QueueListenerHandler.handlers:
                 return
@@ -123,8 +123,8 @@ class QueueListenerHandler(QueueHandler):
         super().__init__(_resolve_queue(Queue(-1)))
 
         self._listener = SingleThreadQueueListener(
-            self.queue, *_resolve_handlers(handlers),
-            _name_logger=_name_logger)
+            self.queue, *_resolve_handlers(handlers), _name_logger=_name_logger
+        )
         self.start()
 
     def start(self):
@@ -140,7 +140,7 @@ class SingleThreadQueueListener(QueueListener):
     sleep_time = 0.1
     _LOCK = threading.Lock()
 
-    def __init__(self, queue, *handlers, _name_logger='root'):
+    def __init__(self, queue, *handlers, _name_logger="root"):
         self.queue = queue
         self.handlers = handlers
         self._thread = None
@@ -156,7 +156,8 @@ class SingleThreadQueueListener(QueueListener):
         with cls._LOCK:
             if not cls.monitor_running():
                 cls.monitor_thread = t = threading.Thread(
-                    target=cls._monitor_all, name='logging_monitor', daemon=True)
+                    target=cls._monitor_all, name="logging_monitor", daemon=True
+                )
                 t.start()
         return cls.monitor_thread
 
@@ -175,7 +176,7 @@ class SingleThreadQueueListener(QueueListener):
             time.sleep(cls.sleep_time)
             for listener in cls.listeners:
                 try:
-                    task_done = getattr(listener.queue, 'task_done', lambda: None)
+                    task_done = getattr(listener.queue, "task_done", lambda: None)
                     while True:
                         if (record := listener.dequeue(False)) is listener._sentinel:
                             with contextlib.suppress(ValueError):
@@ -197,20 +198,19 @@ class SingleThreadQueueListener(QueueListener):
 
 def init_logging(log_name, config_path=None, test=False):
     config_json = config_path or Path(Path.home(), "Projects/common/logging.json")
-    with open(config_json, 'r') as f:
+    with open(config_json, "r") as f:
         config = json.loads(f.read())
-    _to_upt = config['handlers']['info_file_handler']
+    _to_upt = config["handlers"]["info_file_handler"]
     for key, value in _to_upt.items():
-        if key == 'filename':
+        if key == "filename":
             _to_upt[key] = value.format(name=log_name)
             break
 
     logging.config.dictConfig(config)
 
     for _name, logger in logging.Logger.manager.loggerDict.items():
-        if (
-            isinstance(logger, logging.Logger)
-            and any(_name.startswith(_) for _ in ('proxy', 'plugins.proxy'))
+        if isinstance(logger, logging.Logger) and any(
+            _name.startswith(_) for _ in ("proxy", "plugins.proxy")
         ):
             logger.setLevel(logging.ERROR)
 
@@ -221,7 +221,6 @@ def init_logging(log_name, config_path=None, test=False):
 
 
 class LogContext:
-
     def __enter__(self):
         return self
 

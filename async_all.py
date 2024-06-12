@@ -5,7 +5,7 @@ from asyncdl import AsyncDL
 from supportlogging import LogContext
 from utils import init_argparser, init_config
 
-logger = init_config(log_name='asyncdl')
+logger = init_config(log_name="asyncdl")
 
 
 def main():

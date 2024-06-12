@@ -114,11 +114,12 @@ PATH_LOGS = Path(Path.home(), "Projects/common/logs")
 
 drm_base_path = Path(
     Path.home(),
-    'Projects/dumper/key_dumps/Android Emulator 5554/private_keys/7283/2049378471')
+    "Projects/dumper/key_dumps/Android Emulator 5554/private_keys/7283/2049378471",
+)
 
 CONF_DRM = {
-    "private_key": Path(drm_base_path, 'private_key.pem'),
-    "client_id": Path(drm_base_path, 'client_id.bin')
+    "private_key": Path(drm_base_path, "private_key.pem"),
+    "client_id": Path(drm_base_path, "client_id.bin"),
 }
 
 CONF_DASH_SPEED_PER_WORKER = 102400
@@ -161,38 +162,47 @@ def deep_update(mapping, *updating_mappings):
     updated_mapping = mapping.copy()
     for updating_mapping in updating_mappings:
         for k, v in updating_mapping.items():
-            if k in updated_mapping and isinstance(updated_mapping[k], dict) and isinstance(v, dict):
+            if (
+                k in updated_mapping
+                and isinstance(updated_mapping[k], dict)
+                and isinstance(v, dict)
+            ):
                 updated_mapping[k] = deep_update(updated_mapping[k], v)
             else:
                 updated_mapping[k] = v
     return updated_mapping
 
 
-class Tracker():
-
+class Tracker:
     _sentinel = object()
 
     def __init__(self, cmd, upt, pattern):
         self._upt = upt
         self._stderr_queue = Queue()
-        self._stderr_buffer = ''
+        self._stderr_buffer = ""
         self.progress_pattern = re.compile(pattern)
-        self.proc = subprocess.Popen(shlex.split(cmd), text=True, encoding='utf8', stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.proc = subprocess.Popen(
+            shlex.split(cmd),
+            text=True,
+            encoding="utf8",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
 
     def _handle_lines(self):
         def _parse_output(line):
             if not (_info := re.match(self.progress_pattern, line)):
                 return
-            return float(_info.group('progress'))
+            return float(_info.group("progress"))
 
         if not self._stderr_queue.empty():
             stderr_line = self._stderr_queue.get_nowait()
             if stderr_line != self._sentinel:
-                self._stderr_buffer += stderr_line + '\n'
+                self._stderr_buffer += stderr_line + "\n"
                 if _progr := _parse_output(stderr_line):
-                    self._upt['progress'] = _progr
+                    self._upt["progress"] = _progr
             else:
-                self._upt['progress'] = 100.0
+                self._upt["progress"] = 100.0
 
     def _wait_for_proc(self):
         retcode = self.proc.poll()
@@ -204,13 +214,16 @@ class Tracker():
 
     def track_progress(self):
         def _enqueue_lines(std, queue):
-            for line in iter(std.readline, ''):
+            for line in iter(std.readline, ""):
                 queue.put(line.strip())
             queue.put(self._sentinel)
             std.close()
 
         err_listener = threading.Thread(
-            target=_enqueue_lines, args=(self.proc.stderr, self._stderr_queue), daemon=True)
+            target=_enqueue_lines,
+            args=(self.proc.stderr, self._stderr_queue),
+            daemon=True,
+        )
 
         err_listener.start()
         retcode = self._wait_for_proc()
@@ -219,46 +232,67 @@ class Tracker():
 
 def get_dependencies(your_package):
     import requests
-    pypi_url = 'https://pypi.python.org/pypi/' + your_package + '/json'
+
+    pypi_url = "https://pypi.python.org/pypi/" + your_package + "/json"
     data = requests.get(pypi_url).json()
-    if _pkgs := data.get('info', {}).get('requires_dist'):
+    if _pkgs := data.get("info", {}).get("requires_dist"):
         return [
-            (re.findall(r'^(\w+)', el)[0], el)
+            (re.findall(r"^(\w+)", el)[0], el)
             for el in _pkgs
             if (
-                'extra ==' not in el and 'sys_platform == "win32"' not in el
+                "extra ==" not in el
+                and 'sys_platform == "win32"' not in el
                 and 'implementation_name != "cpython"' not in el
-                and 'os_name == "nt"' not in el and 'implementation_name == "pypy"' not in el
-                and 'python_version < ' not in el
+                and 'os_name == "nt"' not in el
+                and 'implementation_name == "pypy"' not in el
+                and "python_version < " not in el
                 and 'platform_python_implementation == "PyPy"' not in el
-            ) or ('extra ==' in el and 'extras' in el) or ('extra ==' in el and '\'socks' in el)
+            )
+            or ("extra ==" in el and "extras" in el)
+            or ("extra ==" in el and "'socks" in el)
         ]
     else:
         return []
 
 
 def pip_show(_pckg):
-    pckg = subprocess.run(['pip', 'show', _pckg], capture_output=True, encoding='utf-8').stdout
-    if len(_temp := pckg.split('----')) > 1:
-        pckg = _temp[0] + '\n'.join([_eltemp.replace('License:', 'License_:') for _eltemp in _temp[1:]])
-    if _lic := (try_call(lambda: pckg.split('License: ')[1].split('\nLocation:')[0])):
-        pckg = pckg.replace(_lic, _lic.replace('\n', '$$$___###rc###').replace(': ', '$$$___###dp###'))
-    data = {el.split(': ')[0]: el.split(': ')[1] for el in pckg.splitlines()}
-    data['Requires'] = data['Requires'].split(', ') if data['Requires'] else []
-    data['Required-by'] = data['Required-by'].split(', ') if data['Required-by'] else []
-    data['License'] = data['License'].replace('$$$___###dp###', ': ').replace('License_:', 'License:').replace('$$$___###rc###', '\n') if data.get('License') else ''
+    pckg = subprocess.run(
+        ["pip", "show", _pckg], capture_output=True, encoding="utf-8"
+    ).stdout
+    if len(_temp := pckg.split("----")) > 1:
+        pckg = _temp[0] + "\n".join(
+            [_eltemp.replace("License:", "License_:") for _eltemp in _temp[1:]]
+        )
+    if _lic := (try_call(lambda: pckg.split("License: ")[1].split("\nLocation:")[0])):
+        pckg = pckg.replace(
+            _lic, _lic.replace("\n", "$$$___###rc###").replace(": ", "$$$___###dp###")
+        )
+    data = {el.split(": ")[0]: el.split(": ")[1] for el in pckg.splitlines()}
+    data["Requires"] = data["Requires"].split(", ") if data["Requires"] else []
+    data["Required-by"] = data["Required-by"].split(", ") if data["Required-by"] else []
+    data["License"] = (
+        data["License"]
+        .replace("$$$___###dp###", ": ")
+        .replace("License_:", "License:")
+        .replace("$$$___###rc###", "\n")
+        if data.get("License")
+        else ""
+    )
     return data
 
 
 def pip_list():
     piplist = subprocess.run(
         "pip list | awk '{print $1}' | egrep -v 'Package|---'",
-        shell=True, capture_output=True, encoding='utf-8').stdout.splitlines()
+        shell=True,
+        capture_output=True,
+        encoding="utf-8",
+    ).stdout.splitlines()
 
     with ThreadPoolExecutor() as exe:
         futures = [exe.submit(pip_show, pk) for pk in piplist]
 
-    return {_res['Name']: _res for fut in futures if (_res := fut.result())}
+    return {_res["Name"]: _res for fut in futures if (_res := fut.result())}
 
 
 class MyRetryManager:
@@ -308,7 +342,15 @@ def try_call(*funcs, expected_type=None, args=[], kwargs={}):
     for f in funcs:
         try:
             val = f(*args, **kwargs)
-        except (OSError, AttributeError, KeyError, TypeError, IndexError, ValueError, ZeroDivisionError):
+        except (
+            OSError,
+            AttributeError,
+            KeyError,
+            TypeError,
+            IndexError,
+            ValueError,
+            ZeroDivisionError,
+        ):
             pass
         else:
             if expected_type is None or isinstance(val, expected_type):
@@ -316,8 +358,7 @@ def try_call(*funcs, expected_type=None, args=[], kwargs={}):
 
 
 async def get_list_interl(entries, asyncdl, _pre):
-
-    logger = logging.getLogger('asyncdl')
+    logger = logging.getLogger("asyncdl")
 
     _temp_aldl = []
     res = []
@@ -390,7 +431,8 @@ async def get_list_interl(entries, asyncdl, _pre):
     logger.info(
         f"{_pre}[get_list_interl] entries"
         + f"interleave: {len(list(_dict.keys()))} different hosts, "
-        + f"longest with {len(max(list(_dict.values()), key=len))} entries")
+        + f"longest with {len(max(list(_dict.values()), key=len))} entries"
+    )
 
     _workers = asyncdl.workers
     _interl = []
@@ -412,13 +454,15 @@ async def get_list_interl(entries, asyncdl, _pre):
                     continue
                 else:
                     logger.info(
-                        f"{_pre}[get_list_interl] tune in NOK, try with less num of workers")
+                        f"{_pre}[get_list_interl] tune in NOK, try with less num of workers"
+                    )
                     _workers -= 1
                     break
 
             else:
                 logger.info(
-                    f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]")
+                    f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]"
+                )
                 asyncdl.workers = _workers
                 asyncdl.WorkersRun.max_workers = _workers
                 _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
@@ -427,8 +471,7 @@ async def get_list_interl(entries, asyncdl, _pre):
     asyncdl.workers = _workers
     asyncdl.WorkersRun.max_workers = _workers
     if _interl:
-        _http_list = sorted(
-            _res, key=lambda x: _interl.index(x["id"]))
+        _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
     else:
         _http_list = _res
     return mix_lists(_http_list, _hls_list, asyncdl) + _temp_aldl
@@ -443,7 +486,7 @@ def empty_queue(q: Union[asyncio.Queue, Queue]):
 
 
 def load_module(name: str, path: str):
-    if path.endswith('.py'):
+    if path.endswith(".py"):
         spec = spec_from_file_location(name, path)
     else:
         _loader_details = [(SourceFileLoader, SOURCE_SUFFIXES)]
@@ -502,7 +545,9 @@ def nested_obj(d, *selectors, get_all=True, default=None, v=False):
         return res[0] if len(res) == 1 else res
 
 
-def put_sequence(queue: Union[queue.Queue, asyncio.Queue], seq: Iterable) -> Union[queue.Queue, asyncio.Queue]:
+def put_sequence(
+    queue: Union[queue.Queue, asyncio.Queue], seq: Iterable
+) -> Union[queue.Queue, asyncio.Queue]:
     if seq:
         for el in seq:
             queue.put_nowait(el)
@@ -524,7 +569,6 @@ def upt_dict(info_dict: Union[dict, list], **kwargs) -> Union[dict, list]:
 
 
 class classproperty(property):
-
     def __get__(self, owner_self, owner_cls):
         return self.fget(owner_cls)
 
@@ -554,11 +598,16 @@ class cached_classproperty(functools.cached_property):
         if owner is None:
             raise TypeError("Cannot use cached_classproperty without an owner class.")
         if self.attrname is None:
-            raise TypeError("Cannot use cached_classproperty instance without calling __set_name__ on it.")
+            raise TypeError(
+                "Cannot use cached_classproperty instance without calling __set_name__ on it."
+            )
         try:
             cache = owner.__dict__
         except AttributeError:
-            msg = f"No '__dict__' attribute on {owner.__name__!r} " f"to cache {self.attrname!r} property."
+            msg = (
+                f"No '__dict__' attribute on {owner.__name__!r} "
+                f"to cache {self.attrname!r} property."
+            )
             raise TypeError(msg) from None
         val = cache.get(self.attrname, _NOT_FOUND)
         if val is _NOT_FOUND or val is self:
@@ -575,17 +624,25 @@ class Cache:
     def __init__(self, app="noname"):
         self.app = app
         self.logger = logging.getLogger("cache")
-        self.root_dir = os.path.join(os.getenv("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), app)
+        self.root_dir = os.path.join(
+            os.getenv("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), app
+        )
         os.makedirs(self.root_dir, exist_ok=True)
 
     def _get_cache_fn(self, key):
-        key = urllib.parse.quote(key, safe="").replace("%", ",")  # encode non-ascii characters
+        key = urllib.parse.quote(key, safe="").replace(
+            "%", ","
+        )  # encode non-ascii characters
         return os.path.join(self.root_dir, f"{key}.json")
 
     def store(self, key, obj):
         def write_json_file(obj, fn):
             with open(fn, mode="w", encoding="utf-8") as f:
-                json.dump({"date": datetime.now().strftime("%Y.%m.%d"), "data": obj}, f, ensure_ascii=False)
+                json.dump(
+                    {"date": datetime.now().strftime("%Y.%m.%d"), "data": obj},
+                    f,
+                    ensure_ascii=False,
+                )
 
         fn = self._get_cache_fn(key)
         try:
@@ -605,7 +662,9 @@ class Cache:
                     file_size = os.path.getsize(cache_fn)
                 except OSError as oe:
                     file_size = str(oe)
-                self.logger.warning(f"Cache retrieval from {cache_fn} failed ({file_size})")
+                self.logger.warning(
+                    f"Cache retrieval from {cache_fn} failed ({file_size})"
+                )
 
         return default
 
@@ -626,7 +685,7 @@ class MySyncAsyncEvent:
         self.aevent.set()
         self.event.set()
         self._flag = True
-        self._cause = cause or 'set_with_no_cause'
+        self._cause = cause or "set_with_no_cause"
 
     def is_set(self) -> Optional[str]:
         if self._flag:
@@ -650,15 +709,13 @@ class MySyncAsyncEvent:
         if self._flag:
             return {"event": self.name, "cause": self._cause}
         try:
-            await asyncio.wait_for(
-                self.aevent.wait(), timeout=timeout)
+            await asyncio.wait_for(self.aevent.wait(), timeout=timeout)
             return {"event": self.name, "cause": self._cause}
         except asyncio.TimeoutError:
             return {"timeout": timeout}
 
     def add_task(self, timeout: Optional[float] = None) -> asyncio.Task:
-        _task = asyncio.create_task(
-            self.async_wait(timeout=timeout), name=self.name)
+        _task = asyncio.create_task(self.async_wait(timeout=timeout), name=self.name)
         self._tasks.add(_task)
         _task.add_done_callback(self._tasks.discard)
         return _task
@@ -667,7 +724,9 @@ class MySyncAsyncEvent:
         status = f"set, cause: {self._cause}" if self._flag else "unset"
         _res = f"<{self.__class__.__module__}.{self.__class__.__qualname__} at {id(self):#x}: {status}"
         _res += f"\n\tname: {self.name if hasattr(self, 'name') else 'noname'}"
-        _res += f"\n\tsync event: {repr(self.event)}\n\tasync event: {repr(self.aevent)}\n>"
+        _res += (
+            f"\n\tsync event: {repr(self.event)}\n\tasync event: {repr(self.aevent)}\n>"
+        )
         return _res
 
 
@@ -744,9 +803,11 @@ class SpeedometerMA:
     TIMER_FUNC = time.monotonic
 
     def __init__(
-        self, initial_bytes: int = 0,
-        upt_time: Union[int, float] = 1.0, ave_time: Union[int, float] = 5.0,
-        smoothing: float = 0.3
+        self,
+        initial_bytes: int = 0,
+        upt_time: Union[int, float] = 1.0,
+        ave_time: Union[int, float] = 5.0,
+        smoothing: float = 0.3,
     ):
         self.initial_bytes = initial_bytes
         self.rec_bytes = 0
@@ -813,8 +874,7 @@ class SignalHandler:
         self.KEEP_PROCESSING = True
         signals = (signal.SIGTERM, signal.SIGINT)
         for s in signals:
-            signal.signal(
-                s, self.exit_gracefully)
+            signal.signal(s, self.exit_gracefully)
 
     def exit_gracefully(self, sig, frame):
         print(sig, frame)
@@ -840,9 +900,12 @@ class long_operation_in_thread:
         def wrapper(*args, **kwargs) -> MySyncAsyncEvent:
             stop_event = MySyncAsyncEvent(name)
             thread = threading.Thread(
-                target=func, name=name, args=args,
+                target=func,
+                name=name,
+                args=args,
                 kwargs={"stop_event": stop_event, **kwargs},
-                daemon=True)
+                daemon=True,
+            )
             thread.start()
             return stop_event
 
@@ -896,10 +959,12 @@ class run_operation_in_executor_from_loop:
             kwargs["stop_event"] = stop_event
             _task = asyncio.create_task(
                 sync_to_async(
-                    func, thread_sensitive=False,
-                    executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix=name)
+                    func,
+                    thread_sensitive=False,
+                    executor=ThreadPoolExecutor(max_workers=1, thread_name_prefix=name),
                 )(*args, **kwargs),
-                name=name)
+                name=name,
+            )
             return (stop_event, _task)
 
         return wrapper
@@ -908,16 +973,18 @@ class run_operation_in_executor_from_loop:
 class async_suppress(contextlib.AbstractAsyncContextManager):
     def __init__(self, *exceptions, level=logging.DEBUG, logger=None, msg=None):
         self._exceptions = exceptions
-        self.logger = logger or logging.getLogger('asyncdl')
+        self.logger = logger or logging.getLogger("asyncdl")
         self.level = level if isinstance(level, int) else logging.getLevelName(level)
-        self.msg = f'{msg} ' if msg else ''
+        self.msg = f"{msg} " if msg else ""
 
     async def __aenter__(self):
         pass
 
     async def __aexit__(self, exctype, excinst, exctb):
         if exctype is not None and issubclass(exctype, self._exceptions):
-            self.logger.log(self.level, f'{self.msg}Exception supressed: {exctype}, {excinst}')
+            self.logger.log(
+                self.level, f"{self.msg}Exception supressed: {exctype}, {excinst}"
+            )
             return True
 
 
@@ -950,25 +1017,21 @@ def wait_for_either(ev, timeout=None):
 
 
 async def await_for_any(
-        events: Union[MySyncAsyncEvent, Iterable[MySyncAsyncEvent]],
-        timeout: Optional[int] = None) -> dict:
-
+    events: Union[MySyncAsyncEvent, Iterable[MySyncAsyncEvent]],
+    timeout: Optional[int] = None,
+) -> dict:
     _events = cast(Iterable[MySyncAsyncEvent], variadic(events))
 
-    if (
-        _res := [
-            getattr(_ev, "name", "noname")
-            for _ev in _events
-            if _ev and _ev.is_set()
-        ]
-    ):
-
+    if _res := [
+        getattr(_ev, "name", "noname") for _ev in _events if _ev and _ev.is_set()
+    ]:
         return {"event": _res}
 
-    _tasks_events = {event.add_task(): f'{event.name}' for event in _events}
+    _tasks_events = {event.add_task(): f"{event.name}" for event in _events}
 
     done, pending = await asyncio.wait(
-        _tasks_events, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        _tasks_events, timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+    )
 
     if pending:
         list(map(lambda x: x.cancel(), pending))
@@ -979,10 +1042,14 @@ async def await_for_any(
     return _done.result()
 
 
-async def async_wait_for_any(events, timeout: Optional[float] = None) -> dict[str, list[str]]:
+async def async_wait_for_any(
+    events, timeout: Optional[float] = None
+) -> dict[str, list[str]]:
     _events = variadic(events)
 
-    if _res := [getattr(_ev, "name", "noname") for _ev in _events if _ev and _ev.is_set()]:
+    if _res := [
+        getattr(_ev, "name", "noname") for _ev in _events if _ev and _ev.is_set()
+    ]:
         return {"event": _res}
 
     def check_timeout(_st, _n):
@@ -991,14 +1058,17 @@ async def async_wait_for_any(events, timeout: Optional[float] = None) -> dict[st
     start = time.monotonic()
     try:
         while True:
-            if _res := [cast(str, getattr(_ev, "name", "noname"))
-                        for _ev in _events if _ev and _ev.is_set()]:
+            if _res := [
+                cast(str, getattr(_ev, "name", "noname"))
+                for _ev in _events
+                if _ev and _ev.is_set()
+            ]:
                 return {"event": _res}
             elif check_timeout(start, timeout):
                 return {"timeout": [str(timeout)]}
             await asyncio.sleep(CONF_INTERVAL_GUI / 2)
     except Exception as e:
-        logger = logging.getLogger('asyncdl')
+        logger = logging.getLogger("asyncdl")
         logger.error(repr(e))
 
 
@@ -1010,7 +1080,6 @@ async def async_waitfortasks(
     get_results: Union[str, bool] = "discard_if_condition",
     **kwargs,
 ) -> Optional[dict[str, dict | Iterable | bool]]:
-
     """
     si timeout y se llega al timeout en el asyncio.wait,
     se devuelven las tasks en pending cancelled
@@ -1041,7 +1110,9 @@ async def async_waitfortasks(
 
         _one_task_to_wait_tasks = add_task(
             asyncio.wait(_tasks, return_when=asyncio.ALL_COMPLETED),
-            bktasks=_background_tasks, name="fs_list")
+            bktasks=_background_tasks,
+            name="fs_list",
+        )
 
         _final_wait[_one_task_to_wait_tasks] = "tasks"
 
@@ -1073,7 +1144,9 @@ async def async_waitfortasks(
 
     if not _final_wait:
         if timeout:
-            _task_sleep = add_task(asyncio.sleep(timeout * 2), bktasks=_background_tasks)
+            _task_sleep = add_task(
+                asyncio.sleep(timeout * 2), bktasks=_background_tasks
+            )
             _tasks[_task_sleep] = "task"
             _final_wait.update(_tasks)
         else:
@@ -1088,8 +1161,8 @@ async def async_waitfortasks(
     _cancelled = []
 
     done, pending = await asyncio.wait(
-        list(_final_wait.keys()), timeout=timeout,
-        return_when=asyncio.FIRST_COMPLETED)
+        list(_final_wait.keys()), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+    )
 
     # aux task created and has to be cancelled
     to_cancel = []
@@ -1098,10 +1171,12 @@ async def async_waitfortasks(
         if not done:
             _condition["timeout"] = True
             if _tasks:
-                _done_before_condition.extend(list(filter(
-                    lambda x: x._state == "FINISHED", list(_tasks.keys()))))
-                _pending.extend(list(filter(
-                    lambda x: x._state == "PENDING", list(_tasks.keys()))))
+                _done_before_condition.extend(
+                    list(filter(lambda x: x._state == "FINISHED", list(_tasks.keys())))
+                )
+                _pending.extend(
+                    list(filter(lambda x: x._state == "PENDING", list(_tasks.keys())))
+                )
         else:
             _task_done = done.pop()
             if "fs_list" in _task_done.get_name():
@@ -1115,10 +1190,18 @@ async def async_waitfortasks(
                     to_cancel.append(_one_task_to_wait_tasks)
                 to_cancel.extend(list(_tasks_events.keys()))
                 if _tasks:
-                    _done_before_condition.extend(list(filter(
-                        lambda x: x._state == "FINISHED", list(_tasks.keys()))))
-                    _pending.extend(list(filter(
-                        lambda x: x._state == "PENDING", list(_tasks.keys()))))
+                    _done_before_condition.extend(
+                        list(
+                            filter(
+                                lambda x: x._state == "FINISHED", list(_tasks.keys())
+                            )
+                        )
+                    )
+                    _pending.extend(
+                        list(
+                            filter(lambda x: x._state == "PENDING", list(_tasks.keys()))
+                        )
+                    )
 
         if to_cancel:
             list(map(lambda x: x.cancel(), to_cancel))
@@ -1138,17 +1221,25 @@ async def async_waitfortasks(
                 _results.extend([_d.result() for _d in _get_from if not _d.exception()])
                 _errors.extend([_e for _d in _get_from if (_e := _d.exception())])
 
-        return {'condition': _condition, 'results': _results, 'errors': _errors, 'done': _done,
-                'done_before_condition': _done_before_condition, 'pending': _pending,
-                'cancelled': _cancelled}
+        return {
+            "condition": _condition,
+            "results": _results,
+            "errors": _errors,
+            "done": _done,
+            "done_before_condition": _done_before_condition,
+            "pending": _pending,
+            "cancelled": _cancelled,
+        }
 
     except Exception as e:
-        logger = logging.getLogger('asyncdl')
+        logger = logging.getLogger("asyncdl")
         logger.exception(repr(e))
 
 
 @contextlib.asynccontextmanager
-async def async_lock(lock: Union[LockType, threading.Lock, contextlib.nullcontext, None] = None):
+async def async_lock(
+    lock: Union[LockType, threading.Lock, contextlib.nullcontext, None] = None,
+):
     if not lock or (isinstance(lock, contextlib.nullcontext)):
         yield
 
@@ -1162,7 +1253,9 @@ async def async_wait_time(n: Union[int, float]):
     return await async_waitfortasks(timeout=n)
 
 
-def wait_time(n: Union[int, float], event: Optional[threading.Event | MySyncAsyncEvent] = None):
+def wait_time(
+    n: Union[int, float], event: Optional[threading.Event | MySyncAsyncEvent] = None
+):
     _started = time.monotonic()
     if not event:
         time.sleep(n)  # dummy
@@ -1185,7 +1278,7 @@ async def async_wait_until(timeout, cor, args, kwargs, interv=CONF_INTERVAL_GUI)
         _cor = cor
 
     while not (await _cor(*args, **kwargs)):
-        if ((time.monotonic() - _started)) >= timeout:
+        if (time.monotonic() - _started) >= timeout:
             raise TimeoutError()
         else:
             await async_wait_time(interv)
@@ -1202,10 +1295,11 @@ def wait_until(timeout, statement, args, kwargs, interv=CONF_INTERVAL_GUI):
         func = statement
 
     while not func(*args, **kwargs):
-        if ((time.monotonic() - _started)) >= timeout:
+        if (time.monotonic() - _started) >= timeout:
             raise TimeoutError()
         else:
             time.sleep(interv)
+
 
 ############################################################
 # """                     YTDLP                           """
@@ -1235,6 +1329,7 @@ if yt_dlp:
         variadic,
         write_string,
     )
+
     try:
         from yt_dlp_plugins.extractor.commonwebdriver import (
             By,
@@ -1321,7 +1416,6 @@ if yt_dlp:
             print(msg, end="\n", flush=True)
 
     class MyYTLogger(logging.LoggerAdapter):
-
         _debug_phr = [
             "Falling back on generic information extractor",
             "Extracting URL",
@@ -1350,7 +1444,7 @@ if yt_dlp:
             "cookies from firefox",
             "Ignoring subtitle tracks found in the HLS manifest",
             "Using netrc for",
-            "You have requested merging of multiple formats"
+            "You have requested merging of multiple formats",
         ]
 
         _skip_phr = ["Downloading", "Extracting information", "Checking", "Logging"]
@@ -1379,7 +1473,6 @@ if yt_dlp:
                 self.log(logging.WARNING, msg, *args, **kwargs)
 
         def debug(self, msg, *args, **kwargs):
-
             if self.quiet:
                 # self.log(logging.DEBUG, msg, *args, **kwargs)
                 return
@@ -1389,41 +1482,58 @@ if yt_dlp:
                 if any(
                     [
                         (mobj in ("[redirect]", "[download]", "[debug+]", "[info]")),
-                        (mobj in ("[debug]") and any(_ in msg for _ in self._debug_phr)),
+                        (
+                            mobj in ("[debug]")
+                            and any(_ in msg for _ in self._debug_phr)
+                        ),
                         "Extracting URL:" in msg,
                         any(_ in mobj2 for _ in self._skip_phr),
                     ]
                 ):
-                    self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+                    self.log(logging.DEBUG, msg[len(mobj) :].strip(), *args, **kwargs)
                 else:
                     self.log(logging.INFO, msg, *args, **kwargs)
             elif self.superverbose:
                 self.log(logging.INFO, msg, *args, **kwargs)
-            elif mobj in ("[redirect]", "[debug]", "[info]", "[download]", "[debug+]") or any(
-                    _ in mobj2 for _ in self._skip_phr):
-                self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+            elif mobj in (
+                "[redirect]",
+                "[debug]",
+                "[info]",
+                "[download]",
+                "[debug+]",
+            ) or any(_ in mobj2 for _ in self._skip_phr):
+                self.log(logging.DEBUG, msg[len(mobj) :].strip(), *args, **kwargs)
             else:
                 self.log(logging.INFO, msg, *args, **kwargs)
 
     def cli_to_api(*opts):
         default = yt_dlp.parse_options([]).ydl_opts
-        diff = {k: v for k, v in parse_options(opts).ydl_opts.items() if default[k] != v}
+        diff = {
+            k: v for k, v in parse_options(opts).ydl_opts.items() if default[k] != v
+        }
         if "postprocessors" in diff:
             diff["postprocessors"] = [
-                pp for pp in diff["postprocessors"] if pp not in default["postprocessors"]
+                pp
+                for pp in diff["postprocessors"]
+                if pp not in default["postprocessors"]
             ]
         return diff
 
     class myYTDL(YoutubeDL):
-        def __init__(self, params: Optional[dict] = None, auto_init: Union[bool, str] = True, **kwargs):
+        def __init__(
+            self,
+            params: Optional[dict] = None,
+            auto_init: Union[bool, str] = True,
+            **kwargs,
+        ):
             self._close = kwargs.get("close") or True
             if not (executor := kwargs.get("executor")):
                 executor = ThreadPoolExecutor(
-                    thread_name_prefix=self.__class__.__name__.lower())
+                    thread_name_prefix=self.__class__.__name__.lower()
+                )
             self.sync_to_async = functools.partial(
-                sync_to_async,
-                thread_sensitive=False,
-                executor=executor)
+                sync_to_async, thread_sensitive=False, executor=executor
+            )
             opts = {}
             if _proxy := kwargs.get("proxy"):
                 opts["proxy"] = _proxy
@@ -1433,7 +1543,10 @@ if yt_dlp:
                 opts["verboseplus"] = False
                 opts["logger"] = MyYTLogger(
                     logging.getLogger("ytdl"),
-                    quiet=True, verbose=False, superverbose=False)
+                    quiet=True,
+                    verbose=False,
+                    superverbose=False,
+                )
 
             super().__init__(params=(params or {}) | opts, auto_init=auto_init)  # type: ignore
 
@@ -1449,7 +1562,7 @@ if yt_dlp:
             return await self.sync_to_async(self.__exit__)(*args)
 
         def get_extractor(self, el: str) -> InfoExtractor:
-            if el.startswith('http'):
+            if el.startswith("http"):
                 _, _sel_ie = self._get_info_extractor_from_url(el)
             else:
                 _sel_ie = self.get_info_extractor(el)
@@ -1477,48 +1590,50 @@ if yt_dlp:
                 return (ie._RETURN_TYPE == "playlist", ie_key)
 
         async def stop(self):
-            if (_stop := self.params.get("stop")):
+            if _stop := self.params.get("stop"):
                 _stop.set()
                 await asyncio.sleep(0)
-            if (_stop_dl := self.params.get("stop_dl")):
+            if _stop_dl := self.params.get("stop_dl"):
                 for _, _ev_stop_dl in _stop_dl.items():
                     _ev_stop_dl.set()
                     await asyncio.sleep(0)
 
         def _get_filesize(self, info) -> dict:
             try:
-                if (
-                    _res := self.urlopen(HEADRequest(
-                        info['url'], headers=info.get('http_headers', {})))
+                if _res := self.urlopen(
+                    HEADRequest(info["url"], headers=info.get("http_headers", {}))
                 ):
-                    _filesize_str = _res.get_header('Content-Length')
-                    _accept_ranges = any([
-                        _res.get_header('Accept-Ranges'), _res.get_header('Content-Range')])
+                    _filesize_str = _res.get_header("Content-Length")
+                    _accept_ranges = any(
+                        [
+                            _res.get_header("Accept-Ranges"),
+                            _res.get_header("Content-Range"),
+                        ]
+                    )
                     return {
-                        'filesize': int_or_none(_filesize_str),
-                        'accept_ranges': _accept_ranges}
+                        "filesize": int_or_none(_filesize_str),
+                        "accept_ranges": _accept_ranges,
+                    }
             except Exception as e:
                 logger = logging.getLogger("asyncdl")
                 logger.exception(f"[myytdl_getfilesize] fail {repr(e)}\n{info}")
                 return {}
 
         def sanitize_info(self, info: dict, **kwargs) -> dict:
-
             if (
-                    info['extractor'] == 'generic' and not info.get('filesize') and
-                    get_protocol(info) in ('http', 'https')
+                info["extractor"] == "generic"
+                and not info.get("filesize")
+                and get_protocol(info) in ("http", "https")
             ):
                 info |= self._get_filesize(info)
 
             return cast(dict, super().sanitize_info(info, **kwargs))
 
         async def async_extract_info(self, *args, **kwargs) -> dict:
-            return await self.sync_to_async(
-                self.extract_info)(*args, **kwargs)
+            return await self.sync_to_async(self.extract_info)(*args, **kwargs)
 
         async def async_process_ie_result(self, *args, **kwargs) -> dict:
-            return await self.sync_to_async(
-                self.process_ie_result)(*args, **kwargs)
+            return await self.sync_to_async(self.process_ie_result)(*args, **kwargs)
 
     def get_cookies_netscape_file(cookies_str: str, cookies_file_path: str) -> bool:
         with myYTDL() as ytdl:
@@ -1764,7 +1879,11 @@ if yt_dlp:
             "Accept-Language": "en-US,en;q=0.5",
         }
         if args.headers:
-            headers |= {el[0]: el[1] for item in args.headers if item and (el := item.split(':', 1))}
+            headers |= {
+                el[0]: el[1]
+                for item in args.headers
+                if item and (el := item.split(":", 1))
+            }
 
         ytdl_opts = {
             "cachedir": "/Users/antoniotorres/.config/yt-dlp",
@@ -1776,8 +1895,11 @@ if yt_dlp:
             "http_headers": headers,
             "proxy": args.proxy,
             "logger": MyYTLogger(
-                logging.getLogger("ytdl"), quiet=args.quiet, verbose=args.verbose,
-                superverbose=args.vv),
+                logging.getLogger("ytdl"),
+                quiet=args.quiet,
+                verbose=args.verbose,
+                superverbose=args.vv,
+            ),
             "verbose": args.verbose,
             "quiet": args.quiet,
             "format": args.format,
@@ -1800,14 +1922,22 @@ if yt_dlp:
             "writesubtitles": True,
             "writeautomaticsub": True,
             "postprocessors": [
-                {'key': 'FFmpegSubtitlesConvertor', 'format': 'srt', 'when': 'before_dl'},
-                {'key': 'FFmpegEmbedSubtitle', 'already_have_subtitle': True},
-                {'key': 'FFmpegMetadata', 'add_chapters': None, 'add_metadata': True, 'add_infojson': None},
-                {'key': 'XAttrMetadata'},
-                {'key': 'FFmpegConcat', 'only_multi_video': True, 'when': 'playlist'}],
-            "external_downloader": {
-                "default": "native"
-            },
+                {
+                    "key": "FFmpegSubtitlesConvertor",
+                    "format": "srt",
+                    "when": "before_dl",
+                },
+                {"key": "FFmpegEmbedSubtitle", "already_have_subtitle": True},
+                {
+                    "key": "FFmpegMetadata",
+                    "add_chapters": None,
+                    "add_metadata": True,
+                    "add_infojson": None,
+                },
+                {"key": "XAttrMetadata"},
+                {"key": "FFmpegConcat", "only_multi_video": True, "when": "playlist"},
+            ],
+            "external_downloader": {"default": "native"},
             "concurrent_fragment_downloads": 64,
             "restrictfilenames": True,
             "user_agent": args.useragent,
@@ -1818,7 +1948,7 @@ if yt_dlp:
             "lock": threading.Lock(),
             "embed": not args.no_embed,
             "_util_classes": {"SimpleCountDown": SimpleCountDown},
-            "outtmpl": {"default": args.outtmpl}
+            "outtmpl": {"default": args.outtmpl},
         }
 
         if args.use_cookies:
@@ -1829,7 +1959,7 @@ if yt_dlp:
 
         ytdl = myYTDL(params=ytdl_opts, auto_init="no_verbose_header")
 
-        logging.getLogger('asyncdl').debug(f"ytdl opts:\n{ytdl.params}")
+        logging.getLogger("asyncdl").debug(f"ytdl opts:\n{ytdl.params}")
 
         return ytdl
 
@@ -1837,7 +1967,7 @@ if yt_dlp:
         protocol = determine_protocol(info)
         if "dash" in protocol or "dash" in info.get("container", ""):
             return "dash"
-        if req_fmts := info.get('requested_formats'):
+        if req_fmts := info.get("requested_formats"):
             for fmt in req_fmts:
                 if "dash" in fmt.get("container", ""):
                     return "dash"
@@ -1907,19 +2037,31 @@ if yt_dlp:
                 if _info := traverse_obj(_value, "video_info"):
                     _value["video_info"] = _for_print(_info)
 
-            return "{" + ",\n".join([f"'{key}': {value}" for key, value in _videos.items()]) + "}"
+            return (
+                "{"
+                + ",\n".join([f"'{key}': {value}" for key, value in _videos.items()])
+                + "}"
+            )
 
         elif isinstance(_videos, list):
             _videos = [str(_for_print(_vid)) for _vid in _videos]
             return "[" + ",\n".join(_videos) + "]"
 
-    def render_res_table(data, headers=(), maxcolwidths=None, showindex=True, tablefmt="simple"):
+    def render_res_table(
+        data, headers=(), maxcolwidths=None, showindex=True, tablefmt="simple"
+    ):
         if tabulate:
             return tabulate(
-                data, headers=headers, maxcolwidths=maxcolwidths, showindex=showindex, tablefmt=tablefmt
+                data,
+                headers=headers,
+                maxcolwidths=maxcolwidths,
+                showindex=showindex,
+                tablefmt=tablefmt,
             )
         logger = logging.getLogger("asyncdl")
-        logger.warning("Tabulate is not installed, tables will not be presented optimized")
+        logger.warning(
+            "Tabulate is not installed, tables will not be presented optimized"
+        )
         return render_table(headers, data, delim=True)
 
     def send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
@@ -1953,11 +2095,11 @@ if yt_dlp:
         raise ReExtractInfo(msg, expected=expected) from _from
 
     async def _async_send_http_request(url: str, **kwargs) -> Optional[httpx.Response]:
-        _type = kwargs.pop('_type', "GET")
-        fatal = kwargs.pop('fatal', True)
-        _logger = kwargs.pop('logger', print)
+        _type = kwargs.pop("_type", "GET")
+        fatal = kwargs.pop("fatal", True)
+        _logger = kwargs.pop("logger", print)
         _client_cl = False
-        if not (client := kwargs.pop('client', None)):
+        if not (client := kwargs.pop("client", None)):
             client = httpx.AsyncClient(**CLIENT_CONFIG)
             _client_cl = True
         res = None
@@ -1973,12 +2115,12 @@ if yt_dlp:
             return res
         except ConnectError as e:
             _msg_err = str(e)
-            if 'errno 61' in _msg_err.lower():
+            if "errno 61" in _msg_err.lower():
                 raise
             else:
                 raise_extractor_error(_msg_err)
         except HTTPStatusError as e:
-            e.args = (e.args[0].split('\nFor more')[0],)
+            e.args = (e.args[0].split("\nFor more")[0],)
             _msg_err = str(e)
             if e.response.status_code == 403:
                 raise_reextract_info(_msg_err)
@@ -1998,11 +2140,11 @@ if yt_dlp:
                 client.close()
 
     def _send_http_request(url: str, **kwargs) -> Optional[httpx.Response]:
-        _type = kwargs.pop('_type', "GET")
-        fatal = kwargs.pop('fatal', True)
-        _logger = kwargs.pop('logger', print)
+        _type = kwargs.pop("_type", "GET")
+        fatal = kwargs.pop("fatal", True)
+        _logger = kwargs.pop("logger", print)
         _client_cl = False
-        if not (client := kwargs.pop('client', None)):
+        if not (client := kwargs.pop("client", None)):
             client = httpx.Client(**CLIENT_CONFIG)
             _client_cl = True
         res = None
@@ -2018,12 +2160,12 @@ if yt_dlp:
             return res
         except ConnectError as e:
             _msg_err = str(e)
-            if 'errno 61' in _msg_err.lower():
+            if "errno 61" in _msg_err.lower():
                 raise
             else:
                 raise_extractor_error(_msg_err)
         except HTTPStatusError as e:
-            e.args = (e.args[0].split('\nFor more')[0],)
+            e.args = (e.args[0].split("\nFor more")[0],)
             _msg_err = str(e)
             if e.response.status_code == 403:
                 raise_reextract_info(_msg_err)
@@ -2043,34 +2185,30 @@ if yt_dlp:
                 client.close()
 
     def get_pssh_from_manifest(
-        manifest_url: Optional[str] = None,
-        manifest_doc: Optional[str] = None,
-        **kwargs
+        manifest_url: Optional[str] = None, manifest_doc: Optional[str] = None, **kwargs
     ) -> list:
-
         if not manifest_doc and manifest_url:
             if not (manifest_doc := get_manifest(manifest_url, **kwargs)):
-                raise Exception('error with manifest doc')
-        if '<?xml' in manifest_doc:
+                raise Exception("error with manifest doc")
+        if "<?xml" in manifest_doc:
             import xmltodict
+
             return get_pssh_from_mpd(mpd_dict=xmltodict.parse(manifest_doc))
-        elif '#EXTM3U' in manifest_doc:
+        elif "#EXTM3U" in manifest_doc:
             return get_pssh_from_m3u8(m3u8_doc=manifest_doc)
 
     def get_pssh_from_m3u8(
-        m3u8_url: Optional[str] = None,
-        m3u8_doc: Optional[str] = None,
-        **kwargs
+        m3u8_url: Optional[str] = None, m3u8_doc: Optional[str] = None, **kwargs
     ) -> list:
-
-        uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
+        uuid = "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
         pssh = set()
         try:
             if not m3u8_doc:
                 with httpx.Client(**CLIENT_CONFIG) as client:
                     m3u8_doc = try_get(
                         client.get(m3u8_url, **kwargs),
-                        lambda x: x.content.decode('utf-8', 'replace'))
+                        lambda x: x.content.decode("utf-8", "replace"),
+                    )
         except Exception:
             return list(pssh)
 
@@ -2079,84 +2217,101 @@ if yt_dlp:
         m3u8obj = m3u8.loads(m3u8_doc, uri=m3u8_url)
         if keys := m3u8obj.session_keys:
             for key in keys:
-                if key.method == 'SAMPLE-AES-CTR':
-                    if getattr(key, 'keyformat', '').lower() == uuid:
-                        if uri := getattr(key, 'uri', None):
-                            if _pssh := try_call(lambda: uri.split('data:text/plain;base64,')[1]):
+                if key.method == "SAMPLE-AES-CTR":
+                    if getattr(key, "keyformat", "").lower() == uuid:
+                        if uri := getattr(key, "uri", None):
+                            if _pssh := try_call(
+                                lambda: uri.split("data:text/plain;base64,")[1]
+                            ):
                                 pssh.add(_pssh)
         return list(pssh)
 
     def get_pssh_from_mpd(
-        mpd_url: Optional[str] = None,
-        mpd_dict: Optional[dict] = None,
-        **kwargs
+        mpd_url: Optional[str] = None, mpd_dict: Optional[dict] = None, **kwargs
     ) -> list:
-
-        uuid = 'urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed'
+        uuid = "urn:uuid:edef8ba9-79d6-4ace-a3c8-27dcd51d21ed"
         pssh = set()
         if not mpd_dict:
             mpd_dict = get_xml(mpd_url, **kwargs)
 
         if mpd_dict:
             mpd = json.loads(json.dumps(mpd_dict))
-            periods = mpd['MPD']['Period']
+            periods = mpd["MPD"]["Period"]
 
             for period in variadic(periods):
-                for ad_set in variadic(period['AdaptationSet']):
-                    if any([
-                        ad_set.get('@contentType') == 'video',
-                        ad_set.get('@mimeType') == 'video/mp4']
+                for ad_set in variadic(period["AdaptationSet"]):
+                    if any(
+                        [
+                            ad_set.get("@contentType") == "video",
+                            ad_set.get("@mimeType") == "video/mp4",
+                        ]
                     ):
-                        for t in ad_set['ContentProtection']:
-                            if t['@schemeIdUri'].lower() == uuid:
+                        for t in ad_set["ContentProtection"]:
+                            if t["@schemeIdUri"].lower() == uuid:
                                 pssh.add(t["cenc:pssh"])
             return list(pssh)
 
     def get_manifest(manifest_url: str, **kwargs) -> dict:
-
         _upt_config = {}
-        if (_cookies_arg := kwargs.pop('cookies', None)):
+        if _cookies_arg := kwargs.pop("cookies", None):
             if isinstance(_cookies_arg, str):
                 _cookies_type = get_cookies_jar(_cookies_arg)
             else:
                 _cookies_type = _cookies_arg.copy()
-            _upt_config['cookies'] = _cookies_type
+            _upt_config["cookies"] = _cookies_type
 
         with httpx.Client(**(CLIENT_CONFIG | _upt_config)) as client:
             return try_get(
                 client.get(manifest_url, **kwargs),
-                lambda x: x.content.decode('utf-8', 'replace'))
+                lambda x: x.content.decode("utf-8", "replace"),
+            )
 
     def get_xml(mpd_url: str, **kwargs) -> dict:
-
         import xmltodict
 
-        if not (_doc := kwargs.pop('doc', None)):
+        if not (_doc := kwargs.pop("doc", None)):
             _doc = get_manifest(mpd_url, **kwargs)
         if _doc:
             return xmltodict.parse(_doc)
 
     def get_drm_keys(
-        lic_url: str, pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
-        manifest_url: Optional[str] = None, manifest_doc: Optional[str] = None, **kwargs
+        lic_url: str,
+        pssh: Optional[str] = None,
+        func_validate: Optional[Callable] = None,
+        manifest_url: Optional[str] = None,
+        manifest_doc: Optional[str] = None,
+        **kwargs,
     ) -> list | str:
         from mydrm import myDRM
 
         return myDRM.get_drm_keys(
-            lic_url, pssh=pssh, func_validate=func_validate, manifest_url=manifest_url, **kwargs)
+            lic_url,
+            pssh=pssh,
+            func_validate=func_validate,
+            manifest_url=manifest_url,
+            **kwargs,
+        )
 
     def get_drm_xml(
-        lic_url: str, file_dest: str | Path,
-        pssh: Optional[str] = None, func_validate: Optional[Callable] = None,
+        lic_url: str,
+        file_dest: str | Path,
+        pssh: Optional[str] = None,
+        func_validate: Optional[Callable] = None,
         manifest_url: Optional[str] = None,
         manifest_doc: Optional[str] = None,
-        **kwargs
+        **kwargs,
     ):
         from mydrm import myDRM
 
         return myDRM.get_drm_xml(
-            lic_url, file_dest, pssh=pssh, func_validate=func_validate,
-            manifest_url=manifest_url, manifest_doc=manifest_doc, **kwargs)
+            lic_url,
+            file_dest,
+            pssh=pssh,
+            func_validate=func_validate,
+            manifest_url=manifest_url,
+            manifest_doc=manifest_doc,
+            **kwargs,
+        )
 
     def get_files_same_id():
         config_folders = {
@@ -2168,7 +2323,7 @@ if yt_dlp:
             "wd5": Path("/Volumes/WD5/videos"),
             "wd8_1": Path("/Volumes/WD8_1/videos"),
             "wd8_2": Path("/Volumes/WD8_2/videos"),
-            "t7": Path("/Volumes/T7/videos")
+            "t7": Path("/Volumes/T7/videos"),
         }
 
         logger = logging.getLogger("asyncdl")
@@ -2177,7 +2332,9 @@ if yt_dlp:
 
         for _vol, _folder in config_folders.items():
             if not _folder.exists():
-                logger.error(f"failed {_vol}:{_folder}, let get previous info saved in previous files")
+                logger.error(
+                    f"failed {_vol}:{_folder}, let get previous info saved in previous files"
+                )
 
             else:
                 list_folders.append(_folder)
@@ -2275,7 +2432,8 @@ if yt_dlp:
                         res[vid_name]["file_name_def"] = f"{vid_name}_{_title}"
                         if res[vid_name]["file_name"] != res[vid_name]["file_name_def"]:
                             res[vid_name]["file_change"] = Path(
-                                file.parent, res[vid_name]["file_name_def"] + file.suffix
+                                file.parent,
+                                res[vid_name]["file_name_def"] + file.suffix,
                             )
                         break
             return res
@@ -2318,12 +2476,16 @@ if yt_dlp:
             urls_alt_dl = []
             urls_leg_dl = []
             for entleg, entalt in zip(entriesleg, entriesalt):
-                if entleg["format_id"].startswith("hls") or not entalt["format_id"].startswith("hls"):
+                if entleg["format_id"].startswith("hls") or not entalt[
+                    "format_id"
+                ].startswith("hls"):
                     logger.info(f"cause 1 {entleg['original_url']}")
                     urls_leg_dl.append(entleg["original_url"])
                     urls_final.append(entleg["original_url"])
                     entries_final.append(entleg)
-                elif not entleg["format_id"].startswith("hls") and entalt["format_id"].startswith("hls"):
+                elif not entleg["format_id"].startswith("hls") and entalt[
+                    "format_id"
+                ].startswith("hls"):
                     entaltfilesize = entalt.get("filesize_approx") or (
                         entalt.get("tbr", 0) * entalt.get("duration", 0) * 1000 / 8
                     )
@@ -2378,8 +2540,14 @@ class ActionNoYes(argparse.Action):
         opt = opt[2:]
         opts = [f"--{opt}", f"--no-{opt}"]
         super(ActionNoYes, self).__init__(
-            opts, dest, nargs="?", const=None, default=default,
-            required=required, help=help)
+            opts,
+            dest,
+            nargs="?",
+            const=None,
+            default=default,
+            required=required,
+            help=help,
+        )
 
     def __call__(self, parser, namespace, values, option_strings=None):
         if option_strings:
@@ -2391,37 +2559,85 @@ class ActionNoYes(argparse.Action):
 
 
 def init_argparser():
-    parser = argparse.ArgumentParser(description="Async downloader videos / playlist videos HLS / HTTP")
+    parser = argparse.ArgumentParser(
+        description="Async downloader videos / playlist videos HLS / HTTP"
+    )
     parser.add_argument("-w", help="Number of DL workers", default="5", type=int)
-    parser.add_argument("--winit", help="Number of init workers, default is same number for DL workers", default="10", type=int)
-    parser.add_argument("-p", "--parts", help="Number of workers for each DL", default="16", type=int)
-    parser.add_argument("--format", help="Format preferred of the video in youtube-dl format", default="bv*+ba/b", type=str)
-    parser.add_argument("--outtmpl", help="Format preferred for filrname", default="%(id)s_%(title)s.%(ext)s", type=str)
-    parser.add_argument("--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str)
-    parser.add_argument("--index", help="index of a video in a playlist", default=None, type=int)
-    parser.add_argument("--file", help="jsonfiles", action="append", dest="collection_files", default=[])
-    parser.add_argument("--checkcert", help="checkcertificate", action="store_true", default=False)
+    parser.add_argument(
+        "--winit",
+        help="Number of init workers, default is same number for DL workers",
+        default="10",
+        type=int,
+    )
+    parser.add_argument(
+        "-p", "--parts", help="Number of workers for each DL", default="16", type=int
+    )
+    parser.add_argument(
+        "--format",
+        help="Format preferred of the video in youtube-dl format",
+        default="bv*+ba/b",
+        type=str,
+    )
+    parser.add_argument(
+        "--outtmpl",
+        help="Format preferred for filrname",
+        default="%(id)s_%(title)s.%(ext)s",
+        type=str,
+    )
+    parser.add_argument(
+        "--sort", help="Formats sort preferred", default="ext:mp4:m4a", type=str
+    )
+    parser.add_argument(
+        "--index", help="index of a video in a playlist", default=None, type=int
+    )
+    parser.add_argument(
+        "--file", help="jsonfiles", action="append", dest="collection_files", default=[]
+    )
+    parser.add_argument(
+        "--checkcert", help="checkcertificate", action="store_true", default=False
+    )
     parser.add_argument("--ytdlopts", help="init dict de conf", default="", type=str)
     parser.add_argument("--proxy", action=ActionNoYes, default=None)
     parser.add_argument("--useragent", default=CONF_FIREFOX_UA, type=str)
     parser.add_argument("--first", default=None, type=int)
     parser.add_argument("--last", default=None, type=int)
-    parser.add_argument("--nodl", help="not download", action="store_true", default=False)
+    parser.add_argument(
+        "--nodl", help="not download", action="store_true", default=False
+    )
     parser.add_argument("--add-header", action="append", dest="headers", default=[])
     parser.add_argument("-u", action="append", dest="collection", default=[])
-    parser.add_argument("--dlcaching", help="whether to force to check external storage or not", action=ActionNoYes, default=False)
+    parser.add_argument(
+        "--dlcaching",
+        help="whether to force to check external storage or not",
+        action=ActionNoYes,
+        default=False,
+    )
     parser.add_argument("--path", default=None, type=str)
     parser.add_argument("--caplinks", action="store_true", default=False)
-    parser.add_argument("-v", "--verbose", help="verbose", action="store_true", default=False)
+    parser.add_argument(
+        "-v", "--verbose", help="verbose", action="store_true", default=False
+    )
     parser.add_argument("--vv", help="verbose plus", action=ActionNoYes, default=False)
-    parser.add_argument("-q", "--quiet", help="quiet", action="store_true", default=False)
-    parser.add_argument("--aria2c", action=ActionNoYes, default="6800", help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable")
+    parser.add_argument(
+        "-q", "--quiet", help="quiet", action="store_true", default=False
+    )
+    parser.add_argument(
+        "--aria2c",
+        action=ActionNoYes,
+        default="6800",
+        help="use of external aria2c running in port [PORT]. By default PORT=6800. Set to 'no' to disable",
+    )
     parser.add_argument("--subt", action=ActionNoYes, default=True)
     parser.add_argument("--xattr", action=ActionNoYes, default=True)
     parser.add_argument("--drm", action=ActionNoYes, default=True)
     parser.add_argument("--nosymlinks", action="store_true", default=False)
     parser.add_argument("--check-speed", action=ActionNoYes, default=True)
-    parser.add_argument("--deep-aldl", help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'", action=ActionNoYes, default=False)
+    parser.add_argument(
+        "--deep-aldl",
+        help="whether to enable greedy mode when checking if aldl by only taking into account 'ID'. Otherwise, will check 'ID_TITLE'",
+        action=ActionNoYes,
+        default=False,
+    )
     parser.add_argument("--downloader-ytdl", action="store_true", default=False)
     parser.add_argument("--use-path-pl", action="store_true", default=False)
     parser.add_argument("--use-cookies", action="store_true", default=True)
@@ -2476,16 +2692,19 @@ def get_listening_tcp() -> dict:
         if isinstance(x, dict):
             return {trans(k): v for k, v in x.items()}
 
-    if (printout := subprocess.run(
-            ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True).stdout):
+    if printout := subprocess.run(
+        ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True
+    ).stdout:
         return json.loads(printout, object_hook=jsonKeys2int)
     else:
-        raise ValueError('no info about tcp ports in use')
+        raise ValueError("no info about tcp ports in use")
 
 
 def find_in_ps(pattern, value=None):
     res = subprocess.run(
-        ["ps", "-u", "501", "-x", "-o", "pid,tty,command"], encoding="utf-8", capture_output=True
+        ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
+        encoding="utf-8",
+        capture_output=True,
     ).stdout
     mobj = re.findall(pattern, res)
     if not value or str(value) in mobj:
@@ -2506,16 +2725,23 @@ def init_aria2c(args):
     _cmd = f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc "
     _cmd += "--rpc-max-request-size=2M --rpc-listen-all --quiet=true"
     _proc = subprocess.Popen(
-        shlex.split(_cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.PIPE)
+        shlex.split(_cmd),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE,
+    )
 
     while _proc.poll() is None:
         if args.rpcport in traverse_obj(
-                get_listening_tcp(), ("aria2c", ..., "port"), default=[]):
+            get_listening_tcp(), ("aria2c", ..., "port"), default=[]
+        ):
             break
         time.sleep(1)
 
     if _proc.poll() is not None:
-        raise ValueError(f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}")
+        raise ValueError(
+            f"[init_aria2c] couldnt run aria2c in port {args.rpcport} - {_proc}"
+        )
 
     logger.info(f"[init_aria2c] running on port: {args.rpcport}")
 
@@ -2535,10 +2761,10 @@ def get_httpx_async_client(config: Optional[dict] = None) -> httpx.AsyncClient:
 
 
 def get_driver(noheadless=True, **kwargs):
-
     if _driver := try_get(
-            SeleniumInfoExtractor._get_driver(**kwargs | {'noheadless': noheadless}),
-            lambda x: x[0] if x else None):
+        SeleniumInfoExtractor._get_driver(**kwargs | {"noheadless": noheadless}),
+        lambda x: x[0] if x else None,
+    ):
         return _driver
 
 
@@ -2592,7 +2818,9 @@ class myIP:
     def get_myiptryall(cls, client):
         exe = ThreadPoolExecutor(thread_name_prefix="getmyip")
         try:
-            futures = [exe.submit(cls.get_ip, client, api=api) for api in cls.URLS_API_GETMYIP]
+            futures = [
+                exe.submit(cls.get_ip, client, api=api) for api in cls.URLS_API_GETMYIP
+            ]
             for el in as_completed(futures):
                 if not el.exception() and is_ipaddr(_ip := el.result()):
                     return _ip
@@ -2661,7 +2889,9 @@ class TorGuardProxies:
         "hg",
         "bul",
     ]
-    CONF_TORPROXIES_DOMAINS = [f"{cc}.secureconnect.me" for cc in CONF_TORPROXIES_COUNTRIES]
+    CONF_TORPROXIES_DOMAINS = [
+        f"{cc}.secureconnect.me" for cc in CONF_TORPROXIES_COUNTRIES
+    ]
     CONF_TORPROXIES_NOK = Path(PATH_LOGS, "bad_proxies.txt")
 
     EVENT = MySyncAsyncEvent("dummy")
@@ -2677,7 +2907,9 @@ class TorGuardProxies:
         exe = ThreadPoolExecutor(thread_name_prefix="testproxrt")
         try:
             futures = {
-                exe.submit(getmyip, key=_key, timeout=timeout): _key for _key in list(routing_table.keys())}
+                exe.submit(getmyip, key=_key, timeout=timeout): _key
+                for _key in list(routing_table.keys())
+            }
 
             for fut in as_completed(list(futures.keys())):
                 if cls.EVENT.is_set():
@@ -2685,7 +2917,8 @@ class TorGuardProxies:
                 if not fut.exception() and is_ipaddr(_ip := fut.result()):
                     if _ip != routing_table[futures[fut]]:
                         cls.logger.debug(
-                            f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}")
+                            f"[{futures[fut]}] test: {_ip} expect res: {routing_table[futures[fut]]}"
+                        )
                         bad_pr.append(routing_table[futures[fut]])
                 else:
                     bad_pr.append(routing_table[futures[fut]])
@@ -2695,12 +2928,12 @@ class TorGuardProxies:
 
     @classmethod
     def _init_gost(cls, cmd_gost: list) -> list:
-
         proc_gost = []
         for cmd in cmd_gost:
             try:
                 _proc = subprocess.Popen(
-                    shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE
+                )
                 _proc.poll()
                 if _proc.returncode:
                     cls.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{cmd}]")
@@ -2716,10 +2949,13 @@ class TorGuardProxies:
     @classmethod
     def mytest_proxies_raw(cls, list_ips, port=CONF_TORPROXIES_HTTPPORT, timeout=2):
         cmd_gost = [
-            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} " +
-            f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
-            for i, ip in enumerate(list_ips)]
-        routing_table = {CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)}
+            f"gost -L=:{CONF_PROXIES_BASE_PORT + 2000 + i} "
+            + f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip}:{port}"
+            for i, ip in enumerate(list_ips)
+        ]
+        routing_table = {
+            CONF_PROXIES_BASE_PORT + 2000 + i: ip for i, ip in enumerate(list_ips)
+        }
 
         if not (proc_gost := cls._init_gost(cmd_gost)):
             cls.logger.error("[init_proxies] error with gost commands")
@@ -2727,17 +2963,23 @@ class TorGuardProxies:
         try:
             _res_bad = None
             if not cls.EVENT.is_set():
-                _res_ps = subprocess.run(["ps"], encoding="utf-8", capture_output=True).stdout
+                _res_ps = subprocess.run(
+                    ["ps"], encoding="utf-8", capture_output=True
+                ).stdout
                 cls.logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
 
                 _res_bad = cls.mytest_proxies_rt(routing_table, timeout=timeout)
                 _line_ps_pr = []
                 for _ip in _res_bad:
-                    if _temp := try_get(re.search(rf".+{_ip}\:\d+", _res_ps), lambda x: x.group() if x else None):
+                    if _temp := try_get(
+                        re.search(rf".+{_ip}\:\d+", _res_ps),
+                        lambda x: x.group() if x else None,
+                    ):
                         _line_ps_pr.append(_temp)
                 cls.logger.info(
                     f"[init_proxies] check in ps print equal number of bad ips: res_bad [{len(_res_bad)}] "
-                    + f"ps_print [{len(_line_ps_pr)}]")
+                    + f"ps_print [{len(_line_ps_pr)}]"
+                )
 
             if _res_bad:
                 cached_res = cls.CONF_TORPROXIES_NOK
@@ -2784,15 +3026,20 @@ class TorGuardProxies:
             _bad_ips = None
             cached_res = cls.CONF_TORPROXIES_NOK
             if cached_res.exists() and (
-                    (datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)).seconds < 7200):  # every 2h we check the proxies
+                (
+                    datetime.now() - datetime.fromtimestamp(cached_res.stat().st_mtime)
+                ).seconds
+                < 7200
+            ):  # every 2h we check the proxies
                 with open(cached_res, "r") as f:
-                    if (_content := f.read()):
+                    if _content := f.read():
                         _bad_ips = [_ip for _ip in _content.split("\n") if _ip]
             else:
                 if cls.EVENT.is_set():
                     return [], {}
-                if _bad_ips := cls.mytest_proxies_raw(cls.IPS_SSL, port=port, timeout=timeout):
-
+                if _bad_ips := cls.mytest_proxies_raw(
+                    cls.IPS_SSL, port=port, timeout=timeout
+                ):
                     if isinstance(_bad_ips, list):
                         for _ip in _bad_ips:
                             if _ip in cls.IPS_SSL:
@@ -2828,14 +3075,21 @@ class TorGuardProxies:
             cmd_gost_s = []
             routing_table = {}
             cmd_gost_s = [
-                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} " +
-                f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
-                for j in range(size + 1) for i, ip in enumerate(FINAL_IPS)]
-            routing_table = {(CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j] for j in range(size + 1) for i, ip in enumerate(FINAL_IPS)}
+                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*i + j} "
+                + f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{ip[j]}:{port}"
+                for j in range(size + 1)
+                for i, ip in enumerate(FINAL_IPS)
+            ]
+            routing_table = {
+                (CONF_PROXIES_BASE_PORT + 100 * i + j): ip[j]
+                for j in range(size + 1)
+                for i, ip in enumerate(FINAL_IPS)
+            }
 
             cmd_gost_main = [
-                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} " +
-                f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"]
+                f"gost -L=:{CONF_PROXIES_BASE_PORT + 100*num + 99} "
+                + f"-F=http+tls://atgarcia:ID4KrSc6mo6aiy8@{_ip_main}:{port}"
+            ]
             routing_table[CONF_PROXIES_BASE_PORT + 100 * num + 99] = _ip_main
 
             cmd_gost = cmd_gost_s + cmd_gost_main
@@ -2897,7 +3151,9 @@ class TorGuardProxies:
         elif "torguard.com" in host:
             data["oserver[]"] = host
         else:
-            TorGuardProxies.logger.error(f"[gen_wg_conf] {host} is not a torguard domain: xx.torguard.com")
+            TorGuardProxies.logger.error(
+                f"[gen_wg_conf] {host} is not a torguard domain: xx.torguard.com"
+            )
 
         cl = get_httpx_client()
 
@@ -2908,7 +3164,9 @@ class TorGuardProxies:
         else:
             for cookie in extract_cookies_from_browser("firefox"):
                 if "torguard.net" in cookie.domain:
-                    cl.cookies.set(name=cookie.name, value=cookie.value, domain=cookie.domain)  # type: ignore
+                    cl.cookies.set(
+                        name=cookie.name, value=cookie.value, domain=cookie.domain
+                    )  # type: ignore
         if info := kwargs.get("info"):
             data |= info
         else:
@@ -2930,16 +3188,25 @@ class TorGuardProxies:
             }
             with limiter_0_1.ratelimit("torguardconf", delay=True):
                 resform = cl.get(
-                    "https://torguard.net/tgconf.php?action=vpn-openvpnconfig", headers=headersform
+                    "https://torguard.net/tgconf.php?action=vpn-openvpnconfig",
+                    headers=headersform,
                 )
-            token, tokk = re.findall(r'"(?:token|tokk)" value="([^"]+)"', resform.text) or ["", ""]
+            token, tokk = re.findall(
+                r'"(?:token|tokk)" value="([^"]+)"', resform.text
+            ) or ["", ""]
             if token and tokk:
                 data["token"] = token
                 data["tokk"] = tokk
         urlpost = "https://torguard.net/generateconfig.php"
         with limiter_0_1.ratelimit("torguardconf", delay=True):
-            respost = try_get(cl.post(urlpost, headers=headers, data=data), lambda x: x.json())
-        if respost and respost.get("success") == "true" and (_config := respost.get("config")):
+            respost = try_get(
+                cl.post(urlpost, headers=headers, data=data), lambda x: x.json()
+            )
+        if (
+            respost
+            and respost.get("success") == "true"
+            and (_config := respost.get("config"))
+        ):
             allips = [
                 "1.0.0.0/8",
                 "2.0.0.0/8",
@@ -2983,13 +3250,22 @@ class TorGuardProxies:
             if not data["server"]:
                 _ip = (
                     try_get(
-                        re.search(r"Endpoint = (?P<ip>[^\:]+)\:", _config), lambda x: x.groupdict().get("ip")
+                        re.search(r"Endpoint = (?P<ip>[^\:]+)\:", _config),
+                        lambda x: x.groupdict().get("ip"),
                     )
                     or ""
                 )
-                _file = data["oserver[]"].split(".")[0].upper() + _ip.replace(".", "_") + ".conf"
+                _file = (
+                    data["oserver[]"].split(".")[0].upper()
+                    + _ip.replace(".", "_")
+                    + ".conf"
+                )
             else:
-                _file = (kwargs.get("pre", "") or "") + data["server"].replace(".", "_") + ".conf"
+                _file = (
+                    (kwargs.get("pre", "") or "")
+                    + data["server"].replace(".", "_")
+                    + ".conf"
+                )
             with open(f"/Users/antoniotorres/testing/{_file}", "w") as f:
                 f.write(_config)
         else:
@@ -3015,7 +3291,9 @@ def get_all_wd_conf(name=None):
                         pb.update()
                         pb.print("")
 
-                with ThreadPoolExecutor(thread_name_prefix="tgconf", max_workers=5) as exe:
+                with ThreadPoolExecutor(
+                    thread_name_prefix="tgconf", max_workers=5
+                ) as exe:
                     _ = [
                         exe.submit(
                             getconf,
@@ -3048,6 +3326,7 @@ def get_wd_conf(name=None, pre=None):
 # """                     various                           """
 ############################################################
 
+
 class SentenceTranslator(object):
     def __init__(self, src, dst, patience=-1, timeout=30, error_messages_callback=None):
         self.src = src
@@ -3063,11 +3342,18 @@ class SentenceTranslator(object):
             # handle the special case: empty string.
             if not sentence:
                 return None
-            translated_sentence = self.GoogleTranslate(sentence, src=self.src, dst=self.dst, timeout=self.timeout)
-            fail_to_translate = translated_sentence[-1] == '\n'  # type: ignore
+            translated_sentence = self.GoogleTranslate(
+                sentence, src=self.src, dst=self.dst, timeout=self.timeout
+            )
+            fail_to_translate = translated_sentence[-1] == "\n"  # type: ignore
             while fail_to_translate and patience:
-                translated_sentence = self.GoogleTranslate(translated_sentence, src=self.src, dst=self.dst, timeout=self.timeout)
-                if translated_sentence[-1] == '\n':  # type: ignore
+                translated_sentence = self.GoogleTranslate(
+                    translated_sentence,
+                    src=self.src,
+                    dst=self.dst,
+                    timeout=self.timeout,
+                )
+                if translated_sentence[-1] == "\n":  # type: ignore
                     if patience == -1:
                         continue
                     patience -= 1
@@ -3091,9 +3377,12 @@ class SentenceTranslator(object):
             return
 
     def GoogleTranslate(self, text, src, dst, timeout=30):
-        url = 'https://translate.googleapis.com/translate_a/'
-        params = f'single?client=gtx&sl={src}&tl={dst}&dt=t&q={text}'
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)', 'Referer': 'https://translate.google.com'}
+        url = "https://translate.googleapis.com/translate_a/"
+        params = f"single?client=gtx&sl={src}&tl={dst}&dt=t&q={text}"
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "Referer": "https://translate.google.com",
+        }
 
         try:
             with httpx.Client() as client:
@@ -3123,9 +3412,9 @@ class SentenceTranslator(object):
 
 
 def translate_srt(filesrt, srclang, dstlang, strip=True):
-
     import srt
-    with open(filesrt, 'r') as f:
+
+    with open(filesrt, "r") as f:
         _srt_text = f.read()
     _list_srt = list(srt.parse(_srt_text))
 
@@ -3134,25 +3423,25 @@ def translate_srt(filesrt, srclang, dstlang, strip=True):
 
     def worker(subt, i):
         if _temp := subt.content:
-            start = _temp.startswith('# ')
-            end = _temp.endswith(' #')
+            start = _temp.startswith("# ")
+            end = _temp.endswith(" #")
             if start:
-                _temp = _temp.replace('# ', '')
+                _temp = _temp.replace("# ", "")
             if end:
-                _temp = _temp.replace(' #', '')
+                _temp = _temp.replace(" #", "")
             if strip:
-                _temp = [_temp.replace('\n', ' ')]
+                _temp = [_temp.replace("\n", " ")]
             else:
                 _temp = _temp.splitlines()
 
-            _res = '\n'.join([trans(_subt) for _subt in _temp])
+            _res = "\n".join([trans(_subt) for _subt in _temp])
             if not _res:
                 with lock:
                     print(f"ERROR: {i} - {_temp}")
             if start:
-                _res = f'# {_res}'
+                _res = f"# {_res}"
             if end:
-                _res += ' #'
+                _res += " #"
             return _res
         else:
             with lock:
@@ -3172,15 +3461,20 @@ def print_delta_seconds(seconds):
         [
             _item.split(".")[0]
             for _item in f"{timedelta(seconds=seconds)}".split(":")[1:]
-        ])
+        ]
+    )
 
 
 def print_tasks(tasks):
-    return "\n".join([f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks])
+    return "\n".join(
+        [f"{task.get_name()} : {repr(task.get_coro()).split(' ')[2]}" for task in tasks]
+    )
 
 
 def print_threads(threads):
-    return "\n".join([f"{thread.getName()} : {repr(thread._target)}" for thread in threads])
+    return "\n".join(
+        [f"{thread.getName()} : {repr(thread._target)}" for thread in threads]
+    )
 
 
 def none_to_zero(item):
@@ -3279,6 +3573,7 @@ def int_or_none(res):
             return int(el) if el else None
         except (ValueError, TypeError, OverflowError):
             return None
+
     if isinstance(res, (list, tuple)):
         _res = [_int_or_none(_el) for _el in res]
         return _res if isinstance(res, list) else tuple(_res)
@@ -3385,8 +3680,7 @@ def patch_https_connection_pool(**constructor_kwargs):
     poolmanager.pool_classes_by_scheme["https"] = MyHTTPSConnectionPool  # type: ignore
 
 
-def init_config(quiet=False, test=False, log_name='asyncdl'):
-
+def init_config(quiet=False, test=False, log_name="asyncdl"):
     patch_http_connection_pool(maxsize=1000)
     patch_https_connection_pool(maxsize=1000)
     os.environ["MOZ_HEADLESS_WIDTH"] = "1920"
@@ -3442,7 +3736,9 @@ class CountDowns:
     def setup(self, interval=None, print_secs=None):
         if interval and interval <= 1:
             CountDowns.INTERV_TIME = interval
-            CountDowns.N_PER_SECOND = 1 if CountDowns.INTERV_TIME >= 1 else int(1 / CountDowns.INTERV_TIME)
+            CountDowns.N_PER_SECOND = (
+                1 if CountDowns.INTERV_TIME >= 1 else int(1 / CountDowns.INTERV_TIME)
+            )
         if print_secs:
             CountDowns.PRINT_DIF_IN_SECS = print_secs
 
@@ -3457,14 +3753,18 @@ class CountDowns:
                     if [getattr(ev, "name", "noname") for ev in _events if ev.is_set()]:
                         break
 
-                    _input = CountDowns._INPUT.get(block=True, timeout=CountDowns.INPUT_TIMEOUT)
+                    _input = CountDowns._INPUT.get(
+                        block=True, timeout=CountDowns.INPUT_TIMEOUT
+                    )
                     if _input == "":
                         _input = self.index_main
                     elif _input in self.countdowns:
                         self.logger.debug(f"{self._pre} input[{_input}] is index video")
                         self.countdowns[_input]["stop"].set()
                     else:
-                        self.logger.debug(f"{self._pre} input[{_input}] not index video")
+                        self.logger.debug(
+                            f"{self._pre} input[{_input}] not index video"
+                        )
 
                 except Empty:
                     pass
@@ -3486,7 +3786,7 @@ class CountDowns:
         _res = None
         for i in range(self.N_PER_SECOND * n, 0, -1):
             send_queue(i)
-            if (_res := [getattr(ev, "name", "noname") for ev in _events if ev.is_set()]):
+            if _res := [getattr(ev, "name", "noname") for ev in _events if ev.is_set()]:
                 break
             time.sleep(self.INTERV_TIME)
 
@@ -3498,7 +3798,9 @@ class CountDowns:
         self.logger.debug(f"{self.countdowns[index]['premsg']} return Count: {_res}")
         return _res
 
-    def add(self, n: Optional[int] = None, index: Optional[str] = None, event=None, msg=None):
+    def add(
+        self, n: Optional[int] = None, index: Optional[str] = None, event=None, msg=None
+    ):
         _premsg = f"{self._pre}"
         if msg:
             _premsg += msg
@@ -3580,7 +3882,13 @@ class SimpleCountDown:
     _ENABLE_ECHO = True
 
     def __init__(
-        self, pb, inputqueue=None, check: Optional[Callable] = None, logger=None, indexdl=None, timeout=60
+        self,
+        pb,
+        inputqueue=None,
+        check: Optional[Callable] = None,
+        logger=None,
+        indexdl=None,
+        timeout=60,
     ):
         self._pre = "[countdown][WAIT403]"
         self.check = check or (lambda: None)
@@ -3608,7 +3916,9 @@ class SimpleCountDown:
                 SimpleCountDown._ENABLE_ECHO = False
                 termios.tcsetattr(fd, termios.TCSANOW, new)
 
-    def _wait_for_enter(self, sel: selectors.DefaultSelector, interval: Optional[int] = None):
+    def _wait_for_enter(
+        self, sel: selectors.DefaultSelector, interval: Optional[int] = None
+    ):
         if not (events := sel.select(interval)):
             return self.restimeout
         for key, _ in events:
@@ -3676,7 +3986,8 @@ if PySimpleGUI:
             "manip": ("init_manipulating", "manipulating"),
             "finish": ("error", "done", "stop"),
             "init": "init",
-            "downloading": "downloading"}
+            "downloading": "downloading",
+        }
         _SECS_DL = 25
         _SECS_PAUSE = 5
 
@@ -3691,7 +4002,12 @@ if PySimpleGUI:
             self.pasres_time_from_resume_to_pause = FrontEndGUI._SECS_DL
             self.pasres_time_in_pause = FrontEndGUI._SECS_PAUSE
             self.reset_repeat = False
-            self.list_all_old = {"init": {}, "downloading": {}, "manip": {}, "finish": {}}
+            self.list_all_old = {
+                "init": {},
+                "downloading": {},
+                "manip": {},
+                "finish": {},
+            }
 
             self.list_upt = {}
             self.list_res = {}
@@ -3722,13 +4038,18 @@ if PySimpleGUI:
                     FrontEndGUI._PASRES_REPEAT = True
 
         async def gui_root(self, event, values):
-
             def _handle_all(values):
                 self.window_root["ST"].update(values["all"]["nwmon"])
                 if "init" in values["all"]:
                     if list_init := values["all"]["init"]:
                         upt = "\n\n" + "".join(
-                            [el[1] for el in sorted(list(list_init.values()), key=lambda x: x[0])])
+                            [
+                                el[1]
+                                for el in sorted(
+                                    list(list_init.values()), key=lambda x: x[0]
+                                )
+                            ]
+                        )
                     else:
                         upt = ""
                     self.window_root["-ML0-"].update(value=upt)
@@ -3742,7 +4063,8 @@ if PySimpleGUI:
                         upt = "\n".join(list_downloading.values())
                         sg.cprint(
                             f"\n\n-------STATUS DL----------------\n\n{upt}"
-                            + "\n\n-------END STATUS DL------------\n\n")
+                            + "\n\n-------END STATUS DL------------\n\n"
+                        )
                         self.console_dl_status = False
                 if "manip" in values["all"]:
                     if list_manip := values["all"]["manip"]:
@@ -3802,7 +4124,8 @@ if PySimpleGUI:
                         )
                         sg.cprint(
                             f"[pause-resume autom] [time to resume] {self.pasres_time_from_resume_to_pause} "
-                            + f"[time in pause] {self.pasres_time_in_pause}")
+                            + f"[time in pause] {self.pasres_time_in_pause}"
+                        )
 
                     self.window_console["-IN-"].update(value="")
 
@@ -3819,11 +4142,15 @@ if PySimpleGUI:
                             _copy_list_dl = self.asyncdl.list_dl.copy()
                             if "," in values["-IN-"]:
                                 _ind = int_or_none(values["-IN-"].split(",")[1:])
-                                if None in _ind or any(_el not in _copy_list_dl for _el in _ind):
+                                if None in _ind or any(
+                                    _el not in _copy_list_dl for _el in _ind
+                                ):
                                     sg.cprint("At least one DL index doesnt exist")
                                 else:
                                     for _el in _ind:
-                                        await _copy_list_dl[_el].change_numvidworkers(_nvidworkers)
+                                        await _copy_list_dl[_el].change_numvidworkers(
+                                            _nvidworkers
+                                        )
                             else:
                                 self.asyncdl.args.parts = _nvidworkers
                                 for _, dl in _copy_list_dl.items():
@@ -3856,13 +4183,18 @@ if PySimpleGUI:
                         ):
                             sg.cprint("incorrect numbers of dl")
                         else:
-                            _index_list = [int(el) for el in values["-IN-"].replace(" ", "").split(",")]
+                            _index_list = [
+                                int(el)
+                                for el in values["-IN-"].replace(" ", "").split(",")
+                            ]
 
                         self.window_console["-IN-"].update(value="")
 
                     if _index_list:
                         if event in ["+PasRes", "-PasRes"]:
-                            sg.cprint(f"[pause-resume autom] before: {list(self.asyncdl.list_pasres)}")
+                            sg.cprint(
+                                f"[pause-resume autom] before: {list(self.asyncdl.list_pasres)}"
+                            )
 
                         info = []
                         _wait_tasks = []
@@ -3870,14 +4202,20 @@ if PySimpleGUI:
                             if event == "MoveTopWaitingDL":
                                 if not self.asyncdl.WorkersInit.exit.is_set():
                                     sg.cprint(
-                                        "[move to top waiting list] cant process until every video " +
-                                        "has been checked by init")
+                                        "[move to top waiting list] cant process until every video "
+                                        + "has been checked by init"
+                                    )
                                 else:
-                                    await self.asyncdl.WorkersRun.move_to_waiting_top(_index)
+                                    await self.asyncdl.WorkersRun.move_to_waiting_top(
+                                        _index
+                                    )
                             if event == "StopCount":
                                 CountDowns._INPUT.put_nowait(str(_index))
                             elif event == "+PasRes":
-                                if self.asyncdl.list_dl[_index].info_dl["status"] in ("init", "downloading"):
+                                if self.asyncdl.list_dl[_index].info_dl["status"] in (
+                                    "init",
+                                    "downloading",
+                                ):
                                     self.asyncdl.list_pasres.add(_index)
                             elif event == "-PasRes":
                                 self.asyncdl.list_pasres.discard(_index)
@@ -3886,12 +4224,16 @@ if PySimpleGUI:
                             elif event == "Resume":
                                 await self.asyncdl.list_dl[_index].resume()
                             elif event == "Reset":
-                                if _tasks := await self.asyncdl.list_dl[_index].reset_from_console():
+                                if _tasks := await self.asyncdl.list_dl[
+                                    _index
+                                ].reset_from_console():
                                     _wait_tasks.extend(_tasks)
                             elif event == "Stop":
                                 await self.asyncdl.list_dl[_index].stop("exit")
                             elif event in ["Info", "ToFile"]:
-                                _info = json.dumps(self.asyncdl.list_dl[_index].info_dict)
+                                _info = json.dumps(
+                                    self.asyncdl.list_dl[_index].info_dict
+                                )
                                 sg.cprint(f"[{_index}] info\n{_info}")
                                 sg.cprint(
                                     f'[{_index}] status[{self.asyncdl.list_dl[_index].info_dl["status"]} - {self.asyncdl.list_dl[_index].info_dl["downloaders"][0].status}]'
@@ -3900,16 +4242,21 @@ if PySimpleGUI:
                                     + f"pause[{self.asyncdl.list_dl[_index].pause_event.is_set()}]"
                                     + f"resume[{self.asyncdl.list_dl[_index].resume_event.is_set()}]"
                                     + f"stop[{self.asyncdl.list_dl[_index].stop_event.is_set()}]"
-                                    + f"reset[{self.asyncdl.list_dl[_index].reset_event.is_set()}]")
+                                    + f"reset[{self.asyncdl.list_dl[_index].reset_event.is_set()}]"
+                                )
 
                                 info.append(_info)
                         if _wait_tasks:
                             await asyncio.wait(_wait_tasks)
                         if event in ["+PasRes", "-PasRes"]:
-                            sg.cprint(f"[pause-resume autom] after: {list(self.asyncdl.list_pasres)}")
+                            sg.cprint(
+                                f"[pause-resume autom] after: {list(self.asyncdl.list_pasres)}"
+                            )
 
                         if event == "ToFile":
-                            _launch_time = self.asyncdl.launch_time.strftime("%Y%m%d_%H%M")
+                            _launch_time = self.asyncdl.launch_time.strftime(
+                                "%Y%m%d_%H%M"
+                            )
                             _file = Path(Path.home(), "testing", f"{_launch_time}.json")
                             _data = {"entries": info}
                             with open(_file, "w") as f:
@@ -3920,7 +4267,7 @@ if PySimpleGUI:
             if event == sg.WIN_CLOSED:
                 return "break"
             elif event in ["CtrlC"]:
-                print('console', event, values)
+                print("console", event, values)
                 await self.asyncdl.cancel_all_dl()
             elif event in ["Exit"]:
                 self.logger.debug("[gui_console] event Exit")
@@ -3944,9 +4291,17 @@ if PySimpleGUI:
             elif event in ["NumVideoWorkers"]:
                 await _handle_numvideoworkers(values)
             elif event in [
-                    "ToFile", "Info", "Pause", "Resume", "Reset",
-                    "Stop", "+PasRes", "-PasRes", "StopCount",
-                    "MoveTopWaitingDL"]:
+                "ToFile",
+                "Info",
+                "Pause",
+                "Resume",
+                "Reset",
+                "Stop",
+                "+PasRes",
+                "-PasRes",
+                "StopCount",
+                "MoveTopWaitingDL",
+            ]:
                 await _handle_event(values)
 
         async def gui(self):
@@ -3988,7 +4343,8 @@ if PySimpleGUI:
                 alpha_channel=0.99,
                 location=location,
                 finalize=True,
-                resizable=True)
+                resizable=True,
+            )
 
             # window.set_min_size(window.size)
             if ml_keys:
@@ -4007,10 +4363,7 @@ if PySimpleGUI:
                 [
                     [
                         sg.Text(
-                            "WAITING TO DL",
-                            font="Any 14",
-                            expand_x=True,
-                            expand_y=True
+                            "WAITING TO DL", font="Any 14", expand_x=True, expand_y=True
                         )
                     ],
                     [
@@ -4023,7 +4376,7 @@ if PySimpleGUI:
                             autoscroll=True,
                             auto_refresh=True,
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ],
                 ],
@@ -4041,12 +4394,12 @@ if PySimpleGUI:
                             font=("Courier New Bold", 12),
                             key="ST",
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ]
                 ],
                 expand_x=True,
-                expand_y=True
+                expand_y=True,
             )
 
             col_1 = sg.Column(
@@ -4056,7 +4409,7 @@ if PySimpleGUI:
                             "NOW DOWNLOADING",
                             font="Any 14",
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ],
                     [
@@ -4069,7 +4422,7 @@ if PySimpleGUI:
                             autoscroll=True,
                             auto_refresh=True,
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ],
                 ],
@@ -4085,7 +4438,7 @@ if PySimpleGUI:
                             "NOW CREATING FILE        ",
                             font="Any 14",
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ],
                     [
@@ -4098,7 +4451,7 @@ if PySimpleGUI:
                             autoscroll=True,
                             auto_refresh=True,
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ],
                 ],
@@ -4114,7 +4467,7 @@ if PySimpleGUI:
                             "DOWNLOADED/STOPPED/ERRORS",
                             font="Any 14",
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ],
                     [
@@ -4127,7 +4480,7 @@ if PySimpleGUI:
                             autoscroll=True,
                             auto_refresh=True,
                             expand_x=True,
-                            expand_y=True
+                            expand_y=True,
                         )
                     ],
                 ],
@@ -4139,7 +4492,8 @@ if PySimpleGUI:
             layout_root = [[col_00], [col_0, col_1, col_3, col_2]]
 
             return self.get_window(
-                "async_downloader", layout_root, ml_keys=[f"-ML{i}-" for i in range(4)])
+                "async_downloader", layout_root, ml_keys=[f"-ML{i}-" for i in range(4)]
+            )
 
         def init_gui_console(self):
             sg.theme("SystemDefaultForReal")
@@ -4156,19 +4510,22 @@ if PySimpleGUI:
                             key="-ML-",
                             reroute_cprint=True,
                             auto_refresh=True,
-                            autoscroll=True)
+                            autoscroll=True,
+                        )
                     ],
                     [
                         sg.Checkbox(
                             "PauseRep",
                             key="-PASRES-",
                             default=FrontEndGUI._PASRES_REPEAT,
-                            enable_events=True),
+                            enable_events=True,
+                        ),
                         sg.Checkbox(
                             "ResRep",
                             key="-RESETREP-",
                             default=False,
-                            enable_events=True),
+                            enable_events=True,
+                        ),
                         sg.Button("+PasRes"),
                         sg.Button("-PasRes"),
                         sg.Button("DLStatus", key="-DL-STATUS"),
@@ -4189,12 +4546,18 @@ if PySimpleGUI:
                 ],
                 element_justification="c",
                 expand_x=True,
-                expand_y=True)
+                expand_y=True,
+            )
 
             layout_pygui = [[col_pygui]]
 
             return self.get_window(
-                "Console", layout_pygui, location=(0, 500), ml_keys=["-ML-"], to_front=True)
+                "Console",
+                layout_pygui,
+                location=(0, 500),
+                ml_keys=["-ML-"],
+                to_front=True,
+            )
 
         def _upt_status(self, st, _copy_list_dl, _waiting, _running):
             self.list_upt[st] = {}
@@ -4203,12 +4566,16 @@ if PySimpleGUI:
                 _list_items = _waiting
                 for i, index in enumerate(_list_items):
                     if self.asyncdl.list_dl[index].info_dl["status"] in self._MAP[st]:
-                        self.list_res[st].update({index: (i, self.asyncdl.list_dl[index].print_hookup())})
+                        self.list_res[st].update(
+                            {index: (i, self.asyncdl.list_dl[index].print_hookup())}
+                        )
             else:
                 _list_items = _copy_list_dl if st != "downloading" else _running
                 for index in _list_items:
                     if self.asyncdl.list_dl[index].info_dl["status"] in self._MAP[st]:
-                        self.list_res[st].update({index: self.asyncdl.list_dl[index].print_hookup()})
+                        self.list_res[st].update(
+                            {index: self.asyncdl.list_dl[index].print_hookup()}
+                        )
 
             if self.list_res[st] == self.list_all_old[st]:
                 del self.list_upt[st]
@@ -4216,7 +4583,6 @@ if PySimpleGUI:
                 self.list_upt[st] = self.list_res[st]
 
         def update_window(self, status=None, nwmon=None):
-
             if status in ["all", None]:
                 _status = ("init", "downloading", "manip", "finish")
             else:
@@ -4248,7 +4614,9 @@ if PySimpleGUI:
                 short_progress_timer = ProgressTimer()
                 self.list_nwmon = []
                 io_init = psutil.net_io_counters()
-                speedometer = SpeedometerMA(initial_bytes=io_init.bytes_recv, ave_time=0.5, smoothing=0.9)
+                speedometer = SpeedometerMA(
+                    initial_bytes=io_init.bytes_recv, ave_time=0.5, smoothing=0.9
+                )
                 ds = None
                 while not stop_upt.is_set():
                     if progress_timer.has_elapsed(seconds=CONF_INTERVAL_GUI):
@@ -4257,7 +4625,9 @@ if PySimpleGUI:
                         msg = f"RECV: {naturalsize(speedometer.rec_bytes)}  "
                         msg += f'DL: {naturalsize(ds, format_="7.3f") + "ps" if ds > 1024 else "--"}'
                         self.update_window("all", nwmon=msg)
-                        if short_progress_timer.has_elapsed(seconds=10 * CONF_INTERVAL_GUI):
+                        if short_progress_timer.has_elapsed(
+                            seconds=10 * CONF_INTERVAL_GUI
+                        ):
                             self.list_nwmon.append((datetime.now(), ds))
                     else:
                         time.sleep(CONF_INTERVAL_GUI / 4)
@@ -4297,53 +4667,80 @@ if PySimpleGUI:
                     if self.asyncdl.list_pasres and FrontEndGUI._PASRES_REPEAT:
                         _waitres_nopause = wait_for_either(
                             [stop_event, FrontEndGUI._PASRES_EXIT],
-                            timeout=self.pasres_time_from_resume_to_pause)
+                            timeout=self.pasres_time_from_resume_to_pause,
+                        )
                         FrontEndGUI._PASRES_EXIT.clear()
-                        if not FrontEndGUI._PASRES_REPEAT or not self.asyncdl.list_pasres:
+                        if (
+                            not FrontEndGUI._PASRES_REPEAT
+                            or not self.asyncdl.list_pasres
+                        ):
                             continue
-                        if _waitres_nopause == "TIMEOUT" and (_list := list(self.asyncdl.list_pasres)):
+                        if _waitres_nopause == "TIMEOUT" and (
+                            _list := list(self.asyncdl.list_pasres)
+                        ):
                             if not self.reset_repeat:
                                 if _start_no_pause:
-                                    sg.cprint(f"[time resume -> pause] {time.monotonic()-_start_no_pause}")
+                                    sg.cprint(
+                                        f"[time resume -> pause] {time.monotonic()-_start_no_pause}"
+                                    )
 
                                 self.window_console.write_event_value(
-                                    "Pause", ",".join(list(map(str, _list))))
+                                    "Pause", ",".join(list(map(str, _list)))
+                                )
                                 time.sleep(1)
                                 self.logger.debug("[pasres_periodic]: pauses sent")
                                 _start_pause = time.monotonic()
                                 _waitres = wait_for_either(
-                                    [stop_event, FrontEndGUI._PASRES_EXIT], timeout=self.pasres_time_in_pause)
+                                    [stop_event, FrontEndGUI._PASRES_EXIT],
+                                    timeout=self.pasres_time_in_pause,
+                                )
                                 FrontEndGUI._PASRES_EXIT.clear()
-                                self.logger.debug("[pasres_periodic]: start sending resumes")
+                                self.logger.debug(
+                                    "[pasres_periodic]: start sending resumes"
+                                )
                                 if _waitres == "TIMEOUT":
                                     _time = self.pasres_time_in_pause / len(_list)
                                     for i, _el in enumerate(_list):
-                                        self.window_console.write_event_value("Resume", str(_el))
+                                        self.window_console.write_event_value(
+                                            "Resume", str(_el)
+                                        )
 
                                         if i + 1 < len(_list):
                                             _waitres = wait_for_either(
                                                 [stop_event, FrontEndGUI._PASRES_EXIT],
-                                                timeout=random.uniform(0.75 * _time, 1.25 * _time))
+                                                timeout=random.uniform(
+                                                    0.75 * _time, 1.25 * _time
+                                                ),
+                                            )
                                             FrontEndGUI._PASRES_EXIT.clear()
                                             if _waitres != "TIMEOUT":
                                                 self.window_console.write_event_value(
-                                                    "Resume", ",".join(list(map(str, _list[i + 1:]))))
+                                                    "Resume",
+                                                    ",".join(
+                                                        list(map(str, _list[i + 1 :]))
+                                                    ),
+                                                )
 
                                                 break
 
                                 else:
                                     self.window_console.write_event_value(
-                                        "Resume", ",".join(list(map(str, _list))))
+                                        "Resume", ",".join(list(map(str, _list)))
+                                    )
 
                                 self.logger.debug(
-                                    "[pasres_periodic]: resumes sent, start timer to next pause")
+                                    "[pasres_periodic]: resumes sent, start timer to next pause"
+                                )
 
-                                sg.cprint(f"[time in pause] {time.monotonic()-_start_pause}")
+                                sg.cprint(
+                                    f"[time in pause] {time.monotonic()-_start_pause}"
+                                )
                                 _start_no_pause = time.monotonic()
 
                             else:
                                 self.window_console.write_event_value(
-                                    "Reset", ",".join(list(map(str, _list))))
+                                    "Reset", ",".join(list(map(str, _list)))
+                                )
                     else:
                         _start_no_pause = None
                         time.sleep(CONF_INTERVAL_GUI)
@@ -4386,7 +4783,6 @@ if PySimpleGUI:
 
 
 class NWSetUp:
-
     if proxy:
         Proxy = proxy.Proxy
 
@@ -4401,19 +4797,24 @@ class NWSetUp:
         self.sync_to_async = functools.partial(
             sync_to_async,
             thread_sensitive=False,
-            executor=ThreadPoolExecutor(thread_name_prefix="setupnw"))
+            executor=ThreadPoolExecutor(thread_name_prefix="setupnw"),
+        )
 
         self._tasks_init = {}
         if not self.asyncdl.args.nodl:
             if self.asyncdl.args.aria2c:
                 _task_aria2c = self.asyncdl.add_task(
-                    self.sync_to_async(init_aria2c)(self.asyncdl.args))
+                    self.sync_to_async(init_aria2c)(self.asyncdl.args)
+                )
                 self._tasks_init |= {_task_aria2c: "aria2"}
             if self.asyncdl.args.enproxy:
                 self.stop_proxy, self.fut_proxy = self.run_proxy_http()
                 self.asyncdl.add_task(self.fut_proxy)
                 _task_proxies = self.asyncdl.add_task(
-                    self.sync_to_async(TorGuardProxies.init_proxies)(event=self.asyncdl.end_dl))
+                    self.sync_to_async(TorGuardProxies.init_proxies)(
+                        event=self.asyncdl.end_dl
+                    )
+                )
                 self._tasks_init |= {_task_proxies: "proxies"}
 
         if self._tasks_init:
@@ -4458,7 +4859,7 @@ class NWSetUp:
                     self.logger.error("context manager proxy")
                     raise
         except Exception as e:
-            self.logger.exception(f'[run_proxy] error - {repr(e)}')
+            self.logger.exception(f"[run_proxy] error - {repr(e)}")
             self.asyncdl.STOP.set()
         finally:
             self.shutdown_proxy.set()
@@ -4517,7 +4918,9 @@ class NWSetUp:
         finally:
             await self.sync_to_async(self.proc_aria2c.wait)()
 
-        _task_aria2c = [self.asyncdl.add_task(self.sync_to_async(init_aria2c)(self.asyncdl.args))]
+        _task_aria2c = [
+            self.asyncdl.add_task(self.sync_to_async(init_aria2c)(self.asyncdl.args))
+        ]
         done, _ = await asyncio.wait(_task_aria2c)
         for task in done:
             self.proc_aria2c = task.result()
@@ -4544,7 +4947,6 @@ class InfoDL:
 
 
 def run_proc(cmd):
-
     try:
         _cmd = shlex.split(cmd)
         return subprocess.run(
@@ -4559,14 +4961,13 @@ def run_proc(cmd):
 
 def get_metadata_video(path):
     cmd = f"ffprobe -hide_banner -show_streams -show_format -print_format json {str(path)}"
-    if (proc := run_proc(cmd)):
+    if proc := run_proc(cmd):
         return json.loads(proc.stdout)
 
 
 if FileLock and xattr:
 
     class LocalStorage:
-
         lock = FileLock(Path(PATH_LOGS, "files_cached.json.lock"))
         local_storage = Path(PATH_LOGS, "files_cached.json")
         prev_local_storage = Path(PATH_LOGS, "prev_files_cached.json")
@@ -4580,7 +4981,7 @@ if FileLock and xattr:
             "wd5": Path("/Volumes/WD5/videos"),
             "wd8_1": Path("/Volumes/WD8_1/videos"),
             "wd8_2": Path("/Volumes/WD8_2/videos"),
-            "t7": Path("/Volumes/T7/videos")
+            "t7": Path("/Volumes/T7/videos"),
         }
 
         def __init__(self):
@@ -4645,7 +5046,7 @@ if FileLock and xattr:
                 "datostoni": {},
                 "wd8_1": {},
                 "wd8_2": {},
-                "t7": {}
+                "t7": {},
             }
 
             _upt_temp["last_time_sync"] = last_time_sync
@@ -4653,11 +5054,15 @@ if FileLock and xattr:
             for key, val in videos_cached.items():
                 _vol = getter(val)
                 if not _vol:
-                    self.logger.error(f"found file with not registered volumen - {val} - {key}")
+                    self.logger.error(
+                        f"found file with not registered volumen - {val} - {key}"
+                    )
                 else:
                     _upt_temp[_vol].update({key: val})
 
-            shutil.copy(str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage))
+            shutil.copy(
+                str(LocalStorage.local_storage), str(LocalStorage.prev_local_storage)
+            )
 
             if not local:
                 with open(LocalStorage.local_storage, "w") as f:
@@ -4709,7 +5114,9 @@ if FileLock and xattr:
             self._repeated = []
             self._dont_exist = []
             self._repeated_by_xattr = []
-            self.ready_videos_cached, self.fut_videos_cached = self.get_videos_cached(local=True)
+            self.ready_videos_cached, self.fut_videos_cached = self.get_videos_cached(
+                local=True
+            )
             self.ready()
 
         @run_operation_in_executor(name="vidcach")
@@ -4765,15 +5172,21 @@ if FileLock and xattr:
                         for _vol, _folder in self._localstorage.config_folders.items():
                             if _vol != "local":
                                 if not force_local:
-                                    self._videoscached.update(self._localstorage._data_from_file[_vol])
+                                    self._videoscached.update(
+                                        self._localstorage._data_from_file[_vol]
+                                    )
                             else:
                                 list_folders_to_scan[_folder] = _vol
 
                     else:
                         for _vol, _folder in self._localstorage.config_folders.items():
                             if not _folder.exists():  # comm failure
-                                self.logger.error(f"Fail connect to [{_vol}], will use last info")
-                                self._videoscached.update(self._localstorage._data_from_file[_vol])
+                                self.logger.error(
+                                    f"Fail connect to [{_vol}], will use last info"
+                                )
+                                self._videoscached.update(
+                                    self._localstorage._data_from_file[_vol]
+                                )
                             else:
                                 list_folders_to_scan[_folder] = _vol
 
@@ -4793,12 +5206,16 @@ if FileLock and xattr:
                                         _xattr_desc = _getxattr(file)
                                         if _xattr_desc:
                                             if not self._videoscached.get(_xattr_desc):
-                                                self._videoscached.update({_xattr_desc: str(file)})
+                                                self._videoscached.update(
+                                                    {_xattr_desc: str(file)}
+                                                )
                                             else:
                                                 self._repeated_by_xattr.append(
                                                     {
                                                         _xattr_desc: [
-                                                            self._videoscached[_xattr_desc],
+                                                            self._videoscached[
+                                                                _xattr_desc
+                                                            ],
                                                             str(file),
                                                         ]
                                                     }
@@ -4806,12 +5223,16 @@ if FileLock and xattr:
                                 _res = file.stem.split("_", 1)
                                 if len(_res) == 2:
                                     _id = _res[0]
-                                    _title = sanitize_filename(_res[1], restricted=True).upper()
+                                    _title = sanitize_filename(
+                                        _res[1], restricted=True
+                                    ).upper()
                                     _name = f"{_id}_{_title}"
                                 else:
                                     _id = None
                                     _title = None
-                                    _name = sanitize_filename(file.stem, restricted=True).upper()
+                                    _name = sanitize_filename(
+                                        file.stem, restricted=True
+                                    ).upper()
 
                                 if _id and self.asyncdl.args.deep_aldl:
                                     insert_videoscached(_id, file)
@@ -4819,18 +5240,26 @@ if FileLock and xattr:
                                     insert_videoscached(_name, file)
 
                         except Exception as e:
-                            self.logger.error(f"[videos_cached][{list_folders_to_scan[folder]}]{repr(e)}")
+                            self.logger.error(
+                                f"[videos_cached][{list_folders_to_scan[folder]}]{repr(e)}"
+                            )
 
                         else:
                             last_time_sync.update(
                                 {
-                                    list_folders_to_scan[folder]: str(datetime.now()) if force_local else str(self.asyncdl.launch_time)
+                                    list_folders_to_scan[folder]: str(datetime.now())
+                                    if force_local
+                                    else str(self.asyncdl.launch_time)
                                 }
                             )
 
-                    self._localstorage.dump_info(self._videoscached, last_time_sync, local=force_local)
+                    self._localstorage.dump_info(
+                        self._videoscached, last_time_sync, local=force_local
+                    )
 
-                    self.logger.info(f"[videos_cached] Total videos cached: [{len(self._videoscached)}]")
+                    self.logger.info(
+                        f"[videos_cached] Total videos cached: [{len(self._videoscached)}]"
+                    )
 
                     if not force_local:
                         self.asyncdl.videos_cached = self._videoscached.copy()
@@ -4840,15 +5269,25 @@ if FileLock and xattr:
                     if not force_local:
                         try:
                             if self._repeated:
-                                self.logger.warning("[videos_cached] Please check vid repeated in logs")
-                                self.logger.debug(f"[videos_cached] videos repeated: \n {self._repeated}")
+                                self.logger.warning(
+                                    "[videos_cached] Please check vid repeated in logs"
+                                )
+                                self.logger.debug(
+                                    f"[videos_cached] videos repeated: \n {self._repeated}"
+                                )
 
                             if self._dont_exist:
-                                self.logger.warning("[videos_cached] Pls check vid dont exist in logs")
-                                self.logger.debug(f"[videos_cached] videos dont exist: \n{self._dont_exist}")
+                                self.logger.warning(
+                                    "[videos_cached] Pls check vid dont exist in logs"
+                                )
+                                self.logger.debug(
+                                    f"[videos_cached] videos dont exist: \n{self._dont_exist}"
+                                )
 
                             if self._repeated_by_xattr:
-                                self.logger.warning("[videos_cached] Please check vid repeated by xattr")
+                                self.logger.warning(
+                                    "[videos_cached] Please check vid repeated by xattr"
+                                )
                                 self.logger.debug(
                                     f"[videos_cached] videos repeated by xattr: \n{self._repeated_by_xattr}"
                                 )
@@ -4876,7 +5315,10 @@ if FileLock and xattr:
                             _link.symlink_to(file)
                             _link._accessor.utime(
                                 _link,
-                                (int(self.asyncdl.launch_time.timestamp()), file.stat().st_mtime),
+                                (
+                                    int(self.asyncdl.launch_time.timestamp()),
+                                    file.stat().st_mtime,
+                                ),
                                 follow_symlinks=False,
                             )
 
@@ -4906,7 +5348,10 @@ if FileLock and xattr:
                             _link.symlink_to(_video_path)
                             _link._accessor.utime(
                                 _link,
-                                (int(self.asyncdl.launch_time.timestamp()), _video_path.stat().st_mtime),
+                                (
+                                    int(self.asyncdl.launch_time.timestamp()),
+                                    _video_path.stat().st_mtime,
+                                ),
                                 follow_symlinks=False,
                             )
 
@@ -4933,21 +5378,27 @@ if FileLock and xattr:
                     if len(_links_file) > 2:
                         self.logger.debug(
                             f"[videos_cached_deep]\nfile symlink: {str(file)}\n"
-                            + f'\t\t{" -> ".join([str(_l) for _l in _links_file])}')
+                            + f'\t\t{" -> ".join([str(_l) for _l in _links_file])}'
+                        )
 
                         for _link in _links_file[:-1]:
                             _link.unlink()
                             _link.symlink_to(_file)
                             _link._accessor.utime(
                                 _link,
-                                (int(self.asyncdl.launch_time.timestamp()), _file.stat().st_mtime),
-                                follow_symlinks=False)
+                                (
+                                    int(self.asyncdl.launch_time.timestamp()),
+                                    _file.stat().st_mtime,
+                                ),
+                                follow_symlinks=False,
+                            )
 
                     if len(_links_video_path) > 2:
                         self.logger.debug(
                             "[videos_cached_deep]\nvideopath symlink: "
                             + f"{str(_video_path)}\n\t\t"
-                            + f'{" -> ".join([str(_l) for _l in _links_video_path])}')
+                            + f'{" -> ".join([str(_l) for _l in _links_video_path])}'
+                        )
 
                         for _link in _links_video_path[:-1]:
                             _link.unlink()
@@ -4983,7 +5434,8 @@ if FileLock and xattr:
                         + f"{str(file)}\n\t\t"
                         + f'{" -> ".join([str(_l) for _l in _links_file])}\n'
                         + f"videopath symlink: {str(_video_path)}\n\t\t"
-                        + f'{" -> ".join([str(_l) for _l in _links_video_path])}')
+                        + f'{" -> ".join([str(_l) for _l in _links_video_path])}'
+                    )
 
 
 def get_files_same_meta(folder1, folder2):

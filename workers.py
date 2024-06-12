@@ -26,31 +26,36 @@ class Workers:
         self._max = value
 
     async def add_task(self, **kwargs):
-        task_index = kwargs.get('task_index')
-        sortwaiting = kwargs.get('sortwaiting')
-        dl = kwargs.get('dl')
+        task_index = kwargs.get("task_index")
+        sortwaiting = kwargs.get("sortwaiting")
+        dl = kwargs.get("dl")
         _pre = lambda x: f"[add_task][{x}]"
 
         if len(self.running) < self.max_workers:
-            if not (task_index := (task_index or try_call(
-                    lambda: self.waiting.popleft()))):
-                self.logger.debug(
-                    f"{_pre(task_index)} empty waiting list")
+            if not (
+                task_index := (task_index or try_call(lambda: self.waiting.popleft()))
+            ):
+                self.logger.debug(f"{_pre(task_index)} empty waiting list")
             else:
                 self.running.append(task_index)
-                self.tasks |= {self.asyncdl.add_task(
-                    self._task(task_index)): task_index}
+                self.tasks |= {
+                    self.asyncdl.add_task(self._task(task_index)): task_index
+                }
                 self.logger.debug(
-                    f"{_pre(task_index)} task ok {print_tasks(self.tasks)}")
+                    f"{_pre(task_index)} task ok {print_tasks(self.tasks)}"
+                )
                 if dl and self.waiting:
                     for _index in list(self.waiting)[:1]:
-                        for _dl in self.info_dl[_index]['dl'].info_dl["downloaders"]:
-                            if "aria2" in str(type(_dl)).lower() and _dl._mode == "group":
+                        for _dl in self.info_dl[_index]["dl"].info_dl["downloaders"]:
+                            if (
+                                "aria2" in str(type(_dl)).lower()
+                                and _dl._mode == "group"
+                            ):
                                 await _dl.add_init_task()
 
         elif task_index:
             if dl and not self.waiting:
-                for _dl in self.info_dl[task_index]['dl'].info_dl["downloaders"]:
+                for _dl in self.info_dl[task_index]["dl"].info_dl["downloaders"]:
                     if "aria2" in str(type(_dl)).lower() and _dl._mode == "group":
                         await _dl.add_init_task()
 
@@ -60,8 +65,8 @@ class Workers:
             self.logger.debug(f"{_pre(task_index)} task to waiting list")
 
     async def remove_task(self, **kwargs):
-        task_index = kwargs.get('task_index')
-        dl = kwargs.get('dl')
+        task_index = kwargs.get("task_index")
+        dl = kwargs.get("dl")
         async with self.alock:
             async with async_suppress(ValueError):
                 self.running.remove(task_index)
@@ -102,8 +107,7 @@ class WorkersRun(Workers):
                 if self.waiting.index(dl_index) > 0:
                     self.waiting.remove(dl_index)
                     self.waiting.appendleft(dl_index)
-                    self.logger.debug(
-                        f"[move_to_waiting_top] {list(self.waiting)}")
+                    self.logger.debug(f"[move_to_waiting_top] {list(self.waiting)}")
             elif dl_index not in self.running and dl_status in ("stop", "error"):
                 await dl.reinit()
                 await self.add_task(task_index=dl_index, dl=True)
@@ -111,8 +115,7 @@ class WorkersRun(Workers):
     async def add_dl(self, dl, url_key):
         _pre = f"[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]:[add_dl]"
         if dl.index in self.info_dl:
-            self.logger.warning(
-                f"{_pre} dl with index[{dl.index}] already processed")
+            self.logger.warning(f"{_pre} dl with index[{dl.index}] already processed")
             return
         self.info_dl |= {dl.index: {"url": url_key, "dl": dl}}
 
@@ -124,13 +127,14 @@ class WorkersRun(Workers):
         _pre = f"[{dl.info_dict['id']}][{dl.info_dict['title']}][{url_key}]:[_task]"
 
         try:
-            if dl.info_dl["status"] == 'init':
+            if dl.info_dl["status"] == "init":
                 self.logger.debug(f"{_pre} DL init OK, ready to DL")
                 if dl.info_dl.get("auto_pasres"):
                     self.asyncdl.list_pasres.add(dl.index)
                     self.logger.debug(
-                        f"{_pre} added dl[{dl.index}] " +
-                        f"to auto_pasres{list(self.asyncdl.list_pasres)}")
+                        f"{_pre} added dl[{dl.index}] "
+                        + f"to auto_pasres{list(self.asyncdl.list_pasres)}"
+                    )
                 await dl.run_dl()
             else:
                 self.logger.debug(f"{_pre} DL init OK, video parts DL OK")

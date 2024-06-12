@@ -1,13 +1,14 @@
 # -*- coding: utf-8 -*-
 """
-    proxy.py
-    ~~~~~~~~
-    ⚡⚡⚡ Fast, Lightweight, Pluggable, TLS interception capable proxy server focused on
-    Network monitoring, controls & Application development, testing, infoging.
+proxy.py
+~~~~~~~~
+⚡⚡⚡ Fast, Lightweight, Pluggable, TLS interception capable proxy server focused on
+Network monitoring, controls & Application development, testing, infoging.
 
-    :copyright: (c) 2013-present by Abhinav Singh and contributors.
-    :license: BSD, see LICENSE for more details.
+:copyright: (c) 2013-present by Abhinav Singh and contributors.
+:license: BSD, see LICENSE for more details.
 """
+
 import base64
 import ipaddress
 import logging
@@ -29,16 +30,20 @@ from proxy.http.proxy import HttpProxyBasePlugin
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HTTP_ACCESS_LOG_FORMAT = '{client_ip}:{client_port} - ' + \
-    '{request_method} {server_host}:{server_port}{request_path} -> ' + \
-    '{upstream_proxy_host}:{upstream_proxy_port} - ' + \
-    '{response_code} {response_reason} - {response_bytes} bytes - ' + \
-    '{connection_time_ms} ms'
+DEFAULT_HTTP_ACCESS_LOG_FORMAT = (
+    "{client_ip}:{client_port} - "
+    + "{request_method} {server_host}:{server_port}{request_path} -> "
+    + "{upstream_proxy_host}:{upstream_proxy_port} - "
+    + "{response_code} {response_reason} - {response_bytes} bytes - "
+    + "{connection_time_ms} ms"
+)
 
-DEFAULT_HTTPS_ACCESS_LOG_FORMAT = '{client_ip}:{client_port} - ' + \
-    '{request_method} {server_host}:{server_port} -> ' + \
-    '{upstream_proxy_host}:{upstream_proxy_port} - ' + \
-    '{response_bytes} bytes - {connection_time_ms} ms'
+DEFAULT_HTTPS_ACCESS_LOG_FORMAT = (
+    "{client_ip}:{client_port} - "
+    + "{request_method} {server_host}:{server_port} -> "
+    + "{upstream_proxy_host}:{upstream_proxy_port} - "
+    + "{response_bytes} bytes - {connection_time_ms} ms"
+)
 
 
 class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
@@ -52,14 +57,18 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         self._endpoint: Url
         # Cached attributes to be used during access log override
         self._metadata: List[Any] = [
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
         ]
 
     def handle_upstream_data(self, raw: memoryview) -> None:
         self.client.queue(raw)
 
     def before_upstream_connection(
-            self, request: HttpParser,
+        self,
+        request: HttpParser,
     ) -> Optional[HttpParser]:
         """Avoids establishing the default connection to upstream server
         by returning None.
@@ -78,26 +87,29 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         except ValueError:
             pass
 
-        key = re.findall(r'asyncdlrouting(\d+)\.', str(request.host))
+        key = re.findall(r"asyncdlrouting(\d+)\.", str(request.host))
 
         if key:
             # logger.info(f"Key is {key[0]}")
-            _proxy = f'http://127.0.0.1:{key[0]}'
+            _proxy = f"http://127.0.0.1:{key[0]}"
             self._endpoint = Url.from_bytes(bytes_(_proxy))
 
-            _host = bytes_(re.sub(r'(asyncdlrouting(\d+)\.)', '', text_(request.host)))
+            _host = bytes_(re.sub(r"(asyncdlrouting(\d+)\.)", "", text_(request.host)))
             request.host = _host
-            if request.has_header(b'host'):
-                request.del_header(b'host')
-                request.add_header(b'host', _host)
+            if request.has_header(b"host"):
+                request.del_header(b"host")
+                request.add_header(b"host", _host)
 
         else:
             return request
         # If chosen proxy is the local instance, bypass upstream proxies
         # assert self._endpoint.port and self._endpoint.hostname
         assert self._endpoint.port and self._endpoint.hostname
-        if self._endpoint.port == self.flags.port and \
-                self._endpoint.hostname in LOCAL_INTERFACE_HOSTNAMES + ANY_INTERFACE_HOSTNAMES:
+        if (
+            self._endpoint.port == self.flags.port
+            and self._endpoint.hostname
+            in LOCAL_INTERFACE_HOSTNAMES + ANY_INTERFACE_HOSTNAMES
+        ):
             return request
         # Establish connection to chosen upstream proxy
         endpoint_tuple = (text_(self._endpoint.hostname), self._endpoint.port)
@@ -108,7 +120,7 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
             self.upstream.connect()
         except TimeoutError:
             raise HttpProtocolException(
-                'Timed out connecting to upstream proxy {0}:{1}'.format(
+                "Timed out connecting to upstream proxy {0}:{1}".format(
                     *endpoint_tuple,
                 ),
             )
@@ -121,7 +133,7 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
             # using a data structure without having to spawn separate thread/process for health
             # check.
             raise HttpProtocolException(
-                'Connection refused by upstream proxy {0}:{1}'.format(
+                "Connection refused by upstream proxy {0}:{1}".format(
                     *endpoint_tuple,
                 ),
             )
@@ -133,7 +145,8 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         return None
 
     def handle_client_request(
-            self, request: HttpParser,
+        self,
+        request: HttpParser,
     ) -> Optional[HttpParser]:
         """Only invoked once after client original proxy request has been received completely."""
         if not self.upstream:
@@ -144,7 +157,7 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         assert request.host
         url = Url.from_bytes(request.host)
         assert url.hostname
-        host, port = url.hostname.decode('utf-8'), url.port
+        host, port = url.hostname.decode("utf-8"), url.port
         # if '__routing=' in host:
         #     host = re.sub(r'(__routing=([^_]+)__.)', '', host)
         #     _host = bytes_(f'{host}:{port}') if port else bytes_(f'{host}')
@@ -153,13 +166,14 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
         #         request.del_header(b'host')
         #         request.add_header(b'host', _host)
 
-        port = port if port else (
-            443 if request.is_https_tunnel else 80
-        )
+        port = port if port else (443 if request.is_https_tunnel else 80)
         path = None if not request.path else request.path.decode()
 
         self._metadata = [
-            host, port, path, request.method,
+            host,
+            port,
+            path,
+            request.method,
         ]
 
         # Queue original request optionally with auth headers to upstream proxy
@@ -167,11 +181,9 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
             assert self._endpoint.username and self._endpoint.password
             request.add_header(
                 httpHeaders.PROXY_AUTHORIZATION,
-                b'Basic ' +
-                base64.b64encode(
-                    self._endpoint.username +
-                    COLON +
-                    self._endpoint.password,
+                b"Basic "
+                + base64.b64encode(
+                    self._endpoint.username + COLON + self._endpoint.password,
                 ),
             )
         self.upstream.queue(memoryview(request.build(for_proxy=True)))
@@ -200,16 +212,21 @@ class ProxyPoolByHostPlugin(TcpUpstreamConnectionHandler, HttpProxyBasePlugin):
     def on_access_log(self, context: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         if not self.upstream:
             return context
-        addr, port = (self.upstream.addr[0], self.upstream.addr[1]) \
-            if self.upstream else (None, None)
-        context.update({
-            'upstream_proxy_host': addr,
-            'upstream_proxy_port': port,
-            'server_host': self._metadata[0],
-            'server_port': self._metadata[1],
-            'request_path': self._metadata[2],
-            'response_bytes': self.total_size,
-        })
+        addr, port = (
+            (self.upstream.addr[0], self.upstream.addr[1])
+            if self.upstream
+            else (None, None)
+        )
+        context.update(
+            {
+                "upstream_proxy_host": addr,
+                "upstream_proxy_port": port,
+                "server_host": self._metadata[0],
+                "server_port": self._metadata[1],
+                "request_path": self._metadata[2],
+                "response_bytes": self.total_size,
+            }
+        )
         self.access_log(context)
         return None
 
