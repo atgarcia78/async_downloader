@@ -2700,17 +2700,6 @@ def get_listening_tcp() -> dict:
         raise ValueError("no info about tcp ports in use")
 
 
-def find_in_ps(pattern, value=None):
-    res = subprocess.run(
-        ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
-        encoding="utf-8",
-        capture_output=True,
-    ).stdout
-    mobj = re.findall(pattern, res)
-    if not value or str(value) in mobj:
-        return mobj
-
-
 def init_aria2c(args):
     logger = logging.getLogger("asyncdl")
     _info = get_listening_tcp()
