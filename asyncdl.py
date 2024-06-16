@@ -616,17 +616,6 @@ class AsyncDL:
             return False
 
     async def _prepare_entry_pl_for_dl(self, entry: dict) -> None:
-        _errors_ytdl = [
-            "not found",
-            "404",
-            "flagged",
-            "403",
-            "410",
-            "suspended",
-            "unavailable",
-            "disabled",
-        ]
-
         _pre = "[prepare_entry_pl_for_dl]"
 
         try:
@@ -644,14 +633,8 @@ class AsyncDL:
                         {},
                         error=_error,
                     )
+                    self._handle_error(_errorurl, _error)
 
-                    if any(_ in _error.lower() for _ in _errors_ytdl):
-                        self.list_notvalid_urls.append(_errorurl)
-                    elif "unsupported url" in _error.lower():
-                        self.list_unsup_urls.append(_errorurl)
-                    else:
-                        self.list_urls_to_check.append((_errorurl, _error))
-                    self.list_initnok.append((_errorurl, _error))
                 else:
                     logger.warning(f"{_pre} {_errorurl}: already in info_videos")
                 return
@@ -751,8 +734,10 @@ class AsyncDL:
             self.list_urls_to_check.append((_urlkey, _error))
 
         self.list_initnok.append((_urlkey, _error))
-        self.info_videos[_urlkey]["error"].append(_error)
-        self.info_videos[_urlkey]["status"] = "initnok"
+
+        if self.info_videos[_urlkey]["status"] != 'prenok':
+            self.info_videos[_urlkey]["error"].append(_error)
+            self.info_videos[_urlkey]["status"] = "initnok"
 
         return _error
 

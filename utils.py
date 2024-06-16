@@ -357,126 +357,6 @@ def try_call(*funcs, expected_type=None, args=[], kwargs={}):
                 return val
 
 
-async def get_list_interl(entries, asyncdl, _pre):
-    logger = logging.getLogger("asyncdl")
-
-    _temp_aldl = []
-    res = []
-
-    for _ent in entries:
-        if not await asyncdl.async_check_if_aldl(_ent, test=True):
-            res.append(_ent)
-        else:
-            _temp_aldl.append(_ent)
-
-    def mix_lists(_http_list, _hls_list, _asyncdl):
-        _final_list = []
-        if _hls_list:
-            if not _http_list:
-                _final_list = _hls_list
-            else:
-                iters = len(_hls_list)
-                step = int(len(_http_list) / iters) + 1
-                _final_list = []
-                for idx in range(iters):
-                    start = step * idx
-                    end = step * (idx + 1)
-                    _final_list.extend(_http_list[start:end])
-                    _final_list.append(_hls_list[idx])
-        else:
-            _final_list = _http_list
-
-        if (_total := len(_final_list)) > 0:
-            for _newidx, _el in enumerate(_final_list):
-                _el["__interl_index"] = _asyncdl.max_index_playlist + _newidx + 1
-                _el["__interl_total"] = _total
-
-            _asyncdl.max_index_playlist += _total
-
-        return _final_list
-
-    def get_dif_interl(_dict, _interl, workers):
-        """
-        get dif in the interl list if distance of elements
-        with same host is less than num runners dl workers of asyncdl
-        """
-        dif = defaultdict(lambda: [])
-        for host, group in _dict.items():
-            index_old = None
-            _group = sorted(group, key=lambda x: _interl.index(x))
-            for el in _group:
-                index = _interl.index(el)
-                if index_old and index - index_old < workers:
-                    dif[host].append(el)
-                index_old = index
-        return dif
-
-    if not res:
-        return _temp_aldl
-    if len(res) < 3:
-        return res + _temp_aldl
-    _dict = defaultdict(lambda: [])
-    _hls_list = []
-    _res = []
-    for ent in res:
-        if "hls" not in ent["format_id"]:
-            _res.append(ent)
-            _dict[get_domain(ent["url"])].append(ent["id"])
-        else:
-            _hls_list.append(ent)
-
-    if not _dict:
-        return mix_lists([], _hls_list, asyncdl) + _temp_aldl
-
-    logger.info(
-        f"{_pre}[get_list_interl] entries"
-        + f"interleave: {len(list(_dict.keys()))} different hosts, "
-        + f"longest with {len(max(list(_dict.values()), key=len))} entries"
-    )
-
-    _workers = asyncdl.workers
-    _interl = []
-    while _workers > asyncdl.workers // 2:
-        _interl = []
-        for el in list(zip_longest(*list(_dict.values()))):
-            _interl.extend([_el for _el in el if _el])
-
-        for tunein in range(3):
-            dif = get_dif_interl(_dict, _interl, _workers)
-
-            if dif:
-                if tunein < 2:
-                    for i, host in enumerate(list(dif.keys())):
-                        group = list(_dict[host])
-                        for j, el in enumerate(group):
-                            _interl.pop(_interl.index(el))
-                            _interl.insert(_workers * (j + 1) + i, el)
-                    continue
-                else:
-                    logger.info(
-                        f"{_pre}[get_list_interl] tune in NOK, try with less num of workers"
-                    )
-                    _workers -= 1
-                    break
-
-            else:
-                logger.info(
-                    f"{_pre}[get_list_interl] tune in OK, no dif with workers[{_workers}]"
-                )
-                asyncdl.workers = _workers
-                asyncdl.WorkersRun.max_workers = _workers
-                _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
-                return mix_lists(_http_list, _hls_list, asyncdl) + _temp_aldl
-
-    asyncdl.workers = _workers
-    asyncdl.WorkersRun.max_workers = _workers
-    if _interl:
-        _http_list = sorted(_res, key=lambda x: _interl.index(x["id"]))
-    else:
-        _http_list = _res
-    return mix_lists(_http_list, _hls_list, asyncdl) + _temp_aldl
-
-
 def empty_queue(q: Union[asyncio.Queue, Queue]):
     while True:
         try:
@@ -552,6 +432,10 @@ def put_sequence(
         for el in seq:
             queue.put_nowait(el)
     return queue
+
+
+def matchpatternnostringbefore(pattern, nostring, text):
+    return re.search(rf'^(?:(?!{nostring}).)*{pattern}', text)
 
 
 def subnright(pattern, repl, text, n):
@@ -3048,8 +2932,6 @@ class TorGuardProxies:
             _ips = random.sample(cls.IPS_SSL, num * (size + 1))
 
             def grouper(iterable, n, *, incomplete="fill", fillvalue=None):
-                from itertools import zip_longest
-
                 args = [iter(iterable)] * n
                 if incomplete == "fill":
                     return zip_longest(*args, fillvalue=fillvalue)
