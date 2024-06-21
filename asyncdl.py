@@ -523,7 +523,7 @@ class AsyncDL:
                         _plid = info_dict.get("playlist_id")
                         if _pltitle and _plid:
                             _temp = sanitize_filename(_pltitle, restricted=True)
-                            _base = f"{_plid}_{_temp}_{info_dict.get('extractor_key')}"
+                            _base = f"{_plid}_{_temp}"
                             _folderpath = Path(Path.home(), "testing", _base)
 
                 _folderpath.mkdir(parents=True, exist_ok=True)

@@ -77,7 +77,7 @@ class VideoDownloader:
                 )
                 _plid = self.info_dict.get("playlist_id")
                 if _pltitle and _plid:
-                    _base = f"{_plid}_{_pltitle}_{self.info_dict.get('extractor_key')}"
+                    _base = f"{_plid}_{_pltitle}"
             _download_path = Path(Path.home(), "testing", _base, self.info_dict["id"])
         else:
             _download_path = Path(self.args.path, self.info_dict["id"])
