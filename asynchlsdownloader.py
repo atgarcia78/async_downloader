@@ -460,7 +460,7 @@ class AsyncHLSDownloader:
     @on_503_hsize
     @on_exception
     def get_headersize(self, ctx: DownloadFragContext) -> Optional[int]:
-        pre = f"[get_headersize][frag-{ctx.info_frag['frag']}]"
+        pre = f"{self.premsg}[get_headersize][frag-{ctx.info_frag['frag']}]"
         if ctx.headers_range:
             logger.warning(f"{pre} NOK - fragments wth header range")
             return
@@ -659,9 +659,10 @@ class AsyncHLSDownloader:
         if not hsize:
             hsize = try_call(lambda: ctx.info_frag["headersize"])
             if not hsize and ctx.resp:
-                hsize = try_call(
-                    lambda: int_or_none(ctx.resp.headers["content-length"])
-                ) or self.get_headersize(ctx)
+                if not ctx.resp.headers.get("content-encoding"):
+                    hsize = try_call(
+                        lambda: int_or_none(ctx.resp.headers["content-length"])
+                    )  # or self.get_headersize(ctx)
         size = try_call(lambda: ctx.file.stat().st_size) or -1
         if size == 0 or (
             size > 0 and hsize and not (hsize - 100 <= size <= hsize + 100)
@@ -1313,7 +1314,7 @@ class AsyncHLSDownloader:
                     "GET", _ctx.url, headers=_ctx.headers_range
                 ) as resp:
                     logger.debug(
-                        f"{_premsg}: {resp.request} {resp} hsize: [{resp.headers.get('content-length')}]"
+                        f"{_premsg}: {resp.request} {resp} content-encoding [{resp.headers.get('content-encoding')}] hsize: [{resp.headers.get('content-length')}]"
                     )
 
                     if await _initial_checkings_ok(_ctx, resp):
