@@ -3461,6 +3461,8 @@ def naturalsize(value, binary=False, format_="6.2f"):
         "decimal": ("kB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
         "binary": ("KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB"),
     }
+    if value is None:
+        return "0"
 
     suffix = SUFFIXES["binary"] if binary else SUFFIXES["decimal"]
     base = 1024 if binary else 1000
