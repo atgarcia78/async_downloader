@@ -73,8 +73,7 @@ class VideoDownloader:
                 _pltitle = try_get(
                     self.info_dict.get("playlist")
                     or self.info_dict.get("playlist_title"),
-                    lambda x: sanitize_filename(x, restricted=True),
-                )
+                    lambda x: sanitize_filename(x, restricted=True))
                 _plid = self.info_dict.get("playlist_id")
                 if _pltitle and _plid:
                     _base = f"{_plid}_{_pltitle}"
@@ -191,27 +190,23 @@ class VideoDownloader:
 
     def _get_dl(self, info_dict: dict):
         _drm = self.args.drm and (
-            bool(info_dict.get("_has_drm")) or bool(info_dict.get("has_drm"))
-        )
+            bool(info_dict.get("_has_drm")) or bool(info_dict.get("has_drm")))
         _protocol = get_protocol(info_dict)
 
         if (
             self.args.downloader_ytdl
-            or _drm
-            or _protocol == "dash"
+            or _drm or _protocol == "dash"
             or info_dict.get("extractor_key") == "Youtube"
         ):
             try:
                 dl = AsyncYoutubeDownloader(
-                    self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm
-                )
+                    self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
                 self._types = f"YTDL_DRM-{_protocol}" if _drm else f"YTDL-{_protocol}"
                 logger.debug(f"{self.premsg}[get_dl] DL type: {self._types}")
                 return dl
             except Exception as e:
                 logger.error(
-                    f"{self.premsg}[{info_dict['format_id']}] Error in init DL"
-                )
+                    f"{self.premsg}[{info_dict['format_id']}] Error in init DL")
                 return AsyncErrorDownloader(info_dict, repr(e))
 
         if not (_info := info_dict.get("requested_formats")):
@@ -239,33 +234,26 @@ class VideoDownloader:
                 if type_protocol in ("http", "https"):
                     if self.args.aria2c:
                         dl = AsyncARIA2CDownloader(
-                            self.args, self.info_dl["ytdl"], info, self._infodl
-                        )
+                            self.args, self.info_dl["ytdl"], info, self._infodl)
                         _types.append("ARIA2")
                         logger.debug(
-                            f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C"
-                        )
-
+                            f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C")
                     else:
                         dl = AsyncHTTPDownloader(info, self)
                         _types.append("HTTP")
                         logger.debug(
-                            f"{self.premsg}[{info['format_id']}][get_dl] DL type HTTP"
-                        )
+                            f"{self.premsg}[{info['format_id']}][get_dl] DL type HTTP")
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
                     dl = AsyncHLSDownloader(
-                        self.args, self.info_dl["ytdl"], info, self._infodl
-                    )
+                        self.args, self.info_dl["ytdl"], info, self._infodl)
                     _types.append("HLS")
                     logger.debug(
-                        f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS"
-                    )
+                        f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
 
                 else:
                     logger.error(
-                        f"{self.premsg}[{info['format_id']}]:protocol not supported"
-                    )
+                        f"{self.premsg}[{info['format_id']}]:protocol not supported")
                     raise NotImplementedError("protocol not supported")
 
                 if dl.auto_pasres:

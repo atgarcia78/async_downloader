@@ -2572,7 +2572,7 @@ def get_listening_tcp() -> dict:
     """
 
     def jsonKeys2int(x):
-        trans = lambda x: int(x) if x.isdigit() else x
+        trans = lambda x: int(x) if x.isdigit() else x  # noqa: E731
         if isinstance(x, dict):
             return {trans(k): v for k, v in x.items()}
 

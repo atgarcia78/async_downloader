@@ -127,29 +127,24 @@ class AsyncHLSDLReset(Exception):
 
 
 retry = my_dec_on_exception(
-    AsyncHLSDLErrorFatal, max_tries=5, raise_on_giveup=True, interval=5
-)
+    AsyncHLSDLErrorFatal, max_tries=5, raise_on_giveup=True, interval=5)
 
 on_exception = my_dec_on_exception(
     (TimeoutError, AsyncHLSDLError, ReExtractInfo),
     max_tries=5,
     raise_on_giveup=False,
-    interval=10,
-)
+    interval=10)
 
 on_503_hsize = my_dec_on_exception(
-    StatusError503, max_time=360, raise_on_giveup=False, interval=10
-)
+    StatusError503, max_time=360, raise_on_giveup=False, interval=10)
 
 on_503 = my_dec_on_exception(
-    StatusError503, max_time=360, raise_on_giveup=True, interval=10
-)
+    StatusError503, max_time=360, raise_on_giveup=True, interval=10)
 
 network_exceptions = (httpx.ReadTimeout, httpx.RemoteProtocolError)
 
 on_network_exception = my_dec_on_exception(
-    network_exceptions, max_tries=10, raise_on_giveup=True, interval=5
-)
+    network_exceptions, max_tries=10, raise_on_giveup=True, interval=5)
 
 
 class AsyncHLSDownloader:
@@ -183,27 +178,22 @@ class AsyncHLSDownloader:
             self.ytdl = ytdl
             self.base_download_path = Path(self.info_dict["download_path"])
             self.download_path = Path(
-                self.base_download_path, self.info_dict["format_id"]
-            )
+                self.base_download_path, self.info_dict["format_id"])
             self.download_path.mkdir(parents=True, exist_ok=True)
             self.config_file = Path(
-                self.base_download_path, f"config_file.{self.info_dict['format_id']}"
-            )
+                self.base_download_path, f"config_file.{self.info_dict['format_id']}")
             _filename = Path(self.info_dict.get("filename"))
             self.fragments_base_path = Path(
                 self.download_path,
-                f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}',
-            )
+                f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
             self.filename = Path(
                 self.base_download_path,
-                f'{_filename.stem}.{self.info_dict["format_id"]}.ts',
-            )
+                f'{_filename.stem}.{self.info_dict["format_id"]}.ts')
 
             self.premsg = (
                 f'[{self.info_dict["id"]}]'
                 + f'[{self.info_dict["title"]}]'
-                + f'[{self.info_dict["format_id"]}]'
-            )
+                + f'[{self.info_dict["format_id"]}]')
 
             self.count_msg = ""
             self.key_cache = {}
@@ -214,8 +204,7 @@ class AsyncHLSDownloader:
             self.upt = {}
             self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
             self.sync_to_async = partial(
-                sync_to_async, thread_sensitive=False, executor=self.ex_dl
-            )
+                sync_to_async, thread_sensitive=False, executor=self.ex_dl)
 
             self.totalduration = traverse_obj(self.info_dict, "duration", default=0)
             self.filesize = traverse_obj(self.info_dict, "filesize", default=0)
@@ -263,8 +252,7 @@ class AsyncHLSDownloader:
             self.auto_pasres = False
             self.fromplns = None
             self._extractor = try_get(
-                self.info_dict.get("extractor_key"), lambda x: x.lower()
-            )
+                self.info_dict.get("extractor_key"), lambda x: x.lower())
 
             def getter(name: Optional[str]) -> tuple:
                 if not name:
@@ -388,16 +376,14 @@ class AsyncHLSDownloader:
                 }
             else:
                 AsyncHLSDownloader._PLNS[self.fromplns]["downloaders"].update(
-                    {self.info_dict["_index_scene"]: self}
-                )
+                    {self.info_dict["_index_scene"]: self})
 
         _downloaders = AsyncHLSDownloader._PLNS[self.fromplns]["downloaders"]
         logger.debug(
             f"{self.premsg}: "
             + f"added new dl to plns [{self.fromplns}], "
             + f"count [{len(_downloaders)}] "
-            + f"members[{list(_downloaders.keys())}]"
-        )
+            + f"members[{list(_downloaders.keys())}]")
 
     @property
     def pos(self):
@@ -782,7 +768,7 @@ class AsyncHLSDownloader:
     def calculate_filesize(self) -> Optional[int]:
         return (
             int(self.totalduration * 1000 * _bitrate / 8)
-            if (_bitrate := traverse_obj(self.info_dict, "tbr", "abr"))
+            if (_bitrate := self.info_dict.get("tbr"))
             else None
         )
 
@@ -862,9 +848,9 @@ class AsyncHLSDownloader:
     def get_reset_info(self, _reset_url: str, first=False) -> dict:
         _base = f"{self.premsg}[get_reset_inf]"
         _proxy = self._proxy.get("http://")
-        _print_proxy = lambda: (f":proxy[{_proxy.split(':')[-1]}]" if _proxy else "")
-        _print_plns = lambda: (f":PLNS[{self.fromplns}]" if self.fromplns else "")
-        _pre = lambda: "".join(
+        _print_proxy = lambda: (f":proxy[{_proxy.split(':')[-1]}]" if _proxy else "")  # noqa: E731
+        _print_plns = lambda: (f":PLNS[{self.fromplns}]" if self.fromplns else "")  # noqa: E731
+        _pre = lambda: "".join(  # noqa: E731
             [
                 f"{_base}:RESET[{self.n_reset}]:first[{first}]",
                 f"{_print_plns()}{_print_proxy()}",
