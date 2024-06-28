@@ -39,6 +39,7 @@ from utils import (
     traverse_obj,
     try_get,
     variadic,
+    get_metadata_video
 )
 
 logger = logging.getLogger("videodl")
@@ -607,6 +608,7 @@ class VideoDownloader:
         arunproctracker = self.sync_to_async(self.run_proc_tracker)
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
         autime = self.sync_to_async(os.utime)
+        aget_metadata_video = self.sync_to_async(get_metadata_video)
 
         async def check_files_exists():
             rc = True
@@ -809,6 +811,18 @@ class VideoDownloader:
                         + f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc -movflags +faststart file:"{self.temp_filename}"'
                     )
                     self.info_dl["sub_status"] = "Converting ts to mp4"
+                    proc = await arunproc(cmd)
+                    logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
+
+                    rc = proc.returncode
+
+                elif "matroska" in traverse_obj((_metainfo := await aget_metadata_video(str(self.info_dl['downloaders'][0].filename))), ('format', 'format_name')):
+                    cmd = (
+                        "ffmpeg -y -probesize max -loglevel "
+                        + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
+                        + f' -c:v copy -c:a aac -movflags +faststart file:"{self.temp_filename}"'
+                    )
+                    self.info_dl["sub_status"] = "Converting mkv to mp4"
                     proc = await arunproc(cmd)
                     logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
