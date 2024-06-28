@@ -4836,6 +4836,11 @@ def get_metadata_video(path):
     cmd = f"ffprobe -hide_banner -show_streams -show_format -print_format json {str(path)}"
     if proc := run_proc(cmd):
         return json.loads(proc.stdout)
+    
+def get_metadata_video_subt(language, info):
+    if isinstance(info, str):
+        info = get_metadata_video(info)
+    return list(filter(lambda x: x['codec_type'] == 'subtitle' and traverse_obj(x, ('tags', 'language')) == language, info['streams']))
 
 
 if FileLock and xattr:

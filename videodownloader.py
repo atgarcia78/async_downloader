@@ -39,7 +39,8 @@ from utils import (
     traverse_obj,
     try_get,
     variadic,
-    get_metadata_video
+    get_metadata_video,
+    get_metadata_video_subt
 )
 
 logger = logging.getLogger("videodl")
@@ -817,10 +818,14 @@ class VideoDownloader:
                     rc = proc.returncode
 
                 elif "matroska" in traverse_obj((_metainfo := await aget_metadata_video(str(self.info_dl['downloaders'][0].filename))), ('format', 'format_name')):
+                    _subtl_cmd = ''
+                    for _lang in (('en', 'eng'), ('es', 'spa')):
+                        if _lang[0] not in self.info_dl["downloaded_subtitles"] and get_metadata_video_subt(_lang[1], _metainfo):
+                            _subtl_cmd += f'-map 0:s:m:language:{_lang[1]} '
                     cmd = (
                         "ffmpeg -y -probesize max -loglevel "
                         + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
-                        + f' -c:v copy -c:a aac -movflags +faststart file:"{self.temp_filename}"'
+                        + f' -c copy -c:s mov_text -map 0:v -map 0:a {_subtl_cmd}-movflags +faststart file:"{self.temp_filename}"'
                     )
                     self.info_dl["sub_status"] = "Converting mkv to mp4"
                     proc = await arunproc(cmd)
