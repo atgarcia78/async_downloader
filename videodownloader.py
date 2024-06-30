@@ -396,28 +396,22 @@ class VideoDownloader:
                     f"{self.premsg}[run_dl] status"
                     + f"{[dl.status for dl in self.info_dl['downloaders']]}"
                 )
-                tasks_run = {
-                    self.add_task(dl.fetch_async(), name=f"fetch_async_{i}")
-                    for i, dl in enumerate(self.info_dl["downloaders"])
-                    if dl.status not in ("init_manipulating", "done")
-                }
 
-                logger.debug(f"{self.premsg}[run_dl] tasks run {len(tasks_run)}")
-
-                if tasks_run and (
-                    _excep := try_get(
-                        await asyncio.wait(tasks_run),
-                        lambda x: {
-                            d.exception(): d._name for d in x[0] if d.exception()
-                        }
-                        if x[0]
-                        else None,
-                    )
-                ):
-                    for error, label in _excep.items():
-                        logger.error(
-                            f"{self.premsg}[run_dl] task[{label}]: {repr(error)}"
-                        )
+                for i, dl in enumerate(self.info_dl["downloaders"]):
+                    if dl.status not in ("init_manipulating", "done"):
+                        _task = self.add_task(dl.fetch_async(), name=f"fetch_async_{i}")
+                        if _excep := try_get(
+                            await asyncio.wait([_task]),
+                            lambda x: {
+                                d.exception(): d._name for d in x[0] if d.exception()
+                            }
+                            if x[0]
+                            else None,
+                        ):
+                            for error, label in _excep.items():
+                                logger.error(
+                                    f"{self.premsg}[run_dl] task[{label}]: {repr(error)}"
+                                )
 
                 if self.stop_event.is_set():
                     logger.debug(

@@ -488,17 +488,12 @@ class AsyncHLSDownloader:
     @on_503
     @on_exception
     def download_init_section(self):
-        url, file = traverse_obj(
-            self.info_init_section, (("url", "file"),), default=[None, None, None]
-        )
-        if not url or not file:
-            raise AsyncHLSDLError(f"{self.premsg}:[get_init_section] not url or file")
-
         with self._limit:
             try:
                 if res := send_http_request(
-                    url,
+                    self.info_init_section['url'],
                     client=self.init_client,
+                    headers=self.info_init_section['headers_range'],
                     logger=logger.debug,
                     new_e=AsyncHLSDLError,
                 ):
@@ -507,7 +502,7 @@ class AsyncHLSDownloader:
                             f"{self.premsg}:[get_init_section] {res['error']}"
                         )
                     _data = res.content
-                    with open(file, "wb") as fsect:
+                    with open(self.info_init_section['file'], "wb") as fsect:
                         fsect.write(_data)
                     self.info_init_section["downloaded"] = True
                 else:
@@ -523,12 +518,22 @@ class AsyncHLSDownloader:
         _url = _initfrag.absolute_uri
         if "&hash=" in _url and _url.endswith("&="):
             _url += "&="
+        byte_range = {}
+        headers_range = {}
+        if _initfrag.byterange:
+            el = _initfrag.byterange.split('@')
+            byte_range = {"start": int(el[1]), "end": int(el[0])}
+            headers_range = {
+                "range": f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
+            }
         self.info_init_section = {
             "frag": 0,
             "url": _url,
             "file": _file_path,
             # "key": _initfrag.key,
             # "cipher": traverse_obj(self.key_cache, (try_call(lambda: _initfrag.key.uri), "cipher")),
+            "byte_range": byte_range,
+            "headers_range": headers_range,
             "downloaded": _file_path.exists(),
         }
         if not self.info_init_section["downloaded"]:
@@ -573,21 +578,19 @@ class AsyncHLSDownloader:
             for fragment in _list_segments:
                 if not fragment.uri and fragment.parts:
                     fragment.uri = fragment.parts[0].uri
-                byte_range = {}
                 headers_range = {}
                 if fragment.byterange:
                     splitted_byte_range = fragment.byterange.split("@")
-                    if sub_range_start := (
+                    sub_range_start = (
                         try_get(splitted_byte_range, lambda x: int(x[1]))
-                        or byte_range.get("end")
-                    ):
-                        byte_range = {
-                            "start": sub_range_start,
-                            "end": sub_range_start + int(splitted_byte_range[0]),
-                        }
-                        headers_range = {
-                            "range": f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
-                        }
+                        or byte_range.get("end") or 0)
+                    byte_range = {
+                        "start": sub_range_start,
+                        "end": sub_range_start + int(splitted_byte_range[0]),
+                    }
+                    headers_range = {
+                        "range": f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
+                    }
                 _url = fragment.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
