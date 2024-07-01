@@ -1822,7 +1822,7 @@ if yt_dlp:
                 {"key": "FFmpegConcat", "only_multi_video": True, "when": "playlist"},
             ],
             "external_downloader": {"default": "native"},
-            "concurrent_fragment_downloads": 64,
+            "concurrent_fragment_downloads": 128,
             "restrictfilenames": True,
             "user_agent": args.useragent,
             "verboseplus": args.vv,

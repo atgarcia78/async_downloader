@@ -282,14 +282,11 @@ class AsyncHLSDownloader:
 
             _nworkers, self._interv, self._limit = getter(self._extractor)
 
-            if 'audio' in self.info_dict["format_id"]:
-                self.n_workers = min(16, self.n_workers)
-            else:
-                self.n_workers = (
-                    max(self.n_workers, _nworkers)
-                    if _nworkers >= 16
-                    else min(self.n_workers, _nworkers)
-                )
+            self.n_workers = (
+                max(self.n_workers, _nworkers)
+                if _nworkers >= 16
+                else min(self.n_workers, _nworkers)
+            )
 
             self.m3u8_doc = None
             self._host = get_host(self.info_dict["url"])

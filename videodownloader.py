@@ -5,6 +5,7 @@ import shlex
 import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -12,7 +13,7 @@ from queue import Queue
 
 import aiofiles.os
 import xattr
-from yt_dlp.utils import sanitize_filename
+from yt_dlp.utils import sanitize_filename, variadic
 
 from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asynchlsdownloader import AsyncHLSDownloader
@@ -29,6 +30,8 @@ from utils import (
     async_suppress,
     get_drm_xml,
     get_format_id,
+    get_metadata_video,
+    get_metadata_video_subt,
     get_protocol,
     get_pssh_from_manifest,
     myYTDL,
@@ -38,9 +41,6 @@ from utils import (
     translate_srt,
     traverse_obj,
     try_get,
-    variadic,
-    get_metadata_video,
-    get_metadata_video_subt
 )
 
 logger = logging.getLogger("videodl")
@@ -75,7 +75,8 @@ class VideoDownloader:
                 _pltitle = try_get(
                     self.info_dict.get("playlist")
                     or self.info_dict.get("playlist_title"),
-                    lambda x: sanitize_filename(x, restricted=True))
+                    lambda x: sanitize_filename(x, restricted=True),
+                )
                 _plid = self.info_dict.get("playlist_id")
                 if _pltitle and _plid:
                     _base = f"{_plid}_{_pltitle}"
@@ -191,24 +192,26 @@ class VideoDownloader:
                 dl.ex_dl.shutdown(wait=False, cancel_futures=True)
 
     def _get_dl(self, info_dict: dict):
-        _drm = self.args.drm and (
-            bool(info_dict.get("_has_drm")) or bool(info_dict.get("has_drm")))
+        _drm = self.args.drm and (bool(info_dict.get("has_drm", "_has_drm")))
         _protocol = get_protocol(info_dict)
 
         if (
             self.args.downloader_ytdl
-            or _drm or _protocol == "dash"
+            or _drm
+            or _protocol == "dash"
             or info_dict.get("extractor_key") == "Youtube"
         ):
             try:
                 dl = AsyncYoutubeDownloader(
-                    self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm)
+                    self.args, self.info_dl["ytdl"], info_dict, self._infodl, drm=_drm
+                )
                 self._types = f"YTDL_DRM-{_protocol}" if _drm else f"YTDL-{_protocol}"
                 logger.debug(f"{self.premsg}[get_dl] DL type: {self._types}")
                 return dl
             except Exception as e:
                 logger.error(
-                    f"{self.premsg}[{info_dict['format_id']}] Error in init DL")
+                    f"{self.premsg}[{info_dict['format_id']}] Error in init DL"
+                )
                 return AsyncErrorDownloader(info_dict, repr(e))
 
         if not (_info := info_dict.get("requested_formats")):
@@ -236,26 +239,32 @@ class VideoDownloader:
                 if type_protocol in ("http", "https"):
                     if self.args.aria2c:
                         dl = AsyncARIA2CDownloader(
-                            self.args, self.info_dl["ytdl"], info, self._infodl)
+                            self.args, self.info_dl["ytdl"], info, self._infodl
+                        )
                         _types.append("ARIA2")
                         logger.debug(
-                            f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C")
+                            f"{self.premsg}[{info['format_id']}][get_dl] DL type ARIA2C"
+                        )
                     else:
                         dl = AsyncHTTPDownloader(info, self)
                         _types.append("HTTP")
                         logger.debug(
-                            f"{self.premsg}[{info['format_id']}][get_dl] DL type HTTP")
+                            f"{self.premsg}[{info['format_id']}][get_dl] DL type HTTP"
+                        )
 
                 elif type_protocol in ("m3u8", "m3u8_native"):
                     dl = AsyncHLSDownloader(
-                        self.args, self.info_dl["ytdl"], info, self._infodl)
+                        self.args, self.info_dl["ytdl"], info, self._infodl
+                    )
                     _types.append("HLS")
                     logger.debug(
-                        f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS")
+                        f"{self.premsg}[{info['format_id']}][get_dl] DL type HLS"
+                    )
 
                 else:
                     logger.error(
-                        f"{self.premsg}[{info['format_id']}]:protocol not supported")
+                        f"{self.premsg}[{info['format_id']}]:protocol not supported"
+                    )
                     raise NotImplementedError("protocol not supported")
 
                 if dl.auto_pasres:
@@ -382,7 +391,133 @@ class VideoDownloader:
                 if "hls" in str(type(dl)).lower():
                     await self.sync_to_async(dl.init)()
 
+    def _get_subts_files(self):
+        def _dl_subt(subts):
+            if not subts:
+                return
+            opts_upt = {
+                "skip_download": True,
+                "keepvideo": self.args.keep_videos,
+                "format": self.info_dict["format_id"],
+                "paths": {"home": str(self.info_dl["filename"].absolute().parent)},
+                "outtmpl": {"default": f'{self.info_dl["filename"].stem}.%(ext)s'},
+            }
+            with myYTDL(
+                params=(self.info_dl["ytdl"].params | opts_upt), silent=True
+            ) as pytdl:
+                _fmt = get_format_id(
+                    self.info_dict,
+                    try_get(self.info_dict.get("format_id"), lambda x: x.split("+")[0]),
+                )
+                pytdl.params["http_headers"] |= _fmt.get("http_headers") or {}
+                if _cookies_str := _fmt.get("cookies"):
+                    pytdl._load_cookies(_cookies_str, autoscope=False)
+                _info_dict = pytdl.sanitize_info(
+                    pytdl.process_ie_result(
+                        self.info_dict | {"subtitles": subts}, download=True
+                    )
+                )
+            return _info_dict
+
+        def _sanitize_subts(subts):
+            _final_subts = {
+                _key: _val for _key, _val in subts.items() if _key in ["es", "en", "ca"]
+            }
+            for _lang in ["es", "en"]:
+                if _lang not in _final_subts:
+                    for key, val in subts.items():
+                        if key.startswith(_lang):
+                            _final_subts[_lang] = val
+                            break
+            return _final_subts
+
+        if not (
+            _final_subts := try_get(
+                self.info_dict.get("requested_subtitles"), lambda x: _sanitize_subts(x)
+            )
+        ):
+            return
+
+        _to_dl_subts = {}
+
+        for _lang, _subt in _final_subts.items():
+            _subt["downloaded"] = False
+            _subt["filepath"] = Path(
+                self.info_dl["filename"].absolute().parent,
+                f'{self.info_dl["filename"].stem}.{_lang}.srt',
+            )
+            if _subt["filepath"].exists() and _subt["filepath"].stat().st_size > 0:
+                _subt["downloaded"] = True
+                self.info_dl["downloaded_subtitles"][_lang] = str(_subt["filepath"])
+            else:
+                _newsubt = {
+                    k: v
+                    for k, v in _subt.items()
+                    if k not in ("downloaded", "filepath")
+                }
+                _to_dl_subts[_lang] = [_newsubt]
+
+        logger.debug(
+            f"{self.premsg}[get_subts] subts to dl: {_to_dl_subts} final_subts: {_final_subts}"
+        )
+
+        try:
+            _info_dl_subt = _dl_subt(_to_dl_subts)
+        except Exception as e:
+            logger.exception(f"{self.premsg}[get_subts] error en dl_subt {repr(e)}")
+
+        logger.debug(f"{self.premsg}[get_subts] info_dl_subt\n{_info_dl_subt}")
+
+        for _lang, _subt in _final_subts.items():
+            if not _subt["downloaded"]:
+                if _subt["filepath"].exists() and _subt["filepath"].stat().st_size > 0:
+                    _subt["downloaded"] = True
+                    self.info_dl["downloaded_subtitles"][_lang] = str(_subt["filepath"])
+                else:
+                    logger.error(
+                        f"{self.premsg}[get_subts][{_lang}]  couldnt generate subtitle file"
+                    )
+                    with suppress(OSError):
+                        os.remove(_subt["filepath"])
+        if (
+            "ca" in self.info_dl["downloaded_subtitles"]
+            and "es" not in self.info_dl["downloaded_subtitles"]
+        ):
+            logger.debug(
+                f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]"
+            )
+            _subs_file = self.info_dl["downloaded_subtitles"]["ca"].replace(
+                ".ca.srt", ".es.srt"
+            )
+            try:
+                with open(_subs_file, "w") as f:
+                    f.write(
+                        translate_srt(
+                            self.info_dl["downloaded_subtitles"]["ca"], "ca", "es"
+                        )
+                    )
+                if Path(_subs_file).exists():
+                    self.info_dl["downloaded_subtitles"]["es"] = _subs_file
+                    logger.debug(f"{self.premsg}: subs file [es, srt] ready")
+            except Exception as e:
+                logger.exception(
+                    f"{self.premsg}[get_subts] couldnt translate subtitle file from ca to es: {repr(e)}"
+                )
+        logger.debug(
+            f"{self.premsg}[get_subts] final_subts: {_final_subts}, info_dl.downloaded_subtitles[{self.info_dl['downloaded_subtitles']}]"
+        )
+
+    async def _handle_await(self, _name, _tasks):
+        if _excep := try_get(
+            await asyncio.wait(_tasks),
+            lambda x: {d._name: _err for d in x[0] if (_err := d.exception())},
+        ):
+            for label, error in _excep.items():
+                logger.error(f"{self.premsg}[{_name}] task[{label}]: {repr(error)}")
+
     async def run_dl(self):
+        aget_subts_files = self.sync_to_async(self._get_subts_files)
+
         self.info_dl["ytdl"].params["stop_dl"][str(self.index)] = self.stop_event
         logger.debug(
             f"{self.premsg}: [run_dl] "
@@ -390,6 +525,15 @@ class VideoDownloader:
         )
 
         try:
+            if (
+                self.args.subt
+                and self.info_dict.get("requested_subtitles")
+                and "YTDL-" not in self._types
+            ):
+                await self._handle_await(
+                    "run_dl", [self.add_task(aget_subts_files(), name="get_subts")]
+                )
+
             if self.info_dl["status"] == "init":
                 self.info_dl["status"] = "downloading"
                 logger.debug(
@@ -397,21 +541,14 @@ class VideoDownloader:
                     + f"{[dl.status for dl in self.info_dl['downloaders']]}"
                 )
 
+                _tasks = []
                 for i, dl in enumerate(self.info_dl["downloaders"]):
                     if dl.status not in ("init_manipulating", "done"):
-                        _task = self.add_task(dl.fetch_async(), name=f"fetch_async_{i}")
-                        if _excep := try_get(
-                            await asyncio.wait([_task]),
-                            lambda x: {
-                                d.exception(): d._name for d in x[0] if d.exception()
-                            }
-                            if x[0]
-                            else None,
-                        ):
-                            for error, label in _excep.items():
-                                logger.error(
-                                    f"{self.premsg}[run_dl] task[{label}]: {repr(error)}"
-                                )
+                        _tasks.append(
+                            self.add_task(dl.fetch_async(), name=f"fetch_async_{i}")
+                        )
+
+                await self._handle_await("run_dl", _tasks)
 
                 if self.stop_event.is_set():
                     logger.debug(
@@ -440,110 +577,6 @@ class VideoDownloader:
         except Exception as e:
             logger.exception(f"{self.premsg}[run_dl] error when DL {repr(e)}")
             self.info_dl["status"] = "error"
-
-    def _get_subts_files(self):
-        def _dl_subt(subs):
-            opts_upt = {
-                "skip_download": True,
-                "keepvideo": self.args.keep_videos,
-                "format": self.info_dict["format_id"],
-                "paths": {"home": str(self.info_dl["filename"].absolute().parent)},
-                "outtmpl": {"default": f'{self.info_dl["filename"].stem}.%(ext)s'},
-            }
-            with myYTDL(
-                params=(self.info_dl["ytdl"].params | opts_upt), silent=True
-            ) as pytdl:
-                _fmt = get_format_id(
-                    self.info_dict,
-                    try_get(self.info_dict.get("format_id"), lambda x: x.split("+")[0]),
-                )
-                pytdl.params["http_headers"] |= _fmt.get("http_headers") or {}
-                if _cookies_str := _fmt.get("cookies"):
-                    pytdl._load_cookies(_cookies_str, autoscope=False)
-                _subs = {_lang: [_val] for _lang, _val in subs.items()}
-                _info_dict = pytdl.sanitize_info(
-                    pytdl.process_ie_result(
-                        self.info_dict | {"subtitles": _subs}, download=True
-                    )
-                )
-            return _info_dict
-
-        try:
-            if not (_subts := self.info_dict.get("requested_subtitles")):
-                return
-
-            _final_subts = {
-                key: val
-                for key, val in _subts.items()
-                if any([key == "es", key == "en", key == "ca"])
-            }
-
-            # ytdl.params["subtitleslangs"]: ["all"]
-            for _lang in ["es", "en"]:
-                if _lang not in _final_subts:
-                    for key, val in _subts.items():
-                        if key.startswith(_lang):
-                            _final_subts[_lang] = val
-                            break
-
-            logger.debug(f"{self.premsg}[get_subts] final_subts: {_final_subts}")
-            if not _final_subts:
-                return
-            _info = _dl_subt(_final_subts)
-            logger.debug(
-                f"{self.premsg}[get_subts] info_dict_subt\n{_info.get('requested_subtitles')}"
-            )
-        except Exception as e:
-            logger.exception(f"{self.premsg}[get_subts] {repr(e)}")
-
-        for _lang in _final_subts:
-            _subts_file = traverse_obj(
-                _info, ("requested_subtitles", _lang, "filepath")
-            )
-            try:
-                _exists = Path(_subts_file).exists() if _subts_file else False
-                _size = Path(_subts_file).stat().st_size if _exists else -1
-                logger.debug(
-                    f"{self.premsg}[get_subts][{_lang}] file: {_subts_file} exists[{_exists}] size[{_size}]"
-                )
-                if _size > 0:
-                    self.info_dl["downloaded_subtitles"][_lang] = _subts_file
-                else:
-                    raise Exception("error with subt file")
-            except Exception as e:
-                logger.exception(
-                    f"{self.premsg}[get_subts][{_lang}]  couldnt generate subtitle file: {repr(e)}"
-                )
-                if _subts_file:
-                    try:
-                        os.remove(_subts_file)
-                    except OSError:
-                        pass
-
-        if (
-            "ca" in self.info_dl["downloaded_subtitles"]
-            and "es" not in self.info_dl["downloaded_subtitles"]
-        ):
-            logger.debug(
-                f"{self.premsg}: subs will translate from [ca, srt] to [es, srt]"
-            )
-            _subs_file = self.info_dl["downloaded_subtitles"]["ca"].replace(
-                ".ca.srt", ".es.srt"
-            )
-            try:
-                with open(_subs_file, "w") as f:
-                    f.write(
-                        translate_srt(
-                            self.info_dl["downloaded_subtitles"]["ca"], "ca", "es"
-                        )
-                    )
-                if Path(_subs_file).exists():
-                    self.info_dl["downloaded_subtitles"]["es"] = _subs_file
-                    logger.debug(f"{self.premsg}: subs file [es, srt] ready")
-            except Exception as e:
-                logger.exception(
-                    f"{self.premsg}[get_subts] couldnt translate subtitle file from ca to es: {repr(e)}"
-                )
 
     def _get_drm_xml(self) -> str:
         if not (_licurl := traverse_obj(self.info_dict, ("_drm", "licurl"))):
@@ -598,7 +631,6 @@ class VideoDownloader:
             return subprocess.CompletedProcess(_cmd, 1, stdout=None, stderr=repr(e))
 
     async def run_manip(self):
-        aget_subts_files = self.sync_to_async(self._get_subts_files)
         arunproc = self.sync_to_async(self.run_proc)
         arunproctracker = self.sync_to_async(self.run_proc_tracker)
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
@@ -646,7 +678,7 @@ class VideoDownloader:
             try:
                 embed_filename = prepend_extension(self.temp_filename, "embed")
 
-                def _make_embed_gpac_cmd():
+                def _make_embed_subt_cmd():
                     _part_cmd = " -add ".join(
                         [
                             f"{_file}:lang={_lang}:hdlr=sbtl"
@@ -658,7 +690,7 @@ class VideoDownloader:
                     return f"MP4Box -flat -add {_part_cmd} {self.temp_filename} -out {embed_filename}"
 
                 logger.info(f"{self.premsg}: starting embed subt")
-                proc = await arunproc(cmd := _make_embed_gpac_cmd())
+                proc = await arunproc(cmd := _make_embed_subt_cmd())
                 logger.debug(
                     f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}"
                 )
@@ -752,40 +784,16 @@ class VideoDownloader:
         blocking_tasks = {}
 
         try:
-            blocking_tasks = {
-                self.add_task(
-                    dl.ensamble_file(), name=f"ensamble_file_{dl.premsg}"
-                ): f"ensamble_file_{dl.premsg}"
+            if blocking_tasks := [
+                self.add_task(dl.ensamble_file(), name=f"ensamble_file_{dl.premsg}")
                 for dl in self.info_dl["downloaders"]
                 if dl.status == "init_manipulating"
-            }
-            if blocking_tasks:
+            ]:
                 self.info_dl["sub_status"] = "Ensambling file"
-            if (
-                self.args.subt
-                and self.info_dict.get("requested_subtitles")
-                and self._types != "YTD"
-            ):
-                blocking_tasks |= {
-                    self.add_task(aget_subts_files(), name="get_subts"): "get_subs"
-                }
-
-            logger.debug(f"{self.premsg}[run_manip] blocking tasks\n{blocking_tasks}")
-
-            if blocking_tasks and (
-                _excep := try_get(
-                    await asyncio.wait(list(blocking_tasks.keys())),
-                    lambda x: {
-                        d.exception(): blocking_tasks[d] for d in x[0] if d.exception()
-                    },
+                logger.debug(
+                    f"{self.premsg}[run_manip] blocking tasks\n{blocking_tasks}"
                 )
-            ):
-                for error, label in _excep.items():
-                    logger.error(
-                        f"{self.premsg}[run_manip] task[{label}]: {repr(error)}"
-                    )
-
-            logger.debug(f"{self.premsg}[run_manip] done blocking tasks")
+                await self._handle_await("run_manip", blocking_tasks)
 
             await check_files_exists()
 
@@ -811,11 +819,20 @@ class VideoDownloader:
 
                     rc = proc.returncode
 
-                elif "matroska" in traverse_obj((_metainfo := await aget_metadata_video(str(self.info_dl['downloaders'][0].filename))), ('format', 'format_name')):
-                    _subtl_cmd = ''
-                    for _lang in (('en', 'eng'), ('es', 'spa')):
-                        if _lang[0] not in self.info_dl["downloaded_subtitles"] and get_metadata_video_subt(_lang[1], _metainfo):
-                            _subtl_cmd += f'-map 0:s:m:language:{_lang[1]} '
+                elif "matroska" in traverse_obj(
+                    (
+                        _metainfo := await aget_metadata_video(
+                            str(self.info_dl["downloaders"][0].filename)
+                        )
+                    ),
+                    ("format", "format_name"),
+                ):
+                    _subtl_cmd = ""
+                    for _lang in (("en", "eng"), ("es", "spa")):
+                        if _lang[0] not in self.info_dl[
+                            "downloaded_subtitles"
+                        ] and get_metadata_video_subt(_lang[1], _metainfo):
+                            _subtl_cmd += f"-map 0:s:m:language:{_lang[1]} "
                     cmd = (
                         "ffmpeg -y -probesize max -loglevel "
                         + f"repeat+info -i file:\"{str(self.info_dl['downloaders'][0].filename)}\""
@@ -870,11 +887,11 @@ class VideoDownloader:
                         f"{self.premsg}: error merge, ffmpeg error: {rc}"
                     )
 
-            if self._types != "YOUTUBE" and self.info_dl["downloaded_subtitles"]:
+            if "YTDL-" not in self._types and self.info_dl["downloaded_subtitles"]:
                 self.info_dl["sub_status"] = "Embeding subt"
                 await embed_subt()
 
-            if self._types != "YOUTUBE" and self.args.xattr:
+            if "YTDL-" not in self._types and self.args.xattr:
                 self.info_dl["sub_status"] = "Embeding metadata"
                 await embed_metadata()
 
@@ -900,10 +917,6 @@ class VideoDownloader:
         except Exception as e:
             logger.exception(f"{self.premsg} error when manipulating {repr(e)}")
             self.info_dl["status"] = "error"
-            if blocking_tasks:
-                for t in blocking_tasks:
-                    t.cancel()
-                await asyncio.wait(blocking_tasks)
             raise
         finally:
             if not self.args.keep_videos:
