@@ -192,7 +192,7 @@ class VideoDownloader:
                 dl.ex_dl.shutdown(wait=False, cancel_futures=True)
 
     def _get_dl(self, info_dict: dict):
-        _drm = self.args.drm and (bool(info_dict.get("has_drm", "_has_drm")))
+        _drm = self.args.drm and (bool(info_dict.get("has_drm", info_dict.get("_has_drm"))))
         _protocol = get_protocol(info_dict)
 
         if (
