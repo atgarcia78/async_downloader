@@ -1831,7 +1831,9 @@ if yt_dlp:
             "stop": threading.Event(),
             "lock": threading.Lock(),
             "embed": not args.no_embed,
-            "_util_classes": {"SimpleCountDown": SimpleCountDown},
+            "_util_classes": {
+                "SimpleCountDown": SimpleCountDown,
+                "myYTDL": myYTDL},
             "outtmpl": {"default": args.outtmpl},
         }
 
