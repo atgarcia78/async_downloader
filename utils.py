@@ -435,7 +435,7 @@ def put_sequence(
 
 
 def matchpatternnostringbefore(pattern, nostring, text):
-    return re.search(rf'^(?:(?!{nostring}).)*{pattern}', text)
+    return re.search(rf"^(?:(?!{nostring}).)*{pattern}", text)
 
 
 def subnright(pattern, repl, text, n):
@@ -1219,7 +1219,7 @@ if yt_dlp:
             By,
             ConnectError,
             HTTPStatusError,
-            ProgressBar,
+            GroupProgressBar,
             ReExtractInfo,
             SeleniumInfoExtractor,
             StatusError503,
@@ -1374,7 +1374,7 @@ if yt_dlp:
                         any(_ in mobj2 for _ in self._skip_phr),
                     ]
                 ):
-                    self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+                    self.log(logging.DEBUG, msg[len(mobj) :].strip(), *args, **kwargs)
                 else:
                     self.log(logging.INFO, msg, *args, **kwargs)
             elif self.superverbose:
@@ -1386,7 +1386,7 @@ if yt_dlp:
                 "[download]",
                 "[debug+]",
             ) or any(_ in mobj2 for _ in self._skip_phr):
-                self.log(logging.DEBUG, msg[len(mobj):].strip(), *args, **kwargs)
+                self.log(logging.DEBUG, msg[len(mobj) :].strip(), *args, **kwargs)
             else:
                 self.log(logging.INFO, msg, *args, **kwargs)
 
@@ -1831,9 +1831,7 @@ if yt_dlp:
             "stop": threading.Event(),
             "lock": threading.Lock(),
             "embed": not args.no_embed,
-            "_util_classes": {
-                "SimpleCountDown": SimpleCountDown,
-                "myYTDL": myYTDL},
+            "_util_classes": {"SimpleCountDown": SimpleCountDown, "myYTDL": myYTDL},
             "outtmpl": {"default": args.outtmpl},
         }
 
@@ -3147,6 +3145,16 @@ class TorGuardProxies:
             )
 
 
+def create_progress_bar(
+    pbid: str,
+    total: int | float,
+    block_logging: bool = True,
+    msg: str | None = None,
+):
+    group_pb = GroupProgressBar(sys.stdout, 5)
+    return group_pb.add_pb(pbid, total, block_logging, msg)
+
+
 def get_all_wd_conf(name=None):
     if name and "torguard.com" in name:
         ips = TorGuardProxies.get_ips(name)
@@ -3155,14 +3163,12 @@ def get_all_wd_conf(name=None):
             _pre = name.split(".")[0].upper()
             proxies = TorGuardProxies()
 
-            with ProgressBar(None, total) as pb:
+            with create_progress_bar("torguard", total, msg="got conf") as pb:
 
                 def getconf(_ip):
                     with contextlib.suppress(Exception):
                         proxies.genwgconf(_ip, pre=_pre)
-                    with pb._lock:
-                        pb.update()
-                        pb.print("")
+                    pb.update_print("")
 
                 with ThreadPoolExecutor(
                     thread_name_prefix="tgconf", max_workers=5
@@ -3831,8 +3837,7 @@ class SimpleCountDown:
                     if _input in ["exit", "", str(self.indexdl)]:
                         break
                     self.check()
-                    self.pb.update()
-                    self.pb.print("Waiting")
+                    self.pb.update_print("Waiting")
 
                 except Exception as e:
                     self.logger.debug(f"[{self.indexdl}] event is set {repr(e)}")
@@ -4592,7 +4597,7 @@ if PySimpleGUI:
                                                 self.window_console.write_event_value(
                                                     "Resume",
                                                     ",".join(
-                                                        list(map(str, _list[i + 1:]))
+                                                        list(map(str, _list[i + 1 :]))
                                                     ),
                                                 )
 
@@ -4838,11 +4843,18 @@ def get_metadata_video(path):
     cmd = f"ffprobe -hide_banner -show_streams -show_format -print_format json {str(path)}"
     if proc := run_proc(cmd):
         return json.loads(proc.stdout)
-    
+
+
 def get_metadata_video_subt(language, info):
     if isinstance(info, str):
         info = get_metadata_video(info)
-    return list(filter(lambda x: x['codec_type'] == 'subtitle' and traverse_obj(x, ('tags', 'language')) == language, info['streams']))
+    return list(
+        filter(
+            lambda x: x["codec_type"] == "subtitle"
+            and traverse_obj(x, ("tags", "language")) == language,
+            info["streams"],
+        )
+    )
 
 
 if FileLock and xattr:
