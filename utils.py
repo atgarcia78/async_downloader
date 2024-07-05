@@ -1218,7 +1218,6 @@ if yt_dlp:
         from yt_dlp_plugins.extractor.commonwebdriver import (
             By,
             ConnectError,
-            HTTPStatusError,
             GroupProgressBar,
             ReExtractInfo,
             SeleniumInfoExtractor,
@@ -1239,7 +1238,6 @@ if yt_dlp:
         )
     except Exception:
         pass
-    assert HTTPStatusError
     assert LimitContextDecorator
     assert find_available_port
     assert unsmuggle_url
@@ -1950,7 +1948,7 @@ if yt_dlp:
 
     def send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
         """
-        raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
+        raises ReExtractInfo(403), httpx.HTTPStatusError, StatusError503, TimeoutError, ConnectError
         """
         new_e = kwargs.pop("new_e", Exception)
         try:
@@ -1962,7 +1960,7 @@ if yt_dlp:
 
     async def async_send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
         """
-        raises ReExtractInfo(403), HTTPStatusError, StatusError503, TimeoutError, ConnectError
+        raises ReExtractInfo(403),httpx.HTTPStatusError, StatusError503, TimeoutError, ConnectError
         """
         new_e = kwargs.pop("new_e", Exception)
         try:
@@ -2003,7 +2001,7 @@ if yt_dlp:
                 raise
             else:
                 raise_extractor_error(_msg_err)
-        except HTTPStatusError as e:
+        except httpx.HTTPStatusError as e:
             e.args = (e.args[0].split("\nFor more")[0],)
             _msg_err = str(e)
             if e.response.status_code == 403:
@@ -2048,7 +2046,7 @@ if yt_dlp:
                 raise
             else:
                 raise_extractor_error(_msg_err)
-        except HTTPStatusError as e:
+        except httpx.HTTPStatusError as e:
             e.args = (e.args[0].split("\nFor more")[0],)
             _msg_err = str(e)
             if e.response.status_code == 403:
