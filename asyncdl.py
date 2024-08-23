@@ -399,7 +399,7 @@ class AsyncDL:
                                 raise StatusStop()
                             if not _ent.get("original_url"):
                                 _ent.update({"original_url": _url})
-                            if _ent.get("error") or not _ent.get("format"):
+                            if _ent.get("error") or (_ent.get("_type", "video") == "video" and not _ent.get("format")):
                                 _ent["_type"] = "error"
                                 await self._prepare_entry_pl_for_dl(_ent)
                                 async with self.alock:
@@ -758,7 +758,7 @@ class AsyncDL:
                     logger.debug(f"{_pre} info extracted\n{_for_print(info)}")
                 except Exception as e:
                     _error = self._handle_error(url_key, repr(e))
-                    logger.error(f"{_pre} init nok - {_error}")
+                    logger.exception(f"{_pre} init nok - {_error}")
                     return
             else:
                 info = vid
