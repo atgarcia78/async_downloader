@@ -14,7 +14,7 @@ import selectors
 import shlex
 import shutil
 import signal
-import 
+import subprocess
 import sys
 import termios
 import threading
@@ -181,12 +181,12 @@ class Tracker:
         self._stderr_queue = Queue()
         self._stderr_buffer = ""
         self.progress_pattern = re.compile(pattern)
-        self.proc = .Popen(
+        self.proc = subprocess.Popen(
             shlex.split(cmd),
             text=True,
             encoding="utf8",
-            stdout=.PIPE,
-            stderr=.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
 
     def _handle_lines(self):
@@ -256,7 +256,7 @@ def get_dependencies(your_package):
 
 
 def pip_show(_pckg):
-    pckg = .run(
+    pckg = subprocess.run(
         ["pip", "show", _pckg], capture_output=True, encoding="utf-8"
     ).stdout
     if len(_temp := pckg.split("----")) > 1:
@@ -282,7 +282,7 @@ def pip_show(_pckg):
 
 
 def pip_list():
-    piplist = .run(
+    piplist = subprocess.run(
         "pip list | awk '{print $1}' | egrep -v 'Package|---'",
         shell=True,
         capture_output=True,
@@ -2574,7 +2574,7 @@ def get_listening_tcp() -> dict:
         if isinstance(x, dict):
             return {trans(k): v for k, v in x.items()}
 
-    if printout := .run(
+    if printout := subprocess.run(
         ["sudo", "_listening", "-o", "json"], encoding="utf-8", capture_output=True
     ).stdout:
         return json.loads(printout, object_hook=jsonKeys2int)
@@ -2595,11 +2595,11 @@ def init_aria2c(args):
 
     _cmd = f"aria2c --rpc-listen-port {args.rpcport} --enable-rpc "
     _cmd += "--rpc-max-request-size=2M --rpc-listen-all --quiet=true"
-    _proc = .Popen(
+    _proc = subprocess.Popen(
         shlex.split(_cmd),
-        stdout=.PIPE,
-        stderr=.PIPE,
-        stdin=.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE,
     )
 
     while _proc.poll() is None:
@@ -2667,7 +2667,7 @@ class myIP:
 
     @staticmethod
     def _get_rtt(ip):
-        res = .run(
+        res = subprocess.run(
             ["ping", "-c", "10", "-q", "-S", "192.168.1.128", ip],
             encoding="utf-8",
             capture_output=True,
@@ -2802,8 +2802,8 @@ class TorGuardProxies:
         proc_gost = []
         for cmd in cmd_gost:
             try:
-                _proc = .Popen(
-                    shlex.split(cmd), stdout=.PIPE, stderr=.PIPE
+                _proc = subprocess.Popen(
+                    shlex.split(cmd), stdout=subprocess.PIPE, stderr=subprocess.PIPE
                 )
                 _proc.poll()
                 if _proc.returncode:
@@ -2834,7 +2834,7 @@ class TorGuardProxies:
         try:
             _res_bad = None
             if not cls.EVENT.is_set():
-                _res_ps = .run(
+                _res_ps = subprocess.run(
                     ["ps"], encoding="utf-8", capture_output=True
                 ).stdout
                 cls.logger.debug(f"[init_proxies] %no%\n\n{_res_ps}")
@@ -2864,7 +2864,7 @@ class TorGuardProxies:
 
     @classmethod
     def get_ips(cls, name):
-        res = .run(
+        res = subprocess.run(
             f"dscacheutil -q host -a name {name}".split(" "),
             encoding="utf-8",
             capture_output=True,
@@ -3374,11 +3374,11 @@ def kill_processes(logger=None, rpcport=None):
 
     try:
         term = (
-            (.run(["tty"], encoding="utf-8", capture_output=True).stdout)
+            (subprocess.run(["tty"], encoding="utf-8", capture_output=True).stdout)
             .splitlines()[0]
             .replace("/dev/", "")
         )
-        res = .run(
+        res = subprocess.run(
             ["ps", "-u", "501", "-x", "-o", "pid,tty,command"],
             encoding="utf-8",
             capture_output=True,
@@ -3402,7 +3402,7 @@ def kill_processes(logger=None, rpcport=None):
         if mobj:
             proc_to_kill = list(set(mobj))
             results = [
-                .run(
+                subprocess.subprocess.run(
                     ["kill", "-9", f"{process[0]}"],
                     encoding="utf-8",
                     capture_output=True,
@@ -3420,7 +3420,7 @@ def kill_processes(logger=None, rpcport=None):
         if len(mobj3) > 1:
             proc_to_kill = mobj3[1:]
             results = [
-                .run(
+                subprocess.run(
                     ["kill", "-9", f"{process[0]}"],
                     encoding="utf-8",
                     capture_output=True,
@@ -4827,7 +4827,7 @@ class InfoDL:
 def run_proc(cmd):
     try:
         _cmd = shlex.split(cmd)
-        return .run(
+        return subprocess.run(
             _cmd,
             encoding="utf-8",
             capture_output=True,
