@@ -3559,13 +3559,13 @@ def patch_https_connection_pool(**constructor_kwargs):
     poolmanager.pool_classes_by_scheme["https"] = MyHTTPSConnectionPool  # type: ignore
 
 
-def init_config(log_name="comicdl"):
+def init_config(quiet=False, test=False, log_name="asyncdl"):
     patch_http_connection_pool(maxsize=1000)
     patch_https_connection_pool(maxsize=1000)
     os.environ["MOZ_HEADLESS_WIDTH"] = "1920"
     os.environ["MOZ_HEADLESS_HEIGHT"] = "1080"
-    if init_logging:
-        return init_logging(log_name)
+    if not quiet and init_logging:
+        return init_logging(log_name, test=test)
 
 
 class CountDowns:
