@@ -116,7 +116,7 @@ class VideoDownloader:
             "download_path": _download_path,
             "filename": Path(
                 _download_path.parent,
-                f'{self.info_dict["id"]}_{_title}.{self.info_dict.get("ext", "mp4")}',
+                {self.info_dict["id"]}_{_title}.{self.info_dict.get("ext", "mp4")}',
             ),
             "error_message": "",
             "nwsetup": nwsetup,
