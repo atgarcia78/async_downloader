@@ -387,7 +387,8 @@ class AsyncARIA2CDownloader:
                 "out": self.info_dict["id"],
                 "all-proxy": proxy or "",
             }
-            _callback = lambda x, _: x.stop_listening()
+            def _callback(x, _):
+                x.stop_listening()
 
             try:
                 logger.debug(f"{self.premsg}[get_filesize] start")

@@ -151,9 +151,11 @@ class AsyncYoutubeDownloader:
     def fetch(self):
         if len(self._streams) > 1:
             _fmtid2 = self._streams[1]["format_id"]
-            _new_str = lambda x: (self._file == "video" and _fmtid2 in x)
+            def _new_str(x):
+                return (self._file == "video" and _fmtid2 in x)
         else:
-            _new_str = lambda x: False
+            def _new_str(x):
+                return False
 
         def my_hook(d):
             if d["status"] == "downloading":
