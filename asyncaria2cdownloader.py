@@ -175,9 +175,9 @@ def aqueue_loaded(n):
 class AsyncARIA2CDownloader:
     _CONFIG = load_config_extractors()
     _LOCK = Lock()
-    _ALOCK = partial(async_lock, _LOCK)
+    _ALOCK = asyncio.Lock()
     _HOSTS_DL = {}
-    aria2_API: aria2p.API
+    aria2_API = None
 
     def __init__(
         self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL
@@ -192,7 +192,7 @@ class AsyncARIA2CDownloader:
         self.ytdl = ytdl
 
         with AsyncARIA2CDownloader._LOCK:
-            if not hasattr(AsyncARIA2CDownloader, "aria2_API"):
+            if AsyncARIA2CDownloader.aria2_API is None:
                 AsyncARIA2CDownloader.aria2_API = aria2p.API(
                     aria2p.Client(port=self.args.rpcport, timeout=2)
                 )
@@ -427,19 +427,19 @@ class AsyncARIA2CDownloader:
                 func, thread_sensitive=False, executor=self.ex_dl
             )(*args, **kwargs)
         except RequestException as e:
-            logger.warning(f"{self.premsg}[acall][{func.__name__}] error: {repr(e)}")
+            logger.warning(f"{self.premsg}[acall][{func.__name__}][RequestException] error: {repr(e)}")
             if "add_uris" in func.__name__:
                 raise AsyncARIA2CDLErrorFatal("add uris fails") from e
             if await self.reset_aria2c():
                 return {"reset": "ok"}
             return {"error": AsyncARIA2CDLErrorFatal("reset failed")}
         except aria2p.ClientException as e:
-            logger.warning(f"{self.premsg}[acall][{func.__name__}] error: {repr(e)}")
+            logger.warning(f"{self.premsg}[acall][{func.__name__}][ClientException] error: {repr(e)}")
             if "add_uris" in func.__name__:
                 raise AsyncARIA2CDLErrorFatal("add uris fails") from e
             return {"reset": "ok"}
         except Exception as e:
-            logger.warning(f"{self.premsg}[acall][{func.__name__}] error: {repr(e)}")
+            logger.warning(f"{self.premsg}[acall][{func.__name__}][Exception] error: {repr(e)}")
             return {"error": e}
 
     async def reset_aria2c(self):
@@ -535,7 +535,7 @@ class AsyncARIA2CDownloader:
             if dl_cont and dl_cont.status == "error":
                 _msg_error += f" - {dl_cont.error_message}"
             self.error_message = _msg_error
-            logger.error(f"{self.uptpremsg()} [init] error: {_msg_error}")
+            logger.exception(f"{self.uptpremsg()} [init] error: {_msg_error}")
             self.status = "error"
         finally:
             self.block_init = False
@@ -654,7 +654,7 @@ class AsyncARIA2CDownloader:
             if (_temp := traverse_obj(_res, ("results", 0))) is None:
                 raise AsyncARIA2CDLError("couldnt get index proxy")
 
-            async with AsyncARIA2CDownloader._ALOCK():
+            async with AsyncARIA2CDownloader._ALOCK:
                 AsyncARIA2CDownloader._HOSTS_DL[_host]["count"] += 1
             return cast(int, _temp)
 
@@ -817,7 +817,7 @@ class AsyncARIA2CDownloader:
             if self.dl_cont and self.dl_cont.status == "error":
                 _msg_error += f" - {self.dl_cont.error_message}"
 
-            logger.error(f"{self.uptpremsg()} [fetch] error: {_msg_error}")
+            logger.exception(f"{self.uptpremsg()} [fetch] error: {_msg_error}")
             self.status = "error"
             self.error_message = _msg_error
 
@@ -850,7 +850,7 @@ class AsyncARIA2CDownloader:
                 raise AsyncARIA2CDLError(f"{self.presmg} no uris")
 
         async def _clean_index():
-            async with AsyncARIA2CDownloader._ALOCK():
+            async with AsyncARIA2CDownloader._ALOCK:
                 _host_info = AsyncARIA2CDownloader._HOSTS_DL[self._host]
                 _host_info["count"] -= 1
                 _host_info["queue"].put_nowait(self._index_proxy)

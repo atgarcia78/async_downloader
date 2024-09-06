@@ -785,6 +785,8 @@ class AsyncDL:
         try:
             self.list_pasres.discard(dl.index)
             if dl.info_dl["status"] == "init_manipulating":
+                if _filesize := dl.info_dl.get("filesize"):
+                    self.info_videos[url_key]["video_info"]["filesize"] = _filesize
                 logger.debug(f"[run_callback] start to manip {dl.info_dl['title']}")
                 self.task_run_manip[self.add_task(dl.run_manip())] = {
                     "url": url_key,
