@@ -142,7 +142,7 @@ class SingleThreadQueueListener(QueueListener):
 
 
 def init_logging(log_name, config_path=None, test=False):
-    config_json = Path('/Users/antoniotorres/Projects/async_downloader_py312/logging.json')
+    config_json = Path('/Users/antoniotorres/Projects/async_downloader/logging.json')
     with open(config_json, "r") as f:
         config = json.loads(f.read())
     _to_upt = config["handlers"]["info_file_handler"]
