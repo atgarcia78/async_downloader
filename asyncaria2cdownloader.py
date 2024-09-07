@@ -8,7 +8,6 @@ from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
-from functools import partial
 from pathlib import Path
 from threading import Lock
 from typing import Callable, Coroutine, Optional, cast

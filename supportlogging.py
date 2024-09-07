@@ -1,4 +1,3 @@
-import atexit
 import contextlib
 import json
 import logging
@@ -7,13 +6,9 @@ import shutil
 import threading
 import time
 from copy import copy
-from logging.config import (  # type: ignore
-    ConvertingDict,
-    ConvertingList,
-    valid_ident,
-)
-from logging.handlers import QueueHandler, QueueListener
-from queue import Empty, Queue
+from logging.handlers import QueueListener
+from pathlib import Path
+from queue import Empty
 from textwrap import fill
 
 MAPPING = {
@@ -85,59 +80,6 @@ class FilterMsg(logging.Filter):
         else:
             return True
 
-
-def _resolve_handlers(_list):
-    if not isinstance(_list, ConvertingList):
-        return _list
-    return [_list[i] for i in range(len(_list))]
-
-
-def _resolve_queue(q):
-    if not isinstance(q, ConvertingDict):
-        return q
-    if "__resolved_value__" in q:
-        return q["__resolved_value__"]
-    cname = q.pop("class")
-    klass = q.configurator.resolve(cname)
-    props = q.pop(".", None)
-    kwargs = {k: q[k] for k in q if valid_ident(k)}
-    result = klass(**kwargs)
-    if props:
-        for name, value in props.items():
-            setattr(result, name, value)
-    q["__resolved_value__"] = result
-    return result
-
-
-class QueueListenerHandler(QueueHandler):
-    handlers = []
-    _LOCK = threading.Lock()
-
-    def __init__(self, handlers, respect_handler_level=False, _name_logger="root"):
-        with QueueListenerHandler._LOCK:
-            if _name_logger in QueueListenerHandler.handlers:
-                return
-            QueueListenerHandler.handlers.append(_name_logger)
-
-        self._name_logger = _name_logger
-        super().__init__(_resolve_queue(Queue(-1)))
-
-        self._listener = SingleThreadQueueListener(
-            self.queue,
-            *_resolve_handlers(handlers),
-            respect_handler_level=respect_handler_level,
-            _name_logger=_name_logger
-        )
-        self.start()
-        atexit.register(self.stop)
-
-    def start(self):
-        self._listener.start()
-
-    def stop(self):
-        self._listener.stop()
-
-
 class SingleThreadQueueListener(QueueListener):
     monitor_thread = None
     listeners = []
@@ -145,12 +87,10 @@ class SingleThreadQueueListener(QueueListener):
     _LOCK = threading.Lock()
 
     def __init__(self, queue, *handlers, respect_handler_level=False, _name_logger="root"):
-        self.queue = queue
-        self.handlers = handlers
-        self._thread = None
-        self.respect_handler_level = True
-        self._name_logger = _name_logger
 
+        super().__init__(queue, *handlers, respect_handler_level=respect_handler_level)
+        self._name_logger = _name_logger
+        self.start()
 
     @classmethod
     def monitor_running(cls):
@@ -161,10 +101,13 @@ class SingleThreadQueueListener(QueueListener):
         with cls._LOCK:
             if not cls.monitor_running():
                 cls.monitor_thread = t = threading.Thread(
-                    target=cls._monitor_all, name="logging_monitor", daemon=True
-                )
+                    target=cls._monitor_all, name="logging_monitor", daemon=True)
                 t.start()
         return cls.monitor_thread
+
+    def start(self):
+        SingleThreadQueueListener.listeners.append(self)
+        self._thread = SingleThreadQueueListener._start()
 
     @classmethod
     def _join(cls):
@@ -193,17 +136,14 @@ class SingleThreadQueueListener(QueueListener):
                 except Empty:
                     continue
 
-    def start(self):
-        SingleThreadQueueListener.listeners.append(self)
-        SingleThreadQueueListener._start()
 
     def stop(self):
         self.enqueue_sentinel()
 
 
-def init_logging(log_name, test=False):
-    config_path = '/Users/antoniotorres/Projects/async_downloader/logging.json'
-    with open(config_path, "r") as f:
+def init_logging(log_name, config_path=None, test=False):
+    config_json = Path('/Users/antoniotorres/Projects/async_downloader_py312/logging.json')
+    with open(config_json, "r") as f:
         config = json.loads(f.read())
     _to_upt = config["handlers"]["info_file_handler"]
     for key, value in _to_upt.items():

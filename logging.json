@@ -65,9 +65,7 @@
             "class": "logging.StreamHandler",
             "level": "INFO",
             "formatter": "colored",
-            "filters": [
-                "filtermodules"
-            ],
+            "filters": ["filtermodules"],
             "stream": "ext://sys.stdout"
         },
         "info_file_handler": {
@@ -75,23 +73,29 @@
             "level": "DEBUG",
             "formatter": "file_format",
             "filename": "/Users/antoniotorres/Projects/common/logs/{name}.log",
-            "filters": [
-                "filtermodules"
-            ],
+            "filters": ["filtermodules"],
             "maxBytes": 3155360,
             "backupCount": 20,
             "encoding": "utf8"
         },
-        "queue_handler": {
-            "class": "supportlogging.QueueListenerHandler",
+        "queue_listener": {
+            "class": "logging.handlers.QueueHandler",
+            "listener": "supportlogging.SingleThreadQueueListener",
+            "queue": {
+                "()": "queue.Queue",
+                "maxsize": 1000
+            },
+            "level": "DEBUG",
             "handlers": [
-                "cfg://handlers.console",
-                "cfg://handlers.info_file_handler"
+                "console",
+                "info_file_handler"
             ]
         }
     },
     "root": {
         "level": "DEBUG",
-        "handlers": ["queue_handler"]
+        "handlers": [
+            "console"
+        ]
     }
 }
