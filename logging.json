@@ -65,7 +65,9 @@
             "class": "logging.StreamHandler",
             "level": "INFO",
             "formatter": "colored",
-            "filters": ["filtermodules"],
+            "filters": [
+                "filtermodules"
+            ],
             "stream": "ext://sys.stdout"
         },
         "info_file_handler": {
@@ -73,7 +75,9 @@
             "level": "DEBUG",
             "formatter": "file_format",
             "filename": "/Users/antoniotorres/Projects/common/logs/{name}.log",
-            "filters": ["filtermodules"],
+            "filters": [
+                "filtermodules"
+            ],
             "maxBytes": 3155360,
             "backupCount": 20,
             "encoding": "utf8"
