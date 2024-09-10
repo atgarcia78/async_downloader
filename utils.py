@@ -52,8 +52,8 @@ import httpx
 
 try:
     from supportlogging import init_logging
-except Exception as e:
-    print(str(e), file=sys.stderr)
+except Exception:
+    #print(str(e), file=sys.stderr)
     init_logging = None
 
 try:
