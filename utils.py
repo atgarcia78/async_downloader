@@ -129,8 +129,8 @@ CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
-CONF_PROXIES_MAX_N_GR_HOST = 8  # 10
-CONF_PROXIES_N_GR_VIDEO = 6  # 8
+CONF_PROXIES_MAX_N_GR_HOST = 10  # 10
+CONF_PROXIES_N_GR_VIDEO = 8  # 8
 CONF_PROXIES_BASE_PORT = 12000
 
 CONF_ARIA2C_MIN_SIZE_SPLIT = 1048576  # 1MB 10485760 #10MB
@@ -157,6 +157,8 @@ CLIENT_CONFIG = {
     "verify": False,
 }
 
+
+logger = logging.getLogger('asyncdl')
 
 def deep_update(mapping, *updating_mappings):
     updated_mapping = mapping.copy()
@@ -2622,7 +2624,9 @@ def init_aria2c(args):
 def get_httpx_client(config: Optional[dict] = None) -> httpx.Client:
     if not config:
         config = {}
-    return httpx.Client(**(CLIENT_CONFIG | config))
+    _config = CLIENT_CONFIG | config
+    logger.info(f'[get_client] {_config}')
+    return httpx.Client(**_config)
 
 
 def get_httpx_async_client(config: Optional[dict] = None) -> httpx.AsyncClient:
@@ -2637,6 +2641,11 @@ def get_driver(noheadless=True, **kwargs):
         lambda x: x[0] if x else None,
     ):
         return _driver
+
+
+############################################################
+# """                     IP/TORGUARD                    """
+############################################################
 
 
 ############################################################
@@ -2683,7 +2692,9 @@ class myIP:
         _urlapi = cls.URLS_API_GETMYIP[api]["url"]
         _keyapi = cls.URLS_API_GETMYIP[api]["key"]
         with limiter_0_01.ratelimit(api, delay=True):
-            return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
+            # return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
+                return client.get(_urlapi).text
+
 
     @classmethod
     def get_myiptryall(cls, client):
