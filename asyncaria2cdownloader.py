@@ -12,6 +12,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Callable, Coroutine, Optional, cast
 from urllib.parse import unquote, urlparse, urlunparse
+from functools import partial
 
 import aria2p
 from aria2p.api import OperationResult
@@ -174,7 +175,7 @@ def aqueue_loaded(n):
 class AsyncARIA2CDownloader:
     _CONFIG = load_config_extractors()
     _LOCK = Lock()
-    _ALOCK = asyncio.Lock()
+    _ALOCK = partial(async_lock, _LOCK)
     _HOSTS_DL = {}
     aria2_API = None
 
@@ -442,7 +443,7 @@ class AsyncARIA2CDownloader:
             return {"error": e}
 
     async def reset_aria2c(self):
-        async with AsyncARIA2CDownloader._ALOCK:
+        async with AsyncARIA2CDownloader._ALOCK():
             try:
                 AsyncARIA2CDownloader.aria2_API.get_stats()
                 logger.info(f"{self.premsg}[reset_aria2c] test conn ok")
@@ -653,7 +654,7 @@ class AsyncARIA2CDownloader:
             if (_temp := traverse_obj(_res, ("results", 0))) is None:
                 raise AsyncARIA2CDLError("couldnt get index proxy")
 
-            async with AsyncARIA2CDownloader._ALOCK:
+            async with AsyncARIA2CDownloader._ALOCK():
                 AsyncARIA2CDownloader._HOSTS_DL[_host]["count"] += 1
             return cast(int, _temp)
 
@@ -849,7 +850,7 @@ class AsyncARIA2CDownloader:
                 raise AsyncARIA2CDLError(f"{self.presmg} no uris")
 
         async def _clean_index():
-            async with AsyncARIA2CDownloader._ALOCK:
+            async with AsyncARIA2CDownloader._ALOCK():
                 _host_info = AsyncARIA2CDownloader._HOSTS_DL[self._host]
                 _host_info["count"] -= 1
                 _host_info["queue"].put_nowait(self._index_proxy)

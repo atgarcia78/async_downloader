@@ -2625,7 +2625,7 @@ def get_httpx_client(config: Optional[dict] = None) -> httpx.Client:
     if not config:
         config = {}
     _config = CLIENT_CONFIG | config
-    logger.info(f'[get_client] {_config}')
+    #logger.info(f'[get_client] {_config}')
     return httpx.Client(**_config)
 
 
@@ -2692,9 +2692,7 @@ class myIP:
         _urlapi = cls.URLS_API_GETMYIP[api]["url"]
         _keyapi = cls.URLS_API_GETMYIP[api]["key"]
         with limiter_0_01.ratelimit(api, delay=True):
-            # return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
-                return client.get(_urlapi).text
-
+            return try_get(client.get(_urlapi), lambda x: x.json().get(_keyapi))
 
     @classmethod
     def get_myiptryall(cls, client):
