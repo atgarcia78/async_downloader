@@ -23,7 +23,7 @@
                 "urllib3.connectionpool", "httpx", "PIL.TiffImagePlugin", "img2pdf", "hpack",
                 "remote_connection", "passlib", "backoff", "googleapiclient.discovery_cache",
                 "charset_normalizer", "blib2to3", "pyrate_limiter.limit_context_decorator",
-                "oauth2client.client", "parso.python.diff", "httpcore", "mitmproxy", "seleniumwire"]
+                "oauth2client.client", "parso.python.diff", "httpcore", "mitmproxy", "seleniumwire", "proxy.http.handler"]
         },
         "filtermsg": {
             "()": "supportlogging.FilterMsg",
