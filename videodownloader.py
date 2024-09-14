@@ -442,13 +442,14 @@ class VideoDownloader:
 
         for _lang, _subt in _final_subts.items():
             _subt["downloaded"] = False
-            _subt["filepath"] = Path(
+            _subt_path = Path(
                 self.info_dl["filename"].absolute().parent,
                 f'{self.info_dl["filename"].stem}.{_lang}.srt',
             )
-            if _subt["filepath"].exists() and _subt["filepath"].stat().st_size > 0:
+            _subt["filepath"] = str(_subt_path)
+            if _subt_path.exists() and _subt_path.stat().st_size > 0:
                 _subt["downloaded"] = True
-                self.info_dl["downloaded_subtitles"][_lang] = str(_subt["filepath"])
+                self.info_dl["downloaded_subtitles"][_lang] = str(_subt_path)
             else:
                 _newsubt = {
                     k: v
@@ -470,7 +471,7 @@ class VideoDownloader:
 
         for _lang, _subt in _final_subts.items():
             if not _subt["downloaded"]:
-                if _subt["filepath"].exists() and _subt["filepath"].stat().st_size > 0:
+                if Path(_subt["filepath"]).exists() and Path(_subt["filepath"]).stat().st_size > 0:
                     _subt["downloaded"] = True
                     self.info_dl["downloaded_subtitles"][_lang] = str(_subt["filepath"])
                 else:
