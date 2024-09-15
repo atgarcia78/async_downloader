@@ -959,6 +959,9 @@ class AsyncDL:
             "sflix.to",
             "theflixertv.to",
             "newprimewire.li",
+            "sketchysex.com",
+            "facedownassup.com",
+            "fratx.com"
         ]
         col = shutil.get_terminal_size().columns
 
@@ -968,7 +971,7 @@ class AsyncDL:
             # playlisturl = cast(str, traverse_obj(vid, ("video_info", "playlist_url")))
 
             if webpageurl and any(_ in webpageurl for _ in _DOMAINS_CONF_PRINT):
-                return webpageurl or originalurl or url
+                return webpageurl
             else:
                 return originalurl or webpageurl or url
 
