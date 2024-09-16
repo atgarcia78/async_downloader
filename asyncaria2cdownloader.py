@@ -869,14 +869,11 @@ class AsyncARIA2CDownloader:
             self.last_progress_str = self.upt.progress_str
             _pre_info = (
                 f"CONN[{self.upt.connections:2d}/{self.n_workers:2d}] "
-                + f"DL[{self.upt.speed_str}] PR[{self.upt.progress_str}] ETA[{self.upt.eta_str}]\n"
-            )
+                + f"DL[{self.upt.speed_str}] PR[{self.upt.progress_str}] ETA[{self.upt.eta_str}]\n")
             return f"{premsg} {_pre_info}"
 
         msg = ""
-        _pre = (
-            f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}]'
-        )
+        _pre = f'[ARIA2C][{self.info_dict["format_id"]}]: HOST[{self._host.split(".")[0]}]'
         _pre2 = (
             f'{naturalsize(self.down_size, format_=".2f")} '
             + f'[{naturalsize(self.filesize, format_=".2f")}]'
