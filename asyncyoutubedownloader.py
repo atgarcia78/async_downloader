@@ -206,7 +206,7 @@ class AsyncYoutubeDownloader:
                     )
                 )
 
-            _info_dict.pop("requested_subtitles", None)
+            _info_dict.pop("titles", None)
             _info_dict.pop("subtitles", None)
             self._vid_dl.info_dict |= _info_dict
 
