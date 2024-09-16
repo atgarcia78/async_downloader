@@ -289,9 +289,7 @@ class AsyncARIA2CDownloader:
             if _sem:
                 with self.ytdl.params.setdefault("lock", Lock()):
                     self.ytdl.params.setdefault("sem", {})
-                    self.sem = cast(
-                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock())
-                    )
+                    self.sem = cast(LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
 
         self._proxy = _proxy
 
@@ -315,9 +313,7 @@ class AsyncARIA2CDownloader:
                 self.down_size = _dsize
                 return
 
-            self.n_workers = min(
-                self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1, self.n_workers
-            )
+            self.n_workers = min(self.filesize // CONF_ARIA2C_MIN_SIZE_SPLIT or 1, self.n_workers)
 
 
         opts_dict = {
@@ -394,13 +390,10 @@ class AsyncARIA2CDownloader:
             try:
                 logger.debug(f"{self.premsg}[get_filesize] start")
                 with self._decor:
-                    _dl = self.aria2_API.add_uris(
-                        uris, options=self.set_opts(opts_dict)
-                    )
+                    _dl = self.aria2_API.add_uris(uris, options=self.set_opts(opts_dict))
                     try:
                         self.aria2_API.listen_to_notifications(
-                            on_download_complete=_callback, on_download_error=_callback
-                        )
+                            on_download_complete=_callback, on_download_error=_callback)
                         _dl.update()
                         if _dl.status == "complete":
                             return (_dl.total_length, _dl.completed_length)
@@ -411,9 +404,7 @@ class AsyncARIA2CDownloader:
                             try:
                                 func()
                             except Exception as e:
-                                logger.error(
-                                    f"{self.premsg}[get_filesize] error in [{func}]: {repr(e)}"
-                                )
+                                logger.error(f"{self.premsg}[get_filesize] error in [{func}]: {repr(e)}")
                         logger.debug(f"{self.premsg}[get_filesize] bye")
 
             except Exception as e:
@@ -450,9 +441,7 @@ class AsyncARIA2CDownloader:
                 logger.info(f"{self.premsg}[reset_aria2c] test conn ok")
                 return True
             except Exception:
-                logger.info(
-                    f"{self.premsg}[reset_aria2c] test conn no ok, lets reset aria2c"
-                )
+                logger.info(f"{self.premsg}[reset_aria2c] test conn no ok, lets reset aria2c" )
                 res, _port = try_get(
                     self._vid_dl.nwsetup.reset_aria2c(), lambda x: x or None
                 ) or (None, None)
@@ -461,25 +450,19 @@ class AsyncARIA2CDownloader:
                     AsyncARIA2CDownloader.aria2_API.client.port = _port
                 try:
                     AsyncARIA2CDownloader.aria2_API.get_stats()
-                    logger.info(
-                        f"{self.premsg}[reset_aria2c] after reset, test conn ok"
-                    )
+                    logger.info(f"{self.premsg}[reset_aria2c] after reset, test conn ok")
                     return True
                 except Exception:
                     logger.info(f"{self.premsg}[reset_aria2c]  test conn no ok")
 
-    async def async_pause(
-        self, list_dl: list[aria2p.Download | None]
-    ) -> Optional[list[OperationResult]]:
+    async def async_pause(self, list_dl: list[aria2p.Download | None]) -> Optional[list[OperationResult]]:
         if list_dl and all(x is not None for x in list_dl):
             return cast(
                 list[OperationResult],
                 await self._acall(AsyncARIA2CDownloader.aria2_API.pause, list_dl),
             )
 
-    async def async_resume(
-        self, list_dl: list[aria2p.Download | None]
-    ) -> Optional[list[OperationResult]]:
+    async def async_resume(self, list_dl: list[aria2p.Download | None]) -> Optional[list[OperationResult]]:
         if list_dl and all(x is not None for x in list_dl):
             async with self._decor:
                 return cast(
@@ -487,15 +470,11 @@ class AsyncARIA2CDownloader:
                     await self._acall(AsyncARIA2CDownloader.aria2_API.resume, list_dl),
                 )
 
-    async def async_remove(
-        self, list_dl: list[aria2p.Download | None]
-    ) -> Optional[list[OperationResult]]:
+    async def async_remove(self, list_dl: list[aria2p.Download | None]) -> Optional[list[OperationResult]]:
         if list_dl and all(x is not None for x in list_dl):
             return cast(
                 list[OperationResult],
-                await self._acall(
-                    AsyncARIA2CDownloader.aria2_API.remove, list_dl, clean=False
-                ),
+                await self._acall(AsyncARIA2CDownloader.aria2_API.remove, list_dl, clean=False),
             )
 
     async def add_uris(self, uris: list[str]) -> Optional[aria2p.Download]:
@@ -559,9 +538,7 @@ class AsyncARIA2CDownloader:
             self._host = _host
             if isinstance(self.sem, LockType):
                 async with async_lock(self.ytdl.params["lock"]):
-                    self.sem = cast(
-                        LockType, self.ytdl.params["sem"].setdefault(self._host, Lock())
-                    )
+                    self.sem = cast(LockType, self.ytdl.params["sem"].setdefault(self._host, Lock()))
 
     async def get_uri(self, _init_url, _proxy_port: int, n: int = 0):
         def _get_url_proxy(url, port) -> str:

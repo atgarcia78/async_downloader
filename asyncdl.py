@@ -1137,11 +1137,7 @@ class AsyncDL:
         videos_koinit = []
 
         for url, video in self.info_videos.items():
-            if (
-                not video.get("aldl")
-                and not video.get("samevideo")
-                and video.get("todl")
-            ):
+            if all(not video.get("aldl"), not video.get("samevideo"), video.get("todl")):
                 if video["status"] == "done":
                     videos_okdl.append(_getter(url, video))
                 else:
@@ -1172,7 +1168,6 @@ class AsyncDL:
                 },
             }
         )
-
         _columnsaldl = ["ID", "Title", "URL", "Path"]
         tab_valdl = (
             render_res_table(
@@ -1207,26 +1202,20 @@ class AsyncDL:
             logger.info("****************************************************\n\n")
             logger.info(f"Request to DL: [{len(info_dict['videos']['urls'])}]\n\n")
             logger.info(
-                f"         Already DL: [{len(info_dict['videosaldl']['urls'])}]"
-            )
+                f"         Already DL: [{len(info_dict['videosaldl']['urls'])}]")
             logger.info(
-                f"         Same requests: [{len(info_dict['videossamevideo']['urls'])}]"
-            )
+                f"         Same requests: [{len(info_dict['videossamevideo']['urls'])}]")
             logger.info(
-                f"         Videos to DL: [{len(info_dict['videos2dl']['urls'])}]\n\n"
-            )
+                f"         Videos to DL: [{len(info_dict['videos2dl']['urls'])}]\n\n")
             logger.info(f"                 OK DL: [{len(videos_okdl)}]")
             logger.info(f"                 ERROR DL: [{len(videos_kodl)}]")
             logger.info(f"                     ERROR init DL: [{len(videos_koinit)}]")
             logger.info(
-                f"                         UNSUP URLS: [{len(_videos_url_notsupported)}]"
-            )
+                f"                         UNSUP URLS: [{len(_videos_url_notsupported)}]")
             logger.info(
-                f"                         NOTVALID URLS: [{len(_videos_url_notvalid)}]"
-            )
+                f"                         NOTVALID URLS: [{len(_videos_url_notvalid)}]")
             logger.info(
-                f"                         TO CHECK URLS: [{len(_videos_url_tocheck)}]\n\n"
-            )
+                f"                         TO CHECK URLS: [{len(_videos_url_tocheck)}]\n\n")
             logger.info("*********** VIDEO RESULT LISTS **********************\n\n")
             if tab_valdl:
                 logger.info("Videos ALREADY DL:\n")
@@ -1242,32 +1231,16 @@ class AsyncDL:
 
             if videos_kodl:
                 logger.info("Videos TOTAL ERROR DL:")
-                _videos_kodl_uniq_url = cast(
-                    list,
-                    list(
-                        dict.fromkeys(
-                            list(map(lambda x: re.sub(r"#\d+$", "", x), videos_kodl))
-                        )
-                    ),
-                )
-                logger.info(
-                    f"%no%\n\n{videos_kodl}\n[{_path_str}-u {' -u '.join(_videos_kodl_uniq_url)}"
-                )
+                _videos_kodl_uniq_url = list(
+                    dict.fromkeys(list(map(lambda x: re.sub(r"#\d+$", "", x), videos_kodl))))
+                logger.info(f"%no%\n\n{videos_kodl}\n[{_path_str}-u {' -u '.join(_videos_kodl_uniq_url)}")
             else:
                 logger.info("Videos TOTAL ERROR DL: []")
             if videos_koinit:
-                _videos_koinit_uniq_url = cast(
-                    list,
-                    list(
-                        dict.fromkeys(
-                            list(map(lambda x: re.sub(r"#\d+$", "", x), videos_koinit))
-                        )
-                    ),
-                )
+                _videos_koinit_uniq_url = list(
+                    dict.fromkeys(list(map(lambda x: re.sub(r"#\d+$", "", x), videos_koinit))))
                 logger.info("Videos ERROR INIT DL:")
-                logger.info(
-                    f"%no%\n\n{videos_koinit}\n[{_path_str}-u {' -u '.join(_videos_koinit_uniq_url)}]"
-                )
+                logger.info(f"%no%\n\n{videos_koinit}\n[{_path_str}-u {' -u '.join(_videos_koinit_uniq_url)}]")
             if _videos_url_notsupported:
                 logger.info("Unsupported URLS:")
                 logger.info(f"%no%\n\n{_videos_url_notsupported}")

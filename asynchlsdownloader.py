@@ -149,9 +149,7 @@ on_network_exception = my_dec_on_exception(
 
 class AsyncHLSDownloader:
     _PLNS = {}
-    _CHUNK_SIZE = (
-        8196  # 16384  # 65536  # 10485760  # 16384  # 1024  # 102400 #10485760
-    )
+    _CHUNK_SIZE = 8196  # 16384  # 65536  # 10485760  # 16384  # 1024  # 102400 #10485760
     _MAX_RETRIES = 5
     _MAX_RESETS = 20
     _CONFIG = load_config_extractors()
@@ -166,145 +164,141 @@ class AsyncHLSDownloader:
     def __init__(
         self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL
     ):
-        try:
-            self.background_tasks = set()
-            self.tasks = []
-            self.info_dict = video_dict
-            self._vid_dl = info_dl
-            self.args = args
-            self._pos = None
-            self.n_workers: int = self.args.parts
-            self.count: int = 0
-            self.ytdl = ytdl
-            self.base_download_path = Path(self.info_dict["download_path"])
-            self.download_path = Path(
-                self.base_download_path, self.info_dict["format_id"])
-            self.download_path.mkdir(parents=True, exist_ok=True)
-            self.config_file = Path(
-                self.base_download_path, f"config_file.{self.info_dict['format_id']}")
-            _filename = Path(self.info_dict.get("filename"))
-            self.fragments_base_path = Path(
-                self.download_path,
-                f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
-            self.filename = Path(
-                self.base_download_path,
-                f'{_filename.stem}.{self.info_dict["format_id"]}.ts')
+        self.background_tasks = set()
+        self.tasks = []
+        self.info_dict = video_dict
+        self._vid_dl = info_dl
+        self.args = args
+        self._pos = None
+        self.n_workers: int = self.args.parts
+        self.count: int = 0
+        self.ytdl = ytdl
+        self.base_download_path = Path(self.info_dict["download_path"])
+        self.download_path = Path(
+            self.base_download_path, self.info_dict["format_id"])
+        self.download_path.mkdir(parents=True, exist_ok=True)
+        self.config_file = Path(
+            self.base_download_path, f"config_file.{self.info_dict['format_id']}")
+        _filename = Path(self.info_dict.get("filename"))
+        self.fragments_base_path = Path(
+            self.download_path,
+            f'{_filename.stem}.{self.info_dict["format_id"]}.{self.info_dict["ext"]}')
+        self.filename = Path(
+            self.base_download_path,
+            f'{_filename.stem}.{self.info_dict["format_id"]}.ts')
 
-            self.premsg = (
-                f'[{self.info_dict["id"]}]'
-                + f'[{self.info_dict["title"]}]'
-                + f'[{self.info_dict["format_id"]}]')
+        self.premsg = (
+            f'[{self.info_dict["id"]}]'
+            + f'[{self.info_dict["title"]}]'
+            + f'[{self.info_dict["format_id"]}]')
 
-            self.count_msg = ""
-            self.key_cache = {}
-            self.n_reset = 0
-            self.down_size = 0
-            self.status = "init"
-            self.error_message = ""
-            self.upt = {}
-            self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
-            self.sync_to_async = partial(
-                sync_to_async, thread_sensitive=False, executor=self.ex_dl)
+        self.count_msg = ""
+        self.key_cache = {}
+        self.n_reset = 0
+        self.down_size = 0
+        self.status = "init"
+        self.error_message = ""
+        self.upt = {}
+        self.ex_dl = ThreadPoolExecutor(thread_name_prefix="ex_hlsdl")
+        self.sync_to_async = partial(
+            sync_to_async, thread_sensitive=False, executor=self.ex_dl)
 
-            self.totalduration = traverse_obj(self.info_dict, "duration", default=0)
-            self.filesize = traverse_obj(self.info_dict, "filesize", default=0)
+        self.totalduration = traverse_obj(self.info_dict, "duration", default=0)
+        self.filesize = traverse_obj(self.info_dict, "filesize", default=0)
 
-            self._proxy = {}
-            if _proxy := self.args.proxy:
-                self._proxy = {"http://": _proxy, "https://": _proxy}
-            # elif self.args.enproxy:
-            #     self.prepare_proxy()
+        self._proxy = {}
+        if _proxy := self.args.proxy:
+            self._proxy = {"http://": _proxy, "https://": _proxy}
+        # elif self.args.enproxy:
+        #     self.prepare_proxy()
 
-            self.smooth_eta = SmoothETA()
-            self.progress_timer = ProgressTimer()
-            self.speedometer = SpeedometerMA()
-            self.frags_queue = asyncio.Queue()
-            self.comm = asyncio.Queue()
-            self._asynclock = asyncio.Lock()
-            self.areset = self.sync_to_async(self.resetdl)
+        self.smooth_eta = SmoothETA()
+        self.progress_timer = ProgressTimer()
+        self.speedometer = SpeedometerMA()
+        self.frags_queue = asyncio.Queue()
+        self.comm = asyncio.Queue()
+        self._asynclock = asyncio.Lock()
+        self.areset = self.sync_to_async(self.resetdl)
 
-            self.config_httpx = lambda: {
-                "proxies": self._proxy,
-                "limits": httpx.Limits(keepalive_expiry=30),
-                "follow_redirects": True,
-                "timeout": httpx.Timeout(30),
-                "verify": False,
-                "cookies": try_get(
-                    self.info_dict,
-                    lambda x: get_cookies_jar(
-                        x.get("cookies") or x["formats"][0]["cookies"]
-                    ),
+        self.config_httpx = lambda: {
+            "proxies": self._proxy,
+            "limits": httpx.Limits(keepalive_expiry=30),
+            "follow_redirects": True,
+            "timeout": httpx.Timeout(30),
+            "verify": False,
+            "cookies": try_get(
+                self.info_dict,
+                lambda x: get_cookies_jar(
+                    x.get("cookies") or x["formats"][0]["cookies"]
                 ),
-                "headers": try_get(
-                    self.info_dict,
-                    lambda x: x.get("http_headers") or x["formats"][0]["http_headers"],
-                )
-                or CLIENT_CONFIG["http_headers"],
-            }
-
-            self.clients = {}
-
-            self.init_client: httpx.Client
-
-            self._sem = asyncio.Semaphore()
-
-            self.special_extr = False
-            self.auto_pasres = False
-            self.fromplns = None
-            self._extractor = try_get(
-                self.info_dict.get("extractor_key"), lambda x: x.lower())
-
-            def getter(name: Optional[str]) -> tuple:
-                if not name:
-                    return (self.n_workers, 0, contextlib.nullcontext())
-                if "nakedsword" in name:
-                    self.auto_pasres = True
-                    if self.info_dict.get("playlist_id"):
-                        if all(
-                            _ not in self.info_dict.get("playlist_title", "")
-                            for _ in ("MostWatchedScenes", "Search")
-                        ):
-                            self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
-                value, key_text = getter_basic_config_extr(
-                    name, AsyncHLSDownloader._CONFIG
-                ) or (None, None)
-                if value and key_text:
-                    self.special_extr = True
-                    if "nakedsword" in key_text:
-                        self._extractor = key_text = "nakedsword"
-                    return (
-                        value["maxsplits"],
-                        value["interval"],
-                        value["ratelimit"].ratelimit(key_text, delay=True),
-                    )
-
-                return (self.n_workers, 0, contextlib.nullcontext())
-
-            _nworkers, self._interv, self._limit = getter(self._extractor)
-
-            self.n_workers = (
-                max(self.n_workers, _nworkers)
-                if _nworkers >= 16
-                else min(self.n_workers, _nworkers)
+            ),
+            "headers": try_get(
+                self.info_dict,
+                lambda x: x.get("http_headers") or x["formats"][0]["http_headers"],
             )
+            or CLIENT_CONFIG["http_headers"],
+        }
 
-            self.m3u8_doc = None
-            self._host = get_host(self.info_dict["url"])
+        self.clients = {}
 
-            self.frags_to_dl = []
-            self.info_frag = []
-            self.info_init_section = {}
-            self.n_dl_fragments = 0
+        self.init_client: httpx.Client
 
-            if self.filename.exists() and (_dsize := self.filename.stat().st_size) > 0:
-                self.status = "done"
-                self.down_size = _dsize
-                return
+        self._sem = asyncio.Semaphore()
 
-            self.init()
+        self.special_extr = False
+        self.auto_pasres = False
+        self.fromplns = None
+        self._extractor = try_get(
+            self.info_dict.get("extractor_key"), lambda x: x.lower())
 
-        except Exception as e:
-            logger.exception(repr(e))
+        def getter(name: Optional[str]) -> tuple:
+            if not name:
+                return (self.n_workers, 0, contextlib.nullcontext())
+            if "nakedsword" in name:
+                self.auto_pasres = True
+                if self.info_dict.get("playlist_id"):
+                    if all(
+                        _ not in self.info_dict.get("playlist_title", "")
+                        for _ in ("MostWatchedScenes", "Search")
+                    ):
+                        self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
+            value, key_text = getter_basic_config_extr(
+                name, AsyncHLSDownloader._CONFIG
+            ) or (None, None)
+            if value and key_text:
+                self.special_extr = True
+                if "nakedsword" in key_text:
+                    self._extractor = key_text = "nakedsword"
+                return (
+                    value["maxsplits"],
+                    value["interval"],
+                    value["ratelimit"].ratelimit(key_text, delay=True),
+                )
+
+            return (self.n_workers, 0, contextlib.nullcontext())
+
+        _nworkers, self._interv, self._limit = getter(self._extractor)
+
+        self.n_workers = (
+            max(self.n_workers, _nworkers)
+            if _nworkers >= 16
+            else min(self.n_workers, _nworkers)
+        )
+
+        self.m3u8_doc = None
+        self._host = get_host(self.info_dict["url"])
+
+        self.frags_to_dl = []
+        self.info_frag = []
+        self.info_init_section = {}
+        self.n_dl_fragments = 0
+
+        if self.filename.exists() and (_dsize := self.filename.stat().st_size) > 0:
+            self.status = "done"
+            self.down_size = _dsize
+            return
+
+        self.init()
 
     def prepare_proxy(self):
         with AsyncHLSDownloader._CLASSLOCK:
@@ -559,13 +553,9 @@ class AsyncHLSDownloader:
                     self.key_cache[_key.uri] = {"key": _valkey, "cipher": _cipher}
 
         def _get_segments_interval_time(_start_time, _duration, _list_segments):
-            logger.debug(
-                f"{self.premsg}[get_info_fragments] start time: {_start_time} duration: {_duration}"
-            )
+            logger.debug(f"{self.premsg}[get_info_fragments] start time: {_start_time} duration: {_duration}")
             _start_segment = int(_start_time // _duration) - 1
-            logger.debug(
-                f"{self.premsg}[get_info_fragments] start seg {_start_segment}"
-            )
+            logger.debug(f"{self.premsg}[get_info_fragments] start seg {_start_segment}")
             if _end_time := self.info_dict.get("_end_time"):
                 _last_segment = min(int(_end_time // _duration), len(_list_segments))
             else:
@@ -588,9 +578,7 @@ class AsyncHLSDownloader:
                         "start": sub_range_start,
                         "end": sub_range_start + int(splitted_byte_range[0]),
                     }
-                    headers_range = {
-                        "range": f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
-                    }
+                    headers_range = {"range": f"bytes={byte_range['start']}-{byte_range['end'] - 1}"}
                 _url = fragment.absolute_uri
                 if "&hash=" in _url and _url.endswith("&="):
                     _url += "&="
@@ -606,9 +594,7 @@ class AsyncHLSDownloader:
         try:
             if (
                 not self.m3u8_doc
-                or not (
-                    m3u8_obj := m3u8.loads(self.m3u8_doc, uri=self.info_dict["url"])
-                )
+                or not (m3u8_obj := m3u8.loads(self.m3u8_doc, uri=self.info_dict["url"]))
                 or not m3u8_obj.segments
             ):
                 raise AsyncHLSDLError("couldnt get m3u8 file")
@@ -619,9 +605,7 @@ class AsyncHLSDownloader:
                 if not self.info_init_section:
                     self.get_init_section(_initfrag)
 
-            _duration = try_get(
-                getattr(m3u8_obj, "target_duration", None), lambda x: float(x)
-            )
+            _duration = try_get(getattr(m3u8_obj, "target_duration", None), lambda x: float(x))
             _start_time = self.info_dict.get("_start_time")
 
             if _duration and _start_time:
@@ -825,9 +809,7 @@ class AsyncHLSDownloader:
             try:
                 self.init_client.close()
             except Exception as e:
-                logger.error(
-                    f"{self.premsg}:RESET[{self.n_reset}]:prep_reset error {repr(e)}"
-                )
+                logger.error(f"{self.premsg}:RESET[{self.n_reset}]:prep_reset error {repr(e)}")
 
             self.init_client = httpx.Client(**self.config_httpx())
 
