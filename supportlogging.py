@@ -110,28 +110,21 @@ def _resolve_queue(q):
 
 
 class QueueListenerHandler(QueueHandler):
-    handlers = []
-    _LOCK = threading.Lock()
+    refs = []
 
-    def __init__(self, handlers, respect_handler_level=True,  _name_logger="root"):
-        with QueueListenerHandler._LOCK:
-            if _name_logger in QueueListenerHandler.handlers:
-                return
-            QueueListenerHandler.handlers.append(_name_logger)
-
-        self._name_logger = _name_logger
+    def __init__(self, handlers, respect_handler_level=True):
         super().__init__(_resolve_queue(Queue(-1)))
 
         self._listener = SingleThreadQueueListener(
             self.queue,
             *_resolve_handlers(handlers),
             respect_handler_level=respect_handler_level,
-            _name_logger=_name_logger
         )
         self.start()
         atexit.register(self.stop)
 
     def start(self):
+        QueueListenerHandler.refs.append(self)
         self._listener.start()
 
     def stop(self):
@@ -201,6 +194,20 @@ class SingleThreadQueueListener(QueueListener):
         self.enqueue_sentinel()
 
 
+class LogContext:
+    '''
+    initialize logging and cobtrols ouput
+    '''
+    def __enter__(self):
+        self.logger = init_logging('asyncdl')
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        for listener  in SingleThreadQueueListener.listeners:
+            listener.stop()
+        SingleThreadQueueListener._join()
+
+
 def init_logging(log_name, test=False):
     config_path = '/Users/antoniotorres/Projects/async_downloader/logging.json'
     with open(config_path, "r") as f:
@@ -224,11 +231,3 @@ def init_logging(log_name, test=False):
     else:
         return logging.getLogger(log_name)
 
-
-class LogContext:
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args, **kwargs):
-        list(map(lambda x: x.stop(), SingleThreadQueueListener.listeners))
-        SingleThreadQueueListener._join()
