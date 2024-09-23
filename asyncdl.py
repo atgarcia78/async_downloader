@@ -944,7 +944,8 @@ class AsyncDL:
             "newprimewire.li",
             "sketchysex.com",
             "facedownassup.com",
-            "fratx.com"
+            "fratx.com",
+            "eporner.com"
         ]
         col = shutil.get_terminal_size().columns
 
