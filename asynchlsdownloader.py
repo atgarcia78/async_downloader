@@ -311,7 +311,6 @@ class AsyncHLSDownloader:
                         range(CONF_PROXIES_MAX_N_GR_HOST), CONF_PROXIES_MAX_N_GR_HOST
                     ),
                 )
-
                 AsyncHLSDownloader._qproxies = put_sequence(Queue(), _seq)
 
         el1, el2 = AsyncHLSDownloader._qproxies.get()
@@ -319,9 +318,7 @@ class AsyncHLSDownloader:
         _proxy = f"http://127.0.0.1:{_proxy_port}"
         self._proxy = {"http://": _proxy, "https://": _proxy}
         try:
-            _gvd_pl = True
             if "gvdblog" not in (_url := self.info_dict["original_url"]):
-                _gvd_pl = False
                 _url = self.info_dict["webpage_url"]
             if info := self.multi_extract_info(_url, proxy=_proxy):
                 if _len := len(info.get("entries", [])):
@@ -329,13 +326,9 @@ class AsyncHLSDownloader:
                         _pl_index = 1
                     else:
                         _pl_index = (
-                            self.info_dict.get("__gvd_playlist_index", 1)
-                            if _gvd_pl
-                            else (
-                                self.info_dict.get("playlist_index")
-                                or self.info_dict.get("playlist_autonumber")
-                                or 1
-                            )
+                            self.info_dict.get("playlist_index")
+                            or self.info_dict.get("playlist_autonumber")
+                            or 1
                         )
                     info = info["entries"][_pl_index - 1]
                 if new_info := get_format_id(info, self.info_dict["format_id"]):

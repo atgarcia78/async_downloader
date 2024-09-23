@@ -952,8 +952,6 @@ class AsyncDL:
         def _getter(url: str, vid: dict) -> str:
             webpageurl = cast(str, traverse_obj(vid, ("video_info", "webpage_url")))
             originalurl = cast(str, traverse_obj(vid, ("video_info", "original_url")))
-            # playlisturl = cast(str, traverse_obj(vid, ("video_info", "playlist_url")))
-
             if webpageurl and any(_ in webpageurl for _ in _DOMAINS_CONF_PRINT):
                 return webpageurl
             else:
