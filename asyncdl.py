@@ -170,7 +170,6 @@ class AsyncDL:
 
         async def get_info_files():
             try:
-
                 def get_info_json(file):
                     try:
                         with open(file, "r") as f:

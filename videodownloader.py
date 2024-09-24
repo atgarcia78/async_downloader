@@ -512,14 +512,13 @@ class VideoDownloader:
                     + f"{[dl.status for dl in self.info_dl['downloaders']]}"
                 )
 
-                _tasks = []
                 for i, dl in enumerate(self.info_dl["downloaders"]):
+                    _tasks = []
                     if dl.status not in ("init_manipulating", "done"):
                         _tasks.append(
                             self.add_task(dl.fetch_async(), name=f"fetch_async_{i}")
                         )
-
-                await self._handle_await("run_dl", _tasks)
+                        await self._handle_await("run_dl", _tasks)
 
                 if self.stop_event.is_set():
                     logger.debug(
@@ -838,7 +837,7 @@ class VideoDownloader:
 
                 logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
-                if (proc.returncode) == 0 and (
+                if rc := proc.returncode == 0 and (
                     await aiofiles.os.path.exists(self.temp_filename)
                 ):
                     if not self.args.keep_videos:
@@ -855,7 +854,7 @@ class VideoDownloader:
                 else:
                     self.info_dl["status"] = "error"
                     raise AsyncDLError(
-                        f"{self.premsg}: error merge, ffmpeg error: {rc}"
+                        f"{self.premsg}: error merge, ffmpeg error: {proc}"
                     )
 
             if "YTDL-" not in self._types and self.info_dl["downloaded_subtitles"]:

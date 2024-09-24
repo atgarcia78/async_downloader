@@ -8,6 +8,7 @@ import random
 import shutil
 import subprocess
 import time
+import struct
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -22,7 +23,6 @@ import aiofiles.os
 import httpx
 import m3u8
 from Cryptodome.Cipher import AES
-from Cryptodome.Cipher._mode_cbc import CbcMode
 
 from utils import (
     CLIENT_CONFIG,
@@ -517,8 +517,6 @@ class AsyncHLSDownloader:
             "frag": 0,
             "url": _url,
             "file": _file_path,
-            # "key": _initfrag.key,
-            # "cipher": traverse_obj(self.key_cache, (try_call(lambda: _initfrag.key.uri), "cipher")),
             "byte_range": byte_range,
             "headers_range": headers_range,
             "downloaded": _file_path.exists(),
@@ -534,16 +532,11 @@ class AsyncHLSDownloader:
                 if (
                     _key
                     and _key.method == "AES-128"
-                    and _key.iv
-                    and not (
-                        _cipher := traverse_obj(self.key_cache, (_key.uri, "cipher"))
-                    )
-                    and (_valkey := self.download_key(_key.absolute_uri))
+                    and _key.uri not in self.key_cache
                 ):
-                    _cipher = AES.new(
-                        _valkey, AES.MODE_CBC, binascii.unhexlify(_key.iv[2:])
-                    )
-                    self.key_cache[_key.uri] = {"key": _valkey, "cipher": _cipher}
+                    if (_valkey := self.download_key(_key.absolute_uri)):
+                        self.key_cache[_key.uri] = _valkey
+
 
         def _get_segments_interval_time(_start_time, _duration, _list_segments):
             logger.debug(f"{self.premsg}[get_info_fragments] start time: {_start_time} duration: {_duration}")
@@ -578,9 +571,19 @@ class AsyncHLSDownloader:
                 fragment.__dict__["url"] = _url
                 fragment.__dict__["byte_range"] = byte_range
                 fragment.__dict__["headers_range"] = headers_range
-                fragment.__dict__["cipher"] = traverse_obj(
-                    self.key_cache, (try_call(lambda: fragment.key.uri), "cipher")
-                )
+
+                cipher_info = None
+                if decrypt_info := fragment.key:
+                    if decrypt_info.method == 'AES-128':
+                        if _val_key := self.key_cache.get(decrypt_info.uri):
+                            if _iv := decrypt_info.iv:
+                                iv = binascii.unhexlify(_iv[2:])
+                                cipher_info = {'key': _val_key, 'iv': iv}
+                            else:
+                                iv = struct.pack('>8xq', fragment.media_sequence)
+                                cipher_info = {'key': _val_key, 'iv': iv}
+
+                fragment.__dict__["cipher_info"] = cipher_info
 
             return _list_segments
 
@@ -652,7 +655,7 @@ class AsyncHLSDownloader:
             "frag": i + 1,
             "url": frag.url,
             "key": frag.key,
-            "cipher": frag.cipher,
+            "cipher_info": frag.cipher_info,
             "file": _file_path,
             "headers_range": frag.headers_range,
             "downloaded": False,
@@ -682,7 +685,7 @@ class AsyncHLSDownloader:
                 "url": frag.url,
                 "headers_range": frag.headers_range,
                 "key": frag.key,
-                "cipher": frag.cipher,
+                "cipher_info": frag.cipher_info
             }
             self.frags_to_dl.append(i + 1)
 
@@ -1236,28 +1239,32 @@ class AsyncHLSDownloader:
             if _nsize == -1:
                 logger.warning(f"{_premsg} no frag file\n{ctx.info_frag}")
                 raise AsyncHLSDLError(f"{_premsg} no frag file")
-            ctx.size = ctx.info_frag["size"] = _nsize
-            if not (_nhsize := ctx.info_frag["headersize"]):
-                _nhsize = _nsize
-            if _nhsize - 100 <= _nsize <= _nhsize + 100:
-                ctx.info_frag["downloaded"] = True
-                async with self._asynclock:
-                    self.n_dl_fragments += 1
-            else:
-                logger.warning(f"{_premsg} frag not completed\n{ctx.info_frag}")
-                raise AsyncHLSDLError(f"{_premsg} frag not completed")
+            #ctx.size = ctx.info_frag["size"] = _nsize
+            #if not (_nhsize := ctx.info_frag["headersize"]):
+            #    _nhsize = _nsize
+            #if _nhsize - 100 <= _nsize <= _nhsize + 100:
+            ctx.info_frag["downloaded"] = True
+            async with self._asynclock:
+                self.n_dl_fragments += 1
+            # else:
+            #     logger.warning(f"{_premsg} frag not completed\n{ctx.info_frag}")
+            #     raise AsyncHLSDLError(f"{_premsg} frag not completed")
 
         def _update_counters(bytes_dl: int, old_bytes_dl: int) -> int:
             if (inc_bytes := bytes_dl - old_bytes_dl) > 0:
                 self.comm.put_nowait(inc_bytes)
             return bytes_dl
 
-        async def _decrypt(data: bytes, cipher: Optional[CbcMode]) -> bytes:
-            return await self.sync_to_async(cipher.decrypt)(data) if cipher else data
+        async def _decrypt(data: bytes, cipher_info: dict) -> bytes:
+            if not cipher_info:
+                return data
+            else:
+                _cipher = AES.new(cipher_info['key'], AES.MODE_CBC, cipher_info['iv'])
+                return await self.sync_to_async(_cipher.decrypt)(data)
 
         async def _handle_iter(ctx: DownloadFragContext, data: Optional[bytes]):
             if data:
-                ctx.data += await _decrypt(data, ctx.info_frag.get("cipher"))
+                ctx.data += data
                 ctx.num_bytes_downloaded = _update_counters(
                     ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
                 )
@@ -1290,8 +1297,9 @@ class AsyncHLSDownloader:
                             if _ev := await _handle_iter(_ctx, chunk):
                                 raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
                 if _ctx.data:
+                    _data = await _decrypt(_ctx.data, _ctx.info_frag.get("cipher_info"))
                     async with aiofiles.open(_ctx.file, "wb") as fileobj:
-                        await fileobj.write(_ctx.data)
+                        await fileobj.write(_data)
                     _ctx.data = b""
                 return await _check_frag(_ctx)
 
