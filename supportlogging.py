@@ -203,7 +203,7 @@ class LogContext:
         return self
 
     def __exit__(self, *args, **kwargs):
-        for listener  in SingleThreadQueueListener.listeners:
+        for listener in SingleThreadQueueListener.listeners:
             listener.stop()
         SingleThreadQueueListener._join()
 
