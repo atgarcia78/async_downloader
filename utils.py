@@ -265,7 +265,7 @@ def pip_show(_pckg):
         pckg = _temp[0] + "\n".join(
             [_eltemp.replace("License:", "License_:") for _eltemp in _temp[1:]]
         )
-    if _lic := (try_call(lambda: pckg.split("License: ")[1].split("\nLocation:")[0])):
+    if _lic := (mytry_call(lambda: pckg.split("License: ")[1].split("\nLocation:")[0])):
         pckg = pckg.replace(
             _lic, _lic.replace("\n", "$$$___###rc###").replace(": ", "$$$___###dp###")
         )
@@ -340,7 +340,7 @@ class AsyncDLError(Exception):
         self.exc_info = exc_info
 
 
-def try_call(*funcs, expected_type=None, args=[], kwargs={}):
+def mytry_call(*funcs, expected_type=None, args=[], kwargs={}):
     for f in funcs:
         try:
             val = f(*args, **kwargs)
@@ -1952,25 +1952,35 @@ if yt_dlp:
         """
         raises ReExtractInfo(403), httpx.HTTPStatusError, StatusError503, TimeoutError, ConnectError
         """
-        new_e = kwargs.pop("new_e", Exception)
+        new_e = kwargs.pop("new_e", None)
         try:
             return _send_http_request(url, **kwargs)
-        except ExtractorError as e:
-            raise new_e(str(e)) from e
-        except (ConnectError, httpx.HTTPStatusError) as e:
-            return {"error": str(e)}
+        except (StatusError503, ReExtractInfo):
+            raise
+        except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+            return {"error": repr(e)}
+        except Exception as e:
+            if not new_e:
+                raise
+            else:
+                raise new_e(repr(e)) from e
 
     async def async_send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
         """
         raises ReExtractInfo(403),httpx.HTTPStatusError, StatusError503, TimeoutError, ConnectError
         """
-        new_e = kwargs.pop("new_e", Exception)
+        new_e = kwargs.pop("new_e", None)
         try:
             return await _async_send_http_request(url, **kwargs)
-        except ExtractorError as e:
-            raise new_e(repr(e)) from e
-        except (ConnectError, httpx.HTTPStatusError) as e:
+        except (StatusError503, ReExtractInfo):
+            raise
+        except (httpx.ConnectError, httpx.HTTPStatusError) as e:
             return {"error": repr(e)}
+        except Exception as e:
+            if not new_e:
+                raise
+            else:
+                raise new_e(repr(e)) from e
 
     def raise_extractor_error(msg, expected=True, _from=None):
         raise ExtractorError(msg, expected=expected) from _from
@@ -1997,27 +2007,18 @@ if yt_dlp:
             if fatal:
                 res.raise_for_status()
             return res
-        except ConnectError as e:
-            _msg_err = str(e)
-            if "errno 61" in _msg_err.lower():
-                raise
-            else:
-                raise_extractor_error(_msg_err)
         except httpx.HTTPStatusError as e:
-            e.args = (e.args[0].split("\nFor more")[0],)
-            _msg_err = str(e)
+            e.args = (e.args[0].split(" for url")[0],)
+            _msg_err = f"{repr(e)}"
             if e.response.status_code == 403:
                 raise_reextract_info(_msg_err)
-            elif e.response.status_code in (500, 502, 503, 520, 521):
+            elif e.response.status_code in (502, 503, 520, 521):
                 raise StatusError503(_msg_err) from None
             else:
                 raise
         except Exception as e:
-            _msg_err = repr(e)
-            if not res:
-                raise TimeoutError(_msg_err) from None
-            else:
-                raise_extractor_error(_msg_err)
+            _msg_err = f"{repr(e)}"
+            raise
         finally:
             _logger(f"[async_send_http_req] {_msg_err} {req}:{req.headers}:{res}")
             if _client_cl:
@@ -2042,27 +2043,18 @@ if yt_dlp:
             if fatal:
                 res.raise_for_status()
             return res
-        except ConnectError as e:
-            _msg_err = str(e)
-            if "errno 61" in _msg_err.lower():
-                raise
-            else:
-                raise_extractor_error(_msg_err)
         except httpx.HTTPStatusError as e:
-            e.args = (e.args[0].split("\nFor more")[0],)
-            _msg_err = str(e)
+            e.args = (e.args[0].split(" for url")[0],)
+            _msg_err = f"{repr(e)}"
             if e.response.status_code == 403:
                 raise_reextract_info(_msg_err)
-            elif e.response.status_code in (500, 502, 503, 520, 521):
+            elif e.response.status_code in (502, 503, 520, 521):
                 raise StatusError503(_msg_err) from None
             else:
                 raise
         except Exception as e:
-            _msg_err = str(e)
-            if not res:
-                raise TimeoutError(_msg_err) from None
-            else:
-                raise_extractor_error(_msg_err)
+            _msg_err = f"{repr(e)}"
+            raise
         finally:
             _logger(f"[send_http_req] {_msg_err} {req}:{req.headers}:{res}")
             if _client_cl:
@@ -2104,7 +2096,7 @@ if yt_dlp:
                 if key.method == "SAMPLE-AES-CTR":
                     if getattr(key, "keyformat", "").lower() == uuid:
                         if uri := getattr(key, "uri", None):
-                            if _pssh := try_call(
+                            if _pssh := mytry_call(
                                 lambda: uri.split("data:text/plain;base64,")[1]
                             ):
                                 pssh.add(_pssh)

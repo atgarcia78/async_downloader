@@ -2,7 +2,7 @@ import asyncio
 import logging
 from collections import deque
 
-from utils import MySyncAsyncEvent, async_suppress, print_tasks, try_call
+from utils import MySyncAsyncEvent, async_suppress, print_tasks, mytry_call
 
 
 class Workers:
@@ -33,7 +33,7 @@ class Workers:
 
         if len(self.running) < self.max_workers:
             if not (
-                task_index := (task_index or try_call(lambda: self.waiting.popleft()))
+                task_index := (task_index or mytry_call(lambda: self.waiting.popleft()))
             ):
                 self.logger.debug(f"{_pre(task_index)} empty waiting list")
             else:

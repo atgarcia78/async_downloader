@@ -12,7 +12,7 @@ from pywidevine.cdm import Cdm
 from pywidevine.device import Device, DeviceTypes
 from pywidevine.pssh import PSSH
 
-from utils import CLIENT_CONFIG, get_pssh_from_manifest, try_call, variadic
+from utils import CLIENT_CONFIG, get_pssh_from_manifest, mytry_call, variadic
 
 logger = logging.getLogger("mydrm")
 
@@ -82,7 +82,7 @@ class myDRM:
         **kwargs,
     ) -> Optional[str | list]:
         if not pssh:
-            pssh = try_call(
+            pssh = mytry_call(
                 lambda: get_pssh_from_manifest(manifest_url=manifest_url, **kwargs)[0]
             )
             if not pssh:

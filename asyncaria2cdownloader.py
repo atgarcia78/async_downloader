@@ -48,7 +48,7 @@ from utils import (
     smuggle_url,
     sync_to_async,
     traverse_obj,
-    try_call,
+    mytry_call,
     try_get,
     update_url,
     variadic,
@@ -140,7 +140,7 @@ class CheckSpeed:
         if len(self._speed) > self._min_check:
             self.tasks.append(
                 self._aria2dl.add_task(
-                    self._check_speed(try_call(lambda: self.tasks[-1])),
+                    self._check_speed(mytry_call(lambda: self.tasks[-1])),
                     name="check_speed",
                 )
             )

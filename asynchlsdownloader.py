@@ -68,7 +68,7 @@ from utils import (
     str_or_none,
     sync_to_async,
     traverse_obj,
-    try_call,
+    mytry_call,
     try_get,
     variadic,
     wait_for_either,
@@ -130,10 +130,7 @@ retry = my_dec_on_exception(
     AsyncHLSDLErrorFatal, max_tries=5, raise_on_giveup=True, interval=5)
 
 on_exception = my_dec_on_exception(
-    (TimeoutError, AsyncHLSDLError, ReExtractInfo),
-    max_tries=5,
-    raise_on_giveup=False,
-    interval=10)
+    (AsyncHLSDLError, ReExtractInfo), max_tries=5, raise_on_giveup=True, interval=10)
 
 on_503_hsize = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=False, interval=10)
@@ -141,10 +138,10 @@ on_503_hsize = my_dec_on_exception(
 on_503 = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=True, interval=10)
 
-network_exceptions = (httpx.ReadTimeout, httpx.RemoteProtocolError)
+CommonHTTPErrors = (httpx.NetworkError, httpx.TimeoutException, httpx.ProtocolError)
 
 on_network_exception = my_dec_on_exception(
-    network_exceptions, max_tries=10, raise_on_giveup=True, interval=5)
+    CommonHTTPErrors, max_tries=10, raise_on_giveup=True, interval=5)
 
 
 class AsyncHLSDownloader:
@@ -405,7 +402,7 @@ class AsyncHLSDownloader:
                     logger=logger.debug,
                     new_e=AsyncHLSDLError,
                 ),
-                lambda x: x.content if x else None,
+                lambda x: x.content,
             )
 
     @on_503
@@ -626,17 +623,17 @@ class AsyncHLSDownloader:
     def _check_is_dl(self, ctx: DownloadFragContext, hsize=None) -> bool:
         is_ok = False
         if not hsize:
-            hsize = try_call(lambda: ctx.info_frag["headersize"])
+            hsize = mytry_call(lambda: ctx.info_frag["headersize"])
             if not hsize and ctx.resp:
                 if not ctx.resp.headers.get("content-encoding"):
-                    hsize = try_call(
+                    hsize = mytry_call(
                         lambda: int_or_none(ctx.resp.headers["content-length"])
                     )  # or self.get_headersize(ctx)
-        size = try_call(lambda: ctx.file.stat().st_size) or -1
+        size = mytry_call(lambda: ctx.file.stat().st_size) or -1
         if size == 0 or (
             size > 0 and hsize and not (hsize - 100 <= size <= hsize + 100)
         ):
-            try_call(lambda: ctx.file.unlink())
+            mytry_call(lambda: ctx.file.unlink())
             size = -1
         if size != -1:
             is_ok = True
@@ -1204,9 +1201,7 @@ class AsyncHLSDownloader:
                     self._vid_dl.total_sizes["down_size"] -= ctx.num_bytes_downloaded
                 ctx.num_bytes_downloaded = 0
 
-        async def _initial_checkings_ok(
-            ctx: DownloadFragContext, response: AsyncIterator
-        ):
+        async def _initial_checkings_ok(ctx: DownloadFragContext, response: AsyncIterator):
             ctx.resp = response
             if ctx.resp.status_code == 403:
                 if _wait_tasks := await self._handle_reset(cause="403"):
@@ -1215,7 +1210,7 @@ class AsyncHLSDownloader:
                     f"{_premsg} resp code:{str(ctx.resp.status_code)}"
                 )
 
-            elif ctx.resp.status_code in (500, 502, 503, 520, 521):
+            elif ctx.resp.status_code in (502, 503, 520, 521):
                 raise StatusError503(
                     f"{_premsg} error status code {ctx.resp.status_code}"
                 )
@@ -1239,16 +1234,16 @@ class AsyncHLSDownloader:
             if _nsize == -1:
                 logger.warning(f"{_premsg} no frag file\n{ctx.info_frag}")
                 raise AsyncHLSDLError(f"{_premsg} no frag file")
-            #ctx.size = ctx.info_frag["size"] = _nsize
-            #if not (_nhsize := ctx.info_frag["headersize"]):
-            #    _nhsize = _nsize
-            #if _nhsize - 100 <= _nsize <= _nhsize + 100:
-            ctx.info_frag["downloaded"] = True
-            async with self._asynclock:
-                self.n_dl_fragments += 1
-            # else:
-            #     logger.warning(f"{_premsg} frag not completed\n{ctx.info_frag}")
-            #     raise AsyncHLSDLError(f"{_premsg} frag not completed")
+            ctx.size = ctx.info_frag["size"] = _nsize
+            if not (_nhsize := ctx.info_frag["headersize"]):
+                _nhsize = _nsize
+            if _nhsize - 100 <= _nsize <= _nhsize + 100:
+                ctx.info_frag["downloaded"] = True
+                async with self._asynclock:
+                    self.n_dl_fragments += 1
+            else:
+                logger.warning(f"{_premsg} frag not completed\n{ctx.info_frag}")
+                raise AsyncHLSDLError(f"{_premsg} frag not completed")
 
         def _update_counters(bytes_dl: int, old_bytes_dl: int) -> int:
             if (inc_bytes := bytes_dl - old_bytes_dl) > 0:
@@ -1275,7 +1270,7 @@ class AsyncHLSDownloader:
                     if "event" in _check:
                         return _check
 
-        async for retry in MyRetryManager(self._MAX_RETRIES, self._limit):
+        async for retry in MyRetryManager(self._MAX_RETRIES, limiter=self._limit):
             _ctx = DownloadFragContext(self.info_frag[index - 1])
             try:
                 if _ev := self.check_any_event_is_set(incpause=False):
@@ -1314,7 +1309,7 @@ class AsyncHLSDownloader:
                     logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
                 raise
-            except network_exceptions as e:
+            except CommonHTTPErrors as e:
                 logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await _clean_frag(_ctx, e)
                 if _cl := self.clients.pop(nco, None):
