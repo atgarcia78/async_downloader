@@ -132,9 +132,6 @@ retry = my_dec_on_exception(
 on_exception = my_dec_on_exception(
     (AsyncHLSDLError, ReExtractInfo), max_tries=5, raise_on_giveup=True, interval=10)
 
-on_503_hsize = my_dec_on_exception(
-    StatusError503, max_time=360, raise_on_giveup=False, interval=10)
-
 on_503 = my_dec_on_exception(
     StatusError503, max_time=360, raise_on_giveup=True, interval=10)
 
@@ -427,48 +424,6 @@ class AsyncHLSDownloader:
                 )
             return res.content.decode("utf-8", "replace")
 
-    @on_503_hsize
-    @on_exception
-    def get_headersize(self, ctx: DownloadFragContext) -> Optional[int]:
-        pre = f"{self.premsg}[get_headersize][frag-{ctx.info_frag['frag']}]"
-        if ctx.headers_range:
-            logger.warning(f"{pre} NOK - fragments wth header range")
-            return
-
-        _error = ""
-        if (
-            not (
-                res := send_http_request(
-                    ctx.url,
-                    _type="HEAD",
-                    headers={"Range": "bytes=0-100"},
-                    client=self.init_client,
-                    logger=logger.debug,
-                    new_e=AsyncHLSDLError,
-                )
-            )
-            or isinstance(res, dict)
-            and (_error := res.get("error"))
-        ):
-            logger.warning(f"{pre} NOK - couldnt get res to head {_error}")
-            return
-
-        logger.debug(
-            f"{pre} REQUEST: {res.request} headers: {res.request.headers}\n"
-            + f"RESPONSE: {res} headers: {res.headers}\nINFO_FRAG: {ctx.info_frag}"
-        )
-        if not (
-            hsize := try_get(
-                res.headers.get("content-range"), lambda x: int(x.split("/")[1])
-            )
-        ):
-            logger.warning(f"{pre} NOK - not content range in res")
-            return
-        else:
-            logger.debug(f"{pre} {hsize}")
-            ctx.info_frag["headersize"] = hsize
-            return hsize
-
     @on_503
     @on_exception
     def download_init_section(self):
@@ -628,7 +583,7 @@ class AsyncHLSDownloader:
                 if not ctx.resp.headers.get("content-encoding"):
                     hsize = mytry_call(
                         lambda: int_or_none(ctx.resp.headers["content-length"])
-                    )  # or self.get_headersize(ctx)
+                    )
         size = mytry_call(lambda: ctx.file.stat().st_size) or -1
         if size == 0 or (
             size > 0 and hsize and not (hsize - 100 <= size <= hsize + 100)
