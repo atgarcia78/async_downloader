@@ -1931,9 +1931,7 @@ if yt_dlp:
             _videos = [str(_for_print(_vid)) for _vid in _videos]
             return "[" + ",\n".join(_videos) + "]"
 
-    def render_res_table(
-        data, headers=(), maxcolwidths=None, showindex=True, tablefmt="simple"
-    ):
+    def render_res_table(data, headers=(), maxcolwidths=None, showindex=True, tablefmt="simple"):
         if tabulate:
             return tabulate(
                 data,
@@ -1947,40 +1945,6 @@ if yt_dlp:
             "Tabulate is not installed, tables will not be presented optimized"
         )
         return render_table(headers, data, delim=True)
-
-    def send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
-        """
-        raises ReExtractInfo(403), httpx.HTTPStatusError, StatusError503, TimeoutError, ConnectError
-        """
-        new_e = kwargs.pop("new_e", None)
-        try:
-            return _send_http_request(url, **kwargs)
-        except (StatusError503, ReExtractInfo):
-            raise
-        except (httpx.ConnectError, httpx.HTTPStatusError) as e:
-            return {"error": repr(e)}
-        except Exception as e:
-            if not new_e:
-                raise
-            else:
-                raise new_e(repr(e)) from e
-
-    async def async_send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
-        """
-        raises ReExtractInfo(403),httpx.HTTPStatusError, StatusError503, TimeoutError, ConnectError
-        """
-        new_e = kwargs.pop("new_e", None)
-        try:
-            return await _async_send_http_request(url, **kwargs)
-        except (StatusError503, ReExtractInfo):
-            raise
-        except (httpx.ConnectError, httpx.HTTPStatusError) as e:
-            return {"error": repr(e)}
-        except Exception as e:
-            if not new_e:
-                raise
-            else:
-                raise new_e(repr(e)) from e
 
     def raise_extractor_error(msg, expected=True, _from=None):
         raise ExtractorError(msg, expected=expected) from _from
@@ -2059,6 +2023,41 @@ if yt_dlp:
             _logger(f"[send_http_req] {_msg_err} {req}:{req.headers}:{res}")
             if _client_cl:
                 client.close()
+
+
+    def send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
+        """
+        raises ReExtractInfo, StatusError503, Exception
+        """
+        new_e = kwargs.pop("new_e", None)
+        try:
+            return _send_http_request(url, **kwargs)
+        except (StatusError503, ReExtractInfo):
+            raise
+        except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+            return {"error": repr(e)}
+        except Exception as e:
+            if not new_e:
+                raise
+            else:
+                raise new_e(repr(e)) from e
+
+    async def async_send_http_request(url, **kwargs) -> Optional[httpx.Response | dict]:
+        """
+        raises ReExtractInfo, StatusError503, Exception
+        """
+        new_e = kwargs.pop("new_e", None)
+        try:
+            return await _async_send_http_request(url, **kwargs)
+        except (StatusError503, ReExtractInfo):
+            raise
+        except (httpx.ConnectError, httpx.HTTPStatusError) as e:
+            return {"error": repr(e)}
+        except Exception as e:
+            if not new_e:
+                raise
+            else:
+                raise new_e(repr(e)) from e
 
     def get_pssh_from_manifest(
         manifest_url: Optional[str] = None, manifest_doc: Optional[str] = None, **kwargs
