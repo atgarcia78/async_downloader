@@ -3559,7 +3559,7 @@ def patch_https_connection_pool(**constructor_kwargs):
     poolmanager.pool_classes_by_scheme["https"] = MyHTTPSConnectionPool  # type: ignore
 
 
-def init_config(logging=False, test=False, log_name="asyncdl"):
+def init_config(logging=True, test=False, log_name="asyncdl"):
     patch_http_connection_pool(maxsize=1000)
     patch_https_connection_pool(maxsize=1000)
     os.environ["MOZ_HEADLESS_WIDTH"] = "1920"
