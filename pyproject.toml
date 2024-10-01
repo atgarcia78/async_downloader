@@ -148,3 +148,46 @@ dependencies = [
 [tool.uv.sources]
 undetected-chromedriver = { path = "../undetected-chromedriver" }
 yt-dlp = { path = "../yt-dlp" }
+
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+ignore = [
+    "E402",    # module-import-not-at-top-of-file
+    "E501",    # line-too-long
+    "E731",    # lambda-assignment
+    "E741",    # ambiguous-variable-name
+    "UP036",   # outdated-version-block
+    "B006",    # mutable-argument-default
+    "B008",    # function-call-in-default-argument
+    "B011",    # assert-false
+    "B017",    # assert-raises-exception
+    "B023",    # function-uses-loop-variable (false positives)
+    "B028",    # no-explicit-stacklevel
+    "B904",    # raise-without-from-inside-except
+    "C401",    # unnecessary-generator-set
+    "C402",    # unnecessary-generator-dict
+    "PIE790",  # unnecessary-placeholder
+    "SIM102",  # collapsible-if
+    "SIM108",  # if-else-block-instead-of-if-exp
+    "SIM112",  # uncapitalized-environment-variables
+    "SIM113",  # enumerate-for-loop
+    "SIM114",  # if-with-same-arms
+    "SIM115",  # open-file-with-context-handler
+    "SIM117",  # multiple-with-statements
+    "SIM223",  # expr-and-false
+    "SIM300",  # yoda-conditions
+    "TD001",   # invalid-todo-tag
+    "TD002",   # missing-todo-author
+    "TD003",   # missing-todo-link
+    "PLE0604", # invalid-all-object (false positives)
+    "PLE0643", # potential-index-error (false positives)
+    "PLW0603", # global-statement
+    "PLW1510", # subprocess-run-without-check
+    "PLW2901", # redefined-loop-name
+    "RUF001",  # ambiguous-unicode-character-string
+    "RUF012",  # mutable-class-default
+    "RUF100",  # unused-noqa (flake8 has slightly different behavior)
+]

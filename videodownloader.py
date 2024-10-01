@@ -583,9 +583,9 @@ class VideoDownloader:
         logger.debug(f"{self.premsg}: drm keys[{_keys}] drm file[{_path_drm_file}]")
         return _path_drm_file
 
-    def run_proc_tracker(self, cmd, queue, pattern):
-        _tracker = Tracker(cmd, queue, pattern)
-        return _tracker.track_progress()
+    async def async_run_proc_tracker(self, cmd, queue, pattern):
+        _tracker = Tracker(cmd, stream='stderr', upt=queue, pattern=pattern)
+        return await _tracker.async_track_progress()
 
     def run_proc(self, cmd):
         _cmd = None
@@ -602,7 +602,6 @@ class VideoDownloader:
 
     async def run_manip(self):
         arunproc = self.sync_to_async(self.run_proc)
-        arunproctracker = self.sync_to_async(self.run_proc_tracker)
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
         autime = self.sync_to_async(os.utime)
         aget_metadata_video = self.sync_to_async(get_metadata_video)
@@ -732,10 +731,10 @@ class VideoDownloader:
             logger.info(f"{self.premsg}: starting decryption files")
             logger.debug(f"{self.premsg}: {cmd}")
 
-            _rc = await arunproctracker(
-                cmd, self._status_manip_upt, r"Decrypting:\s+(?P<progress>\S+)\s"
-            )
-            logger.debug(f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {rc}")
+            _rc = await self.async_run_proc_tracker(
+                cmd, self._status_manip_upt, r"Decrypting:\s+(?P<progress>\S+)\s")
+
+            logger.debug(f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {_rc}")
 
             if _rc == 0 and (await aiofiles.os.path.exists(self.temp_filename)):
                 logger.debug(f"{self.premsg}: DL video file OK")

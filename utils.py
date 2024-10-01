@@ -33,7 +33,7 @@ from ipaddress import ip_address
 from itertools import zip_longest
 from operator import getitem
 from pathlib import Path
-from queue import Empty, Queue
+from queue import Empty, Queue, LifoQueue
 from statistics import median
 from typing import (
     Callable,
@@ -51,10 +51,11 @@ from urllib.parse import urlparse
 import httpx
 
 try:
-    from supportlogging import init_logging
-except Exception:
-    #print(str(e), file=sys.stderr)
+    from supportlogging import init_logging, LogContext
+except Exception as e:
+    print(str(e), file=sys.stderr)
     init_logging = None
+    LogContext = None
 
 try:
     from asgiref.sync import sync_to_async
@@ -74,14 +75,20 @@ except Exception:
 
 try:
     import psutil
-    import PySimpleGUI
 except Exception as e:
     print(str(e), file=sys.stderr)
-    PySimpleGUI = None
+    psutil = None
+
+try:
+    import PySimpleGUI as sg
+except Exception as e:
+    print(str(e), file=sys.stderr)
+    sg = None
 
 try:
     import yt_dlp
-except Exception:
+except Exception as e:
+    print(str(e), file=sys.stderr)
     yt_dlp = None
 
 FileLock = None
@@ -125,7 +132,7 @@ CONF_DRM = {
 CONF_DASH_SPEED_PER_WORKER = 102400
 
 CONF_FIREFOX_PROFILE = "/Users/antoniotorres/Library/Application Support/Firefox/Profiles/b33yk6rw.selenium"
-CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:132.0) Gecko/20100101 Firefox/132.0"
+CONF_FIREFOX_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:133.0) Gecko/20100101 Firefox/133.0"
 CONF_HLS_SPEED_PER_WORKER = 102400 / 8  # 512000
 CONF_HLS_RESET_403_TIME = 150
 CONF_TORPROXIES_HTTPPORT = 7070
@@ -160,6 +167,55 @@ CLIENT_CONFIG = {
 
 logger = logging.getLogger('asyncdl')
 
+class LoggerWriter:
+    def __init__(self, logger, level):
+        if isinstance(logger, str):
+            self.logger = logging.getLogger(logger)
+        else:
+            self.logger = logger
+        self.level = level if isinstance(level, int) else logging.getLevelName(level)
+
+
+    def write(self, msg):
+        if msg and msg not in (' ', '\n'):
+            self.logger.log(self.level, msg)
+
+    def flush(self):
+        pass
+
+    def close(self):
+        pass
+
+    def __enter__(self):
+        sys.stdout = self
+        sys.stderr = self
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        sys.stdout = sys.__stdout__
+        sys.stderr = sys.__stderr__
+
+
+
+class BufferingLoggerWriter(LoggerWriter):
+    def __init__(self, logger, level):
+        super().__init__(logger, level)
+        self.buffer = ''
+
+    def write(self, message):
+        if '\n' not in message:
+            self.buffer += message
+        else:
+            parts = message.split('\n')
+            if self.buffer:
+                msg = self.buffer + parts.pop(0)
+                if msg and msg not in (' ', '\n'):
+                    self.logger.log(self.level, msg)
+            self.buffer = parts.pop()
+            for msg in parts:
+                if msg and msg not in (' ', '\n'):
+                    self.logger.log(self.level, msg)
+
 def deep_update(mapping, *updating_mappings):
     updated_mapping = mapping.copy()
     for updating_mapping in updating_mappings:
@@ -173,63 +229,6 @@ def deep_update(mapping, *updating_mappings):
             else:
                 updated_mapping[k] = v
     return updated_mapping
-
-
-class Tracker:
-    _sentinel = object()
-
-    def __init__(self, cmd, upt, pattern):
-        self._upt = upt
-        self._stderr_queue = Queue()
-        self._stderr_buffer = ""
-        self.progress_pattern = re.compile(pattern)
-        self.proc = subprocess.Popen(
-            shlex.split(cmd),
-            text=True,
-            encoding="utf8",
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
-
-    def _handle_lines(self):
-        def _parse_output(line):
-            if not (_info := re.match(self.progress_pattern, line)):
-                return
-            return float(_info.group("progress"))
-
-        if not self._stderr_queue.empty():
-            stderr_line = self._stderr_queue.get_nowait()
-            if stderr_line != self._sentinel:
-                self._stderr_buffer += stderr_line + "\n"
-                if _progr := _parse_output(stderr_line):
-                    self._upt["progress"] = _progr
-            else:
-                self._upt["progress"] = 100.0
-
-    def _wait_for_proc(self):
-        retcode = self.proc.poll()
-        while retcode is None:
-            time.sleep(CONF_INTERVAL_GUI / 10)
-            self._handle_lines()
-            retcode = self.proc.poll()
-        return retcode
-
-    def track_progress(self):
-        def _enqueue_lines(std, queue):
-            for line in iter(std.readline, ""):
-                queue.put(line.strip())
-            queue.put(self._sentinel)
-            std.close()
-
-        err_listener = threading.Thread(
-            target=_enqueue_lines,
-            args=(self.proc.stderr, self._stderr_queue),
-            daemon=True,
-        )
-
-        err_listener.start()
-        retcode = self._wait_for_proc()
-        return retcode
 
 
 def get_dependencies(your_package):
@@ -806,20 +805,19 @@ class run_operation_in_executor:
     that wrappes the function submitted with a thread executor
     """
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, stop_event=None) -> None:
         self.name = name  # for thread prefix loggin and stop event name
+        self.stop_event = stop_event or MySyncAsyncEvent(name)
 
     def __call__(self, func):
-        name = self.name
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> tuple[MySyncAsyncEvent, Future]:
-            stop_event = MySyncAsyncEvent(name)
-            exe = ThreadPoolExecutor(thread_name_prefix=name)
-            _kwargs = {"stop_event": stop_event}
+            exe = ThreadPoolExecutor(thread_name_prefix=self.name)
+            _kwargs = {"stop_event": self.stop_event}
             _kwargs.update(kwargs)
             fut = exe.submit(lambda: func(*args, **_kwargs))
-            return (stop_event, fut)
+            return (self.stop_event, fut)
 
         return wrapper
 
@@ -3564,8 +3562,12 @@ def init_config(logging=True, test=False, log_name="asyncdl"):
     patch_https_connection_pool(maxsize=1000)
     os.environ["MOZ_HEADLESS_WIDTH"] = "1920"
     os.environ["MOZ_HEADLESS_HEIGHT"] = "1080"
-    if logging and init_logging:
-        return init_logging(log_name, test=test)
+    if logging:
+        if not init_logging or not LogContext:
+            print('init config logging incomplete')
+        logger = init_logging(log_name, test=test) if init_logging else logging.getLogger(log_name)
+        logctx = LogContext() if LogContext else contextlib.nullcontext()
+        return logger, logctx
 
 
 class CountDowns:
@@ -3853,8 +3855,7 @@ class SimpleCountDown:
         return self.exit_event.is_set()
 
 
-if PySimpleGUI:
-    sg = PySimpleGUI
+if sg:
 
     class FrontEndGUI:
         _PASRES_REPEAT = False
@@ -3889,13 +3890,16 @@ if PySimpleGUI:
 
             self.list_upt = {}
             self.list_res = {}
-            self.stop_upt_window, self.fut_upt_window = self.upt_window_periodic()
-            self.asyncdl.add_task(self.fut_upt_window)
+            self.stop_upt_window, self.fut_upt_window = try_get(
+                self.upt_window_periodic(),
+                lambda x: (x[0], self.asyncdl.add_task(x[1])))
+            #self.asyncdl.add_task(self.fut_upt_window)
             self.exit_upt = MySyncAsyncEvent("exitupt")
-            self.stop_pasres, self.fut_pasres = self.pasres_periodic()
-            self.asyncdl.add_task(self.fut_pasres)
+            self.stop_pasres, self.fut_pasres = try_get(
+                self.pasres_periodic(),
+                lambda x: (x[0], self.asyncdl.add_task(x[1])))
+            #self.asyncdl.add_task(self.fut_pasres)
             self.exit_pasres = MySyncAsyncEvent("exitpasres")
-
             self.task_gui = self.asyncdl.add_task(self.gui())
 
         @classmethod
@@ -4223,15 +4227,14 @@ if PySimpleGUI:
                 finalize=True,
                 resizable=True,
             )
-
             # window.set_min_size(window.size)
             if ml_keys:
                 for key in ml_keys:
                     window[key].expand(True, True, True)
             if to_front:
                 window.bring_to_front()
-
             window.bind("<Control-KeyPress-c>", "CtrlC")
+
             return window
 
         def init_gui_root(self):
@@ -5401,3 +5404,134 @@ args = argparse.Namespace(
 
 def get_ytdl(_args):
     return init_ytdl(_args)
+
+
+class Tracker:
+    _sentinel = str(object())
+
+    def __init__(self, cmd, stream='stdout', upt=None, pattern=None, shell=True, env=None):
+        self.logger = logging.getLogger('proc-tracker')
+        self._upt = upt
+        self._std_queue = LifoQueue()
+        self._std_buffer = ""
+        self.progress_pattern = re.compile(pattern) if pattern else None
+        self.cmd = cmd if shell else shlex.split(cmd)
+        self.shell = shell
+        self.stream = stream
+        self.env = env if env else dict(os.environ)
+        self.env['COLUMNS'] = str(shutil.get_terminal_size().columns)
+        self.env['LINES'] = '50'
+
+    @run_operation_in_executor('enqueue_lines')
+    def _enqueue_lines(self, std, queue, **kwargs):        
+        stop_ev = kwargs.get("stop_event")
+        while True:
+            try:
+                if self.proc.returncode is not None:
+                    break
+                if stop_ev.is_set():
+                    break
+                if line := std.readline():
+                    if isinstance(line, bytes):
+                        line = line.decode()
+                    if self.progress_pattern and (_info := re.match(self.progress_pattern, line)):
+                        queue.put_nowait(_info)
+            except Exception as e:
+                self.logger.error(f'[enqueue_lines] {repr(e)}')
+        queue.put(Tracker._sentinel)
+
+    async def _async_enqueue_lines(self, std, queue):
+        blocks = []
+        _exit = False
+        chunk = 1024
+
+
+        async def _process_line(_data):
+            line = b''.join(blocks) + _data
+            line = line.decode('utf-8', 'replace').strip()
+            blocks.clear()
+            return line
+
+        async def _process_data(_data):
+            _lines = []
+            while True:
+                n = _data.find(b'\n')
+                if n == -1:
+                    break
+                _lines.append(await _process_line(_data[:n + 1]))
+                _data = _data[n + 1:]
+            blocks.append(_data)
+            return _lines
+
+        while True:
+            try:
+                if self.proc.returncode is not None:
+                    _exit = True
+                if not (data := await std.read(n=chunk)):
+                    _line = await _process_line(b'')
+                else:
+                    _line = try_get(await _process_data(data), lambda x: x[-1])
+                if self.progress_pattern and (_info := re.match(self.progress_pattern, _line)):
+                    queue.put_nowait(_info)
+            except Exception as e:
+                self.logger.exception(f'[asynclist] {repr(e)}')
+            finally:
+                if _exit:
+                    break
+        queue.put_nowait(Tracker._sentinel)
+
+
+    def _handle_lines(self):
+        try:
+            _parse_output = self._std_queue.get_nowait()
+            if _parse_output != Tracker._sentinel:
+                if self._upt:
+                    self._upt["progress"] = float(_parse_output.group("progress"))
+            else:
+                if self._upt:
+                    self._upt["progress"] = 100.0
+                return True
+        except Empty:
+            pass
+        except Exception as e:
+            self.logger.exception(f'[handle_lines] {repr(e)}')
+
+    def _wait_for_proc(self):
+        while self.proc.poll() is None:
+            if self._handle_lines():
+                break
+            time.sleep(CONF_INTERVAL_GUI / 4)
+        self.proc.wait()
+
+    async def _async_wait_for_proc(self):
+        while self.proc.returncode is None:
+            if self._handle_lines():
+                break
+            await asyncio.sleep(CONF_INTERVAL_GUI / 4)
+        await self.proc.wait()
+
+
+    async def async_track_progress(self):
+        self.proc = await asyncio.create_subprocess_shell(
+            self.cmd, env=self.env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        _stream = self.proc.stdout if self.stream == 'stdout' else self.proc.stderr
+        self.tasks = [
+            asyncio.create_task(self._async_enqueue_lines(_stream, self._std_queue)),
+            asyncio.create_task(self._async_wait_for_proc())
+        ]
+        await asyncio.wait(self.tasks)
+        return self.proc.returncode
+
+
+    def track_progress(self):
+        self.proc = subprocess.Popen(
+            self.cmd if self.shell else shlex.split(self.cmd), env=self.env, shell=self.shell,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _stream = self.proc.stdout if self.stream == 'stdout' else self.proc.stderr
+        
+        _stop_list, out_listener = self._enqueue_lines(_stream, self._std_queue)
+
+        self._wait_for_proc()
+        return self.proc.returncode
+
+

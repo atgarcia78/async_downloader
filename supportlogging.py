@@ -195,11 +195,8 @@ class SingleThreadQueueListener(QueueListener):
 
 
 class LogContext:
-    '''
-    initialize logging and cobtrols ouput
-    '''
+
     def __enter__(self):
-        self.logger = init_logging('asyncdl')
         return self
 
     def __exit__(self, *args, **kwargs):
@@ -222,7 +219,7 @@ def init_logging(log_name, test=False):
 
     for _name, logger in logging.Logger.manager.loggerDict.items():
         if isinstance(logger, logging.Logger) and any(
-            _name.startswith(_) for _ in ("proxy", "plugins.proxy")
+            _name.startswith(_) for _ in ("proxy", "proxy_plugins")
         ):
             logger.setLevel(logging.ERROR)
 
