@@ -7,7 +7,6 @@ import math
 import random
 import shutil
 import subprocess
-import time
 import struct
 from argparse import Namespace
 from concurrent.futures import ThreadPoolExecutor
@@ -15,7 +14,7 @@ from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
 from queue import Queue
-from threading import BoundedSemaphore, Lock
+from threading import Lock
 from typing import AsyncIterator
 
 import aiofiles
@@ -26,16 +25,13 @@ from Cryptodome.Cipher import AES
 
 from utils import (
     CLIENT_CONFIG,
-    CONF_HLS_RESET_403_TIME,
     CONF_INTERVAL_GUI,
     CONF_PROXIES_BASE_PORT,
     CONF_PROXIES_MAX_N_GR_HOST,
     Coroutine,
-    CountDowns,
     InfoDL,
     List,
     MyRetryManager,
-    MySyncAsyncEvent,
     Optional,
     ProgressTimer,
     ReExtractInfo,
@@ -46,9 +42,7 @@ from utils import (
     Token,
     Union,
     _for_print,
-    async_lock,
     async_suppress,
-    async_waitfortasks,
     await_for_any,
     empty_queue,
     get_cookies_jar,
@@ -65,13 +59,12 @@ from utils import (
     put_sequence,
     send_http_request,
     smuggle_url,
-    str_or_none,
     sync_to_async,
     traverse_obj,
     mytry_call,
     try_get,
     variadic,
-    wait_for_either,
+    CountDowns
 )
 
 logger = logging.getLogger("asynchlsdl")
@@ -142,18 +135,17 @@ on_network_exception = my_dec_on_exception(
 
 
 class AsyncHLSDownloader:
-    _PLNS = {}
     _CHUNK_SIZE = 8196  # 16384  # 65536  # 10485760  # 16384  # 1024  # 102400 #10485760
     _MAX_RETRIES = 5
     _MAX_RESETS = 20
     _CONFIG = load_config_extractors()
     _CLASSLOCK = Lock()
-
-    _COUNTDOWNS = None
+    _qproxies = None
+    # frm plns configuration, on observaton to remove
     _QUEUE = {}
     _INPUT = Queue()
+    _COUNTDOWNS = CountDowns()
     _INRESET_403 = set()
-    _qproxies = None
 
     def __init__(
         self, args: Namespace, ytdl: myYTDL, video_dict: dict, info_dl: InfoDL
@@ -241,21 +233,12 @@ class AsyncHLSDownloader:
 
         self.special_extr = False
         self.auto_pasres = False
-        self.fromplns = None
         self._extractor = try_get(
             self.info_dict.get("extractor_key"), lambda x: x.lower())
 
         def getter(name: Optional[str]) -> tuple:
             if not name:
                 return (self.n_workers, 0, contextlib.nullcontext())
-            if "nakedsword" in name:
-                self.auto_pasres = True
-                if self.info_dict.get("playlist_id"):
-                    if all(
-                        _ not in self.info_dict.get("playlist_title", "")
-                        for _ in ("MostWatchedScenes", "Search")
-                    ):
-                        self.fromplns = str_or_none(self.info_dict.get("_id_movie"))
             value, key_text = getter_basic_config_extr(
                 name, AsyncHLSDownloader._CONFIG
             ) or (None, None)
@@ -335,37 +318,6 @@ class AsyncHLSDownloader:
         except Exception as e:
             logger.exception("[init info proxy] %s", str(e))
 
-    def upt_plns(self):
-        with AsyncHLSDownloader._CLASSLOCK:
-            if "ALL" not in AsyncHLSDownloader._PLNS:
-                AsyncHLSDownloader._PLNS["ALL"] = {
-                    "sem": BoundedSemaphore(),
-                    "downloading": set(),
-                    "in_reset": set(),
-                    "reset": MySyncAsyncEvent(name="fromplns[ALL]", initset=True),
-                }
-            if self.fromplns not in AsyncHLSDownloader._PLNS:
-                AsyncHLSDownloader._PLNS[self.fromplns] = {
-                    "downloaders": {self.info_dict["_index_scene"]: self},
-                    "downloading": set(),
-                    "in_reset": set(),
-                    "reset": MySyncAsyncEvent(
-                        name=f"fromplns[{self.fromplns}]", initset=True
-                    ),
-                    "sem": BoundedSemaphore(),
-                    "asem": asyncio.Semaphore(),
-                }
-            else:
-                AsyncHLSDownloader._PLNS[self.fromplns]["downloaders"].update(
-                    {self.info_dict["_index_scene"]: self})
-
-        _downloaders = AsyncHLSDownloader._PLNS[self.fromplns]["downloaders"]
-        logger.debug(
-            f"{self.premsg}: "
-            + f"added new dl to plns [{self.fromplns}], "
-            + f"count [{len(_downloaders)}] "
-            + f"members[{list(_downloaders.keys())}]")
-
     @property
     def pos(self):
         return self._pos
@@ -375,8 +327,6 @@ class AsyncHLSDownloader:
         self._pos = value
         self.premsg = f"[{value}]{self.premsg}"
         AsyncHLSDownloader._QUEUE[str(self._pos)] = Queue()
-        if self.fromplns:
-            self.upt_plns()
 
     def add_task(
         self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None
@@ -782,11 +732,10 @@ class AsyncHLSDownloader:
         _base = f"{self.premsg}[get_reset_inf]"
         _proxy = self._proxy.get("http://")
         _print_proxy = lambda: (f":proxy[{_proxy.split(':')[-1]}]" if _proxy else "")  # noqa: E731
-        _print_plns = lambda: (f":PLNS[{self.fromplns}]" if self.fromplns else "")  # noqa: E731
         _pre = lambda: "".join(  # noqa: E731
             [
                 f"{_base}:RESET[{self.n_reset}]:first[{first}]",
-                f"{_print_plns()}{_print_proxy()}",
+                f"{_print_proxy()}",
             ]
         )
 
@@ -796,37 +745,7 @@ class AsyncHLSDownloader:
         info_reset = None
 
         try:
-            if self.fromplns:
-                if first:
-                    if _info := self.multi_extract_info(
-                        _reset_url, proxy=_proxy, msg=_pre()
-                    ):
-                        self.ytdl.cache.store(
-                            "nakedswordmovie", str(self.fromplns), _info
-                        )
-                else:
-                    if not (
-                        _info := self.ytdl.cache.load(
-                            "nakedswordmovie", str(self.fromplns)
-                        )
-                    ):
-                        if _info := self.multi_extract_info(
-                            _reset_url, proxy=_proxy, msg=_pre()
-                        ):
-                            self.ytdl.cache.store(
-                                "nakedswordmovie", str(self.fromplns), _info
-                            )
-                if _info:
-                    info_reset = try_get(
-                        traverse_obj(
-                            _info, ("entries", int(self.info_dict["_index_scene"]) - 1)
-                        ),
-                        lambda x: get_format_id(x, self.info_dict["format_id"])
-                        if x
-                        else None,
-                    )
-
-            elif _info := self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre()):
+            if _info := self.multi_extract_info(_reset_url, proxy=_proxy, msg=_pre()):
                 if _len_entries := len(_info.get("entries", [])):
                     if _len_entries == 1:
                         _pl_index = 1
@@ -855,8 +774,6 @@ class AsyncHLSDownloader:
             raise
         except AsyncHLSDLErrorFatal as e:
             logger.debug(f"{_pre()} {repr(e)}")
-            if self.fromplns and not first:
-                self.ytdl.cache.store("nakedswordmovie", str(self.fromplns), {})
             raise
         except Exception as e:
             logger.error(f"{_pre()} fails when extracting reset info {repr(e)}")
@@ -866,68 +783,14 @@ class AsyncHLSDownloader:
         def _pre():
             _proxy = self._proxy.get("http://")
             _print_proxy = f":proxy[{_proxy.split(':')[-1]}]" if _proxy else ""
-            _print_plns = f":PLNS[{self.fromplns}]" if self.fromplns else ""
             return "".join(
                 [
                     f"{self.premsg}[resetdl]:RESET[{self.n_reset}]",
-                    f"{_print_plns}{_print_proxy}",
+                    f"{_print_proxy}",
                 ]
             )
 
         logger.debug(_pre())
-
-        def _handle_wait_plns_403():
-            AsyncHLSDownloader._INRESET_403.add(self.info_dict["id"])
-            with AsyncHLSDownloader._CLASSLOCK:
-                if not AsyncHLSDownloader._COUNTDOWNS:
-                    AsyncHLSDownloader._COUNTDOWNS = CountDowns(
-                        AsyncHLSDownloader, logger=logger
-                    )
-
-            self.check_stop()
-            AsyncHLSDownloader._COUNTDOWNS.add(
-                n=CONF_HLS_RESET_403_TIME,
-                index=str(self.pos),
-                event=self._vid_dl.stop_event,
-                msg=self.premsg,
-            )
-
-            self.check_stop()
-            logger.debug(f"{_pre()} fin wait in reset cause 403")
-
-        def _handle_reset_for_plns():
-            if str(cause) == "403":
-                _handle_wait_plns_403()
-            with (_sem := AsyncHLSDownloader._PLNS["ALL"]["sem"]):
-                logger.debug(f"{_pre()} in sem")
-                _first_all = _sem._initial_value == 1
-                with (_sem2 := AsyncHLSDownloader._PLNS[self.fromplns]["sem"]):
-                    logger.debug(f"{_pre()} in sem2")
-                    _first = _sem2._initial_value == 1
-                    if _first_all and str(cause) == "403":
-                        time.sleep(5)
-
-                    _listreset = [
-                        int(index)
-                        for index in list(
-                            AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"]
-                        )
-                    ]
-                    _aux = {
-                        "indexdl": self.pos,
-                        "args": {self.fromplns: {"listreset": _listreset}},
-                    }
-                    _plns_url = smuggle_url(self.info_dict["original_url"], _aux)
-                    if (
-                        _resinfo := self.get_reset_info(_plns_url, first=_first)
-                    ) and "res" in _resinfo:
-                        if _first:
-                            _sem2._initial_value = 100
-                            _sem2.release(50)
-                        if _first_all:
-                            _sem._initial_value = 100
-                            _sem.release(50)
-                        time.sleep(1)
 
         def _handle_reset_simple():
             _webpage_url = self.info_dict["webpage_url"]
@@ -936,10 +799,7 @@ class AsyncHLSDownloader:
             self.get_reset_info(_webpage_url)
 
         try:
-            if self.fromplns:
-                _handle_reset_for_plns()
-            else:
-                _handle_reset_simple()
+            _handle_reset_simple()
         except StatusStop:
             logger.debug(f"{_pre()} stop_event")
             raise
@@ -950,57 +810,8 @@ class AsyncHLSDownloader:
             )
             raise
         finally:
-            if self.fromplns:
-                if str(cause) == "403":
-                    AsyncHLSDownloader._INRESET_403.discard(self.info_dict["id"])
-                logger.debug(f"{_pre()} stop_event[{self._vid_dl.stop_event}] FINALLY")
-
-                with AsyncHLSDownloader._CLASSLOCK:
-                    _inreset = AsyncHLSDownloader._PLNS[self.fromplns]["in_reset"]
-                    _inreset.discard(self.info_dict["_index_scene"])
-                    if not _inreset:
-                        logger.debug(
-                            f"{_pre()} end of resets fromplns [{self.fromplns}]"
-                        )
-
-                        AsyncHLSDownloader._PLNS[self.fromplns]["reset"].set()
-                        AsyncHLSDownloader._PLNS[self.fromplns]["sem"] = (
-                            BoundedSemaphore()
-                        )
-
-                if _inreset:
-                    if self._vid_dl.stop_event.is_set():
-                        return
-                    logger.debug(
-                        f"{_pre()} waits for scenes in [{self.fromplns}] to start DL [{_inreset}]"
-                    )
-                    wait_for_either(
-                        [
-                            AsyncHLSDownloader._PLNS[self.fromplns]["reset"],
-                            self._vid_dl.stop_event,
-                        ],
-                        timeout=300,
-                    )
-
-                with AsyncHLSDownloader._CLASSLOCK:
-                    AsyncHLSDownloader._PLNS["ALL"]["in_reset"].discard(self.fromplns)
-                    if not (_inreset := AsyncHLSDownloader._PLNS["ALL"]["in_reset"]):
-                        logger.debug(f"{_pre()} end for all plns ")
-                        AsyncHLSDownloader._PLNS["ALL"]["reset"].set()
-                        AsyncHLSDownloader._PLNS["ALL"]["sem"] = BoundedSemaphore()
-                        self.n_reset += 1
-                        logger.debug(f"{_pre()}  exit reset")
-                        return
-
-                if _inreset:
-                    if self._vid_dl.stop_event.is_set():
-                        return
-                    self.n_reset += 1
-                    logger.debug(f"{_pre()} exit reset")
-                    return
-            else:
-                self.n_reset += 1
-                logger.debug(f"{_pre()} exit reset")
+            self.n_reset += 1
+            logger.debug(f"{_pre()} exit reset")
 
     async def event_handle(self, msg: str) -> dict:
         _res = {}
@@ -1033,23 +844,7 @@ class AsyncHLSDownloader:
     async def _handle_reset(
         self, cause: Optional[str] = None, nworkers: Optional[int] = None
     ):
-        _tasks = []
-        if self.fromplns:
-            _asem = AsyncHLSDownloader._PLNS[self.fromplns]["asem"]
-            _reset = AsyncHLSDownloader._PLNS[self.fromplns]["reset"]
-            if not _asem.locked() and _reset.is_set():
-                async with _asem:
-                    _tasks = await AsyncHLSDownloader.reset_plns(
-                        self.fromplns, cause=cause, wait=False, nworkers=nworkers
-                    )
-            else:
-                logger.debug(
-                    f"[handle_reset] PLNS[{self.fromplns}] reset process already ongoing"
-                )
-                if cause == "403":
-                    self._vid_dl.reset_event.set("403")
-        else:
-            _tasks = await self._reset(cause=cause, wait=False)
+        _tasks = await self._reset(cause=cause, wait=False)
         return _tasks
 
     async def _reset(self, cause: Optional[str] = None, wait=True):
@@ -1072,70 +867,6 @@ class AsyncHLSDownloader:
                 if wait:
                     await asyncio.wait(_wait_tasks)
         return _wait_tasks
-
-    @classmethod
-    async def reset_plns(
-        cls,
-        plns: str,
-        cause: Optional[str] = "403",
-        wait=True,
-        nworkers: Optional[int] = None,
-    ):
-        if plns not in AsyncHLSDownloader._PLNS:
-            logger.error(f"[reset_plns] PLNS[{plns}] not yet handled")
-            return []
-
-        _THIS_PLNS = AsyncHLSDownloader._PLNS[plns]
-        _ALL_PLNS = AsyncHLSDownloader._PLNS["ALL"]
-
-        _wait_all_tasks = []
-
-        dict_dl = _THIS_PLNS["downloaders"]
-        list_dl = _THIS_PLNS["downloading"]
-        list_reset = _THIS_PLNS["in_reset"]
-
-        if (
-            list_dl
-            and dict_dl
-            and (
-                _to_reset := {dl: key for key, dl in dict_dl.items() if key in list_dl}
-            )
-        ):
-            _ALL_PLNS["reset"].clear()
-            _THIS_PLNS["reset"].clear()
-            _ALL_PLNS["in_reset"].add(plns)
-            for dl, key in _to_reset.items():  # type: ignore
-                list_reset.add(key)
-                if nworkers:
-                    dl.n_workers = nworkers
-                if _tasks := await dl._reset(cause=cause, wait=False):
-                    _wait_all_tasks.extend(_tasks)
-                await asyncio.sleep(0)
-
-        if wait and _wait_all_tasks:
-            await asyncio.wait(_wait_all_tasks)
-        return _wait_all_tasks
-
-    async def back_from_reset_plns(self, plns: str, premsg: str):
-        _tasks_all = []
-        dict_dl = traverse_obj(AsyncHLSDownloader._PLNS, (plns, "downloaders"))
-        list_reset = traverse_obj(AsyncHLSDownloader._PLNS, (plns, "in_reset"))
-        if list_reset and dict_dl:
-            _to_wait = [dl for key, dl in dict_dl.items() if key in list_reset]  # type: ignore
-            _tasks_all.extend(
-                [
-                    self.add_task(
-                        dl._vid_dl.end_tasks.async_wait(timeout=300),
-                        name=f"await_end_tasks_{dl.premsg}",
-                    )
-                    for dl in _to_wait
-                ]
-            )
-
-        logger.debug(f"{premsg} endtasks {_tasks_all}")
-
-        if _tasks_all:
-            await async_waitfortasks(fs=_tasks_all, events=self._vid_dl.stop_event)
 
     @on_503
     @on_network_exception
@@ -1358,26 +1089,6 @@ class AsyncHLSDownloader:
                 await asyncio.sleep(0)
             await _upt()
 
-        async def init_plns():
-            if not self.fromplns:
-                return
-            if _event := traverse_obj(
-                AsyncHLSDownloader._PLNS, (self.fromplns, "reset")
-            ):
-                if not _event.is_set():
-                    logger.debug(f"{_premsg} waiting at start")
-                    _res = await await_for_any(
-                        [_event, self._vid_dl.stop_event], timeout=300
-                    )
-                    if _res.get("event") == "stop":
-                        self.status = "stop"
-                        return
-            async with async_lock(AsyncHLSDownloader._CLASSLOCK):
-                AsyncHLSDownloader._PLNS[self.fromplns]["downloading"].add(
-                    self.info_dict["_index_scene"]
-                )
-                AsyncHLSDownloader._PLNS["ALL"]["downloading"].add(self.fromplns)
-
         def _setup():
             logger.debug(f"{self.premsg} TASKS INIT")
             empty_queue(self.frags_queue)
@@ -1392,8 +1103,6 @@ class AsyncHLSDownloader:
             self.smooth_eta.reset()
             self.status = "downloading"
             self.count_msg = ""
-
-        await init_plns()
 
         try:
             while True:
@@ -1430,11 +1139,7 @@ class AsyncHLSDownloader:
                                 logger.debug(
                                     f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]"
                                 )
-                                if self.fromplns:
-                                    await self.back_from_reset_plns(
-                                        self.fromplns, self.premsg
-                                    )
-                                    self.check_stop()
+
                                 _final_cause = self._vid_dl.reset_event.is_set()
                                 logger.debug(
                                     f"{_premsg}:RESET[{self.n_reset}]:CAUSE[original-{_cause}:final-{_final_cause}]"
@@ -1491,16 +1196,6 @@ class AsyncHLSDownloader:
             logger.debug(f"{_premsg} Final report info_frag:\n{self.info_frag}")
             await self.dump_config_file(to_log=True)
             self.init_client.close()
-            if self.fromplns:
-                async with async_lock(AsyncHLSDownloader._CLASSLOCK):
-                    _downloading = AsyncHLSDownloader._PLNS[self.fromplns][
-                        "downloading"
-                    ]
-                    _downloading.discard(self.info_dict["_index_scene"])
-                    if not _downloading:
-                        AsyncHLSDownloader._PLNS["ALL"]["downloading"].discard(
-                            self.fromplns
-                        )
 
     async def dump_config_file(self, to_log=False):
         _data = {

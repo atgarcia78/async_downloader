@@ -902,14 +902,6 @@ class AsyncDL:
                 logger.info(f"[shutdown] {self.FEgui.get_dl_media()}")
                 _task_to_wait.append(
                     self.add_task(self.FEgui.close(), name="fegui_close"))
-            try:
-                from asynchlsdownloader import AsyncHLSDownloader
-
-                if AsyncHLSDownloader._COUNTDOWNS:
-                    logger.debug("[close] start to close countdowns")
-                    AsyncHLSDownloader._COUNTDOWNS.clean()
-            except Exception as e:
-                logger.error(f"[close] asyncdlhls countdown {repr(e)}")
 
             try:
                 logger.debug("[close] start to close ytdl")

@@ -33,7 +33,7 @@ from ipaddress import ip_address
 from itertools import zip_longest
 from operator import getitem
 from pathlib import Path
-from queue import Empty, Queue, LifoQueue
+from queue import Empty, LifoQueue, Queue
 from statistics import median
 from typing import (
     Callable,
@@ -51,7 +51,7 @@ from urllib.parse import urlparse
 import httpx
 
 try:
-    from supportlogging import init_logging, LogContext
+    from supportlogging import LogContext, init_logging
 except Exception as e:
     print(str(e), file=sys.stderr)
     init_logging = None
@@ -100,10 +100,12 @@ except Exception:
 
 try:
     import proxy
+    import proxy_plugins
 except Exception:
     if yt_dlp:
         print("PLEASE INSTALL proxy")
     proxy = None
+    proxy_plugins = None
 
 try:
     import xattr
@@ -196,7 +198,6 @@ class LoggerWriter:
         sys.stderr = sys.__stderr__
 
 
-
 class BufferingLoggerWriter(LoggerWriter):
     def __init__(self, logger, level):
         super().__init__(logger, level)
@@ -215,6 +216,7 @@ class BufferingLoggerWriter(LoggerWriter):
             for msg in parts:
                 if msg and msg not in (' ', '\n'):
                     self.logger.log(self.level, msg)
+
 
 def deep_update(mapping, *updating_mappings):
     updated_mapping = mapping.copy()
@@ -426,9 +428,7 @@ def nested_obj(d, *selectors, get_all=True, default=None, v=False):
         return res[0] if len(res) == 1 else res
 
 
-def put_sequence(
-    queue: Union[queue.Queue, asyncio.Queue], seq: Iterable
-) -> Union[queue.Queue, asyncio.Queue]:
+def put_sequence(queue: Union[queue.Queue, asyncio.Queue], seq: Iterable)-> Union[queue.Queue, asyncio.Queue]:
     if seq:
         for el in seq:
             queue.put_nowait(el)
@@ -3578,7 +3578,7 @@ class CountDowns:
     PRINT_DIF_IN_SECS = 20
     _INPUT = Queue()
 
-    def __init__(self, klass, events=None, logger=None):
+    def __init__(self, klass=None, events=None, logger=None):
         self._pre = "[countdown][WAIT403]"
         self.klass = klass
         self.outer_events = list(variadic(events)) if events else []
@@ -3658,7 +3658,8 @@ class CountDowns:
         def send_queue(x):
             if (x == self.N_PER_SECOND * n) or (x % self.N_PER_SECOND) == 0:
                 _msg = f"{self.countdowns[index]['premsg']} {x//self.N_PER_SECOND}"
-                self.klass._QUEUE[index].put_nowait(_msg)
+                if self.klass:
+                    self.klass._QUEUE[index].put_nowait(_msg)
 
         _events = self.outer_events + [self.countdowns[index]["stop"]]
         if event:
@@ -3671,7 +3672,8 @@ class CountDowns:
                 break
             time.sleep(self.INTERV_TIME)
 
-        self.klass._QUEUE[index].put_nowait("")
+        if self.klass:
+            self.klass._QUEUE[index].put_nowait("")
 
         if not _res:
             _res = ["TIMEOUT_COUNT"]
@@ -4666,6 +4668,7 @@ if sg:
 class NWSetUp:
     if proxy:
         Proxy = proxy.Proxy
+        
 
     def __init__(self, asyncdl):
         self.asyncdl = asyncdl
