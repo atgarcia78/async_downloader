@@ -22,16 +22,28 @@ class RunAsyncDLProc:
         self.tasks = []
         self.logger = logging.getLogger('execproc')
 
-
     def non_blocking_readlines(self, chunk=1024):
         os.set_blocking(self.proc.stdout.fileno(), False)
         blocks = []
+
+        def _handle_chunk(_data):
+            while True:
+                n = _data.find('\n')
+                if n == -1:
+                    break
+                yield ''.join(blocks) + _data[:n + 1]
+                _data = _data[n + 1:]
+                blocks.clear()
+            blocks.append(_data)
+
         while True:
             try:
                 data = self.proc.stdout.read(chunk)
                 if not data:
                     yield ''.join(blocks)
                     blocks.clear()
+                else:
+                    _handle_chunk(data)
             except BlockingIOError as e:
                 self.logger.error(f'[nonblckreadl] {repr(e)}')
                 yield ''
@@ -40,25 +52,16 @@ class RunAsyncDLProc:
                 self.logger.exception(f'[nonblckreadl] {repr(e)}')
                 raise
 
-            while True:
-                n = data.find('\n')
-                if n == -1:
-                    break
-                yield ''.join(blocks) + data[:n + 1]
-                data = data[n + 1:]
-                blocks.clear()
-            blocks.append(data)
-
     @run_operation_in_executor('list_out')
     def listener_output(self, *args, **kwargs):
         stdout_iter = iter(self.non_blocking_readlines())
-
+        _exit = False
         while True:
             try:
-                if self.proc.poll() is not None:
-                    break
                 if RunAsyncDLProc.stop.is_set():
                     break
+                if self.proc.poll() is not None:
+                    _exit = True
                 if line := next(stdout_iter):
                     self.streams['stdout'].append(line)
                     print(line, flush=True, end='')
@@ -67,22 +70,24 @@ class RunAsyncDLProc:
                 break
             except Exception as e:
                 self.logger.exception(repr(e))
+            finally:
+                if _exit:
+                    break
 
     def run(self, noblock=True):
         self.proc = subprocess.Popen(
-            self.cmd if self.shell else shlex.split(self.cmd), shell=self.shell, text=True,  env=self.env,
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.cmd if self.shell else shlex.split(self.cmd), shell=self.shell, env=self.env,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         if self.proc.poll() is not None:
             return
-        
+
         _, my_fut = self.listener_output()
         self.logger.info(f'my_fut: {my_fut}')
         if noblock:
             return RunAsyncDLProc.stop, my_fut
         else:
             wait([my_fut])
-
 
     async def async_listener_output(self, chunk=1024):
         stream = self.proc.stdout
@@ -106,7 +111,6 @@ class RunAsyncDLProc:
                 _data = _data[n + 1:]
             blocks.append(_data)
 
-
         while True:
             try:
                 if RunAsyncDLProc.stop.is_set():
@@ -123,7 +127,6 @@ class RunAsyncDLProc:
             finally:
                 if _exit:
                     break
-
 
     async def arun(self, noblock=True):
         self.proc = await asyncio.create_subprocess_shell(

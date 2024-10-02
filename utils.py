@@ -5480,7 +5480,6 @@ class Tracker:
                     break
         queue.put_nowait(Tracker._sentinel)
 
-
     def _handle_lines(self):
         try:
             _parse_output = self._std_queue.get_nowait()
@@ -5503,13 +5502,23 @@ class Tracker:
             time.sleep(CONF_INTERVAL_GUI / 4)
         self.proc.wait()
 
+    def track_progress(self):
+        self.proc = subprocess.Popen(
+            self.cmd if self.shell else shlex.split(self.cmd), env=self.env, shell=self.shell,
+            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        _stream = self.proc.stdout if self.stream == 'stdout' else self.proc.stderr
+        
+        _stop_list, out_listener = self._enqueue_lines(_stream, self._std_queue)
+
+        self._wait_for_proc()
+        return self.proc.returncode
+
     async def _async_wait_for_proc(self):
         while self.proc.returncode is None:
             if self._handle_lines():
                 break
             await asyncio.sleep(CONF_INTERVAL_GUI / 4)
         await self.proc.wait()
-
 
     async def async_track_progress(self):
         self.proc = await asyncio.create_subprocess_shell(
@@ -5522,16 +5531,5 @@ class Tracker:
         await asyncio.wait(self.tasks)
         return self.proc.returncode
 
-
-    def track_progress(self):
-        self.proc = subprocess.Popen(
-            self.cmd if self.shell else shlex.split(self.cmd), env=self.env, shell=self.shell,
-            text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        _stream = self.proc.stdout if self.stream == 'stdout' else self.proc.stderr
-        
-        _stop_list, out_listener = self._enqueue_lines(_stream, self._std_queue)
-
-        self._wait_for_proc()
-        return self.proc.returncode
 
 

@@ -264,9 +264,7 @@ class VideoDownloader:
         self._types = " - ".join(_types)
         return res_dl
 
-    def add_task(
-        self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None
-    ) -> asyncio.Task:
+    def add_task(self, coro: Union[Coroutine, asyncio.Task], *, name: Optional[str] = None) -> asyncio.Task:
         if not isinstance(coro, asyncio.Task):
             _task = asyncio.create_task(coro, name=name)
         else:
@@ -490,10 +488,6 @@ class VideoDownloader:
         aget_subts_files = self.sync_to_async(self._get_subts_files)
 
         self.info_dl["ytdl"].params["stop_dl"][str(self.index)] = self.stop_event
-        logger.debug(
-            f"{self.premsg}: [run_dl] "
-            + f"[stop_dl] {self.info_dl['ytdl'].params['stop_dl']}"
-        )
 
         try:
             if (
@@ -623,9 +617,7 @@ class VideoDownloader:
 
             if not rc:
                 self.info_dl["status"] = "error"
-                raise AsyncDLError(
-                    f"{self.premsg}: error missing files from downloaders"
-                )
+                raise AsyncDLError(f"{self.premsg}: error missing files from downloaders")
 
         async def amove(orig, dst):
             rc = -1
@@ -638,9 +630,7 @@ class VideoDownloader:
             except Exception as e:
                 msg_error = {str(e)}
             if rc == -1:
-                logger.error(
-                    f"{self.premsg}: error move " + f"{orig} to {dst} - {msg_error}"
-                )
+                logger.error(f"{self.premsg}: error move " + f"{orig} to {dst} - {msg_error}" )
             return rc
 
         async def embed_subt():
@@ -651,21 +641,17 @@ class VideoDownloader:
                     _part_cmd = " -add ".join(
                         [
                             f"{_file}:lang={_lang}:hdlr=sbtl"
-                            for _lang, _file in self.info_dl[
-                                "downloaded_subtitles"
-                            ].items()
+                            for _lang, _file in self.info_dl["downloaded_subtitles"].items()
                         ]
                     )
                     return f"MP4Box -flat -add {_part_cmd} {self.temp_filename} -out {embed_filename}"
 
                 logger.info(f"{self.premsg}: starting embed subt")
                 proc = await arunproc(cmd := _make_embed_subt_cmd())
-                logger.debug(
-                    f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}"
-                )
+                logger.debug(f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}" )
 
                 if (
-                    (proc.returncode) == 0
+                    proc.returncode == 0
                     and (await aiofiles.os.path.exists(embed_filename))
                     and await amove(embed_filename, self.temp_filename) == 0
                 ):
@@ -731,8 +717,7 @@ class VideoDownloader:
             logger.info(f"{self.premsg}: starting decryption files")
             logger.debug(f"{self.premsg}: {cmd}")
 
-            _rc = await self.async_run_proc_tracker(
-                cmd, self._status_manip_upt, r"Decrypting:\s+(?P<progress>\S+)\s")
+            _rc = await self.async_run_proc_tracker(cmd, self._status_manip_upt, r"Decrypting:\s+(?P<progress>\S+)\s")
 
             logger.debug(f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {_rc}")
 
@@ -845,16 +830,12 @@ class VideoDownloader:
                                 async with async_suppress(OSError):
                                     await aiofiles.os.remove(_file)
 
-                    logger.debug(
-                        f"{self.premsg}: Streams merged for: {self.info_dl['filename']}"
-                    )
+                    logger.debug(f"{self.premsg}: Streams merged for: {self.info_dl['filename']}")
                     logger.debug(f"{self.premsg}: DL video file OK")
 
                 else:
                     self.info_dl["status"] = "error"
-                    raise AsyncDLError(
-                        f"{self.premsg}: error merge, ffmpeg error: {proc}"
-                    )
+                    raise AsyncDLError(f"{self.premsg}: error merge, ffmpeg error: {proc}")
 
             if "YTDL-" not in self._types and self.info_dl["downloaded_subtitles"]:
                 self.info_dl["sub_status"] = "Embeding subt"
