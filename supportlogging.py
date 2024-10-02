@@ -195,7 +195,6 @@ class SingleThreadQueueListener(QueueListener):
 
 
 class LogContext:
-
     def __enter__(self):
         return self
 

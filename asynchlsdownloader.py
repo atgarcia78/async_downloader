@@ -144,7 +144,7 @@ class AsyncHLSDownloader:
     # frm plns configuration, on observaton to remove
     _QUEUE = {}
     _INPUT = Queue()
-    _COUNTDOWNS = CountDowns()
+    _COUNTDOWNS = None
     _INRESET_403 = set()
 
     def __init__(
@@ -412,9 +412,7 @@ class AsyncHLSDownloader:
         if _initfrag.byterange:
             el = _initfrag.byterange.split('@')
             byte_range = {"start": int(el[1]), "end": int(el[0])}
-            headers_range = {
-                "range": f"bytes={byte_range['start']}-{byte_range['end'] - 1}"
-            }
+            headers_range = {"range": f"bytes={byte_range['start']}-{byte_range['end'] - 1}"}
         self.info_init_section = {
             "frag": 0,
             "url": _url,
@@ -962,9 +960,7 @@ class AsyncHLSDownloader:
                 if _ev := self.check_any_event_is_set(incpause=False):
                     raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
 
-                async with self.clients[nco].stream(
-                    "GET", _ctx.url, headers=_ctx.headers_range
-                ) as resp:
+                async with self.clients[nco].stream("GET", _ctx.url, headers=_ctx.headers_range) as resp:
                     logger.debug(
                         f"{_premsg}: {resp.request} {resp} content-encoding [{resp.headers.get('content-encoding')}] hsize: [{resp.headers.get('content-length')}]"
                     )
@@ -972,9 +968,7 @@ class AsyncHLSDownloader:
                     if await _initial_checkings_ok(_ctx, resp):
                         return
                     else:
-                        async for chunk in resp.aiter_bytes(
-                            chunk_size=self._CHUNK_SIZE
-                        ):
+                        async for chunk in resp.aiter_bytes(chunk_size=self._CHUNK_SIZE):
                             if _ev := await _handle_iter(_ctx, chunk):
                                 raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
                 if _ctx.data:
@@ -1063,9 +1057,7 @@ class AsyncHLSDownloader:
                     async with self._asynclock:
                         self.down_size += self._inc_bytes
                         self._vid_dl.total_sizes["down_size"] += self._inc_bytes
-                        self.filesize = self._vid_dl.total_sizes["filesize"] = (
-                            avg_filesize()
-                        )
+                        self.filesize = self._vid_dl.total_sizes["filesize"] = avg_filesize()
                     self._inc_bytes = 0
                     _speed_meter = self.speedometer(self.down_size)
                     _est_time = None
@@ -1136,37 +1128,24 @@ class AsyncHLSDownloader:
                     if _cause := self._vid_dl.reset_event.is_set():
                         if self.n_reset < self._MAX_RESETS:
                             try:
-                                logger.debug(
-                                    f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]"
-                                )
-
+                                logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
                                 _final_cause = self._vid_dl.reset_event.is_set()
-                                logger.debug(
-                                    f"{_premsg}:RESET[{self.n_reset}]:CAUSE[original-{_cause}:final-{_final_cause}]"
-                                )
+                                logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[original-{_cause}:final-{_final_cause}]")
                                 await self.areset(_final_cause)
                                 self.check_stop()
                                 if _cause == "hard":
                                     self.n_reset -= 1
                                 continue
                             except StatusStop:
-                                logger.debug(
-                                    f"{_premsg}:RESET[{self.n_reset}]:STOP event"
-                                )
+                                logger.debug(f"{_premsg}:RESET[{self.n_reset}]:STOP event")
                                 self.status = "stop"
                                 return
                             except Exception as e:
-                                logger.exception(
-                                    f"ERROR reset couldnt progress:[{str(e)}]"
-                                )
+                                logger.exception(f"ERROR reset couldnt progress:[{str(e)}]")
                                 self.status = "error"
-                                raise AsyncHLSDLErrorFatal(
-                                    f"{_premsg} ERROR reset"
-                                ) from e
+                                raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR reset") from e
                         else:
-                            logger.warning(
-                                f"{_premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets"
-                            )
+                            logger.warning(f"{_premsg}:RESET[{self.n_reset}]:ERROR:Max_number_of_resets")
                             self.status = "error"
                             raise AsyncHLSDLErrorFatal(f"{_premsg} ERROR max resets")
                     elif inc_frags_dl > 0:
@@ -1319,9 +1298,7 @@ class AsyncHLSDownloader:
         _dsize = _temp.get("down_size", 0)
         _n_dl_frag = _temp.get("n_dl_fragments", 0)
         _prefr = f"[{_n_dl_frag:{self.format_frags}}/{self.n_total_fragments:{self.format_frags}}]"
-        _progress_str = (
-            f"{_dsize / self.filesize * 100:5.2f}%" if self.filesize else "-----"
-        )
+        _progress_str = f"{_dsize / self.filesize * 100:5.2f}%" if self.filesize else "-----"
         if not self.check_any_event_is_set():
             _speed_meter_str = (
                 f"{naturalsize(_speed_meter)}ps"
