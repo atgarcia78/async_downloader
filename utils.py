@@ -1424,7 +1424,7 @@ if yt_dlp:
                 opts["verbose"] = False
                 opts["verboseplus"] = False
                 opts["logger"] = MyYTLogger(
-                    logging.getLogger("ytdl"),
+                    logging.getLogger("yt_dlp"),
                     quiet=True,
                     verbose=False,
                     superverbose=False,
@@ -1777,7 +1777,7 @@ if yt_dlp:
             "http_headers": headers,
             "proxy": args.proxy,
             "logger": MyYTLogger(
-                logging.getLogger("ytdl"),
+                logging.getLogger("yt_dlp"),
                 quiet=args.quiet,
                 verbose=args.verbose,
                 superverbose=args.vv,

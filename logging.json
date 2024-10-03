@@ -20,8 +20,6 @@
         "filtermodules": {
             "()": "supportlogging.FilterModule",
             "patterns": [
-                "urllib3.connectionpool",
-                "httpx",
                 "PIL.TiffImagePlugin",
                 "img2pdf",
                 "hpack",
@@ -69,7 +67,9 @@
                         "Formats sorted by",
                         "Downloading item",
                         "Downloading playlist",
-                        "Finished downloading playlist"
+                        "Finished downloading playlist",
+                        "Playlist Favorites: Downloading",
+                        "The information of all playlist entries will be held in memory"
                     ]
                 }
             ]
@@ -80,9 +80,6 @@
             "class": "logging.StreamHandler",
             "level": "INFO",
             "formatter": "colored",
-            "filters": [
-                "filtermodules"
-            ],
             "stream": "ext://sys.stdout"
         },
         "info_file_handler": {
@@ -90,9 +87,6 @@
             "level": "DEBUG",
             "formatter": "file_format",
             "filename": "/Users/antoniotorres/Projects/common/logs/{name}.log",
-            "filters": [
-                "filtermodules"
-            ],
             "maxBytes": 3155360,
             "backupCount": 20,
             "encoding": "utf8"
@@ -102,6 +96,10 @@
             "handlers": [
                 "cfg://handlers.console",
                 "cfg://handlers.info_file_handler"
+            ],
+            "filters": [
+                "filtermodules",
+                "filtermsg"
             ]
         }
     },
