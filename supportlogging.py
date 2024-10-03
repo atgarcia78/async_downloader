@@ -221,6 +221,8 @@ def init_logging(log_name, test=False):
             _name.startswith(_) for _ in ("proxy", "proxy_plugins")
         ):
             logger.setLevel(logging.ERROR)
+    
+    logging.getLogger('httpx').setLevel(logging.WARNING)
 
     if test:
         return logging.getLogger("test")
