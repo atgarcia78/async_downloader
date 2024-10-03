@@ -154,7 +154,10 @@ class AsyncDL:
         _task.add_done_callback(self.background_tasks.discard)
         return _task
 
-    def build_info_video(self, source, vinfo, error=None):
+    def build_info_video(self, source, vinfo, **kwargs):
+        
+        error = kwargs.pop('error', None)
+
         return {
             "source": source,
             "video_info": vinfo,
@@ -162,6 +165,7 @@ class AsyncDL:
             "aldl": False,
             "todl": True,
             "error": [error] if error else [],
+            **kwargs
         }
 
     async def get_list_videos(self):
@@ -272,8 +276,7 @@ class AsyncDL:
                                 "extractor_key": ie_key}
                             if not self.info_videos.get(_elurl):
                                 self.info_videos[_elurl] = self.build_info_video(
-                                    _source, _entry
-                                ) | {"extractor_key": ie_key}
+                                    _source, _entry, **{"extractor_key": ie_key})
                                 await self.WorkersInit.add_init(_elurl)
                             else:
                                 logger.warning(
@@ -391,6 +394,7 @@ class AsyncDL:
                         async with self.alock:
                             self._url_pl_entries += [_info]
                     else:
+                        _info_pl = self.get_info_pl(_info)
                         _entries_ok = []
                         for _ent in _info["entries"]:
                             if self.STOP.is_set():
@@ -399,7 +403,7 @@ class AsyncDL:
                                 _ent.update({"original_url": _url})
                             if _ent.get("error") or (_ent.get("_type", "video") == "video" and not _ent.get("format")):
                                 _ent["_type"] = "error"
-                                await self._prepare_entry_pl_for_dl(_ent)
+                                await self._prepare_entry_pl_for_dl(_ent, **_info_pl)
                                 async with self.alock:
                                     self._url_pl_entries.append(_ent)
                             else:
@@ -436,7 +440,7 @@ class AsyncDL:
                                             + f"webpage_url == original_url: {_wurl}"
                                         )
 
-                                await self._prepare_entry_pl_for_dl(_ent)
+                                await self._prepare_entry_pl_for_dl(_ent, **_info_pl)
                                 async with self.alock:
                                     self._url_pl_entries += [_ent]
 
@@ -446,7 +450,7 @@ class AsyncDL:
                                         self.ytdl.is_playlist(_ent.get("url")),
                                         lambda x: x[0],
                                     ):
-                                        await self._prepare_entry_pl_for_dl(_ent)
+                                        await self._prepare_entry_pl_for_dl(_ent, **_info_pl)
                                         async with self.alock:
                                             self._url_pl_entries.append(_ent)
                                     else:
@@ -570,6 +574,23 @@ class AsyncDL:
             )
 
         return (_id, _title, _legacy_title)
+    
+    def get_info_pl(self, video_info):
+        _path_pl = None
+        _url_pl = None
+        if (_type := video_info.get('_type', 'video')) == 'playlist':
+            _ptitle = sanitize_filename(video_info.get('title', ''), restricted=True)
+            _pid = video_info.get('id')
+            if _ptitle and _pid:
+                _path_pl = f'{_pid}_{_ptitle}'
+            _url_pl = video_info.get('original_url') or video_info.get('webpage_url')
+        elif _type == 'video':
+            _ptitle = sanitize_filename(video_info.get('playlist_title', ''), restricted=True)
+            _pid = video_info.get('playlist_id')
+            if _ptitle and _pid:
+                _path_pl = f'{_pid}_{_ptitle}'
+            _url_pl = video_info.get('playlist_url') or video_info('original_url')
+        return {'path_pl': _path_pl, 'url_pl': _url_pl}
 
     async def _prepare_for_dl(self, url: str, put: bool = True) -> bool:
         self.info_videos[url].update({"todl": True})
@@ -601,7 +622,7 @@ class AsyncDL:
         else:
             return False
 
-    async def _prepare_entry_pl_for_dl(self, entry: dict) -> None:
+    async def _prepare_entry_pl_for_dl(self, entry: dict, **info_pl) -> None:
         _pre = "[prepare_entry_pl_for_dl]"
 
         try:
@@ -615,10 +636,8 @@ class AsyncDL:
                 _error = entry.get("error", "no video entry")
                 if not self.info_videos.get(_errorurl):
                     self.info_videos[_errorurl] = self.build_info_video(
-                        self.url_pl_list.get(_errorurl, {}).get("source") or "playlist",
-                        {},
-                        error=_error,
-                    )
+                        self.url_pl_list.get(
+                            _errorurl, {}).get("source") or "playlist", {}, error=_error, **info_pl)
                     self._handle_error(_errorurl, _error)
 
                 else:
@@ -630,9 +649,8 @@ class AsyncDL:
                 _url = entry["url"]
 
             if not self.info_videos.get(_url):  # es decir, los nuevos videos
-                self.info_videos[_url] = self.build_info_video("playlist", entry) | {
-                    "extractor_key": entry.get("extractor_key")
-                }
+                self.info_videos[_url] = self.build_info_video(
+                    "playlist", entry, extractor_key=entry.get("extractor_key"), **info_pl)
 
                 if _same_video_url := await self.async_check_if_same_video(_url):
                     self.info_videos[_url] |= {"samevideo": _same_video_url}
@@ -921,11 +939,12 @@ class AsyncDL:
 
         except Exception as e:
             logger.exception(f"[close] error {repr(e)}. Lets kill processes")
-            #kill_processes(logger=logger, rpcport=self.args.rpcport)
         finally:
             logger.info("[close] bye")
 
     def get_results_info(self):
+        from collections import defaultdict
+        from itertools import chain
         _DOMAINS_CONF_PRINT = [
             "nakedsword.com",
             "onlyfans.com",
@@ -1106,8 +1125,8 @@ class AsyncDL:
         )
 
         videos_okdl = []
-        videos_kodl = []
-        videos_koinit = []
+        videos_kodl = defaultdict(list)
+        videos_koinit = defaultdict(list)
 
         for url, video in self.info_videos.items():
             if (
@@ -1119,13 +1138,13 @@ class AsyncDL:
                     videos_okdl.append(_getter(url, video))
                 else:
                     if video["status"] in ["initnok", "prenok"]:
-                        videos_kodl.append(_getter(url, video))
-                        videos_koinit.append(_getter(url, video))
+                        videos_kodl[video.get('path_pl') or 'no_pl'].append(_getter(url, video))
+                        videos_koinit[video.get('path_pl') or 'no_pl'].append(_getter(url, video))
                     elif video["status"] == "initok":
                         if self.args.nodl:
                             videos_okdl.append(_getter(url, video))
                     else:
-                        videos_kodl.append(_getter(url, video))
+                        videos_kodl[video.get('path_pl') or 'no_pl'].append(_getter(url, video))
 
         if videos_okdl:
             self.localstorage.upt_local()
@@ -1135,8 +1154,8 @@ class AsyncDL:
         info_dict.update(
             {
                 "videosokdl": {"urls": videos_okdl},
-                "videoskodl": {"urls": videos_kodl},
-                "videoskoinit": {"urls": videos_koinit},
+                "videoskodl": {"by_pl": videos_kodl, "urls": list(chain(*list(videos_kodl.values())))},
+                "videoskoinit":  {"by_pl": videos_koinit, "urls": list(chain(*list(videos_koinit.values())))},
                 "videosnotsupported": {"urls": _videos_url_notsupported},
                 "videosnotvalid": {"urls": _videos_url_notvalid},
                 "videos2check": {
@@ -1171,7 +1190,7 @@ class AsyncDL:
             else None
         )
 
-        _path_str = f"--path {self.args.path} " if self.args.path else ""
+        _path_str = f"--path {self.args.path} " if self.args.path and not self.args.use_path_pl else ""
         try:
             logger.info("****************************************************")
             logger.info("****************************************************")
@@ -1189,8 +1208,8 @@ class AsyncDL:
                 f"         Videos to DL: [{len(info_dict['videos2dl']['urls'])}]\n\n"
             )
             logger.info(f"                 OK DL: [{len(videos_okdl)}]")
-            logger.info(f"                 ERROR DL: [{len(videos_kodl)}]")
-            logger.info(f"                     ERROR init DL: [{len(videos_koinit)}]")
+            logger.info(f"                 ERROR DL: [{len(info_dict['videoskodl']['urls'])}]")
+            logger.info(f"                     ERROR init DL: [{len(info_dict['videoskoinit']['urls'])}]")
             logger.info(
                 f"                         UNSUP URLS: [{len(_videos_url_notsupported)}]"
             )
@@ -1215,32 +1234,52 @@ class AsyncDL:
 
             if videos_kodl:
                 logger.info("Videos TOTAL ERROR DL:")
-                _videos_kodl_uniq_url = cast(
-                    list,
-                    list(
-                        dict.fromkeys(
-                            list(map(lambda x: re.sub(r"#\d+$", "", x), videos_kodl))
+                if _path_str:
+                    _videos_kodl_uniq_url = cast(
+                        list,
+                        list(
+                            dict.fromkeys(
+                                list(map(lambda x: re.sub(r"#\d+$", "", x), info_dict['videoskodl']['urls']))
+                            )
+                        ),
+                    )
+                    logger.info(
+                        f"%no%\n\n{info_dict['videoskodl']['urls']}\n[{_path_str}-u {' -u '.join(_videos_kodl_uniq_url)}"
+                    )
+                else:
+                    for path_pl, videos_urls in info_dict['videoskodl']['by_pl'].items():
+                        _videos_pl = list(map(lambda x: re.sub(r"#\d+$", "", x), videos_urls))
+                        _path_str = f'--path {path_pl} ' if path_pl != 'no_pl' else ''
+                        _header = f':{path_pl} :' if path_pl != 'no_pl' else ''
+                        logger.info(
+                            f"%no%\n\n{_header}{_videos_pl}\n[{_path_str}-u {' -u '.join(_videos_pl)}"
                         )
-                    ),
-                )
-                logger.info(
-                    f"%no%\n\n{videos_kodl}\n[{_path_str}-u {' -u '.join(_videos_kodl_uniq_url)}"
-                )
             else:
                 logger.info("Videos TOTAL ERROR DL: []")
+
             if videos_koinit:
-                _videos_koinit_uniq_url = cast(
-                    list,
-                    list(
-                        dict.fromkeys(
-                            list(map(lambda x: re.sub(r"#\d+$", "", x), videos_koinit))
-                        )
-                    ),
-                )
                 logger.info("Videos ERROR INIT DL:")
-                logger.info(
-                    f"%no%\n\n{videos_koinit}\n[{_path_str}-u {' -u '.join(_videos_koinit_uniq_url)}]"
-                )
+                if _path_str:
+                    _videos_koinit_uniq_url = cast(
+                        list,
+                        list(
+                            dict.fromkeys(
+                                list(map(lambda x: re.sub(r"#\d+$", "", x), info_dict['videoskoinit']['urls']))
+                            )
+                        ),
+                    )
+                    logger.info(
+                        f"%no%\n\n{info_dict['videoskoinit']['urls']}\n[{_path_str}-u {' -u '.join(_videos_koinit_uniq_url)}]"
+                    )
+                else:
+                    for path_pl, videos_urls in info_dict['videoskoinit']['by_pl'].items():
+                        _videos_pl = list(map(lambda x: re.sub(r"#\d+$", "", x), videos_urls))
+                        _path_str = f'--path {path_pl} ' if path_pl != 'no_pl' else ''
+                        _header = f':{path_pl} :' if path_pl != 'no_pl' else ''
+                        logger.info(
+                            f"%no%\n\n{_header}{_videos_pl}\n[{_path_str}-u {' -u '.join(_videos_pl)}"
+                        )
+
             if _videos_url_notsupported:
                 logger.info("Unsupported URLS:")
                 logger.info(f"%no%\n\n{_videos_url_notsupported}")
