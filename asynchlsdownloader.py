@@ -145,7 +145,7 @@ on_503 = my_dec_on_exception(
 CommonHTTPErrors = (httpx.NetworkError, httpx.TimeoutException, httpx.ProtocolError)
 
 on_network_exception = my_dec_on_exception(
-    CommonHTTPErrors, max_tries=10, raise_on_giveup=True, jitter=my_jitter, interval=5)
+    CommonHTTPErrors, max_tries=5, raise_on_giveup=True, jitter=my_jitter, interval=10)
 
 
 class AsyncHLSDownloader:
@@ -918,7 +918,7 @@ class AsyncHLSDownloader:
             if _wait_tasks := await self._handle_reset(cause="403"):
                 await asyncio.wait(_wait_tasks)
             raise AsyncHLSDLErrorFatal(_msg)
-        elif ctx.resp.status_code in (502, 503, 520, 521):
+        elif ctx.resp.status_code in (502, 503, 504, 520, 521):
             raise StatusError503(_msg)
         elif ctx.resp.status_code >= 400:
             raise AsyncHLSDLError(_msg)
@@ -962,8 +962,13 @@ class AsyncHLSDownloader:
         async for retry in MyRetryManager(self._MAX_RETRIES, limiter=self._limit):
             _ctx = DownloadFragContext(self.info_frag[index - 1])
             try:
-                if _ev := self.check_any_event_is_set(incpause=False):
-                    raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
+                # if _ev := self.check_any_event_is_set(incpause=False):
+                #     raise AsyncHLSDLErrorFatal(f"{_premsg} {_ev}")
+                if _check := await self.event_handle(_premsg):
+                    if "pause" in _check:
+                        _ctx.timer.reset()
+                    if "event" in _check:
+                        raise AsyncHLSDLErrorFatal(f"{_premsg} {_check}")
 
                 async with self.clients[nco].stream("GET", _ctx.url, headers=_ctx.headers_range) as resp:
                     logger.debug(f"{_premsg}: {_log_response(resp)}")
@@ -984,15 +989,12 @@ class AsyncHLSDownloader:
             except (
                 asyncio.CancelledError,
                 RuntimeError,
-                StatusError503,
                 AsyncHLSDLErrorFatal,
             ) as e:
                 logger.debug(f"{_premsg}: Error: {repr(e)}")
-                if e.__class__.__name__ == "StatusError503":
-                    logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await self._clean_frag(_ctx, e)
                 raise
-            except CommonHTTPErrors as e:
+            except (StatusError503, *CommonHTTPErrors) as e:
                 logger.warning(f"{_premsg}: Error: {repr(e)}")
                 await self._clean_frag(_ctx, e)
                 if _cl := self.clients.pop(nco, None):
