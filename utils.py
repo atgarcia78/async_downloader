@@ -325,7 +325,7 @@ class MyRetryManager:
             with self.limiter:
                 return self
         else:
-            raise StopAsyncIteration
+            raise StopIteration
 
 
 class AsyncDLErrorFatal(Exception):
@@ -631,7 +631,7 @@ class ProgressTimer:
         return self.TIMER_FUNC() - self._last_ts
 
     def has_elapsed(self, seconds: float) -> bool:
-        if seconds <= 0.0:
+        if seconds <= 0:
             return False
         elapsed_seconds = self.elapsed_seconds()
         if elapsed_seconds < seconds:
@@ -645,7 +645,14 @@ class ProgressTimer:
             if self.has_elapsed(seconds):
                 return True
             else:
-                time.sleep(0.2)
+                time.sleep(CONF_INTERVAL_GUI / 2)
+
+    async def async_wait_haselapsed(self, seconds: float):
+        while True:
+            if self.has_elapsed(seconds):
+                return True
+            else:
+                await asyncio.sleep(CONF_INTERVAL_GUI / 2)
 
 
 class EMA:
