@@ -383,6 +383,7 @@ class VideoDownloader:
                 "format": self.info_dict["format_id"],
                 "paths": {"home": str(self.info_dl["filename"].absolute().parent)},
                 "outtmpl": {"default": f'{self.info_dl["filename"].stem}.%(ext)s'},
+                "stop": self.stop_event
             }
             with myYTDL(
                 params=(self.info_dl["ytdl"].params | opts_upt), silent=True
@@ -486,8 +487,6 @@ class VideoDownloader:
 
     async def run_dl(self):
         aget_subts_files = self.sync_to_async(self._get_subts_files)
-
-        self.info_dl["ytdl"].params["stop_dl"][str(self.index)] = self.stop_event
 
         try:
             if (
