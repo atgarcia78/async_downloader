@@ -343,7 +343,7 @@ class AsyncDLError(Exception):
         self.exc_info = exc_info
 
 
-def mytry_call(*funcs, expected_type=None, args=[], kwargs={}):
+def mytry_call(*funcs, expected_type=None, default=None, args=[], kwargs={}):
     for f in funcs:
         try:
             val = f(*args, **kwargs)
