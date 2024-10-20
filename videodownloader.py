@@ -275,12 +275,7 @@ class VideoDownloader:
 
     async def change_numvidworkers(self, n: int):
         if self.info_dl["status"] in ("downloading", "init"):
-            for dl in self.info_dl["downloaders"]:
-                dl.n_workers = n
-                if "aria2" in str(type(dl)).lower():
-                    dl.opts.set("split", dl.n_workers)
-            await self.reset(cause="hard")
-            logger.info(f"{self.premsg}: workers set to {n}")
+            await self.reset(cause="hard", nworkers=n, wait=False)
 
     async def reset_from_console(self):
         """
@@ -289,23 +284,39 @@ class VideoDownloader:
         """
         return await self.reset(cause="hard", wait=False)
 
-    async def reset(self, cause: Optional[str] = None, wait=True):
+    async def reset(self, cause: Optional[str] = None,  nworkers: Optional[int] = None, wait=True):
         if self.info_dl["status"] != "downloading":
+            if nworkers and self.info_dl["status"] == "init":
+                for dl in self.info_dl["downloaders"]:
+                    dl.n_workers = nworkers
+                    if "aria2" in str(type(dl)).lower():
+                        dl.opts.set("split", dl.n_workers)
             return []
-        _wait_tasks = []
+
         if not self.reset_event.is_set():
-            logger.debug(f"{self.premsg}[reset] {cause}")
+            logger.info(f"{self.premsg}[reset] {cause}")
+            if nworkers:
+                logger.info(f"{self.premsg}: workers set to {nworkers}")
             self.reset_event.set(cause)
             await asyncio.sleep(0)
             if self.pause_event.is_set():
                 await asyncio.sleep(0)
-        elif cause == "403":
-            self.reset_event.set(cause)
+        else:
+            if cause == "403":
+                self.reset_event.set(cause)
+            if nworkers:
+                logger.warning(f"{self.premsg}: request workers set to {nworkers}, but reset event is set. Try later")
+            return []
+
 
         _wait_tasks = []
         for dl in self.info_dl["downloaders"]:
-            if "asynchls" in str(type(dl)).lower():
-                _wait_tasks.extend(await dl._handle_reset(cause=cause))
+            if "asynchls" in str(type(dl)).lower() and nworkers:
+                _wt = asyncio.create_task(dl._handle_reset(cause=cause, nworkers=nworkers))
+                _wait_tasks.append(_wt)            
+            elif "aria2" in str(type(dl)).lower() and nworkers:
+                dl.n_workers = nworkers
+                dl.opts.set("split", dl.n_workers)
 
         if wait and _wait_tasks:
             await asyncio.wait(_wait_tasks)

@@ -306,12 +306,14 @@ class MyRetryManager:
         self.attempt = 0
 
     def __aiter__(self):
-        with self.limiter:
-            return self
+        # with self.limiter:
+        #     return self
+        return self
 
     def __iter__(self):
-        with self.limiter:
-            return self
+        # with self.limiter:
+        #     return self
+        return self
 
     async def __anext__(self):
         if not self.error and self.attempt < self.retries:
@@ -3928,8 +3930,8 @@ if sg:
                                 )
 
                                 info.append(_info)
-                        if _wait_tasks:
-                            await asyncio.wait(_wait_tasks)
+                        # if _wait_tasks:
+                        #     await asyncio.wait(_wait_tasks)
                         if event in ["+PasRes", "-PasRes"]:
                             sg.cprint(
                                 f"[pause-resume autom] after: {list(self.asyncdl.list_pasres)}"
