@@ -2606,10 +2606,10 @@ class TorGuardProxies:
                 _proc.poll()
                 if _proc.returncode:
                     cls.logger.error(f"[initprox] rc[{_proc.returncode}] to cmd[{cmd}]")
-                    raise ConnectError("init proxies error")
+                    raise ValueError("init proxies error")
                 else:
                     proc_gost.append(_proc)
-            except ConnectError:
+            except ValueError:
                 sanitize_killproc(proc_gost)
                 proc_gost = []
                 break

@@ -291,8 +291,7 @@ class AsyncHLSDownloader:
         self.frags_queue = asyncio.Queue()
         self.comm = asyncio.Queue()
         self._asynclock = asyncio.Lock()
-        self.areset = self.sync_to_async(self.resetdl)
-
+    
         self.config_httpx = lambda: {
             "proxies": self._proxy,
             "limits": httpx.Limits(keepalive_expiry=30),
@@ -734,8 +733,10 @@ class AsyncHLSDownloader:
 
             logger.debug(f"{_pre} format extracted info video ok\n{_for_print(info_reset)}")
 
-            self.prep_reset(info_reset)
-            return {"res": "ok"}
+            return info_reset
+
+            # self.prep_reset(info_reset)
+            # return {"res": "ok"}
 
         except StatusStop as e:
             logger.debug(f"{_pre()} check stop {repr(e)}")
@@ -751,17 +752,22 @@ class AsyncHLSDownloader:
         def _pre():
             _proxy = self._proxy.get("http://")
             _print_proxy = f":proxy[{_proxy.split(':')[-1]}]" if _proxy else ""
-            return f"{self.premsg}[resetdl]:RESET[{self.n_reset}]{_print_proxy}"
+            return f"{self.premsg}[resetdl]:RESET[{cause}][{self.n_reset}]{_print_proxy}"
 
         logger.debug(_pre())
         _webpage_url = self.info_dict["webpage_url"]
         try:
-            self.get_reset_info(_webpage_url)
+            _info_reset = None
+            if cause:
+                _info_reset = self.get_reset_info(_webpage_url)
+            self.prep_reset(info_reset=_info_reset)
+            return {"res": "ok"}
         except Exception as e:
             logger.exception(f"{_pre()} outer Exception {repr(e)}")
             raise
         finally:
-            self.n_reset += 1
+            if cause:
+                self.n_reset += 1
             logger.debug(f"{_pre()} exit reset")
 
     async def event_handle(self, msg: str) -> dict:
@@ -818,6 +824,20 @@ class AsyncHLSDownloader:
                     self.down_size -= _dl_size
                     self._vid_dl.total_sizes["down_size"] -= _dl_size
 
+    async def _decrypt_frag(self, ctx, _premsg):
+        try:
+            async with aiofiles.open(ctx.temp_file, "rb") as _file:
+                _data_temp = await _file.read()
+        except Exception as e:
+            _msg = f"{_premsg} error temp file read - {repr(e)}"
+            logger.error(_msg)
+            raise AsyncHLSDLErrorFatal(_msg)
+
+        if not ctx.cipher_info or not _data_temp:
+            return _data_temp
+        _cipher = AES.new(ctx.cipher_info["key"], AES.MODE_CBC, ctx.ipher_info["iv"])
+        return await self.sync_to_async(_cipher.decrypt)(_data_temp)
+
     async def _to_ok(self, ctx, _msg):
         try:
             _data = await self._decrypt_frag(ctx, _msg)
@@ -868,20 +888,6 @@ class AsyncHLSDownloader:
             raise
         except Exception as e:
             logger.exception(f"{_msg} error {repr(e)}")
-
-    async def _decrypt_frag(self, ctx, _premsg):
-        try:
-            async with aiofiles.open(ctx.temp_file, "rb") as _file:
-                _data_temp = await _file.read()
-        except Exception as e:
-            _msg = f"{_premsg} error temp file read - {repr(e)}"
-            logger.error(_msg)
-            raise AsyncHLSDLErrorFatal(_msg)
-
-        if not ctx.cipher_info or not _data_temp:
-            return _data_temp
-        _cipher = AES.new(ctx.cipher_info["key"], AES.MODE_CBC, ctx.ipher_info["iv"])
-        return await self.sync_to_async(_cipher.decrypt)(_data_temp)
 
     async def _initial_checkings_frag_ok(self, ctx, response, _premsg):
         ctx.resp = response
@@ -1090,6 +1096,7 @@ class AsyncHLSDownloader:
 
     async def fetch_async(self):
         _premsg = f"{self.premsg}[fetch_async]"
+        aresetdl = self.sync_to_async(self.resetdl)
         n_frags_dl = 0
 
         def _setup():
@@ -1143,7 +1150,7 @@ class AsyncHLSDownloader:
                     try:
                         logger.debug(f"{_premsg}:RESET[{self.n_reset}]:CAUSE[{_cause}]")
                         _final_cause = self._vid_dl.reset_event.is_set()
-                        await self.areset(_final_cause)
+                        await aresetdl(cause=_final_cause)
                         self.check_stop()
                         if self.status == "init_manipulating":
                             logger.debug(f"{_premsg} Frags DL completed")
@@ -1164,7 +1171,7 @@ class AsyncHLSDownloader:
                     self.status = "error"
                     raise AsyncHLSDLErrorFatal(f"{_premsg} no inc dlfrags in one cycle")
                 else:
-                    await self.sync_to_async(self.prep_reset)()
+                    await aresetdl()
                     if self.status == "init_manipulating":
                         logger.debug(f"{_premsg} Frags DL completed")
                         break
@@ -1293,9 +1300,6 @@ class AsyncHLSDownloader:
             _eta_smooth_str = "--"
             _speed_meter_str = "--"
 
-            # if self._vid_dl.reset_event.is_set():
-            #     with contextlib.suppress(Exception):
-            #         self.count_msg = AsyncHLSDownloader._QUEUE[str(self.pos)].get_nowait()
         return (
             f"WK[{self.count:2d}/{self.n_workers:2d}] FR{_prefr} "
             + f"PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]\n{self.count_msg}"
