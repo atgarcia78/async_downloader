@@ -218,6 +218,12 @@ class BufferingLoggerWriter(LoggerWriter):
                     self.logger.log(self.level, msg)
 
 
+async def aenumerate(_aiter, start: int = 0):
+    index = start
+    async for item in _aiter:
+        yield index, item
+        index += 1
+
 def deep_update(mapping, *updating_mappings):
     updated_mapping = mapping.copy()
     for updating_mapping in updating_mappings:

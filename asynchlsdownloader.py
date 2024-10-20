@@ -77,6 +77,7 @@ class FragCtx:
 
         self.url = info_frag["url"]
         self.headers_range = info_frag["headers_range"]
+        self.offset = 0
         self.cipher_info = info_frag["cipher_info"]
 
         self.resp: Optional[AsyncIterator] = None
@@ -122,6 +123,7 @@ class FragCtx:
         self.tasks_id = 0
 
     def _add_offset_bytes_range(self, offset):
+        self.offset = offset
         _start = f"{self.info_frag['byte_range']['start'] + offset}"
         _end = f"{mytry_call(lambda: self.info_frag['byte_range']['end'] - 1) or ''}"
         return {"range": f"bytes={_start}-{_end}"}
@@ -152,7 +154,7 @@ class FragCtx:
             case _ if self.size < self.hsize * 0.95:
                 if self.status == "init":
                     if self._server_accept_ranges:
-                        _upt_range = self._add_offset_bytes_range(self)
+                        _upt_range = self._add_offset_bytes_range(self.size)
                         self.headers_range.append(_upt_range)
                         self.info_frag["headers_range"].append(_upt_range)
                         self.temp_file_mode = "ab"
@@ -625,7 +627,7 @@ class AsyncHLSDownloader:
 
             config_data = self.get_config_data()
             for i, fragment in enumerate(self.info_dict["fragments"], start=1):
-                self._create_info_frag(i, fragment, config_data.get(i), _accept_ranges)
+                self._create_info_frag(i, fragment, config_data.get(i) or 0, _accept_ranges)
 
             if not self.frags_to_dl:
                 self.status = "init_manipulating"
@@ -910,6 +912,12 @@ class AsyncHLSDownloader:
 
         if ctx.status == "downloading":
             ctx.stream = await aiofiles.open(ctx.temp_file, ctx.temp_file_mode)
+            ctx._iter_last_index = 0
+            if ctx.hsize:
+                ctx._iter_last_index = (ctx.hsize - ctx.offset) // self._CHUNK_SIZE
+                if bool((ctx.hsize - ctx.offset) % self._CHUNK_SIZE):
+                    ctx._iter_last_index += 1
+            ctx._iter_index = 1
         return ctx.status
 
     @on_503
@@ -945,7 +953,8 @@ class AsyncHLSDownloader:
         async def _handle_iter(ctx, data=None):
             if data:
                 ctx.data += data
-                if (len(data) < self._CHUNK_SIZE) or (ctx.timer.elapsed_seconds() >= (CONF_INTERVAL_GUI / 4)):
+                # if (len(data) < self._CHUNK_SIZE) or (ctx.timer.elapsed_seconds() >= (CONF_INTERVAL_GUI / 4)) or (ctx.hsize and len(ctx.data) == ctx.hsize):
+                if (ctx.timer.elapsed_seconds() >= (CONF_INTERVAL_GUI / 4)) or ctx._iter_index == ctx._iter_last_index:
                     ctx.num_bytes_downloaded = await _update_counters(
                         ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
                     )
@@ -955,15 +964,19 @@ class AsyncHLSDownloader:
                             ctx.timer.reset()
                         if "event" in _check:
                             raise AsyncHLSDLErrorFatal(f"{_premsg} {_check}")
-                if len(data) < self._CHUNK_SIZE or len(ctx.data) >= 128 * self._CHUNK_SIZE:
+                # if len(data) < self._CHUNK_SIZE or len(ctx.data) >= 128 * self._CHUNK_SIZE or (ctx.hsize and len(ctx.data) == ctx.hsize):
+                if (len(ctx.data) >= 128 * self._CHUNK_SIZE) or  ctx._iter_index == ctx._iter_last_index:
                     await ctx.add_task(ctx.data)
                     ctx.data = b""
                     await asyncio.sleep(0)
+                ctx._iter_index += 1
             else:
                 if ctx.data:
                     _msg = f"{_premsg}[**********handle_iter][{ctx.info_frag['frag']}]"
-            
-                    logger.info(f"{_msg} reset[{self._vid_dl.reset_event.is_set()}] {ctx.status} {len(ctx.data)}")
+                    logger.warning(f"{_msg} reset[{self._vid_dl.reset_event.is_set()}] {ctx.status} {len(ctx.data)}")
+                    ctx.num_bytes_downloaded = await _update_counters(
+                        ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
+                    )
                     await ctx.add_task(ctx.data)
                     ctx.data = b""
                     await asyncio.sleep(0)
