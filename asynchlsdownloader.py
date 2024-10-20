@@ -562,7 +562,7 @@ class AsyncHLSDownloader:
             "size": -1,
             "hsize": hsize,
             "error": [],
-            "_server_accept_ranges": server_accept_ranges == "bytes",
+            "_server_accept_ranges": server_accept_ranges,
         }
         ctx = FragCtx(_info_frag)
         _upt = ctx._check_is_dl()
@@ -602,35 +602,35 @@ class AsyncHLSDownloader:
 
 
     def init(self):
-        self.n_reset = 0
         self.frags_to_dl = []
         self.init_client = httpx.Client(**self.config_httpx())
 
-        _mode_init = not bool(self.info_frag)
+        # _mode_init = not bool(self.info_frag)
 
         try:
             if not self.m3u8_doc:
                 self.m3u8_doc = self.get_m3u8_doc()
             self.info_dict["fragments"] = self.get_info_fragments()
-            if _mode_init:
-                self.n_total_fragments = len(self.info_dict["fragments"])
-                self.format_frags = f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
-                if not self.totalduration:
-                    self.totalduration = self.calculate_duration()
-                self._avg_size = False
-                if not self.filesize:
-                    self._avg_size = True
-                    self.filesize = self.calculate_filesize()
+        # if _mode_init:
+            self.n_total_fragments = len(self.info_dict["fragments"])
+            self.format_frags = f"{(int(math.log(self.n_total_fragments, 10)) + 1)}d"
+            if not self.totalduration:
+                self.totalduration = self.calculate_duration()
+            self._avg_size = False
+            if not self.filesize:
+                self._avg_size = True
+                self.filesize = self.calculate_filesize()
 
-                if _frag := self.info_dict["fragments"][2]:
-                    self.data_server = self.check_server(_frag.url, headers=_frag.headers_range)
+            if _frag := self.info_dict["fragments"][-1]:
+                _accept_ranges = self.check_server(_frag.url, headers=_frag.headers_range)
 
             config_data = self.get_config_data()
             for i, fragment in enumerate(self.info_dict["fragments"], start=1):
-                if _mode_init:
-                    self._create_info_frag(i, fragment, config_data.get(i), self.data_server[0])
-                else:
-                    self._update_info_frag(i, fragment)
+                self._create_info_frag(i, fragment, config_data.get(i), _accept_ranges)
+                # if _mode_init:
+                #     self._create_info_frag(i, fragment, config_data.get(i), self.data_server[0])
+                # else:
+                #     self._update_info_frag(i, fragment)
 
             if not self.frags_to_dl:
                 self.status = "init_manipulating"
@@ -912,8 +912,8 @@ class AsyncHLSDownloader:
                 resp.headers.get("accept-ranges") or resp.headers.get("content-range"),
                 mytry_call(lambda: int(resp.headers["content-length"])),
             )
-            logger.info(f"{_msg} {_data_server}")
-            return _data_server
+            logger.debug(f"{_msg} {_data_server} {bool(_data_server[0])}")
+            return bool(_data_server[0])
 
     @on_503
     @on_network_exception
@@ -980,7 +980,7 @@ class AsyncHLSDownloader:
                     async for chunk in resp.aiter_bytes(chunk_size=self._CHUNK_SIZE):
                         await _handle_iter(_ctx, data=chunk)
 
-                await _handle_iter(_ctx)
+                    await _handle_iter(_ctx)
 
                 return await self._finalise_frag(_ctx, _premsg)
 
