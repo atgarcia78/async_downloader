@@ -952,7 +952,6 @@ class AsyncHLSDownloader:
         async def _handle_iter(ctx, data=None):
             if data:
                 ctx.data += data
-                # if (len(data) < self._CHUNK_SIZE) or (ctx.timer.elapsed_seconds() >= (CONF_INTERVAL_GUI / 4)) or (ctx.hsize and len(ctx.data) == ctx.hsize):
                 if (ctx.timer.elapsed_seconds() >= (CONF_INTERVAL_GUI / 4)) or ctx._iter_index == ctx._iter_last_index:
                     ctx.num_bytes_downloaded = await _update_counters(
                         ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
@@ -963,23 +962,20 @@ class AsyncHLSDownloader:
                             ctx.timer.reset()
                         if "event" in _check:
                             raise AsyncHLSDLErrorFatal(f"{_premsg} {_check}")
-                # if len(data) < self._CHUNK_SIZE or len(ctx.data) >= 128 * self._CHUNK_SIZE or (ctx.hsize and len(ctx.data) == ctx.hsize):
                 if (len(ctx.data) >= 128 * self._CHUNK_SIZE) or  ctx._iter_index == ctx._iter_last_index:
                     await ctx.add_task(ctx.data)
                     ctx.data = b""
                     await asyncio.sleep(0)
                 ctx._iter_index += 1
-            else:
-                if ctx.data:
-                    _msg = f"{_premsg}[**********handle_iter][{ctx.info_frag['frag']}]"
-                    logger.warning(f"{_msg} reset[{self._vid_dl.reset_event.is_set()}] {ctx.status} {len(ctx.data)}")
-                    ctx.num_bytes_downloaded = await _update_counters(
-                        ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
-                    )
-                    await ctx.add_task(ctx.data)
-                    ctx.data = b""
-                    await asyncio.sleep(0)
-
+            elif ctx.data:
+                _msg = f"{_premsg}[**********handle_iter][{ctx.info_frag['frag']}]"
+                logger.warning(f"{_msg} reset[{self._vid_dl.reset_event.is_set()}] {ctx.status} {len(ctx.data)}")
+                ctx.num_bytes_downloaded = await _update_counters(
+                    ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
+                )
+                await ctx.add_task(ctx.data)
+                ctx.data = b""
+                await asyncio.sleep(0)
 
 
         def _log_response(resp):
