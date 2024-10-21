@@ -1,9 +1,7 @@
 import asyncio
 import logging
 import os
-import shlex
 import shutil
-import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from datetime import datetime
@@ -25,7 +23,7 @@ from utils import (
     InfoDL,
     MySyncAsyncEvent,
     Optional,
-    Tracker,
+    SubProcHandler,
     Union,
     async_suppress,
     get_drm_xml,
@@ -40,7 +38,7 @@ from utils import (
     sync_to_async,
     translate_srt,
     traverse_obj,
-    try_get,
+    try_get
 )
 
 logger = logging.getLogger("videodl")
@@ -278,10 +276,6 @@ class VideoDownloader:
             await self.reset(cause="hard", nworkers=n, wait=False)
 
     async def reset_from_console(self):
-        """
-        when reset from console, if in pause the reset is declyned
-        to ease managing the pauses of dls
-        """
         return await self.reset(cause="hard", wait=False)
 
     async def reset(self, cause: Optional[str] = None,  nworkers: Optional[int] = None, wait=True):
@@ -499,79 +493,69 @@ class VideoDownloader:
     async def run_dl(self):
         aget_subts_files = self.sync_to_async(self._get_subts_files)
 
+        async def _dl_subt():
+            if all([
+                    self.args.subt, self.info_dict.get("requested_subtitles"),
+                    "YTDL-" not in self._types]
+                ):
+                    await self._handle_await(
+                        "run_dl", [self.add_task(aget_subts_files(), name="get_subts")])
+        
+        def _get_dl_status():
+            return [dl.status for dl in self.info_dl['downloaders']]
+
+        def _get_dl_err_msg():
+            return "\n".join([
+                _err for dl in self.info_dl["downloaders"]
+                if (_err := dl.error_message)])
+
+        _premsg = f"{self.premsg}[run_dl]"
+
         try:
-            if (
-                self.args.subt
-                and self.info_dict.get("requested_subtitles")
-                and "YTDL-" not in self._types
-            ):
-                await self._handle_await(
-                    "run_dl", [self.add_task(aget_subts_files(), name="get_subts")]
-                )
+            self.info_dl["status"] = "downloading"
+            logger.debug(f"{_premsg} status{_get_dl_status()}")
 
-            if self.info_dl["status"] == "init":
-                self.info_dl["status"] = "downloading"
-                logger.debug(
-                    f"{self.premsg}[run_dl] status"
-                    + f"{[dl.status for dl in self.info_dl['downloaders']]}"
-                )
+            await _dl_subt()
 
-                for i, dl in enumerate(self.info_dl["downloaders"]):
-                    _tasks = []
-                    if dl.status not in ("init_manipulating", "done"):
-                        _tasks.append(
-                            self.add_task(dl.fetch_async(), name=f"fetch_async_{i}")
-                        )
-                        await self._handle_await("run_dl", _tasks)
+            for i, dl in enumerate(self.info_dl["downloaders"]):
+                _tasks = []
+                if dl.status not in ("init_manipulating", "done"):
+                    _tasks.append(self.add_task(dl.fetch_async(), name=f"fetch_async_{i}"))
+                    await self._handle_await("run_dl", _tasks)
 
-                if self.stop_event.is_set():
-                    logger.debug(
-                        f"{self.premsg}[run_dl] end run with stop - {self.info_dl['status']}"
-                    )
-                    self.info_dl["status"] = "stop"
-
+            if self.stop_event.is_set():
+                logger.debug(f"{_premsg} end run with stop - {self.info_dl['status']}")
+                self.info_dl["status"] = "stop"
+            else:
+                res = _get_dl_status()
+                logger.debug(f"{_premsg} salida tasks {res}")
+                if "error" in res:
+                    self.info_dl["status"] = "error"
+                    self.info_dl["error_message"] = _get_dl_err_msg()
                 else:
-                    res = [dl.status for dl in self.info_dl["downloaders"]]
-
-                    logger.debug(f"{self.premsg}[run_dl] salida tasks {res}")
-
-                    if "error" in res:
-                        self.info_dl["status"] = "error"
-                        self.info_dl["error_message"] = "\n".join(
-                            [
-                                dl.error_message
-                                for dl in self.info_dl["downloaders"]
-                                if hasattr(dl, "error_message")
-                            ]
-                        )
-
-                    else:
-                        self.info_dl["status"] = "init_manipulating"
-
+                    self.info_dl["status"] = "init_manipulating"
         except Exception as e:
-            logger.exception(f"{self.premsg}[run_dl] error when DL {repr(e)}")
+            logger.exception(f"{_premsg} error when DL {repr(e)}")
             self.info_dl["status"] = "error"
 
     def _get_drm_xml(self) -> str:
         if not (_licurl := traverse_obj(self.info_dict, ("_drm", "licurl"))):
             raise AsyncDLError(f"{self.premsg}: error DRM info")
-        if not (
-            _pssh := try_get(
-                traverse_obj(self.info_dict, ("_drm", "pssh")),
-                lambda x: sorted(x, key=len)[0] if x else None,
-            )
+        if not (_pssh := try_get(
+            traverse_obj(self.info_dict, ("_drm", "pssh")),
+            lambda x: sorted(x, key=len)[0])
         ):
             _video_fmt_id = try_get(
-                self.info_dict.get("format_id"), lambda x: x.split("+")[0]
-            )
+                self.info_dict.get("format_id"),
+                lambda x: x.split("+")[0])
             _fmt = get_format_id(self.info_dict, _video_fmt_id)
             if _murl := _fmt.get("manifest_url"):
                 kwargs = {"headers": _fmt.get("http_headers") or {}}
                 if _cookies_str := _fmt.get("cookies"):
                     kwargs |= {"cookies": _cookies_str}
                 _pssh = try_get(
-                    get_pssh_from_manifest(manifest_url=_murl, **kwargs), lambda x: x[0]
-                )
+                    get_pssh_from_manifest(manifest_url=_murl, **kwargs),
+                    lambda x: x[0])
 
         logger.debug(f"{self.premsg} licurl[{_licurl}] - murl[{_murl}] pssh[{_pssh}]")
         if not _pssh:
@@ -581,31 +565,18 @@ class VideoDownloader:
             ie = self.info_dl["ytdl"].get_extractor("OnlyFansPost")
             _func_validate = ie.validate_drm_lic
         _path_drm_file = str(Path(self.info_dl["download_path"], "drm.xml"))
-        _keys = get_drm_xml(
-            _licurl, _path_drm_file, pssh=_pssh, func_validate=_func_validate
-        )
+        _keys = get_drm_xml(_licurl, _path_drm_file, pssh=_pssh, func_validate=_func_validate)
         logger.debug(f"{self.premsg}: drm keys[{_keys}] drm file[{_path_drm_file}]")
         return _path_drm_file
 
     async def async_run_proc_tracker(self, cmd, queue, pattern):
-        _tracker = Tracker(cmd, stream='stderr', upt=queue, pattern=pattern)
-        return await _tracker.async_track_progress()
+        _proc = await SubProcHandler(cmd, stream='stderr', upt=queue, pattern=pattern).async_run()
+        return _proc.returncode
 
-    def run_proc(self, cmd):
-        _cmd = None
-        try:
-            _cmd = shlex.split(cmd)
-            return subprocess.run(
-                _cmd,
-                encoding="utf-8",
-                capture_output=True,
-                timeout=120,
-            )
-        except Exception as e:
-            return subprocess.CompletedProcess(_cmd, 1, stdout=None, stderr=repr(e))
+    async def async_run_proc(self, cmd):
+        return await SubProcHandler(cmd).async_run()
 
     async def run_manip(self):
-        arunproc = self.sync_to_async(self.run_proc)
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
         autime = self.sync_to_async(os.utime)
         aget_metadata_video = self.sync_to_async(get_metadata_video)
@@ -657,7 +628,7 @@ class VideoDownloader:
                     return f"MP4Box -flat -add {_part_cmd} {self.temp_filename} -out {embed_filename}"
 
                 logger.info(f"{self.premsg}: starting embed subt")
-                proc = await arunproc(cmd := _make_embed_subt_cmd())
+                proc = await self.async_run_proc(cmd := _make_embed_subt_cmd())
                 logger.debug(f"{self.premsg}: subts embeded\n[cmd] {cmd}\n[rc] {proc.returncode}" )
 
                 if (
@@ -690,7 +661,7 @@ class VideoDownloader:
 
                 cmd = f"MP4Box -flat -itags {_metadata} {self.temp_filename} -out {meta_filename}"
                 logger.info(f"{self.premsg}: starting embed metadata")
-                proc = await arunproc(cmd)
+                proc = await self.async_run_proc(cmd)
                 logger.debug(
                     f"{self.premsg} embed metadata\n[cmd] {cmd}\n[rc] {proc.returncode}"
                 )
@@ -778,7 +749,7 @@ class VideoDownloader:
                         + f' -c copy -map 0 -dn -f mp4 -bsf:a aac_adtstoasc -movflags +faststart file:"{self.temp_filename}"'
                     )
                     self.info_dl["sub_status"] = "Converting ts to mp4"
-                    proc = await arunproc(cmd)
+                    proc = await self.async_run_proc(cmd)
                     logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
                     rc = proc.returncode
@@ -803,7 +774,7 @@ class VideoDownloader:
                         + f' -c copy -c:s mov_text -map 0:v -map 0:a {_subtl_cmd}-movflags +faststart file:"{self.temp_filename}"'
                     )
                     self.info_dl["sub_status"] = "Converting mkv to mp4"
-                    proc = await arunproc(cmd)
+                    proc = await self.async_run_proc(cmd)
                     logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 
                     rc = proc.returncode
@@ -827,7 +798,7 @@ class VideoDownloader:
                     + f'-map 1:a:0 -bsf:a:0 aac_adtstoasc -movflags +faststart file:"{self.temp_filename}"'
                 )
                 self.info_dl["sub_status"] = "Merging streams"
-                proc = await arunproc(cmd)
+                proc = await self.async_run_proc(cmd)
 
                 logger.debug(f"{self.premsg}: {cmd}\n[rc] {proc.returncode}")
 

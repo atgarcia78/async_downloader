@@ -203,7 +203,6 @@ class FragCtx:
             await asyncio.sleep(0)
             await self._add_task()
 
-
 class AsyncHLSDLErrorFatal(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
@@ -212,22 +211,18 @@ class AsyncHLSDLErrorFatal(Exception):
     def __str__(self):
         return f"{self.__class__.__name__}{self.args[0]}"
 
-
 class AsyncHLSDLError(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
         self.exc_info = exc_info
-
 
 class AsyncHLSDLReset(Exception):
     def __init__(self, msg, exc_info=None):
         super().__init__(msg)
         self.exc_info = exc_info
 
-
 def my_jitter(value: float):
     return int(random.uniform(value * 0.75, value * 1.25))
-
 
 retry = my_dec_on_exception(AsyncHLSDLErrorFatal, max_tries=5, raise_on_giveup=True, interval=5)
 on_exception = my_dec_on_exception((AsyncHLSDLError, ReExtractInfo), max_tries=5, raise_on_giveup=True, interval=10)
@@ -236,7 +231,6 @@ on_503 = my_dec_on_exception(StatusError503, max_time=360, raise_on_giveup=True,
 CommonHTTPErrors = (httpx.NetworkError, httpx.TimeoutException, httpx.ProtocolError)
 
 on_network_exception = my_dec_on_exception(CommonHTTPErrors, max_tries=5, raise_on_giveup=True, jitter=my_jitter, interval=10)
-
 
 class AsyncHLSDownloader:
     _CHUNK_SIZE = 8196  # 16384  # 65536  # 10485760  # 16384  # 1024  # 102400 #10485760
@@ -603,7 +597,6 @@ class AsyncHLSDownloader:
                 ctx.info_frag["status"] = ctx.status = "downloading"
             self.frags_to_dl.append(i)
 
-
     def init(self):
         self.frags_to_dl = []
         self.init_client = httpx.Client(**self.config_httpx())
@@ -736,9 +729,6 @@ class AsyncHLSDownloader:
 
             return info_reset
 
-            # self.prep_reset(info_reset)
-            # return {"res": "ok"}
-
         except StatusStop as e:
             logger.debug(f"{_pre()} check stop {repr(e)}")
             raise
@@ -845,7 +835,6 @@ class AsyncHLSDownloader:
             async with aiofiles.open(ctx.file, "wb") as fileobj:
                 await fileobj.write(_data)
             ctx.status = ctx.info_frag["status"] = "ok"
-            # ctx.info_frag["downloaded"] = True
             async with self._asynclock:
                 self.n_dl_fragments += 1
             if not self.args.keep_videos:
@@ -859,13 +848,10 @@ class AsyncHLSDownloader:
             raise AsyncHLSDLErrorFatal(_err_msg)
 
 
-
     async def _finalise_frag(self, ctx, _premsg):
 
         try:
             _msg = f"{_premsg}[finalise_frag]"
-            
-            logger.debug(f"{_msg} reset[{self._vid_dl.reset_event.is_set()}] {ctx.status} {ctx.hsize} {ctx.info_frag['hsize']}")
             await ctx._close()
 
             _nsize = -1
@@ -977,12 +963,10 @@ class AsyncHLSDownloader:
                 ctx.data = b""
                 await asyncio.sleep(0)
 
-
         def _log_response(resp):
             logger.debug(
                 f"{_premsg}: {resp.request} {resp} content-encoding [{resp.headers.get('content-encoding')}] "
-                + f"hsize: [{resp.headers.get('content-length')}]"
-            )
+                + f"hsize: [{resp.headers.get('content-length')}]")
 
         async for retry in MyRetryManager(self._MAX_RETRIES, limiter=self._limit):
             _ctx = FragCtx(self.info_frag[index - 1])

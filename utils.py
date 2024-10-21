@@ -5215,21 +5215,25 @@ def get_ytdl(_args):
     return init_ytdl(_args)
 
 
-class Tracker:
+class SubProcHandler:
     _sentinel = str(object())
 
-    def __init__(self, cmd, stream='stdout', upt=None, pattern=None, shell=True, env=None):
+    def __init__(self, cmd, stream=None, upt=None, pattern=None, shell=True, env=None):
         self.logger = logging.getLogger('proc-tracker')
-        self._upt = upt
-        self._std_queue = LifoQueue()
-        self._std_buffer = ""
-        self.progress_pattern = re.compile(pattern) if pattern else None
         self.cmd = cmd if shell else shlex.split(cmd)
-        self.shell = shell
         self.stream = stream
+        self.upt = upt
+        self.progress_pattern = re.compile(pattern) if pattern else None
+        self.shell = shell
         self.env = env if env else dict(os.environ)
         self.env['COLUMNS'] = str(shutil.get_terminal_size().columns)
         self.env['LINES'] = '50'
+        self._std_queue = LifoQueue()
+        self._std_buffer = ""
+
+    def _upt(self, item):
+        if self.upt:
+            self.upt["progress"] = item
 
     @run_operation_in_executor('enqueue_lines')
     def _enqueue_lines(self, std, queue, **kwargs):        
@@ -5242,22 +5246,21 @@ class Tracker:
                     break
                 if line := std.readline():
                     if isinstance(line, bytes):
-                        line = line.decode()
+                        line = line.decode(encoding='utf-8', errors='replace')
                     if self.progress_pattern and (_info := re.match(self.progress_pattern, line)):
                         queue.put_nowait(_info)
             except Exception as e:
                 self.logger.error(f'[enqueue_lines] {repr(e)}')
-        queue.put(Tracker._sentinel)
+        queue.put(SubProcHandler._sentinel)
 
     async def _async_enqueue_lines(self, std, queue):
         blocks = []
         _exit = False
         chunk = 1024
 
-
         async def _process_line(_data):
             line = b''.join(blocks) + _data
-            line = line.decode('utf-8', 'replace').strip()
+            line = line.decode(encoding='utf-8', errors='replace').strip()
             blocks.clear()
             return line
 
@@ -5287,17 +5290,14 @@ class Tracker:
             finally:
                 if _exit:
                     break
-        queue.put_nowait(Tracker._sentinel)
+        queue.put_nowait(SubProcHandler._sentinel)
 
     def _handle_lines(self):
         try:
-            _parse_output = self._std_queue.get_nowait()
-            if _parse_output != Tracker._sentinel:
-                if self._upt:
-                    self._upt["progress"] = float(_parse_output.group("progress"))
+            if (_parse_output := self._std_queue.get_nowait()) != SubProcHandler._sentinel:
+                self._upt(float(_parse_output.group("progress")))
             else:
-                if self._upt:
-                    self._upt["progress"] = 100.0
+                self._upt(100.0)
                 return True
         except Empty:
             pass
@@ -5309,36 +5309,42 @@ class Tracker:
             if self._handle_lines():
                 break
             time.sleep(CONF_INTERVAL_GUI / 4)
-        self.proc.wait()
 
-    def track_progress(self):
+    def run(self):
         self.proc = subprocess.Popen(
             self.cmd if self.shell else shlex.split(self.cmd), env=self.env, shell=self.shell,
             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        _stream = self.proc.stdout if self.stream == 'stdout' else self.proc.stderr
-        
-        _stop_list, out_listener = self._enqueue_lines(_stream, self._std_queue)
-
-        self._wait_for_proc()
-        return self.proc.returncode
+        if self.stream:
+            if _stream := getattr(self.proc, self.stream, default=None):
+                self._enqueue_lines(_stream, self._std_queue)
+                self._wait_for_proc()
+        self.proc.wait()
+        return self.proc
 
     async def _async_wait_for_proc(self):
         while self.proc.returncode is None:
             if self._handle_lines():
                 break
             await asyncio.sleep(CONF_INTERVAL_GUI / 4)
-        await self.proc.wait()
 
-    async def async_track_progress(self):
+    async def async_run(self):
         self.proc = await asyncio.create_subprocess_shell(
             self.cmd, env=self.env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
-        _stream = self.proc.stdout if self.stream == 'stdout' else self.proc.stderr
-        self.tasks = [
-            asyncio.create_task(self._async_enqueue_lines(_stream, self._std_queue)),
-            asyncio.create_task(self._async_wait_for_proc())
-        ]
+        self.tasks = []
+        if self.stream:
+            if _stream := getattr(self.proc, self.stream, default=None):
+                self.tasks.extend([
+                    asyncio.create_task(self._async_wait_for_proc()),
+                    asyncio.create_task(self._async_enqueue_lines(_stream, self._std_queue))])
+        self.tasks.append(asyncio.create_task(self.proc.wait()))
         await asyncio.wait(self.tasks)
-        return self.proc.returncode
+        if not self.stream:
+            _streams = list(map(
+                lambda x: x.decode(encoding='utf-8', errors='replace') if isinstance(x, bytes) else x,
+                list(await self.proc.communicate())))
+            self.proc.stdout = _streams[0]
+            self.proc.stderr = _streams[1]
+        return self.proc
 
 
 

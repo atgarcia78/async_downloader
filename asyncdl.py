@@ -143,9 +143,7 @@ class AsyncDL:
         except Exception as e:
             logger.error(f"[print_pending_tasks]: error: {repr(e)}")
 
-    def add_task(
-        self, coro: Union[Coroutine, Task], *, name: Optional[str] = None
-    ) -> Task:
+    def add_task(self, coro: Union[Coroutine, Task], *, name: Optional[str] = None) -> Task:
         if not isinstance(coro, Task):
             _task = asyncio.create_task(coro, name=name)
         else:
@@ -873,9 +871,7 @@ class AsyncDL:
                     url_key, dl = list(self.task_run_manip[_task].values())
                     if e := _task.exception():
                         _msg_error = f"Error with video manipulation - {repr(e)}"
-                        logger.error(
-                            f"[run_callback] [{dl.info_dict['title']}]: {_msg_error}"
-                        )
+                        logger.error(f"[run_callback] [{dl.info_dict['title']}]: {_msg_error}")
                         self.info_videos[url_key]["error"].append(_msg_error)
                     if dl.info_dl["status"] == "done":
                         self.info_videos[url_key].update({"status": "done"})
