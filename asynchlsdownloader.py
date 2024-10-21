@@ -269,7 +269,6 @@ class AsyncHLSDownloader:
 
         self.premsg = f'[{self.info_dict["id"]}]' + f'[{self.info_dict["title"]}]' + f'[{self.info_dict["format_id"]}]'
 
-        self.count_msg = ""
         self.key_cache = {}
         self.n_reset = 0
         self.down_size = 0
@@ -1113,7 +1112,7 @@ class AsyncHLSDownloader:
         n_frags_dl = 0
 
         def _setup():
-            logger.debug(f"{self.premsg} TASKS INIT")
+            logger.debug(f"{_premsg} TASKS INIT")
             empty_queue(self.frags_queue)
             for frag in self.frags_to_dl:
                 self.frags_queue.put_nowait(frag)
@@ -1125,7 +1124,6 @@ class AsyncHLSDownloader:
             self.progress_timer.reset()
             self.smooth_eta.reset()
             self.status = "downloading"
-            self.count_msg = ""
 
         while True:
             try:
@@ -1195,8 +1193,9 @@ class AsyncHLSDownloader:
                 self._vid_dl.end_tasks.set()
                 await asyncio.sleep(0)
                 await self.clean_when_error()
-                if not isinstance(e, AsyncHLSDLErrorFatal):
-                    continue
+                # if not isinstance(e, AsyncHLSDLErrorFatal):
+                #     continue
+                break
             finally:
                 await self.dump_config_file()
                 await asyncio.wait([upt_task])
@@ -1315,5 +1314,5 @@ class AsyncHLSDownloader:
 
         return (
             f"WK[{self.count:2d}/{self.n_workers:2d}] FR{_prefr} "
-            + f"PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]\n{self.count_msg}"
+            + f"PR[{_progress_str}] DL[{_speed_meter_str}] ETA[{_eta_smooth_str}]\n"
         )
