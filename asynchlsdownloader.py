@@ -847,7 +847,6 @@ class AsyncHLSDownloader:
             logger.exception(_err_msg)
             raise AsyncHLSDLErrorFatal(_err_msg)
 
-
     async def _finalise_frag(self, ctx, _premsg):
 
         try:
@@ -876,7 +875,7 @@ class AsyncHLSDownloader:
         except Exception as e:
             logger.exception(f"{_msg} error {repr(e)}")
 
-    async def _initial_checkings_frag_ok(self, ctx, response, _premsg):
+    async def _setup_frag(self, ctx, response, _premsg):
         ctx.resp = response
         _msg = f"{_premsg} resp code:{str(ctx.resp.status_code)}"
         match ctx.resp.status_code:
@@ -940,25 +939,20 @@ class AsyncHLSDownloader:
                 ctx.data += data
                 if (ctx.timer.elapsed_seconds() >= (CONF_INTERVAL_GUI / 4)) or ctx._iter_index == ctx._iter_last_index:
                     ctx.num_bytes_downloaded = await _update_counters(
-                        ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
-                    )
-                if ctx.timer.has_elapsed(CONF_INTERVAL_GUI / 2):
-                    if _check := await self.event_handle(_premsg):
-                        if "pause" in _check:
-                            ctx.timer.reset()
-                        if "event" in _check:
-                            raise AsyncHLSDLErrorFatal(f"{_premsg} {_check}")
-                if (len(ctx.data) >= 128 * self._CHUNK_SIZE) or  ctx._iter_index == ctx._iter_last_index:
+                        ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded)
+                if ctx.timer.has_elapsed(CONF_INTERVAL_GUI / 2) and (_check := await self.event_handle(_premsg)):
+                    if "pause" in _check:
+                        ctx.timer.reset()
+                    if "event" in _check:
+                        raise AsyncHLSDLErrorFatal(f"{_premsg} {_check}")
+                if (len(ctx.data) >= 128 * self._CHUNK_SIZE) or ctx._iter_index == ctx._iter_last_index:
                     await ctx.add_task(ctx.data)
                     ctx.data = b""
                     await asyncio.sleep(0)
                 ctx._iter_index += 1
             elif ctx.data:
-                _msg = f"{_premsg}[**********handle_iter][{ctx.info_frag['frag']}]"
-                logger.warning(f"{_msg} reset[{self._vid_dl.reset_event.is_set()}] {ctx.status} {len(ctx.data)}")
                 ctx.num_bytes_downloaded = await _update_counters(
-                    ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded
-                )
+                    ctx.resp.num_bytes_downloaded, ctx.num_bytes_downloaded)
                 await ctx.add_task(ctx.data)
                 ctx.data = b""
                 await asyncio.sleep(0)
@@ -980,11 +974,11 @@ class AsyncHLSDownloader:
                 async with self.clients[nco].stream("GET", _ctx.url, headers=_ctx.headers_range[-1]) as resp:
                     _log_response(resp)
 
-                    _check = await self._initial_checkings_frag_ok(_ctx, resp, _premsg)
-                    if _check == "ok":
-                        return
-                    elif _check == "is_dl":
-                        return await self._finalise_frag(_ctx, _premsg)
+                    match(await self._setup_frag(_ctx, resp, _premsg)):
+                        case "ok":
+                            return
+                        case "is_dl":
+                            return await self._finalise_frag(_ctx, _premsg)
 
                     async for chunk in resp.aiter_bytes(chunk_size=self._CHUNK_SIZE):
                         await _handle_iter(_ctx, data=chunk)
