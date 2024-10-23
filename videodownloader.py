@@ -574,7 +574,7 @@ class VideoDownloader:
         return _proc.returncode
 
     async def async_run_proc(self, cmd):
-        return await SubProcHandler(cmd).async_run()
+        return await SubProcHandler(cmd, stream='stderr').async_run()
 
     async def run_manip(self):
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
@@ -659,7 +659,7 @@ class VideoDownloader:
                 if _meta := self.info_dict.get("meta_comment"):
                     _metadata += f":comment={_meta}"
 
-                cmd = f"MP4Box -flat -itags {_metadata} {self.temp_filename} -out {meta_filename}"
+                cmd = f'MP4Box -flat -itags "{_metadata}" {self.temp_filename} -out {meta_filename}'
                 logger.info(f"{self.premsg}: starting embed metadata")
                 proc = await self.async_run_proc(cmd)
                 logger.debug(

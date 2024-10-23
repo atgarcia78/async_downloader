@@ -5247,6 +5247,7 @@ class SubProcHandler:
                 if line := std.readline():
                     if isinstance(line, bytes):
                         line = line.decode(encoding='utf-8', errors='replace')
+                    # print(line)
                     if self.progress_pattern and (_info := re.match(self.progress_pattern, line)):
                         queue.put_nowait(_info)
             except Exception as e:
@@ -5261,6 +5262,7 @@ class SubProcHandler:
         async def _process_line(_data):
             line = b''.join(blocks) + _data
             line = line.decode(encoding='utf-8', errors='replace').strip()
+            # print(line, flush=True, end='')
             blocks.clear()
             return line
 
@@ -5283,6 +5285,7 @@ class SubProcHandler:
                     _line = await _process_line(b'')
                 else:
                     _line = try_get(await _process_data(data), lambda x: x[-1])
+                
                 if self.progress_pattern and (_info := re.match(self.progress_pattern, _line)):
                     queue.put_nowait(_info)
             except Exception as e:
@@ -5306,8 +5309,9 @@ class SubProcHandler:
 
     def _wait_for_proc(self):
         while self.proc.poll() is None:
-            if self._handle_lines():
-                break
+            if self.progress_pattern:
+                if self._handle_lines():
+                    break
             time.sleep(CONF_INTERVAL_GUI / 4)
 
     def run(self):
@@ -5315,7 +5319,7 @@ class SubProcHandler:
             self.cmd if self.shell else shlex.split(self.cmd), env=self.env, shell=self.shell,
             text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if self.stream:
-            if _stream := getattr(self.proc, self.stream, default=None):
+            if _stream := getattr(self.proc, self.stream, None):
                 self._enqueue_lines(_stream, self._std_queue)
                 self._wait_for_proc()
         self.proc.wait()
@@ -5323,8 +5327,9 @@ class SubProcHandler:
 
     async def _async_wait_for_proc(self):
         while self.proc.returncode is None:
-            if self._handle_lines():
-                break
+            if self.progress_pattern:
+                if self._handle_lines():
+                    break
             await asyncio.sleep(CONF_INTERVAL_GUI / 4)
 
     async def async_run(self):
@@ -5332,7 +5337,7 @@ class SubProcHandler:
             self.cmd, env=self.env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         self.tasks = []
         if self.stream:
-            if _stream := getattr(self.proc, self.stream, default=None):
+            if _stream := getattr(self.proc, self.stream, None):
                 self.tasks.extend([
                     asyncio.create_task(self._async_wait_for_proc()),
                     asyncio.create_task(self._async_enqueue_lines(_stream, self._std_queue))])

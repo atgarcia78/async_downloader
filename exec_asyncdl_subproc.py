@@ -90,14 +90,14 @@ class RunAsyncDLProc:
             wait([my_fut])
 
     async def async_listener_output(self, chunk=1024):
-        stream = self.proc.stdout
+        stream = self.proc.stderr
         blocks = []
         _exit = False
 
         async def _process_line(_data):
             line = b''.join(blocks) + _data
             line = line.decode('utf-8', 'replace')
-            self.streams['stdout'].append(line)
+            self.streams['stderr'].append(line)
             print(line, flush=True, end='')
             blocks.clear()
             await asyncio.sleep(0)
@@ -118,7 +118,7 @@ class RunAsyncDLProc:
                 if self.proc.returncode is not None:
                     chunk = -1
                     _exit = True
-                if not (data := await stream.readexactly(chunk)):
+                if not (data := await stream.read(chunk)):
                     await _process_line(b'')
                 else:
                     await _process_data(data)                
