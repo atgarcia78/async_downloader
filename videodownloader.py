@@ -17,7 +17,7 @@ from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
 from asyncyoutubedownloader import AsyncYoutubeDownloader
-from exec_asyncdl_subproc import RunAsyncDLProc
+from exec_asyncdl_subproc import SubProcHandler
 from utils import (
     AsyncDLError,
     Coroutine,
@@ -38,7 +38,7 @@ from utils import (
     sync_to_async,
     translate_srt,
     traverse_obj,
-    try_get
+    try_get,
 )
 
 logger = logging.getLogger("videodl")
@@ -570,11 +570,11 @@ class VideoDownloader:
         return _path_drm_file
 
     async def async_run_proc_tracker(self, cmd, std, upt_dict, pattern):
-        _proc = await RunAsyncDLProc(cmd, tracker=(std, upt_dict, pattern)).arun(to_screen=False)
+        _proc = await SubProcHandler(cmd, tracker=(std, upt_dict, pattern)).arun(to_screen=False)
         return _proc.returncode
 
     async def async_run_proc(self, cmd):
-        return await RunAsyncDLProc(cmd).arun(to_screen=False)
+        return await SubProcHandler(cmd).arun(to_screen=False)
 
     async def run_manip(self):
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))

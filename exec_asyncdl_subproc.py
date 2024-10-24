@@ -60,7 +60,7 @@ class TrackingData:
 
 
 
-class RunAsyncDLProc:
+class SubProcHandler:
 
     def __init__(self, cmd: str, shell=True, **kwargs):
         self.cmd = cmd
