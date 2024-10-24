@@ -17,13 +17,13 @@ from asyncaria2cdownloader import AsyncARIA2CDownloader
 from asynchlsdownloader import AsyncHLSDownloader
 from asynchttpdownloader import AsyncHTTPDownloader
 from asyncyoutubedownloader import AsyncYoutubeDownloader
+from exec_asyncdl_subproc import RunAsyncDLProc
 from utils import (
     AsyncDLError,
     Coroutine,
     InfoDL,
     MySyncAsyncEvent,
     Optional,
-    SubProcHandler,
     Union,
     async_suppress,
     get_drm_xml,
@@ -569,12 +569,12 @@ class VideoDownloader:
         logger.debug(f"{self.premsg}: drm keys[{_keys}] drm file[{_path_drm_file}]")
         return _path_drm_file
 
-    async def async_run_proc_tracker(self, cmd, queue, pattern):
-        _proc = await SubProcHandler(cmd, stream='stderr', upt=queue, pattern=pattern).async_run()
+    async def async_run_proc_tracker(self, cmd, std, upt_dict, pattern):
+        _proc = await RunAsyncDLProc(cmd, tracker=(std, upt_dict, pattern)).arun(to_screen=False)
         return _proc.returncode
 
     async def async_run_proc(self, cmd):
-        return await SubProcHandler(cmd, stream='stderr').async_run()
+        return await RunAsyncDLProc(cmd).arun(to_screen=False)
 
     async def run_manip(self):
         armtree = self.sync_to_async(partial(shutil.rmtree, ignore_errors=True))
@@ -698,7 +698,7 @@ class VideoDownloader:
             logger.info(f"{self.premsg}: starting decryption files")
             logger.debug(f"{self.premsg}: {cmd}")
 
-            _rc = await self.async_run_proc_tracker(cmd, self._status_manip_upt, r"Decrypting:\s+(?P<progress>\S+)\s")
+            _rc = await self.async_run_proc_tracker(cmd, 'stderr', self._status_manip_upt, r"Decrypting:\s+(?P<progress>\S+)\s")
 
             logger.debug(f"{self.premsg}: decrypt ends\n[cmd] {cmd}\n[rc] {_rc}")
 
